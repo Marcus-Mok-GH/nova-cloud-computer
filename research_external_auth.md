@@ -65,6 +65,10 @@ The final root cause is cross-origin session handling. Nova is served on `nova-c
 
 Vercel deployment `dpl_HqFUKeW1LxDADVFk1iLzSMGFkJEh` for commit `77d2689` (“Exchange Neon callback verifier before JWT request”) reached **READY**. From a new signed-out canonical session, Nova accepted a fresh request and Neon delivered the corresponding message to the active test inbox. Its raw callback link is now being used for the decisive production check; the single-use token is not recorded.
 
+The later cross-origin-cookie deployment `dpl_E8d5So1qvMx9cPnzctmQNTADWYWj` for commit `a9f2429` reached **READY**. A new signed-out request to Nova’s canonical sign-in form again completed and displayed its “Check your email” confirmation. The final callback verification is in progress.
+
+The active test inbox received the new Neon Auth message for this final request. Its raw verification URL names the canonical Nova callback; the single-use secret is intentionally omitted from this record.
+
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
 ## GitHub-to-Vercel linkage

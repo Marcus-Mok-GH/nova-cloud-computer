@@ -1,10 +1,25 @@
 import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthVanillaAdapter } from "@neondatabase/neon-js/auth/vanilla/adapters";
 
-const authUrl = import.meta.env.VITE_NEON_AUTH_URL as string | undefined;
+const remoteAuthUrl = import.meta.env.VITE_NEON_AUTH_URL as string | undefined;
 export const neonAuthFetchOptions = {
   fetchOptions: { credentials: "include" as const },
 };
+
+export function resolveNeonAuthUrl(
+  authUrl: string | undefined,
+  appOrigin?: string,
+  appHostname?: string,
+) {
+  if (!authUrl || !appOrigin || !appHostname?.endsWith(".vercel.app")) return authUrl;
+  return `${appOrigin.replace(/\/$/, "")}/neon-auth`;
+}
+
+const authUrl = resolveNeonAuthUrl(
+  remoteAuthUrl,
+  typeof window === "undefined" ? undefined : window.location.origin,
+  typeof window === "undefined" ? undefined : window.location.hostname,
+);
 
 /** Neon Auth owns session cookies; Nova forwards only short-lived JWTs to its tRPC API. */
 export const neonAuth = authUrl

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { exchangeNeonVerifierAndGetJwt, extractNeonJwt, neonAuthFetchOptions } from "./neonAuth";
+import {
+  exchangeNeonVerifierAndGetJwt,
+  extractNeonJwt,
+  neonAuthFetchOptions,
+  resolveNeonAuthUrl,
+} from "./neonAuth";
 
 describe("extractNeonJwt", () => {
   it("returns the JWT from Neon Auth's token API response", () => {
@@ -25,5 +30,13 @@ describe("extractNeonJwt", () => {
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {
     expect(neonAuthFetchOptions).toEqual({ fetchOptions: { credentials: "include" } });
+  });
+
+  it("uses Nova’s same-origin auth proxy on Vercel while preserving direct local development access", () => {
+    const neonUrl = "https://example.neonauth.example.com/neondb/auth";
+    expect(resolveNeonAuthUrl(neonUrl, "https://nova-cloud-computer.vercel.app", "nova-cloud-computer.vercel.app")).toBe(
+      "https://nova-cloud-computer.vercel.app/neon-auth",
+    );
+    expect(resolveNeonAuthUrl(neonUrl, "http://localhost:3000", "localhost")).toBe(neonUrl);
   });
 });

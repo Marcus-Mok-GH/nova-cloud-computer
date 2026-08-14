@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const append = vi.fn(async (_owner: number, input: { role: string; content: string }) => ({ id: 1, ...input }));
 const createFile = vi.fn(async (_owner: number, input: { name: string; content?: string }) => ({ id: 2, ...input }));
 const updateFolder = vi.fn(async (_owner: number, id: number, input: { name?: string; parentId?: number | null }) => ({ id, name: input.name ?? "Notes", parentId: input.parentId ?? null }));
-const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [] }));
+const updateFile = vi.fn(async (_owner: number, id: number, input: { folderId?: number | null }) => ({ id, name: "welcome.md", folderId: input.folderId ?? null }));
+const deleteFolder = vi.fn(async () => true);
+const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
+const invoke = vi.fn();
 
 vi.mock("./db", () => ({
   appendChatMessageForUser: append,
@@ -11,11 +14,11 @@ vi.mock("./db", () => ({
   createWorkspaceFolderForUser: vi.fn(),
   getWorkspaceComputer: computer,
   updateWorkspaceFolderForUser: updateFolder,
-  updateWorkspaceFileForUser: vi.fn(),
+  updateWorkspaceFileForUser: updateFile,
   deleteWorkspaceFileForUser: vi.fn(),
-  deleteWorkspaceFolderForUser: vi.fn(),
+  deleteWorkspaceFolderForUser: deleteFolder,
 }));
-vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn() }));
+vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 
 const { runWorkspaceAgent } = await import("./workspaceAgent");
 
@@ -39,5 +42,20 @@ describe("Nova keyless workspace agent", () => {
     await expect(runWorkspaceAgent(7, 3, "Rename folder Notes to Research")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "renamed", name: "Research" }] });
     await expect(runWorkspaceAgent(7, 3, "Move folder Notes into folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "moved", name: "Notes" }] });
     expect(updateFolder).toHaveBeenCalledWith(7, 10, { parentId: 11 });
+  });
+
+  it("moves a file with the keyless agent path", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    await expect(runWorkspaceAgent(7, 3, "Move file welcome.md into folder Archive")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "moved", name: "welcome.md" }] });
+    expect(updateFile).toHaveBeenCalledWith(7, 15, { folderId: 11 });
+  });
+
+  it("executes folder deletion from the hosted-model tool path", async () => {
+    process.env.BUILT_IN_FORGE_API_KEY = "configured";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "delete_folder", arguments: '{"name":"Archive"}' } }] } }] });
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Deleted Archive." } }] });
+    await expect(runWorkspaceAgent(7, 3, "Delete folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
+    expect(deleteFolder).toHaveBeenCalledWith(7, 11);
   });
 });

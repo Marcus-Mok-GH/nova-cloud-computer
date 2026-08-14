@@ -93,6 +93,9 @@
 - [x] Load persisted chat history after navigation or reload and let users open conversations from the Chats destination.
 - [x] Add user and agent support for file and folder rename, move, and delete actions in the chat-first workspace.
 - [x] Add regression and browser coverage for workspace item CRUD and persisted conversation history.
-- [ ] Add complete user and agent folder/file move support, including folder rename and move behavior.
-- [ ] Verify workspace file and folder rename, move, and delete flows end to end in the browser.
-- [ ] Add regression coverage for agent-driven and folder-management rename, move, and delete actions.
+- [x] Add complete user and agent folder/file move support, including folder rename and move behavior.
+- [x] Verify workspace file and folder rename, move, and delete flows end to end in the browser.
+- [x] Add regression coverage for agent-driven and folder-management rename, move, and delete actions.
+- [ ] Add hosted-model tool support for file move and folder rename, move, and delete actions.
+- [ ] Add regression coverage for agent file moves, folder moves, and file/folder deletion paths.
+- [ ] Verify direct user controls and agent-driven delete flows for files and folders in the production browser.

@@ -69,6 +69,10 @@ const tools = [
   { type: "function", function: { name: "create_file", description: "Create a plain-text file in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" }, content: { type: "string" } }, required: ["name", "content"] } } },
   { type: "function", function: { name: "rename_file", description: "Rename an existing workspace file by exact current name.", parameters: { type: "object", properties: { currentName: { type: "string" }, newName: { type: "string" } }, required: ["currentName", "newName"] } } },
   { type: "function", function: { name: "delete_file", description: "Delete an existing workspace file by exact name when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
+  { type: "function", function: { name: "move_file", description: "Move an existing workspace file into a named folder.", parameters: { type: "object", properties: { name: { type: "string" }, folderName: { type: "string" } }, required: ["name", "folderName"] } } },
+  { type: "function", function: { name: "rename_folder", description: "Rename an existing workspace folder by exact current name.", parameters: { type: "object", properties: { currentName: { type: "string" }, newName: { type: "string" } }, required: ["currentName", "newName"] } } },
+  { type: "function", function: { name: "move_folder", description: "Move an existing workspace folder into a different named folder.", parameters: { type: "object", properties: { name: { type: "string" }, destinationName: { type: "string" } }, required: ["name", "destinationName"] } } },
+  { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
 ];
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
@@ -79,7 +83,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. You may create folders and plain-text files only when the user clearly asks. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, or delete requests. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
     initial = await invokeLLM({ model: "gpt-5-mini", messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
@@ -95,14 +99,13 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
 
   for (const call of toolCalls.slice(0, 3)) {
     try {
-      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; currentName?: string; newName?: string };
-      if (!args.name?.trim()) continue;
+      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string };
       if (call.function.name === "create_folder") {
-        const folder = await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() });
+        const folder = args.name?.trim() ? await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() }) : undefined;
         if (folder) actions.push({ kind: "folder", name: folder.name });
       }
       if (call.function.name === "create_file") {
-        const file = await createWorkspaceFileForUser(ownerId, { name: args.name.trim(), content: args.content ?? "" });
+        const file = args.name?.trim() ? await createWorkspaceFileForUser(ownerId, { name: args.name.trim(), content: args.content ?? "" }) : undefined;
         if (file) actions.push({ kind: "file", name: file.name });
       }
       if (call.function.name === "rename_file") {
@@ -115,6 +118,29 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         const computer = await getWorkspaceComputer(ownerId);
         const file = computer.files.find(item => item.name === args.name);
         if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) actions.push({ kind: "file", name: file.name, operation: "deleted" });
+      }
+      if (call.function.name === "move_file") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const file = computer.files.find(item => item.name === args.name);
+        const folder = computer.folders.find(item => item.name === args.folderName);
+        if (file && folder && await updateWorkspaceFileForUser(ownerId, file.id, { folderId: folder.id })) actions.push({ kind: "file", name: file.name, operation: "moved" });
+      }
+      if (call.function.name === "rename_folder") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const folder = computer.folders.find(item => item.name === args.currentName);
+        const updated = folder && args.newName ? await updateWorkspaceFolderForUser(ownerId, folder.id, { name: args.newName }) : undefined;
+        if (updated) actions.push({ kind: "folder", name: updated.name, operation: "renamed" });
+      }
+      if (call.function.name === "move_folder") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const folder = computer.folders.find(item => item.name === args.name);
+        const destination = computer.folders.find(item => item.name === args.destinationName);
+        if (folder && destination && folder.id !== destination.id && await updateWorkspaceFolderForUser(ownerId, folder.id, { parentId: destination.id })) actions.push({ kind: "folder", name: folder.name, operation: "moved" });
+      }
+      if (call.function.name === "delete_folder") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const folder = computer.folders.find(item => item.name === args.name);
+        if (folder && await deleteWorkspaceFolderForUser(ownerId, folder.id)) actions.push({ kind: "folder", name: folder.name, operation: "deleted" });
       }
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true }) });
     } catch {

@@ -5,7 +5,6 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Bot, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
-import { useLocation } from "wouter";
 
 const elapsed = (date: Date) => {
   const mins = Math.max(0, Math.round((Date.now() - new Date(date).getTime()) / 60000));
@@ -16,8 +15,7 @@ export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const [draft, setDraft] = useState("");
-  const [location] = useLocation();
-  const [chatId, setChatId] = useState<number | undefined>(() => Number(new URLSearchParams(location.split("?")[1]).get("chatId")) || undefined);
+  const [chatId, setChatId] = useState<number | undefined>(() => Number(new URLSearchParams(window.location.search).get("chatId")) || undefined);
   const [conversation, setConversation] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const folders = computer.data?.folders ?? [];
   const files = useMemo(() => computer.data?.files.slice(0, 6) ?? [], [computer.data?.files]);

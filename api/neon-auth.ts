@@ -3,10 +3,6 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "vary"] as const;
 const REQUEST_HEADERS = ["accept", "accept-language", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
 
-function buildTargetUrl(baseUrl: string, pathSegments: string[], search: string) {
-  return `${baseUrl.replace(/\/$/, "")}/${pathSegments.map(segment => encodeURIComponent(segment)).join("/")}${search}`;
-}
-
 function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
@@ -33,14 +29,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const baseUrl = process.env.NEON_AUTH_BASE_URL;
   if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
 
-  const pathValue = req.query.path;
-  const pathSegments = Array.isArray(pathValue)
-    ? pathValue
-    : typeof pathValue === "string"
-      ? [pathValue]
-      : [];
-  const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
-  const targetUrl = buildTargetUrl(baseUrl, pathSegments, requestUrl.search);
+  const proxyPath = typeof req.query.proxyPath === "string" ? req.query.proxyPath : "";
+  const path = proxyPath.split("/").filter(Boolean).map(segment => encodeURIComponent(segment)).join("/");
+  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${new URL(req.url ?? "/", "http://nova-proxy.local").search.replace(/([?&])proxyPath=[^&]*/u, "$1").replace(/[?&]$/u, "")}`;
 
   try {
     const upstream = await fetch(targetUrl, {
@@ -57,8 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cookies = getSetCookieHeaders(upstream.headers);
     if (cookies.length) res.setHeader("set-cookie", cookies);
 
-    const responseBody = Buffer.from(await upstream.arrayBuffer());
-    return res.status(upstream.status).send(responseBody);
+    return res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
   } catch (error) {
     console.error("[Neon Auth proxy] Upstream request failed", error);
     return res.status(502).json({ error: "Neon Auth is temporarily unavailable." });

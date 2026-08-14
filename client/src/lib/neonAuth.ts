@@ -9,6 +9,6 @@ export const neonAuth = authUrl
 
 export async function getNeonAccessToken() {
   if (!neonAuth) return null;
-  const result = await neonAuth.token();
-  return result.data?.token ?? null;
+  const result = await neonAuth.getSession();
+  return result.data?.session?.token ?? null;
 }

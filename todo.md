@@ -61,3 +61,4 @@
 - [ ] Add a Vercel SPA fallback so direct passwordless routes resolve instead of returning a platform 404.
 - [ ] Diagnose and resolve the deployed magic-link request that remains pending instead of confirming delivery.
 - [ ] Preserve Vercel serverless API routes while applying the static SPA fallback.
+- [ ] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.

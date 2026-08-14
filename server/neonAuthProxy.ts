@@ -25,6 +25,7 @@ export function getNeonAuthProxyHeaders(headers: Record<string, string | string[
 
 export function getNeonAuthProxyBody(method: string | undefined, body: unknown) {
   if (method === "GET" || method === "HEAD" || body === undefined || body === null) return undefined;
-  if (typeof body === "string" || body instanceof Uint8Array) return body;
+  if (typeof body === "string") return body;
+  if (body instanceof Uint8Array) return new TextDecoder().decode(body);
   return JSON.stringify(body);
 }

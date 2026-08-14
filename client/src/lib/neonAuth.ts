@@ -7,8 +7,14 @@ export const neonAuth = authUrl
   ? createAuthClient(authUrl)
   : null;
 
+type NeonTokenResult = { data?: { token?: string | null } | null };
+
+export function extractNeonJwt(result: NeonTokenResult) {
+  return result.data?.token ?? null;
+}
+
 export async function getNeonAccessToken() {
   if (!neonAuth) return null;
-  const result = await neonAuth.getSession();
-  return result.data?.session?.token ?? null;
+  const result = await neonAuth.token();
+  return extractNeonJwt(result);
 }

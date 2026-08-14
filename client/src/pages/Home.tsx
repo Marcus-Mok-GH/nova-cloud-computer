@@ -4,6 +4,9 @@
  * and original cloud-workspace scenes with sea-glass highlights.
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { startLogin } from "@/const";
 import {
   ArrowDown,
   ArrowLeft,
@@ -142,11 +145,20 @@ function WorkspaceScene({ activeMode, onModeChange }: { activeMode: WorkspaceMod
 
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
+  const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("Organize");
   const [orbitIndex, setOrbitIndex] = useState(0);
 
   const changeOrbit = (direction: number) => setOrbitIndex((current) => (current + direction + orbitCards.length) % orbitCards.length);
+  const enterNova = () => {
+    if (isAuthenticated) {
+      setLocation("/app");
+      return;
+    }
+    startLogin();
+  };
 
   return (
     <main className="site-shell">
@@ -158,16 +170,16 @@ export default function Home() {
             {navigation.map((item) => <button key={item} onClick={() => scrollToSection(item === "Product" ? "workspace" : item === "Guides" ? "orbit" : item === "Resources" ? "faq" : "about")}>{item}{item !== "Guides" && <ChevronDown size={12} />}</button>)}
             <button onClick={() => scrollToSection("pricing")}>Pricing</button>
           </nav>
-          <div className="topbar-actions"><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`} title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button><button className="sign-in" onClick={() => scrollToSection("workspace")}>Log in</button><Button className="dark-pill small-pill" onClick={() => scrollToSection("workspace")}>Create your space</Button></div>
+          <div className="topbar-actions"><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`} title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button><button className="sign-in" onClick={enterNova}>{isAuthenticated ? "Open space" : "Log in"}</button><Button className="dark-pill small-pill" onClick={enterNova}>Create your space</Button></div>
           <button className="theme-toggle mobile-theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>
           <button className="menu-button" aria-label={menuOpen ? "Close menu" : "Open menu"} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X /> : <Menu />}</button>
         </header>
-        {menuOpen && <div className="mobile-menu">{[...navigation, "Pricing"].map((item) => <button key={item} onClick={() => { setMenuOpen(false); scrollToSection(item === "Product" ? "workspace" : item === "Guides" ? "orbit" : item === "Resources" ? "faq" : item === "Pricing" ? "pricing" : "about"); }}>{item}</button>)}<Button className="dark-pill" onClick={() => { setMenuOpen(false); scrollToSection("workspace"); }}>Create your space</Button></div>}
+        {menuOpen && <div className="mobile-menu">{[...navigation, "Pricing"].map((item) => <button key={item} onClick={() => { setMenuOpen(false); scrollToSection(item === "Product" ? "workspace" : item === "Guides" ? "orbit" : item === "Resources" ? "faq" : item === "Pricing" ? "pricing" : "about"); }}>{item}</button>)}<Button className="dark-pill" onClick={() => { setMenuOpen(false); enterNova(); }}>Create your space</Button></div>}
         <div className="hero-copy">
           <p className="eyebrow">A personal cloud computer</p>
           <h1>Make room for<br /><em>powerful work.</em></h1>
           <p className="hero-description">Nova keeps your files, plans, tools, and momentum in one thoughtful place—ready whenever you are.</p>
-          <div className="hero-actions"><Button className="light-pill" onClick={() => scrollToSection("workspace")}>See your space <ArrowDown size={15} /></Button><Button className="dark-pill" onClick={() => scrollToSection("workspace")}>Create your space <ArrowUpRight size={15} /></Button></div>
+          <div className="hero-actions"><Button className="light-pill" onClick={() => scrollToSection("workspace")}>See your space <ArrowDown size={15} /></Button><Button className="dark-pill" onClick={enterNova}>Create your space <ArrowUpRight size={15} /></Button></div>
           <p className="quiet-proof"><span><Check size={12} /></span> A clear start, no card required</p>
         </div>
         <div className="hero-workspace-preview" aria-hidden="true"><div className="preview-tab">Today</div><div className="preview-lines"><i /><i /><i /></div><div className="preview-orb one" /><div className="preview-orb two" /></div>
@@ -212,7 +224,7 @@ export default function Home() {
 
       <section className="studio-section">
         <div className="studio-image-wrap"><img src="/manus-storage/nova-community-studio_abe0bb17.jpg" alt="Editorial creative studio composition" className="studio-image" /><div className="image-label"><NovaMark className="image-label-mark" /><span>Build from a quieter place</span></div></div>
-        <div className="studio-copy"><span className="section-index">03 — Make it yours</span><h2>A place for the parts of life that don’t fit in a spreadsheet.</h2><p>Host a personal corner of the web. Shape a research library. Keep a little studio for the project you keep returning to. Nova makes the container; you make it meaningful.</p><button className="text-link" onClick={() => scrollToSection("pricing")}>Open a new space <ArrowUpRight size={16} /></button></div>
+        <div className="studio-copy"><span className="section-index">03 — Make it yours</span><h2>A place for the parts of life that don’t fit in a spreadsheet.</h2><p>Host a personal corner of the web. Shape a research library. Keep a little studio for the project you keep returning to. Nova makes the container; you make it meaningful.</p><button className="text-link" onClick={enterNova}>Open a new space <ArrowUpRight size={16} /></button></div>
       </section>
 
       <section className="capability-ribbon" aria-label="Nova capabilities"><span>FILES</span><i /> <span>PLANS</span><i /> <span>FLOWS</span><i /> <span>SPACES</span><i /> <span>MESSAGES</span><i /> <span>BUILT TO LAST</span></section>
@@ -233,7 +245,7 @@ export default function Home() {
         <p className="eyebrow">A space that stays with you</p>
         <h2>Start where you are.<br />Keep going further.</h2>
         <p>Bring the current project, the rough note, or the ambitious idea. Nova will be ready.</p>
-        <Button className="dark-pill closing-cta" onClick={() => scrollToSection("top")}>Create your space <ArrowUpRight size={16} /></Button>
+        <Button className="dark-pill closing-cta" onClick={enterNova}>Create your space <ArrowUpRight size={16} /></Button>
       </section>
 
       <footer className="site-footer">

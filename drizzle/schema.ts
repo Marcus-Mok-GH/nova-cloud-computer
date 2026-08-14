@@ -6,6 +6,7 @@ export const projectStatus = pgEnum("project_status", ["active", "archived"]);
 export const taskStatus = pgEnum("task_status", ["todo", "in_progress", "done"]);
 export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom"]);
 export const modelCompatibility = pgEnum("model_compatibility", ["openai", "anthropic"]);
+export const chatMessageRole = pgEnum("chat_message_role", ["user", "assistant"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -81,8 +82,52 @@ export const workspaceSettings = pgTable("workspace_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)]);
 
+/** Folders form the user-managed, private directory tree within a Nova workspace. */
+export const workspaceFolders = pgTable("workspace_folders", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  parentId: integer("parentId").references((): any => workspaceFolders.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("workspace_folders_parent_name_unique").on(table.workspaceId, table.parentId, table.name)]);
+
+/** Text-first workspace files are durable, user-scoped documents that Nova can organize with permissioned actions. */
+export const workspaceFiles = pgTable("workspace_files", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  folderId: integer("folderId").references(() => workspaceFolders.id, { onDelete: "set null" }),
+  name: varchar("name", { length: 240 }).notNull(),
+  content: text("content").default("").notNull(),
+  mimeType: varchar("mimeType", { length: 120 }).default("text/plain").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("workspace_files_folder_name_unique").on(table.workspaceId, table.folderId, table.name)]);
+
+/** A conversation is scoped to exactly one private Nova workspace. */
+export const chats = pgTable("chats", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Messages are persisted separately so every Nova conversation remains recoverable. */
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  chatId: integer("chatId").notNull().references(() => chats.id, { onDelete: "cascade" }),
+  role: chatMessageRole("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type CustomModel = typeof customModels.$inferSelect;
 export type WorkspaceSettings = typeof workspaceSettings.$inferSelect;
+export type WorkspaceFolder = typeof workspaceFolders.$inferSelect;
+export type WorkspaceFile = typeof workspaceFiles.$inferSelect;
+export type Chat = typeof chats.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;

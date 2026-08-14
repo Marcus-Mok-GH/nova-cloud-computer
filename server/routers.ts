@@ -1,22 +1,32 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
+  createChatForUser,
   createProjectForUser,
   createTaskForUser,
   createCustomModelForUser,
+  createWorkspaceFileForUser,
+  createWorkspaceFolderForUser,
   deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
+  deleteWorkspaceFileForUser,
+  deleteWorkspaceFolderForUser,
   getProjectForUser,
   getOrCreateWorkspace,
+  getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
+  listChatMessagesForUser,
   listProjectsForUser,
   listTasksForUser,
   updateTaskStatusForUser,
   updateProjectForUser,
+  updateWorkspaceFileForUser,
+  updateWorkspaceFolderForUser,
   updateWorkspaceModelSettingsForUser,
 } from "./db";
+import { runWorkspaceAgent } from "./workspaceAgent";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -49,6 +59,27 @@ const workspaceSettingsInput = z.object({
   activeCustomModelId: z.number().int().positive().nullable().optional(),
   workspaceRules: z.string().trim().max(8000).nullable().optional(),
 }).refine(input => input.activeProvider !== undefined || input.activeModelId !== undefined || input.activeCustomModelId !== undefined || input.workspaceRules !== undefined, { message: "Provide at least one setting change." });
+const folderInput = z.object({
+  name: z.string().trim().min(1, "A folder needs a name.").max(160),
+  parentId: z.number().int().positive().nullable().optional(),
+});
+const folderUpdateInput = z.object({
+  id: z.number().int().positive(),
+  name: z.string().trim().min(1).max(160).optional(),
+  parentId: z.number().int().positive().nullable().optional(),
+}).refine(input => input.name !== undefined || input.parentId !== undefined, { message: "Provide a folder change." });
+const fileInput = z.object({
+  name: z.string().trim().min(1, "A file needs a name.").max(240),
+  content: z.string().max(200000).optional(),
+  mimeType: z.string().trim().min(1).max(120).optional(),
+  folderId: z.number().int().positive().nullable().optional(),
+});
+const fileUpdateInput = z.object({
+  id: z.number().int().positive(),
+  name: z.string().trim().min(1).max(240).optional(),
+  content: z.string().max(200000).optional(),
+  folderId: z.number().int().positive().nullable().optional(),
+}).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide a file change." });
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -58,12 +89,65 @@ export const appRouter = router({
   }),
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),
+    computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
       const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
       if (!settings) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
       return settings;
+    }),
+  }),
+  folders: router({
+    create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => {
+      const folder = await createWorkspaceFolderForUser(ctx.user.id, input);
+      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "That parent folder is not available in your Nova space." });
+      return folder;
+    }),
+    update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => {
+      const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input);
+      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      return folder;
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      return { success: true } as const;
+    }),
+  }),
+  files: router({
+    create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => {
+      const file = await createWorkspaceFileForUser(ctx.user.id, input);
+      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      return file;
+    }),
+    update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => {
+      const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input);
+      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "That file or destination folder is not available in your Nova space." });
+      return file;
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That file is not available in your Nova space." });
+      return { success: true } as const;
+    }),
+  }),
+  chats: router({
+    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => {
+      const chat = await createChatForUser(ctx.user.id, input.title);
+      if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." });
+      return chat;
+    }),
+    messages: protectedProcedure.input(z.object({ chatId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const messages = await listChatMessagesForUser(ctx.user.id, input.chatId);
+      if (!messages) throw new TRPCError({ code: "NOT_FOUND", message: "That conversation is not available in your Nova space." });
+      return messages;
+    }),
+    send: protectedProcedure.input(z.object({ chatId: z.number().int().positive().nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => {
+      const chat = input.chatId ? undefined : await createChatForUser(ctx.user.id, input.content.slice(0, 60));
+      const chatId = input.chatId ?? chat?.id;
+      if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." });
+      return { chatId, ...(await runWorkspaceAgent(ctx.user.id, chatId, input.content)) };
     }),
   }),
   models: router({

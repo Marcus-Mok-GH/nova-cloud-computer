@@ -1,7 +1,19 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { customModels, InsertUser, projects, tasks, users, workspaces, workspaceSettings } from "../drizzle/schema";
+import {
+  chatMessages,
+  chats,
+  customModels,
+  InsertUser,
+  projects,
+  tasks,
+  users,
+  workspaces,
+  workspaceFiles,
+  workspaceFolders,
+  workspaceSettings,
+} from "../drizzle/schema";
 import { encryptModelApiKey } from "./modelSecrets";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -209,4 +221,158 @@ export async function getWorkspaceDashboard(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [projectRows, taskRows, settings] = await Promise.all([listProjectsForUser(ownerId), listTasksForUser(ownerId), getWorkspaceModelSettingsForUser(ownerId)]);
   return { workspace, projects: projectRows, tasks: taskRows, settings };
+}
+
+async function getFolderForUser(ownerId: number, folderId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return (await db.select().from(workspaceFolders).where(and(
+    eq(workspaceFolders.id, folderId),
+    eq(workspaceFolders.workspaceId, workspace.id),
+  )).limit(1))[0];
+}
+
+async function getFileForUser(ownerId: number, fileId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return (await db.select().from(workspaceFiles).where(and(
+    eq(workspaceFiles.id, fileId),
+    eq(workspaceFiles.workspaceId, workspace.id),
+  )).limit(1))[0];
+}
+
+async function getChatForUser(ownerId: number, chatId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return (await db.select().from(chats).where(and(
+    eq(chats.id, chatId),
+    eq(chats.workspaceId, workspace.id),
+  )).limit(1))[0];
+}
+
+export async function listWorkspaceFoldersForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return db.select().from(workspaceFolders).where(eq(workspaceFolders.workspaceId, workspace.id)).orderBy(asc(workspaceFolders.name));
+}
+
+export async function createWorkspaceFolderForUser(ownerId: number, input: { name: string; parentId?: number | null }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  if (input.parentId) {
+    const parent = await getFolderForUser(ownerId, input.parentId);
+    if (!parent) return undefined;
+  }
+  return (await db.insert(workspaceFolders).values({
+    workspaceId: workspace.id,
+    name: input.name,
+    parentId: input.parentId ?? null,
+  }).returning())[0];
+}
+
+export async function updateWorkspaceFolderForUser(ownerId: number, folderId: number, input: { name?: string; parentId?: number | null }) {
+  const db = await requireDb();
+  const folder = await getFolderForUser(ownerId, folderId);
+  if (!folder) return undefined;
+  if (input.parentId !== undefined && input.parentId !== null) {
+    if (input.parentId === folder.id) return undefined;
+    const parent = await getFolderForUser(ownerId, input.parentId);
+    if (!parent) return undefined;
+  }
+  const updateSet: Partial<typeof workspaceFolders.$inferInsert> = { updatedAt: new Date() };
+  if (input.name !== undefined) updateSet.name = input.name;
+  if (input.parentId !== undefined) updateSet.parentId = input.parentId;
+  return (await db.update(workspaceFolders).set(updateSet).where(eq(workspaceFolders.id, folder.id)).returning())[0];
+}
+
+export async function deleteWorkspaceFolderForUser(ownerId: number, folderId: number) {
+  const db = await requireDb();
+  const folder = await getFolderForUser(ownerId, folderId);
+  if (!folder) return false;
+  await db.delete(workspaceFolders).where(eq(workspaceFolders.id, folder.id));
+  return true;
+}
+
+export async function listWorkspaceFilesForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return db.select().from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspace.id)).orderBy(desc(workspaceFiles.updatedAt));
+}
+
+export async function createWorkspaceFileForUser(ownerId: number, input: { name: string; content?: string; mimeType?: string; folderId?: number | null }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  if (input.folderId) {
+    const folder = await getFolderForUser(ownerId, input.folderId);
+    if (!folder) return undefined;
+  }
+  return (await db.insert(workspaceFiles).values({
+    workspaceId: workspace.id,
+    name: input.name,
+    content: input.content ?? "",
+    mimeType: input.mimeType ?? "text/plain",
+    folderId: input.folderId ?? null,
+  }).returning())[0];
+}
+
+export async function updateWorkspaceFileForUser(ownerId: number, fileId: number, input: { name?: string; content?: string; folderId?: number | null }) {
+  const db = await requireDb();
+  const file = await getFileForUser(ownerId, fileId);
+  if (!file) return undefined;
+  if (input.folderId !== undefined && input.folderId !== null) {
+    const folder = await getFolderForUser(ownerId, input.folderId);
+    if (!folder) return undefined;
+  }
+  const updateSet: Partial<typeof workspaceFiles.$inferInsert> = { updatedAt: new Date() };
+  if (input.name !== undefined) updateSet.name = input.name;
+  if (input.content !== undefined) updateSet.content = input.content;
+  if (input.folderId !== undefined) updateSet.folderId = input.folderId;
+  return (await db.update(workspaceFiles).set(updateSet).where(eq(workspaceFiles.id, file.id)).returning())[0];
+}
+
+export async function deleteWorkspaceFileForUser(ownerId: number, fileId: number) {
+  const db = await requireDb();
+  const file = await getFileForUser(ownerId, fileId);
+  if (!file) return false;
+  await db.delete(workspaceFiles).where(eq(workspaceFiles.id, file.id));
+  return true;
+}
+
+export async function listChatsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return db.select().from(chats).where(eq(chats.workspaceId, workspace.id)).orderBy(desc(chats.updatedAt));
+}
+
+export async function createChatForUser(ownerId: number, title: string) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return (await db.insert(chats).values({ workspaceId: workspace.id, title }).returning())[0];
+}
+
+export async function listChatMessagesForUser(ownerId: number, chatId: number) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
+}
+
+export async function appendChatMessageForUser(ownerId: number, input: { chatId: number; role: "user" | "assistant"; content: string }) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, input.chatId);
+  if (!chat) return undefined;
+  const [message] = await db.insert(chatMessages).values({ chatId: chat.id, role: input.role, content: input.content }).returning();
+  await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chat.id));
+  return message;
+}
+
+export async function getWorkspaceComputer(ownerId: number) {
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [folders, files, chatRows, settings] = await Promise.all([
+    listWorkspaceFoldersForUser(ownerId),
+    listWorkspaceFilesForUser(ownerId),
+    listChatsForUser(ownerId),
+    getWorkspaceModelSettingsForUser(ownerId),
+  ]);
+  return { workspace, folders, files, chats: chatRows, settings };
 }

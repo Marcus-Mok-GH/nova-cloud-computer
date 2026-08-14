@@ -11,8 +11,11 @@ describe("extractNeonJwt", () => {
     expect(extractNeonJwt({ data: { token: "header.payload.signature" } })).toBe("header.payload.signature");
   });
 
-  it("does not substitute an opaque browser session token when no JWT is returned", () => {
-    expect(extractNeonJwt({ data: {} })).toBeNull();
+  it("uses Neon’s signed session header but rejects opaque browser session tokens", () => {
+    expect(extractNeonJwt({ data: { session: { token: "header.payload.signature" } } })).toBe(
+      "header.payload.signature",
+    );
+    expect(extractNeonJwt({ data: { session: { token: "opaque-session" } } })).toBeNull();
     expect(extractNeonJwt({})).toBeNull();
   });
 
@@ -26,6 +29,14 @@ describe("extractNeonJwt", () => {
     expect(getSession).toHaveBeenCalledOnce();
     expect(token).toHaveBeenCalledOnce();
     expect(getSession.mock.invocationCallOrder[0]).toBeLessThan(token.mock.invocationCallOrder[0]);
+  });
+
+  it("uses the verified JWT injected onto the session by Neon’s signed-session response header", async () => {
+    const getSession = vi.fn(async () => ({ data: { session: { token: "header.payload.signature" } } }));
+    const token = vi.fn(async () => ({ data: { token: "unexpected" } }));
+
+    await expect(exchangeNeonVerifierAndGetJwt({ getSession, token })).resolves.toBe("header.payload.signature");
+    expect(token).not.toHaveBeenCalled();
   });
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {

@@ -30,14 +30,21 @@ export const neonAuth = authUrl
     })
   : null;
 
-type NeonTokenResult = { data?: { token?: string | null } | null };
+type NeonTokenResult = { data?: { token?: string | null; session?: { token?: string | null } | null } | null };
 type NeonAuthTokenClient = {
-  getSession: () => Promise<unknown>;
+  getSession: () => Promise<NeonTokenResult>;
   token: () => Promise<NeonTokenResult>;
 };
 
+function isSignedJwt(token: string | null | undefined) {
+  return Boolean(token && token.split(".").length === 3);
+}
+
 export function extractNeonJwt(result: NeonTokenResult) {
-  return result.data?.token ?? null;
+  const token = result.data?.token;
+  if (isSignedJwt(token)) return token!;
+  const sessionToken = result.data?.session?.token;
+  return isSignedJwt(sessionToken) ? sessionToken! : null;
 }
 
 /**
@@ -46,7 +53,9 @@ export function extractNeonJwt(result: NeonTokenResult) {
  * Nova sends to its protected API.
  */
 export async function exchangeNeonVerifierAndGetJwt(client: NeonAuthTokenClient) {
-  await client.getSession();
+  const session = await client.getSession();
+  const sessionJwt = extractNeonJwt(session);
+  if (sessionJwt) return sessionJwt;
   return extractNeonJwt(await client.token());
 }
 

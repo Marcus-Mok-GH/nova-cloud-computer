@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { app } = require("../dist/server/app.cjs") as typeof import("../server/app");
 
-const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "vary"] as const;
+const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
 const REQUEST_HEADERS = ["accept", "accept-language", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
 
 export function getNeonAuthPathFromCatchall(path: string | string[] | undefined) {

@@ -66,5 +66,8 @@
 - [x] Diagnose and fix the reported production email-login "Load failed" error, then repeat the magic-link verification.
 - [x] Audit Vercel production environment variables and fix the remaining deployed email-login failure only after reproducing it on the affected domain.
 - [x] Run and document a fresh end-to-end production test: email request, delivered magic link, callback, authenticated workspace, and API connection—before any further push.
-- [ ] Repeat the complete magic-link flow from a clean Neon session and verify the authenticated workspace email matches the requested fresh mailbox.
-- [ ] Replace opaque Neon session-token forwarding with the documented JWT token API, then rerun the clean-session production magic-link test before any push.
+- [x] Repeat the complete magic-link flow from a clean Neon session and verify the authenticated workspace email matches the requested fresh mailbox.
+- [x] Replace opaque Neon session-token forwarding with the documented JWT token API, then rerun the clean-session production magic-link test before any push.
+- [x] Record that the completed clean-session production test covered the exact deployed JWT-token code state before any subsequent documentation push.
+- [x] Include the Neon JWT client regression test in Vitest discovery and rerun the complete automated suite.
+- [x] Add an explicit deployment-and-commit record for the clean-session success to the external-auth verification document before saving the checkpoint.

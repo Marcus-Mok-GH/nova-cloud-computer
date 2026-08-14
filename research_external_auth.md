@@ -41,6 +41,18 @@ An additional audit verified the deployed environment configuration rather than 
 
 Fresh-user verification exposed a second authentication defect: `getSession()` returns an opaque 32-character browser session token, while Nova’s API validates a signed JWT. Forwarding that opaque token caused `Invalid Compact JWS` warnings and a null application user even though Neon had established the correct browser session. Neon’s JWT guidance specifies `authClient.token()` for a raw JWT; Nova must use that method for the `Authorization` bearer header, then repeat the clean-session test before any further production push.[5]
 
+### Verified clean-session production authentication
+
+On 14 August 2026, Vercel marked deployment `dpl_DAxVosXcwJgvTr2Zjbvz6E1wp31V` (commit `0c51929`) **READY** with the JWT-token client change. From a clean browser session, Nova’s deployment-specific sign-in page accepted a fresh magic-link request for `y92f9y+7krswzvcqk2fg@sharklasers.com` and displayed its in-product “Check your email” confirmation. The click-through callback and resulting workspace identity remain to be verified while that time-limited link is valid.
+
+The approved Guerrilla Mail inbox received the new Neon Auth “Sign In to nova-neon” message at 09:40:56. Its raw magic-link verification URL targeted Neon Auth and named Nova’s canonical production callback route, `https://nova-cloud-computer.vercel.app/app`; the single-use token itself is intentionally not recorded in this repository.
+
+The raw Neon verification URL completed successfully in the same clean browser session. Nova redirected to the canonical `/app` route, exchanged the callback verifier, obtained an authenticated API identity, and rendered the workspace with `y92f9y+7krswzvcqk2fg@sharklasers.com` in the sidebar. This confirms that the deployed `authClient.token()` JWT path authorizes a newly created Neon session end-to-end.
+
+Vercel production logs were queried during the post-deployment verification window (09:38:18–09:43:18) for `Invalid Compact JWS`; no matching log entries were returned. Earlier matching warnings at 09:33 originated from the superseded deployment and were excluded from the clean verification result.
+
+**Verification record:** the successful clean-session production run was performed against Vercel deployment `dpl_DAxVosXcwJgvTr2Zjbvz6E1wp31V`, which deployed Git commit `0c51929` (“Use Neon JWT for authenticated API requests”). It completed before any subsequent documentation or Vitest-configuration commit. Vitest discovery now includes `client/src/**/*.test.ts`; the full suite executed 15 passing tests across six files, with two pre-existing integration tests skipped, and the subsequent production build completed successfully.
+
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
 ## GitHub-to-Vercel linkage

@@ -37,6 +37,6 @@
 
 # GitHub Export
 
-- [ ] Create a private GitHub repository for the Nova workspace.
-- [ ] Push the complete project source, migrations, tests, and documentation.
-- [ ] Verify the remote repository contains the exported workspace.
+- [x] Create a private GitHub repository for the Nova workspace.
+- [x] Push the complete project source, migrations, tests, and documentation.
+- [x] Verify the remote repository contains the exported workspace.

@@ -25,6 +25,10 @@ function getSetCookieHeaders(headers: Headers) {
   return values?.length ? values : (headers.get("set-cookie") ? [headers.get("set-cookie")!] : []);
 }
 
+export function normalizeProxiedSessionCookie(cookie: string) {
+  return cookie.replace(/;\s*domain=[^;]+/giu, "");
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const baseUrl = process.env.NEON_AUTH_BASE_URL;
   if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
@@ -48,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (value) res.setHeader(name, value);
     }
     const cookies = getSetCookieHeaders(upstream.headers);
-    if (cookies.length) res.setHeader("set-cookie", cookies);
+    if (cookies.length) res.setHeader("set-cookie", cookies.map(normalizeProxiedSessionCookie));
 
     return res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
   } catch (error) {

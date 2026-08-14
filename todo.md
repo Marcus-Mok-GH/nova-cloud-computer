@@ -77,3 +77,5 @@
 - [ ] Route the public Neon Auth proxy through a static Vercel function endpoint because the nested catch-all destination returns 404.
 - [ ] Preserve Neon Auth callback query parameters through the static proxy so `neon_auth_session_verifier` reaches the session exchange endpoint.
 - [ ] Use a same-origin dynamic Neon Auth base path because the installed Neon adapter bypasses caller-supplied custom fetch implementations.
+- [ ] Rewrite proxied Neon Auth session-cookie domains for Nova’s same-origin host so the browser retains the callback session.
+- [x] Include the static Neon Auth proxy-cookie regression test in Vitest discovery and rerun the complete suite.

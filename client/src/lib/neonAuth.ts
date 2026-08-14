@@ -1,10 +1,16 @@
 import { createAuthClient } from "@neondatabase/neon-js/auth";
+import { BetterAuthVanillaAdapter } from "@neondatabase/neon-js/auth/vanilla/adapters";
 
 const authUrl = import.meta.env.VITE_NEON_AUTH_URL as string | undefined;
+export const neonAuthFetchOptions = {
+  fetchOptions: { credentials: "include" as const },
+};
 
 /** Neon Auth owns session cookies; Nova forwards only short-lived JWTs to its tRPC API. */
 export const neonAuth = authUrl
-  ? createAuthClient(authUrl)
+  ? createAuthClient(authUrl, {
+      adapter: BetterAuthVanillaAdapter(neonAuthFetchOptions),
+    })
   : null;
 
 type NeonTokenResult = { data?: { token?: string | null } | null };

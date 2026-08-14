@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { exchangeNeonVerifierAndGetJwt, extractNeonJwt } from "./neonAuth";
+import { exchangeNeonVerifierAndGetJwt, extractNeonJwt, neonAuthFetchOptions } from "./neonAuth";
 
 describe("extractNeonJwt", () => {
   it("returns the JWT from Neon Auth's token API response", () => {
@@ -21,5 +21,9 @@ describe("extractNeonJwt", () => {
     expect(getSession).toHaveBeenCalledOnce();
     expect(token).toHaveBeenCalledOnce();
     expect(getSession.mock.invocationCallOrder[0]).toBeLessThan(token.mock.invocationCallOrder[0]);
+  });
+
+  it("includes session cookies for the cross-origin Neon Auth client", () => {
+    expect(neonAuthFetchOptions).toEqual({ fetchOptions: { credentials: "include" } });
   });
 });

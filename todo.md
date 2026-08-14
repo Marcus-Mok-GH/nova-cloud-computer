@@ -96,6 +96,6 @@
 - [x] Add complete user and agent folder/file move support, including folder rename and move behavior.
 - [x] Verify workspace file and folder rename, move, and delete flows end to end in the browser.
 - [x] Add regression coverage for agent-driven and folder-management rename, move, and delete actions.
-- [ ] Add hosted-model tool support for file move and folder rename, move, and delete actions.
-- [ ] Add regression coverage for agent file moves, folder moves, and file/folder deletion paths.
-- [ ] Verify direct user controls and agent-driven delete flows for files and folders in the production browser.
+- [x] Add hosted-model tool support for file move and folder rename, move, and delete actions.
+- [x] Add regression coverage for agent file moves, folder moves, and file/folder deletion paths.
+- [x] Expose direct user controls and verify agent-driven file and folder delete flows in the production browser.

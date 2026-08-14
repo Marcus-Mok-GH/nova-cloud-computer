@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -64,6 +64,42 @@ export const tasks = mysqlTable("tasks", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** A private custom endpoint. The API key is encrypted server-side and never returned to clients. */
+export const customModels = mysqlTable(
+  "custom_models",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    modelId: varchar("modelId", { length: 240 }).notNull(),
+    baseUrl: varchar("baseUrl", { length: 2048 }).notNull(),
+    compatibility: mysqlEnum("compatibility", ["openai", "anthropic"]).notNull(),
+    encryptedApiKey: text("encryptedApiKey").notNull(),
+    supportsImageInput: boolean("supportsImageInput").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("custom_models_workspace_name_unique").on(table.workspaceId, table.name)],
+);
+
+/** Durable preferences and the selected assistant model for one private workspace. */
+export const workspaceSettings = mysqlTable(
+  "workspace_settings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    activeProvider: mysqlEnum("activeProvider", ["anthropic", "openai", "gemini", "custom"]).default("anthropic").notNull(),
+    activeModelId: varchar("activeModelId", { length: 240 }).default("claude-sonnet").notNull(),
+    activeCustomModelId: int("activeCustomModelId").references(() => customModels.id, { onDelete: "set null" }),
+    workspaceRules: text("workspaceRules"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+export type CustomModel = typeof customModels.$inferSelect;
+export type WorkspaceSettings = typeof workspaceSettings.$inferSelect;

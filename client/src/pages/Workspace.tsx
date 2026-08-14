@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Check, Circle, ClipboardList, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, Circle, ClipboardList, Loader2, Plus, Settings2, Sparkles, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 type TaskState = "todo" | "in_progress" | "done";
 
@@ -25,6 +26,7 @@ function TaskStatusButton({ status, onClick }: { status: TaskState; onClick: () 
 
 export default function Workspace() {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const dashboard = trpc.workspace.dashboard.useQuery(undefined, { retry: false });
   const [projectOpen, setProjectOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
@@ -58,7 +60,7 @@ export default function Workspace() {
     <div className="mx-auto max-w-6xl space-y-7 pb-12 pt-3">
       <section className="relative overflow-hidden rounded-3xl border border-stone-200 bg-[#f2f2ea] px-6 py-8 shadow-sm dark:border-white/10 dark:bg-[#1d292a] sm:px-9 sm:py-10">
         <div className="absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[#b6d7d0]/60 blur-3xl dark:bg-[#3d807a]/35" /><div className="absolute -bottom-28 left-1/4 h-48 w-48 rounded-full bg-[#f1c6b4]/50 blur-3xl dark:bg-[#a66055]/25" />
-        <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-end"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-stone-500 dark:text-stone-300">Your persistent workspace</p><h1 className="mt-3 font-[DM_Serif_Display] text-4xl tracking-tight text-stone-800 dark:text-stone-100 sm:text-5xl">{dashboard.data?.workspace.name ?? "Your Nova Space"}</h1><p className="mt-3 max-w-xl text-sm leading-6 text-stone-600 dark:text-stone-300">A private place for the projects and next actions that matter right now.</p></div><div className="flex flex-wrap gap-2"><ProjectDialog open={projectOpen} onOpenChange={setProjectOpen} name={projectName} description={projectDescription} onNameChange={setProjectName} onDescriptionChange={setProjectDescription} onSubmit={submitProject} loading={createProject.isPending} /><TaskDialog open={taskOpen} onOpenChange={setTaskOpen} title={taskTitle} notes={taskNotes} projectId={taskProjectId} projects={projects} onTitleChange={setTaskTitle} onNotesChange={setTaskNotes} onProjectChange={setTaskProjectId} onSubmit={submitTask} loading={createTask.isPending} disabled={!projects.length} /></div></div>
+        <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-end"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-stone-500 dark:text-stone-300">Your persistent workspace</p><h1 className="mt-3 font-[DM_Serif_Display] text-4xl tracking-tight text-stone-800 dark:text-stone-100 sm:text-5xl">{dashboard.data?.workspace.name ?? "Your Nova Space"}</h1><p className="mt-3 max-w-xl text-sm leading-6 text-stone-600 dark:text-stone-300">A private place for the projects, preferences, and next actions that matter right now.</p><button type="button" onClick={() => setLocation("/app/settings")} className="mt-4 inline-flex items-center gap-2 rounded-full border border-stone-300/70 bg-white/55 px-3 py-1.5 text-xs font-bold text-stone-700 transition-colors hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-stone-100 dark:hover:bg-white/10"><Sparkles size={13} className="text-[#638f84]" /> {dashboard.data?.settings.activeProvider === "custom" ? dashboard.data.settings.customModels.find(model => model.id === dashboard.data?.settings.activeCustomModelId)?.name ?? "Custom model" : `${dashboard.data?.settings.activeProvider ?? "anthropic"} · ${dashboard.data?.settings.activeModelId ?? "claude-sonnet"}`} <Settings2 size={13} /></button></div><div className="flex flex-wrap gap-2"><ProjectDialog open={projectOpen} onOpenChange={setProjectOpen} name={projectName} description={projectDescription} onNameChange={setProjectName} onDescriptionChange={setProjectDescription} onSubmit={submitProject} loading={createProject.isPending} /><TaskDialog open={taskOpen} onOpenChange={setTaskOpen} title={taskTitle} notes={taskNotes} projectId={taskProjectId} projects={projects} onTitleChange={setTaskTitle} onNotesChange={setTaskNotes} onProjectChange={setTaskProjectId} onSubmit={submitTask} loading={createTask.isPending} disabled={!projects.length} /></div></div>
       </section>
 
       {dashboard.isLoading ? <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed"><Loader2 className="animate-spin text-muted-foreground" /></div> : <>

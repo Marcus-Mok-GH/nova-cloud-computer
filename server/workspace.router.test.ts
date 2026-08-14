@@ -3,11 +3,16 @@ import type { TrpcContext } from "./_core/context";
 
 type ProjectRecord = { id: number; workspaceId: number; name: string; description: string | null; status: "active" | "archived" };
 type TaskRecord = { id: number; workspaceId: number; projectId: number; title: string; notes: string | null; status: "todo" | "in_progress" | "done" };
+type CustomModelRecord = { id: number; workspaceId: number; name: string; modelId: string; baseUrl: string; compatibility: "openai" | "anthropic"; supportsImageInput: boolean; hasApiKey: true };
+type SettingsRecord = { activeProvider: "anthropic" | "openai" | "gemini" | "custom"; activeModelId: string; activeCustomModelId: number | null; workspaceRules: string | null };
 
 const projects = new Map<number, ProjectRecord>();
 const tasks = new Map<number, TaskRecord>();
+const customModels = new Map<number, CustomModelRecord>();
+const modelSettings = new Map<number, SettingsRecord>();
 let nextProjectId = 100;
 let nextTaskId = 700;
+let nextCustomModelId = 900;
 
 const createProjectSpy = vi.fn(async (ownerId: number, input: { name: string; description?: string | null }) => {
   const project = { id: nextProjectId++, workspaceId: ownerId, name: input.name, description: input.description ?? null, status: "active" as const };
@@ -50,19 +55,47 @@ const deleteTaskSpy = vi.fn(async (ownerId: number, taskId: number) => {
   tasks.delete(taskId);
   return true;
 });
+const listCustomModelsSpy = vi.fn(async (ownerId: number) => [...customModels.values()].filter(model => model.workspaceId === ownerId));
+const getSettingsSpy = vi.fn(async (ownerId: number) => {
+  const settings = modelSettings.get(ownerId) ?? { activeProvider: "anthropic" as const, activeModelId: "claude-sonnet", activeCustomModelId: null, workspaceRules: null };
+  modelSettings.set(ownerId, settings);
+  return { ...settings, customModels: await listCustomModelsSpy(ownerId) };
+});
+const createCustomModelSpy = vi.fn(async (ownerId: number, input: { name: string; modelId: string; baseUrl: string; compatibility: "openai" | "anthropic"; supportsImageInput: boolean }) => {
+  const model = { id: nextCustomModelId++, workspaceId: ownerId, name: input.name, modelId: input.modelId, baseUrl: input.baseUrl, compatibility: input.compatibility, supportsImageInput: input.supportsImageInput, hasApiKey: true as const };
+  customModels.set(model.id, model);
+  return model;
+});
+const deleteCustomModelSpy = vi.fn(async (ownerId: number, modelId: number) => {
+  const model = customModels.get(modelId);
+  if (!model || model.workspaceId !== ownerId) return false;
+  customModels.delete(modelId);
+  return true;
+});
+const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsRecord>) => {
+  const previous = modelSettings.get(ownerId) ?? { activeProvider: "anthropic" as const, activeModelId: "claude-sonnet", activeCustomModelId: null, workspaceRules: null };
+  if (input.activeCustomModelId && customModels.get(input.activeCustomModelId)?.workspaceId !== ownerId) return undefined;
+  const next = { ...previous, ...input };
+  modelSettings.set(ownerId, next);
+  return getSettingsSpy(ownerId);
+});
 
 vi.mock("./db", () => ({
   createProjectForUser: createProjectSpy,
   createTaskForUser: createTaskSpy,
+  createCustomModelForUser: createCustomModelSpy,
+  deleteCustomModelForUser: deleteCustomModelSpy,
   deleteProjectForUser: deleteProjectSpy,
   deleteTaskForUser: deleteTaskSpy,
   getOrCreateWorkspace: vi.fn(async (ownerId: number) => ({ id: ownerId, ownerId, name: "Space" })),
+  getWorkspaceModelSettingsForUser: getSettingsSpy,
   getProjectForUser: getProjectSpy,
   getWorkspaceDashboard: vi.fn(async (ownerId: number) => ({ workspace: { id: ownerId, ownerId, name: "Space" }, projects: await listProjectsSpy(ownerId), tasks: await listTasksSpy(ownerId) })),
   listProjectsForUser: listProjectsSpy,
   listTasksForUser: listTasksSpy,
   updateProjectForUser: updateProjectSpy,
   updateTaskStatusForUser: updateTaskSpy,
+  updateWorkspaceModelSettingsForUser: updateSettingsSpy,
 }));
 
 const { appRouter } = await import("./routers");
@@ -72,7 +105,7 @@ function contextFor(id: number): TrpcContext {
 }
 
 describe("Nova workspace authenticated API", () => {
-  beforeEach(() => { projects.clear(); tasks.clear(); nextProjectId = 100; nextTaskId = 700; vi.clearAllMocks(); });
+  beforeEach(() => { projects.clear(); tasks.clear(); customModels.clear(); modelSettings.clear(); nextProjectId = 100; nextTaskId = 700; nextCustomModelId = 900; vi.clearAllMocks(); });
 
   it("creates, reads, updates, and deletes a project through the authenticated router", async () => {
     const caller = appRouter.createCaller(contextFor(41));
@@ -107,5 +140,17 @@ describe("Nova workspace authenticated API", () => {
     await expect(stranger.tasks.create({ projectId: project.id, title: "Not allowed" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.tasks.updateStatus({ id: task.id, status: "done" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.tasks.delete({ id: task.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("keeps custom model credentials and selections inside the owning workspace", async () => {
+    const owner = appRouter.createCaller(contextFor(41));
+    const stranger = appRouter.createCaller(contextFor(82));
+    const model = await owner.models.createCustom({ name: "My endpoint", modelId: "my-model", baseUrl: "https://models.example.test/v1", compatibility: "openai", apiKey: "never-return-this", supportsImageInput: true });
+    expect(model).toMatchObject({ name: "My endpoint", hasApiKey: true });
+    expect(JSON.stringify(model)).not.toContain("never-return-this");
+    await expect(owner.workspace.updateSettings({ activeProvider: "custom", activeCustomModelId: model.id })).resolves.toMatchObject({ activeProvider: "custom", activeCustomModelId: model.id });
+    expect((await stranger.workspace.modelSettings()).customModels).toEqual([]);
+    await expect(stranger.workspace.updateSettings({ activeProvider: "custom", activeCustomModelId: model.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(stranger.models.deleteCustom({ id: model.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

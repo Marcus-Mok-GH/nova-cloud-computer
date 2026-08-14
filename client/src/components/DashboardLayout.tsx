@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Globe2, LayoutDashboard, LogOut, PanelLeft } from "lucide-react";
+import { Globe2, LayoutDashboard, LogOut, PanelLeft, SlidersHorizontal } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -30,6 +30,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "My space", path: "/app" },
+  { icon: SlidersHorizontal, label: "Settings", path: "/app/settings" },
   { icon: Globe2, label: "Website", path: "/" },
 ];
 

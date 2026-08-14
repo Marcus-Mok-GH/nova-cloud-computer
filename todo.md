@@ -16,3 +16,21 @@
 - [x] Verify project and task mutations against the live database.
 - [x] Add authenticated router CRUD tests for project and task operations.
 - [x] Extend cross-user tests to cover read, update, and project isolation.
+
+# Zo Computer Product Alignment
+
+- [x] Research Zo Computer’s current capabilities, operating model, and positioning from primary sources.
+- [x] Translate the findings into Nova-specific product requirements and messaging changes.
+- [x] Update the landing page and authenticated workspace to reflect the new product model.
+- [x] Verify the research-informed product experience and changed flows.
+
+# Workspace-First Model Settings
+
+- [x] Add persistent workspace preferences and active-model selection.
+- [x] Add private, encrypted custom-model configuration storage.
+- [x] Add authenticated APIs for provider and custom-model management.
+- [x] Build model selection and custom-provider configuration screens.
+- [x] Verify model configuration privacy and user-scoped access.
+- [x] Browser-verify the updated personal-cloud landing page.
+- [x] Browser-verify the workspace settings layout and model configuration controls; defer signed-in interaction at the user’s request.
+- [x] Record that optional signed-in browser interaction testing was deferred at the user’s request.

@@ -1,7 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, projects, tasks, users, workspaces } from "../drizzle/schema";
+import { customModels, InsertUser, projects, tasks, users, workspaces, workspaceSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { encryptModelApiKey } from "./modelSecrets";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -106,6 +107,98 @@ export async function getOrCreateWorkspace(ownerId: number) {
   return created[0];
 }
 
+type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom";
+type ModelCompatibility = "openai" | "anthropic";
+
+function toSafeCustomModel(model: typeof customModels.$inferSelect) {
+  const { encryptedApiKey: _encryptedApiKey, ...safeModel } = model;
+  return { ...safeModel, hasApiKey: true };
+}
+
+async function getOrCreateWorkspaceSettings(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const existing = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspace.id)).limit(1);
+  if (existing[0]) return existing[0];
+  await db.insert(workspaceSettings).values({ workspaceId: workspace.id });
+  const created = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspace.id)).limit(1);
+  if (!created[0]) throw new Error("Nova could not create workspace settings.");
+  return created[0];
+}
+
+export async function listCustomModelsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const models = await db.select().from(customModels).where(eq(customModels.workspaceId, workspace.id)).orderBy(asc(customModels.createdAt));
+  return models.map(toSafeCustomModel);
+}
+
+async function getCustomModelForUser(ownerId: number, customModelId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const result = await db.select().from(customModels).where(and(eq(customModels.id, customModelId), eq(customModels.workspaceId, workspace.id))).limit(1);
+  return result[0];
+}
+
+export async function createCustomModelForUser(ownerId: number, input: { name: string; modelId: string; baseUrl: string; compatibility: ModelCompatibility; apiKey: string; supportsImageInput: boolean }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  await db.insert(customModels).values({
+    workspaceId: workspace.id,
+    name: input.name,
+    modelId: input.modelId,
+    baseUrl: input.baseUrl,
+    compatibility: input.compatibility,
+    encryptedApiKey: encryptModelApiKey(input.apiKey),
+    supportsImageInput: input.supportsImageInput,
+  });
+  const created = await db.select().from(customModels).where(and(eq(customModels.workspaceId, workspace.id), eq(customModels.name, input.name))).orderBy(asc(customModels.id));
+  const model = created.at(-1);
+  if (!model) throw new Error("Nova could not save the custom model.");
+  return toSafeCustomModel(model);
+}
+
+export async function deleteCustomModelForUser(ownerId: number, customModelId: number) {
+  const db = await requireDb();
+  const model = await getCustomModelForUser(ownerId, customModelId);
+  if (!model) return false;
+  await db.delete(customModels).where(eq(customModels.id, model.id));
+  const settings = await getOrCreateWorkspaceSettings(ownerId);
+  if (settings.activeCustomModelId === model.id) {
+    await db.update(workspaceSettings).set({ activeProvider: "anthropic", activeModelId: "claude-sonnet", activeCustomModelId: null }).where(eq(workspaceSettings.id, settings.id));
+  }
+  return true;
+}
+
+export async function getWorkspaceModelSettingsForUser(ownerId: number) {
+  const [settings, models] = await Promise.all([getOrCreateWorkspaceSettings(ownerId), listCustomModelsForUser(ownerId)]);
+  return { ...settings, customModels: models };
+}
+
+export async function updateWorkspaceModelSettingsForUser(ownerId: number, input: { activeProvider?: ActiveProvider; activeModelId?: string; activeCustomModelId?: number | null; workspaceRules?: string | null }) {
+  const db = await requireDb();
+  const settings = await getOrCreateWorkspaceSettings(ownerId);
+  const updateSet: Partial<typeof workspaceSettings.$inferInsert> = {};
+
+  if (input.activeCustomModelId !== undefined && input.activeCustomModelId !== null) {
+    const model = await getCustomModelForUser(ownerId, input.activeCustomModelId);
+    if (!model) return undefined;
+    updateSet.activeCustomModelId = model.id;
+    if (input.activeProvider === "custom") updateSet.activeModelId = model.modelId;
+  } else if (input.activeCustomModelId === null) {
+    updateSet.activeCustomModelId = null;
+  }
+
+  if (input.activeProvider === "custom" && (input.activeCustomModelId ?? settings.activeCustomModelId) === null) return undefined;
+  if (input.activeProvider !== undefined) updateSet.activeProvider = input.activeProvider;
+  if (input.activeModelId !== undefined) updateSet.activeModelId = input.activeModelId;
+  if (input.workspaceRules !== undefined) updateSet.workspaceRules = input.workspaceRules;
+  if (Object.keys(updateSet).length === 0) return getWorkspaceModelSettingsForUser(ownerId);
+
+  await db.update(workspaceSettings).set(updateSet).where(eq(workspaceSettings.id, settings.id));
+  return getWorkspaceModelSettingsForUser(ownerId);
+}
+
 export async function listProjectsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
@@ -202,6 +295,6 @@ export async function deleteTaskForUser(ownerId: number, taskId: number) {
 
 export async function getWorkspaceDashboard(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [projectRows, taskRows] = await Promise.all([listProjectsForUser(ownerId), listTasksForUser(ownerId)]);
-  return { workspace, projects: projectRows, tasks: taskRows };
+  const [projectRows, taskRows, settings] = await Promise.all([listProjectsForUser(ownerId), listTasksForUser(ownerId), getWorkspaceModelSettingsForUser(ownerId)]);
+  return { workspace, projects: projectRows, tasks: taskRows, settings };
 }

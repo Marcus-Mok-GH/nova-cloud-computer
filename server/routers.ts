@@ -4,15 +4,19 @@ import { z } from "zod";
 import {
   createProjectForUser,
   createTaskForUser,
+  createCustomModelForUser,
+  deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
   getProjectForUser,
   getOrCreateWorkspace,
+  getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
   listProjectsForUser,
   listTasksForUser,
   updateTaskStatusForUser,
   updateProjectForUser,
+  updateWorkspaceModelSettingsForUser,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -25,12 +29,28 @@ const projectInput = z.object({
 
 const taskStatus = z.enum(["todo", "in_progress", "done"]);
 const projectStatus = z.enum(["active", "archived"]);
+const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom"]);
+const modelCompatibility = z.enum(["openai", "anthropic"]);
 const projectUpdateInput = z.object({
   id: z.number().int().positive(),
   name: z.string().trim().min(1).max(160).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   status: projectStatus.optional(),
 }).refine(input => input.name !== undefined || input.description !== undefined || input.status !== undefined, { message: "Provide at least one project change." });
+const customModelInput = z.object({
+  name: z.string().trim().min(1, "Give the model a name.").max(120),
+  modelId: z.string().trim().min(1, "A model ID is required.").max(240),
+  baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048),
+  compatibility: modelCompatibility,
+  apiKey: z.string().trim().min(1, "An API key is required.").max(4096),
+  supportsImageInput: z.boolean(),
+});
+const workspaceSettingsInput = z.object({
+  activeProvider: modelProvider.optional(),
+  activeModelId: z.string().trim().min(1).max(240).optional(),
+  activeCustomModelId: z.number().int().positive().nullable().optional(),
+  workspaceRules: z.string().trim().max(8000).nullable().optional(),
+}).refine(input => input.activeProvider !== undefined || input.activeModelId !== undefined || input.activeCustomModelId !== undefined || input.workspaceRules !== undefined, { message: "Provide at least one setting change." });
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -48,6 +68,20 @@ export const appRouter = router({
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
+    modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
+    updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
+      const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
+      if (!settings) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
+      return settings;
+    }),
+  }),
+  models: router({
+    createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)),
+    deleteCustom: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const deleted = await deleteCustomModelForUser(ctx.user.id, input.id);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
+      return { success: true } as const;
+    }),
   }),
   projects: router({
     list: protectedProcedure.query(({ ctx }) => listProjectsForUser(ctx.user.id)),

@@ -8,6 +8,21 @@ import {
 
 type AgentAction = { kind: "folder" | "file"; name: string };
 
+async function runDirectWorkspaceAction(ownerId: number, content: string) {
+  const folder = content.match(/(?:create|make|add)\s+(?:a\s+)?folder\s+(?:named|called)\s+['"]?([^'".\n]+)['"]?/i);
+  if (folder?.[1]?.trim()) {
+    const created = await createWorkspaceFolderForUser(ownerId, { name: folder[1].trim() });
+    if (created) return { reply: `Created the **${created.name}** folder in your private workspace.`, actions: [{ kind: "folder" as const, name: created.name }] };
+  }
+  const file = content.match(/(?:create|make|add)\s+(?:a\s+)?(?:plain text\s+)?file\s+(?:named|called)\s+['"]?([\w.-]+)['"]?/i);
+  if (file?.[1]?.trim()) {
+    const exact = content.match(/(?:containing exactly|with content)\s*:?\s*(.+)$/i)?.[1] ?? "";
+    const created = await createWorkspaceFileForUser(ownerId, { name: file[1].trim(), content: exact });
+    if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
+  }
+  return { reply: "I can create folders and plain-text files here. Try asking: “Create a folder called Notes” or “Create a plain text file named ideas.md containing exactly: …”", actions: [] as AgentAction[] };
+}
+
 const tools = [
   { type: "function", function: { name: "create_folder", description: "Create a private folder in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "create_file", description: "Create a plain-text file in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" }, content: { type: "string" } }, required: ["name", "content"] } } },
@@ -15,9 +30,21 @@ const tools = [
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+  if (!process.env.BUILT_IN_FORGE_API_KEY && !process.env.OPENAI_API_KEY) {
+    const direct = await runDirectWorkspaceAction(ownerId, content);
+    const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
+    return { message, actions: direct.actions };
+  }
   const computer = await getWorkspaceComputer(ownerId);
   const context = `You are Nova, a concise helpful agent inside a private computer workspace. You may create folders and plain-text files only when the user clearly asks. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
-  const initial = await invokeLLM({ model: "gpt-5-mini", messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
+  let initial;
+  try {
+    initial = await invokeLLM({ model: "gpt-5-mini", messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
+  } catch {
+    const direct = await runDirectWorkspaceAction(ownerId, content);
+    const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
+    return { message, actions: direct.actions };
+  }
   const choice = initial.choices[0]?.message as any;
   const toolCalls = choice?.tool_calls ?? [];
   const actions: AgentAction[] = [];

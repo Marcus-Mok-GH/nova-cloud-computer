@@ -3,12 +3,40 @@ import {
   appendChatMessageForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
+  deleteWorkspaceFileForUser,
+  deleteWorkspaceFolderForUser,
   getWorkspaceComputer,
+  updateWorkspaceFileForUser,
+  updateWorkspaceFolderForUser,
 } from "./db";
 
-type AgentAction = { kind: "folder" | "file"; name: string };
+type AgentAction = { kind: "folder" | "file"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" };
 
 async function runDirectWorkspaceAction(ownerId: number, content: string) {
+  const computer = await getWorkspaceComputer(ownerId);
+  const renameFile = content.match(/rename\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?\s+to\s+['"]?([\w.-]+)['"]?/i);
+  if (renameFile?.[1] && renameFile[2]) {
+    const file = computer.files.find(item => item.name.toLowerCase() === renameFile[1].toLowerCase());
+    const updated = file && await updateWorkspaceFileForUser(ownerId, file.id, { name: renameFile[2] });
+    if (updated) return { reply: `Renamed **${file.name}** to **${updated.name}**.`, actions: [{ kind: "file" as const, name: updated.name, operation: "renamed" as const }] };
+  }
+  const moveFile = content.match(/move\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?\s+(?:to|into)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i);
+  if (moveFile?.[1] && moveFile[2]) {
+    const file = computer.files.find(item => item.name.toLowerCase() === moveFile[1].toLowerCase());
+    const folder = computer.folders.find(item => item.name.toLowerCase() === moveFile[2].trim().toLowerCase());
+    const updated = file && folder && await updateWorkspaceFileForUser(ownerId, file.id, { folderId: folder.id });
+    if (updated) return { reply: `Moved **${file.name}** into **${folder.name}**.`, actions: [{ kind: "file" as const, name: file.name, operation: "moved" as const }] };
+  }
+  const deleteFile = content.match(/(?:delete|remove)\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?/i);
+  if (deleteFile?.[1]) {
+    const file = computer.files.find(item => item.name.toLowerCase() === deleteFile[1].toLowerCase());
+    if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) return { reply: `Deleted **${file.name}** from your private workspace.`, actions: [{ kind: "file" as const, name: file.name, operation: "deleted" as const }] };
+  }
+  const deleteFolder = content.match(/(?:delete|remove)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i);
+  if (deleteFolder?.[1]) {
+    const folder = computer.folders.find(item => item.name.toLowerCase() === deleteFolder[1].trim().toLowerCase());
+    if (folder && await deleteWorkspaceFolderForUser(ownerId, folder.id)) return { reply: `Deleted the **${folder.name}** folder and its contents.`, actions: [{ kind: "folder" as const, name: folder.name, operation: "deleted" as const }] };
+  }
   const folder = content.match(/(?:create|make|add)\s+(?:a\s+)?folder\s+(?:named|called)\s+['"]?([^'".\n]+)['"]?/i);
   if (folder?.[1]?.trim()) {
     const created = await createWorkspaceFolderForUser(ownerId, { name: folder[1].trim() });
@@ -26,6 +54,8 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
 const tools = [
   { type: "function", function: { name: "create_folder", description: "Create a private folder in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "create_file", description: "Create a plain-text file in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" }, content: { type: "string" } }, required: ["name", "content"] } } },
+  { type: "function", function: { name: "rename_file", description: "Rename an existing workspace file by exact current name.", parameters: { type: "object", properties: { currentName: { type: "string" }, newName: { type: "string" } }, required: ["currentName", "newName"] } } },
+  { type: "function", function: { name: "delete_file", description: "Delete an existing workspace file by exact name when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
 ];
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
@@ -52,7 +82,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
 
   for (const call of toolCalls.slice(0, 3)) {
     try {
-      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string };
+      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; currentName?: string; newName?: string };
       if (!args.name?.trim()) continue;
       if (call.function.name === "create_folder") {
         const folder = await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() });
@@ -61,6 +91,17 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
       if (call.function.name === "create_file") {
         const file = await createWorkspaceFileForUser(ownerId, { name: args.name.trim(), content: args.content ?? "" });
         if (file) actions.push({ kind: "file", name: file.name });
+      }
+      if (call.function.name === "rename_file") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const file = computer.files.find(item => item.name === args.currentName);
+        const updated = file && args.newName ? await updateWorkspaceFileForUser(ownerId, file.id, { name: args.newName }) : undefined;
+        if (updated) actions.push({ kind: "file", name: updated.name, operation: "renamed" });
+      }
+      if (call.function.name === "delete_file") {
+        const computer = await getWorkspaceComputer(ownerId);
+        const file = computer.files.find(item => item.name === args.name);
+        if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) actions.push({ kind: "file", name: file.name, operation: "deleted" });
       }
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true }) });
     } catch {

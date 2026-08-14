@@ -84,9 +84,12 @@
 - [x] Derive the Neon Auth endpoint from the original request URL when Vercel omits the catch-all route parameter.
 - [x] Preserve Neon’s signed-session response header through the catch-all proxy so the browser client forwards a JWT to Nova’s API.
 - [x] Use the verified same-origin Neon token endpoint as the workspace bearer-token fallback when the installed adapter does not surface the signed session header.
-- [ ] Replace the logged-in project dashboard with a chat-first personal cloud workspace.
-- [ ] Add tenant-scoped folders and files that users and Nova’s AI agent can create, organize, rename, and remove.
-- [ ] Persist chats and messages and present conversations as a dedicated lower-navigation destination.
-- [ ] Add a lower authenticated navigation for Deployments, Chats, and Settings.
-- [ ] Wire agent chat requests to safe workspace file and folder actions.
-- [ ] Verify the redesigned authenticated workspace with tests and browser checks.
+- [x] Replace the logged-in project dashboard with a chat-first personal cloud workspace.
+- [x] Add tenant-scoped folders and files that users and Nova’s AI agent can create, organize, rename, and remove.
+- [x] Persist chats and messages and present conversations as a dedicated lower-navigation destination.
+- [x] Add a lower authenticated navigation for Deployments, Chats, and Settings.
+- [x] Wire agent chat requests to safe workspace file and folder actions.
+- [x] Verify the redesigned authenticated workspace with tests and browser checks.
+- [ ] Load persisted chat history after navigation or reload and let users open conversations from the Chats destination.
+- [ ] Add user and agent support for file and folder rename, move, and delete actions in the chat-first workspace.
+- [ ] Add regression and browser coverage for workspace item CRUD and persisted conversation history.

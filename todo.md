@@ -40,3 +40,8 @@
 - [x] Create a private GitHub repository for the Nova workspace.
 - [x] Push the complete project source, migrations, tests, and documentation.
 - [x] Verify the remote repository contains the exported workspace.
+
+# GitHub Visibility
+
+- [x] Change the Nova repository visibility to public.
+- [x] Verify the public repository URL and visibility.

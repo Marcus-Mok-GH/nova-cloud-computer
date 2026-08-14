@@ -79,3 +79,4 @@
 - [ ] Use a same-origin dynamic Neon Auth base path because the installed Neon adapter bypasses caller-supplied custom fetch implementations.
 - [ ] Rewrite proxied Neon Auth session-cookie domains for Nova’s same-origin host so the browser retains the callback session.
 - [x] Include the static Neon Auth proxy-cookie regression test in Vitest discovery and rerun the complete suite.
+- [ ] Replace the query-injected proxy route because it drops the callback verifier before the upstream Neon session exchange.

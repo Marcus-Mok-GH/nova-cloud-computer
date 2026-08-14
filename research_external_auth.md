@@ -81,6 +81,14 @@ The same-origin dynamic-path release accepted a final new canonical request and 
 
 The active inbox delivered its corresponding Neon Auth message. Its raw one-time verification URL is intentionally omitted from the diagnostic record.
 
+The first-party session-cookie release accepted a new signed-out canonical request and displayed Nova’s email-confirmation state. The matching raw callback is being verified next.
+
+During the inbox retrieval step, the disposable-mail provider rotated its active address before the newest message appeared in the visible inbox. A subsequent clean-session request will use the current active inbox address to avoid relying on the rotated mailbox state.
+
+Nova accepted the new canonical request for the current active disposable inbox and displayed the expected email-confirmation state. The corresponding raw callback is being retrieved now.
+
+The current active inbox received the matching Neon Auth message promptly. Its raw one-time verification URL is intentionally not retained in this record.
+
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
 ## GitHub-to-Vercel linkage

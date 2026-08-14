@@ -8,13 +8,26 @@ export const neonAuth = authUrl
   : null;
 
 type NeonTokenResult = { data?: { token?: string | null } | null };
+type NeonAuthTokenClient = {
+  getSession: () => Promise<unknown>;
+  token: () => Promise<NeonTokenResult>;
+};
 
 export function extractNeonJwt(result: NeonTokenResult) {
   return result.data?.token ?? null;
 }
 
+/**
+ * `getSession()` consumes Neon’s magic-link verifier when one is present in the
+ * callback URL. Only after that exchange can `token()` yield the signed JWT
+ * Nova sends to its protected API.
+ */
+export async function exchangeNeonVerifierAndGetJwt(client: NeonAuthTokenClient) {
+  await client.getSession();
+  return extractNeonJwt(await client.token());
+}
+
 export async function getNeonAccessToken() {
   if (!neonAuth) return null;
-  const result = await neonAuth.token();
-  return extractNeonJwt(result);
+  return exchangeNeonVerifierAndGetJwt(neonAuth);
 }

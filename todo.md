@@ -71,3 +71,4 @@
 - [x] Record that the completed clean-session production test covered the exact deployed JWT-token code state before any subsequent documentation push.
 - [x] Include the Neon JWT client regression test in Vitest discovery and rerun the complete automated suite.
 - [x] Add an explicit deployment-and-commit record for the clean-session success to the external-auth verification document before saving the checkpoint.
+- [ ] Reproduce, diagnose, and resolve the newly reported canonical-domain magic-link “Load failed” regression using current Vercel and browser evidence.

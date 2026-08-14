@@ -53,6 +53,14 @@ Vercel production logs were queried during the post-deployment verification wind
 
 **Verification record:** the successful clean-session production run was performed against Vercel deployment `dpl_DAxVosXcwJgvTr2Zjbvz6E1wp31V`, which deployed Git commit `0c51929` (“Use Neon JWT for authenticated API requests”). It completed before any subsequent documentation or Vitest-configuration commit. Vitest discovery now includes `client/src/**/*.test.ts`; the full suite executed 15 passing tests across six files, with two pre-existing integration tests skipped, and the subsequent production build completed successfully.
 
+### 14 August 2026 regression check
+
+After a subsequent user report of “Load failed,” the canonical sign-in route was reopened from a deliberately signed-out browser. A new request for the approved test inbox completed and displayed Nova’s in-product “Check your email” confirmation; this particular client-side request did not reproduce the reported error. The newly issued magic-link callback and the contemporaneous Vercel logs are being checked next.
+
+To remove the possibility of an expired or rotated inbox state, a second signed-out canonical request was sent to the currently active test inbox. Its Neon Auth “Sign In to nova-neon” email arrived immediately, named the canonical `https://nova-cloud-computer.vercel.app/app` callback, and exposed a time-limited raw verification URL. The single-use secret is intentionally not stored here.
+
+The second raw verification URL redirected to Nova’s canonical callback with a fresh `neon_auth_session_verifier` query parameter, but Nova then rendered “Sign in to continue” rather than the workspace. This reproduces an authentication failure after a delivered magic link, even though the email-request step succeeds. Vercel showed no application runtime error after the callback and no new protected API request, which established that the failure occurs before Nova can receive a bearer token. The root cause is that the JWT-only client path called `token()` without first calling `getSession()`, so Neon never consumed the callback verifier and established the browser session. Nova now calls `getSession()` first and then requests the signed JWT; local regression coverage verifies that order. The production retest is pending.
+
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
 ## GitHub-to-Vercel linkage

@@ -27,7 +27,7 @@ export default function Workspace() {
   const renameFile = trpc.files.update.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const removeFile = trpc.files.delete.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
-  const send = trpc.chats.send.useMutation({ onSuccess: result => { setChatId(result.chatId); setConversation(current => [...current, { role: "assistant", content: result.message?.content ?? "I’m ready to help with this workspace." }]); utils.workspace.computer.invalidate(); }, onError: error => toast.error(error.message) });
+  const send = trpc.chats.send.useMutation({ onSuccess: result => { setChatId(result.chatId); setConversation(current => [...current, { role: "assistant", content: result.message?.content ?? "I’m ready to help with this workspace." }]); utils.workspace.computer.invalidate(); utils.chats.messages.invalidate({ chatId: result.chatId }); }, onError: error => toast.error(error.message) });
   const make = (kind: "folder" | "file") => {
     const name = window.prompt(`Name this ${kind}`)?.trim();
     if (!name) return;

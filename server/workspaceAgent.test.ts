@@ -4,6 +4,7 @@ const append = vi.fn(async (_owner: number, input: { role: string; content: stri
 const createFile = vi.fn(async (_owner: number, input: { name: string; content?: string }) => ({ id: 2, ...input }));
 const updateFolder = vi.fn(async (_owner: number, id: number, input: { name?: string; parentId?: number | null }) => ({ id, name: input.name ?? "Notes", parentId: input.parentId ?? null }));
 const updateFile = vi.fn(async (_owner: number, id: number, input: { folderId?: number | null }) => ({ id, name: "welcome.md", folderId: input.folderId ?? null }));
+const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
 const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
 const invoke = vi.fn();
@@ -15,7 +16,7 @@ vi.mock("./db", () => ({
   getWorkspaceComputer: computer,
   updateWorkspaceFolderForUser: updateFolder,
   updateWorkspaceFileForUser: updateFile,
-  deleteWorkspaceFileForUser: vi.fn(),
+  deleteWorkspaceFileForUser: deleteFile,
   deleteWorkspaceFolderForUser: deleteFolder,
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
@@ -49,6 +50,13 @@ describe("Nova keyless workspace agent", () => {
     delete process.env.OPENAI_API_KEY;
     await expect(runWorkspaceAgent(7, 3, "Move file welcome.md into folder Archive")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "moved", name: "welcome.md" }] });
     expect(updateFile).toHaveBeenCalledWith(7, 15, { folderId: 11 });
+  });
+
+  it("deletes a requested file even when the sentence ends with punctuation", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    await expect(runWorkspaceAgent(7, 3, "Delete file welcome.md.")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "deleted", name: "welcome.md" }] });
+    expect(deleteFile).toHaveBeenCalledWith(7, 15);
   });
 
   it("executes folder deletion from the hosted-model tool path", async () => {

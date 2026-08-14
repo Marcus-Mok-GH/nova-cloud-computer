@@ -40,7 +40,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const updated = file && folder && await updateWorkspaceFileForUser(ownerId, file.id, { folderId: folder.id });
     if (updated) return { reply: `Moved **${file.name}** into **${folder.name}**.`, actions: [{ kind: "file" as const, name: file.name, operation: "moved" as const }] };
   }
-  const deleteFile = content.match(/(?:delete|remove)\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?/i);
+  const deleteFile = content.match(/(?:delete|remove)\s+(?:the\s+)?file\s+['"]?([\w-]+(?:\.[\w-]+)?)/i);
   if (deleteFile?.[1]) {
     const file = computer.files.find(item => item.name.toLowerCase() === deleteFile[1].toLowerCase());
     if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) return { reply: `Deleted **${file.name}** from your private workspace.`, actions: [{ kind: "file" as const, name: file.name, operation: "deleted" as const }] };
@@ -61,7 +61,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const created = await createWorkspaceFileForUser(ownerId, { name: file[1].trim(), content: exact });
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
-  return { reply: "I can create folders and plain-text files here. Try asking: “Create a folder called Notes” or “Create a plain text file named ideas.md containing exactly: …”", actions: [] as AgentAction[] };
+  return { reply: "I can create, rename, move, and delete folders or plain-text files here. Try asking: “Create a folder called Notes” or “Move file ideas.md into folder Notes.”", actions: [] as AgentAction[] };
 }
 
 const tools = [

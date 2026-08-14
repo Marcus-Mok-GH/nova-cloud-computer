@@ -14,6 +14,11 @@ export function getNeonAuthPathFromCatchall(path: string | string[] | undefined)
   return segments[0] === "neon-auth" ? segments.slice(1).map(segment => encodeURIComponent(segment)).join("/") : null;
 }
 
+export function getNeonAuthPathFromRequestUrl(requestUrl: string | undefined) {
+  const pathname = new URL(requestUrl ?? "/", "http://nova-proxy.local").pathname;
+  return getNeonAuthPathFromCatchall(pathname.replace(/^\/api\/?/u, ""));
+}
+
 function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
@@ -68,7 +73,7 @@ async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: stri
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
-  const proxyPath = getNeonAuthPathFromCatchall(req.query.path);
+  const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
   return app(req, res);
 }

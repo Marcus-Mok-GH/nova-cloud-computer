@@ -69,6 +69,10 @@ The later cross-origin-cookie deployment `dpl_E8d5So1qvMx9cPnzctmQNTADWYWj` for 
 
 The active test inbox received the new Neon Auth message for this final request. Its raw verification URL names the canonical Nova callback; the single-use secret is intentionally omitted from this record.
 
+The static same-origin proxy endpoint later returned a valid unauthenticated `200` response instead of the earlier invalid-hostname, function-invocation, and routing failures. Nova then accepted a fresh canonical magic-link request and displayed its email confirmation. The final callback verification is now in progress.
+
+The active test inbox delivered the corresponding Neon Auth email promptly. Its raw verification URL targets the canonical Nova callback; the time-limited token is not retained in this document.
+
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
 ## GitHub-to-Vercel linkage

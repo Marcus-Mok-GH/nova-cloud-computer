@@ -31,7 +31,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const proxyPath = typeof req.query.proxyPath === "string" ? req.query.proxyPath : "";
   const path = proxyPath.split("/").filter(Boolean).map(segment => encodeURIComponent(segment)).join("/");
-  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${new URL(req.url ?? "/", "http://nova-proxy.local").search.replace(/([?&])proxyPath=[^&]*/u, "$1").replace(/[?&]$/u, "")}`;
+  const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
+  requestUrl.searchParams.delete("proxyPath");
+  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${requestUrl.search}`;
 
   try {
     const upstream = await fetch(targetUrl, {

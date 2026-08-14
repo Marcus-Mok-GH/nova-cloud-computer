@@ -2,7 +2,6 @@
   "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
   "outputDirectory": "dist/public",
   "routes": [
-    { "src": "/neon-auth/(.*)", "dest": "/api/neon-auth?proxyPath=$1" },
     { "src": "/api/neon-auth", "dest": "/api/neon-auth.ts" },
     { "src": "/api/(.*)", "dest": "/api/[...path].ts" },
     { "handle": "filesystem" },

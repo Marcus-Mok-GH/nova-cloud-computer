@@ -71,16 +71,16 @@
 - [x] Record that the completed clean-session production test covered the exact deployed JWT-token code state before any subsequent documentation push.
 - [x] Include the Neon JWT client regression test in Vitest discovery and rerun the complete automated suite.
 - [x] Add an explicit deployment-and-commit record for the clean-session success to the external-auth verification document before saving the checkpoint.
-- [ ] Reproduce, diagnose, and resolve the newly reported canonical-domain magic-link “Load failed” regression using current Vercel and browser evidence.
-- [ ] Proxy Neon Auth through Nova’s canonical Vercel origin so browser sessions do not depend on third-party-cookie availability.
-- [ ] Replace the invalid-hostname external rewrite with a serverless Neon Auth proxy that forwards request bodies, cookies, and upstream response headers safely.
-- [ ] Route the public Neon Auth proxy through a static Vercel function endpoint because the nested catch-all destination returns 404.
-- [ ] Preserve Neon Auth callback query parameters through the static proxy so `neon_auth_session_verifier` reaches the session exchange endpoint.
-- [ ] Use a same-origin dynamic Neon Auth base path because the installed Neon adapter bypasses caller-supplied custom fetch implementations.
-- [ ] Rewrite proxied Neon Auth session-cookie domains for Nova’s same-origin host so the browser retains the callback session.
+- [x] Reproduce, diagnose, and resolve the newly reported canonical-domain magic-link “Load failed” regression using current Vercel and browser evidence.
+- [x] Proxy Neon Auth through Nova’s canonical Vercel origin so browser sessions do not depend on third-party-cookie availability.
+- [x] Replace the invalid-hostname external rewrite with a serverless Neon Auth proxy that forwards request bodies, cookies, and upstream response headers safely.
+- [x] Retire the public static Vercel function endpoint after nested routing proved unreliable; dispatch Neon Auth through the proven API catch-all instead.
+- [x] Preserve Neon Auth callback query parameters through the API catch-all so `neon_auth_session_verifier` reaches the session exchange endpoint.
+- [x] Use a same-origin dynamic Neon Auth base path because the installed Neon adapter bypasses caller-supplied custom fetch implementations.
+- [x] Rewrite proxied Neon Auth session-cookie domains for Nova’s same-origin host so the browser retains the callback session.
 - [x] Include the static Neon Auth proxy-cookie regression test in Vitest discovery and rerun the complete suite.
-- [ ] Replace the query-injected proxy route because it drops the callback verifier before the upstream Neon session exchange.
-- [ ] Dispatch Neon Auth proxy requests inside the proven Vercel catch-all API function instead of relying on unresolved nested function routing.
-- [ ] Derive the Neon Auth endpoint from the original request URL when Vercel omits the catch-all route parameter.
-- [ ] Preserve Neon’s signed-session response header through the catch-all proxy so the browser client forwards a JWT to Nova’s API.
-- [ ] Use the verified same-origin Neon token endpoint as the workspace bearer-token fallback when the installed adapter does not surface the signed session header.
+- [x] Replace the query-injected proxy route because it drops the callback verifier before the upstream Neon session exchange.
+- [x] Dispatch Neon Auth proxy requests inside the proven Vercel catch-all API function instead of relying on unresolved nested function routing.
+- [x] Derive the Neon Auth endpoint from the original request URL when Vercel omits the catch-all route parameter.
+- [x] Preserve Neon’s signed-session response header through the catch-all proxy so the browser client forwards a JWT to Nova’s API.
+- [x] Use the verified same-origin Neon token endpoint as the workspace bearer-token fallback when the installed adapter does not surface the signed session header.

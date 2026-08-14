@@ -73,3 +73,4 @@
 - [x] Add an explicit deployment-and-commit record for the clean-session success to the external-auth verification document before saving the checkpoint.
 - [ ] Reproduce, diagnose, and resolve the newly reported canonical-domain magic-link “Load failed” regression using current Vercel and browser evidence.
 - [ ] Proxy Neon Auth through Nova’s canonical Vercel origin so browser sessions do not depend on third-party-cookie availability.
+- [ ] Replace the invalid-hostname external rewrite with a serverless Neon Auth proxy that forwards request bodies, cookies, and upstream response headers safely.

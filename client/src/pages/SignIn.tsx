@@ -25,10 +25,15 @@ export default function SignIn() {
     }
     setPending(true);
     setError(null);
-    const result = await neonAuth.signIn.magicLink({ email, callbackURL: `${window.location.origin}/app` });
-    setPending(false);
-    if (result.error) setError(result.error.message ?? "Nova could not send that sign-in link.");
-    else setSent(true);
+    try {
+      const result = await neonAuth.signIn.magicLink({ email, callbackURL: `${window.location.origin}/app` });
+      if (result.error) setError(result.error.message ?? "Nova could not send that sign-in link.");
+      else setSent(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Nova could not send that sign-in link.");
+    } finally {
+      setPending(false);
+    }
   }
 
   return <main className="min-h-screen bg-[#f4f3eb] text-[#202522] flex items-center justify-center p-6">

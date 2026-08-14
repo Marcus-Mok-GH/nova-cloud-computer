@@ -23,6 +23,10 @@ Vercel’s native Neon marketplace integration is the selected database path. It
 
 Neon Managed Better Auth supports time-limited, passwordless Magic Link sign-in. Auth stores its users and sessions directly in Neon’s `neon_auth` schema, while the application can obtain a short-lived JWT and verify it against Neon’s JWKS endpoint before serving its API.[4][5] Neon documents custom SMTP as a production requirement for reliable magic-link delivery; its default shared SMTP remains suitable only for development and testing.[6]
 
+## Deployment verification finding
+
+The production root route renders successfully on Vercel. Direct navigation to `/sign-in` returned Vercel `404 NOT_FOUND`, confirming that the static Vite application needs an SPA rewrite so client-side routes are served by `index.html`. This must be corrected before testing the magic-link form.
+
 ## Sources
 
 [1] [Manus Website Builder — Getting started](https://manus.im/docs/website-builder/getting-started)

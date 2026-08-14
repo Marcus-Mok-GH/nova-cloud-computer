@@ -57,3 +57,5 @@
 - [ ] Fix the Vercel-managed Neon connection path and prove an external database connection.
 - [ ] Apply Nova’s Postgres schema and verify workspace persistence on Vercel-managed Neon.
 - [ ] Browser-verify the deployed Neon magic-link session and protected workspace route.
+- [ ] Use a disposable inbox to request, receive, and complete a one-time Nova magic-link sign-in test.
+- [ ] Add a Vercel SPA fallback so direct passwordless routes resolve instead of returning a platform 404.

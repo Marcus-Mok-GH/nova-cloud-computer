@@ -64,4 +64,4 @@
 - [x] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.
 - [x] Verify and record the GitHub-to-Vercel automatic deployment linkage for the public Nova repository.
 - [x] Diagnose and fix the reported production email-login "Load failed" error, then repeat the magic-link verification.
-- [ ] Audit Vercel production environment variables and fix the remaining deployed email-login failure only after reproducing it on the affected domain.
+- [x] Audit Vercel production environment variables and fix the remaining deployed email-login failure only after reproducing it on the affected domain.

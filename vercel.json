@@ -7,6 +7,9 @@
     { "src": "/(.*)", "dest": "/index.html" }
   ],
   "functions": {
-    "api/[...path].ts": { "maxDuration": 10 }
+    "api/[...path].ts": {
+      "maxDuration": 10,
+      "includeFiles": "dist/server/**"
+    }
   }
 }

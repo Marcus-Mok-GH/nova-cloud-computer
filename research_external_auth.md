@@ -31,6 +31,8 @@ After the SPA rewrite was deployed, the direct `/sign-in` route rendered correct
 
 The initial catch-all SPA rewrite also intercepted `/api/health`, returning the client application’s own 404 instead of the serverless response. The fallback therefore needs Vercel filesystem handling before the SPA catch-all so function routes stay reachable.
 
+Vercel’s production build successfully applied Nova’s Postgres migration against the Vercel-managed Neon database (build log, 04:19:43–04:19:44 UTC) and built the Vite client. The first serverless bundle reported two TypeScript diagnostics in `server/app.ts` and `server/_core/context.ts`; those were corrected and redeployed. The deployment metadata reports a Lambda output, but `/api/health` was still captured by the SPA fallback. An explicit `/api/(.*)` route to `/api/[...path].ts` has been added for the next deployment verification.
+
 ## Sources
 
 [1] [Manus Website Builder — Getting started](https://manus.im/docs/website-builder/getting-started)

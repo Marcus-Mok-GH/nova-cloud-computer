@@ -2,6 +2,7 @@
   "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
   "outputDirectory": "dist/public",
   "routes": [
+    { "src": "/api/(.*)", "dest": "/api/[...path].ts" },
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],

@@ -1,8 +1,9 @@
 {
   "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
   "outputDirectory": "dist/public",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
   "functions": {
     "api/[...path].ts": { "maxDuration": 10 }

@@ -27,6 +27,10 @@ Neon Managed Better Auth supports time-limited, passwordless Magic Link sign-in.
 
 The production root route renders successfully on Vercel. Direct navigation to `/sign-in` returned Vercel `404 NOT_FOUND`, confirming that the static Vite application needs an SPA rewrite so client-side routes are served by `index.html`. This must be corrected before testing the magic-link form.
 
+After the SPA rewrite was deployed, the direct `/sign-in` route rendered correctly. A user-approved disposable-inbox request was submitted to the deployed magic-link form; the UI remained in its `Sending secure link…` state rather than reporting a completed request. The next verification step is to inspect the hosted request and Neon Auth configuration before treating email delivery as functional.
+
+The initial catch-all SPA rewrite also intercepted `/api/health`, returning the client application’s own 404 instead of the serverless response. The fallback therefore needs Vercel filesystem handling before the SPA catch-all so function routes stay reachable.
+
 ## Sources
 
 [1] [Manus Website Builder — Getting started](https://manus.im/docs/website-builder/getting-started)

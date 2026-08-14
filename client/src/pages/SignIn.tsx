@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { neonAuth } from "@/lib/neonAuth";
+import { getMagicLinkCallbackUrl } from "@/lib/authCallbackUrl";
 import { ArrowLeft, Mail, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -26,7 +27,10 @@ export default function SignIn() {
     setPending(true);
     setError(null);
     try {
-      const result = await neonAuth.signIn.magicLink({ email, callbackURL: `${window.location.origin}/app` });
+      const result = await neonAuth.signIn.magicLink({
+        email,
+        callbackURL: getMagicLinkCallbackUrl(window.location.origin, import.meta.env.VITE_APP_URL),
+      });
       if (result.error) setError(result.error.message ?? "Nova could not send that sign-in link.");
       else setSent(true);
     } catch (requestError) {

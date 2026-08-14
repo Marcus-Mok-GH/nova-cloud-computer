@@ -34,3 +34,9 @@
 - [x] Browser-verify the updated personal-cloud landing page.
 - [x] Browser-verify the workspace settings layout and model configuration controls; defer signed-in interaction at the user’s request.
 - [x] Record that optional signed-in browser interaction testing was deferred at the user’s request.
+
+# GitHub Export
+
+- [ ] Create a private GitHub repository for the Nova workspace.
+- [ ] Push the complete project source, migrations, tests, and documentation.
+- [ ] Verify the remote repository contains the exported workspace.

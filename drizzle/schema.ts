@@ -1,102 +1,85 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { boolean, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
-export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+/** Internal Nova profile mapped one-to-one to the immutable Neon Auth subject. */
+export const userRole = pgEnum("user_role", ["user", "admin"]);
+export const projectStatus = pgEnum("project_status", ["active", "archived"]);
+export const taskStatus = pgEnum("task_status", ["todo", "in_progress", "done"]);
+export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom"]);
+export const modelCompatibility = pgEnum("model_compatibility", ["openai", "anthropic"]);
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  /** Neon Auth UUID subject. The legacy column name is retained to minimize data-layer churn. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  role: userRole("role").default("user").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+  lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /** A user's private, durable Nova work environment. */
-export const workspaces = mysqlTable(
-  "workspaces",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    ownerId: int("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
-    name: varchar("name", { length: 120 }).notNull(),
-    description: text("description"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [uniqueIndex("workspaces_owner_unique").on(table.ownerId)],
-);
+export const workspaces = pgTable("workspaces", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("workspaces_owner_unique").on(table.ownerId)]);
 
-/** A project groups related work inside one private workspace. */
-export const projects = mysqlTable("projects", {
-  id: int("id").autoincrement().primaryKey(),
-  workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 160 }).notNull(),
   description: text("description"),
-  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  status: projectStatus("status").default("active").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 });
 
-/** A task belongs to both its project and the project's workspace for reliable tenant scoping. */
-export const tasks = mysqlTable("tasks", {
-  id: int("id").autoincrement().primaryKey(),
-  workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  projectId: int("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: integer("projectId").notNull().references(() => projects.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 240 }).notNull(),
   notes: text("notes"),
-  status: mysqlEnum("status", ["todo", "in_progress", "done"]).default("todo").notNull(),
-  position: int("position").default(0).notNull(),
-  dueAt: timestamp("dueAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  status: taskStatus("status").default("todo").notNull(),
+  position: integer("position").default(0).notNull(),
+  dueAt: timestamp("dueAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 });
 
-/** A private custom endpoint. The API key is encrypted server-side and never returned to clients. */
-export const customModels = mysqlTable(
-  "custom_models",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    name: varchar("name", { length: 120 }).notNull(),
-    modelId: varchar("modelId", { length: 240 }).notNull(),
-    baseUrl: varchar("baseUrl", { length: 2048 }).notNull(),
-    compatibility: mysqlEnum("compatibility", ["openai", "anthropic"]).notNull(),
-    encryptedApiKey: text("encryptedApiKey").notNull(),
-    supportsImageInput: boolean("supportsImageInput").default(false).notNull(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [uniqueIndex("custom_models_workspace_name_unique").on(table.workspaceId, table.name)],
-);
+/** Private endpoint credentials are always encrypted before persistence. */
+export const customModels = pgTable("custom_models", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 120 }).notNull(),
+  modelId: varchar("modelId", { length: 240 }).notNull(),
+  baseUrl: varchar("baseUrl", { length: 2048 }).notNull(),
+  compatibility: modelCompatibility("compatibility").notNull(),
+  encryptedApiKey: text("encryptedApiKey").notNull(),
+  supportsImageInput: boolean("supportsImageInput").default(false).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("custom_models_workspace_name_unique").on(table.workspaceId, table.name)]);
 
-/** Durable preferences and the selected assistant model for one private workspace. */
-export const workspaceSettings = mysqlTable(
-  "workspace_settings",
-  {
-    id: int("id").autoincrement().primaryKey(),
-    workspaceId: int("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-    activeProvider: mysqlEnum("activeProvider", ["anthropic", "openai", "gemini", "custom"]).default("anthropic").notNull(),
-    activeModelId: varchar("activeModelId", { length: 240 }).default("claude-sonnet").notNull(),
-    activeCustomModelId: int("activeCustomModelId").references(() => customModels.id, { onDelete: "set null" }),
-    workspaceRules: text("workspaceRules"),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)],
-);
+export const workspaceSettings = pgTable("workspace_settings", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  activeProvider: modelProvider("activeProvider").default("anthropic").notNull(),
+  activeModelId: varchar("activeModelId", { length: 240 }).default("claude-sonnet").notNull(),
+  activeCustomModelId: integer("activeCustomModelId").references(() => customModels.id, { onDelete: "set null" }),
+  workspaceRules: text("workspaceRules"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)]);
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;

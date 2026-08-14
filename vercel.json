@@ -1,0 +1,7 @@
+{
+  "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/[...path].ts": { "maxDuration": 10 }
+  }
+}

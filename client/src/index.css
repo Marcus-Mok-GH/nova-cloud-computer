@@ -36,7 +36,7 @@ a { color: inherit; text-decoration: none; }
 .site-shell { overflow: hidden; background: #f4f3ec; }
 
 .hero-section { min-height: 770px; position: relative; isolation: isolate; padding: 0 4.1vw; background: #f2f1eb; overflow: hidden; }
-.hero-prism, .closing-prism { position: absolute; inset: 0; z-index: -2; background-image: linear-gradient(90deg, rgba(250,242,231,.94), rgba(236,243,239,.75) 48%, rgba(231,240,240,.86)), url('/manus-storage/nova-hero-prism_37426a5b.jpg'); background-size: cover; background-position: center; }
+.hero-prism, .closing-prism { position: absolute; inset: 0; z-index: -2; background-image: linear-gradient(90deg, rgba(250,242,231,.94), rgba(236,243,239,.75) 48%, rgba(231,240,240,.86)), url('https://novacloud-7brtkefk.manus.space/manus-storage/nova-hero-prism_37426a5b.jpg'); background-size: cover; background-position: center; }
 .hero-prism::before, .closing-prism::before { content: ""; position: absolute; width: 49vw; height: 49vw; left: -18vw; top: 7vw; border-radius: 50%; background: rgba(244,197,181,.26); filter: blur(70px); }
 .hero-prism::after, .closing-prism::after { content: ""; position: absolute; width: 46vw; height: 40vw; right: -16vw; top: 12vw; border-radius: 50%; background: rgba(171,211,213,.26); filter: blur(70px); }
 .topbar { height: 74px; width: 100%; display: flex; align-items: center; justify-content: space-between; position: relative; z-index: 5; }
@@ -90,7 +90,7 @@ h1, h2, h3, p { margin-top: 0; }
 .dark { --background: oklch(0.17 0.014 236); --foreground: oklch(0.93 0.01 90); --primary: oklch(0.72 0.048 194); --primary-foreground: oklch(0.17 0.014 236); --card: oklch(0.215 0.017 231); --card-foreground: oklch(0.93 0.01 90); --muted: oklch(0.27 0.018 229); --muted-foreground: oklch(0.72 0.018 102); --border: oklch(0.54 0.019 190 / .28); --ring: oklch(0.72 0.048 194); }
 .dark body, .dark .site-shell { background: #14181a; color: #e8e9df; }
 .dark .hero-section { background: #171b1d; }
-.dark .hero-prism { background-image: radial-gradient(circle at 12% 30%, rgba(181,106,86,.23), transparent 28%), radial-gradient(circle at 89% 18%, rgba(108,174,175,.21), transparent 30%), linear-gradient(110deg, rgba(19,23,25,.97), rgba(24,32,34,.91)), url('/manus-storage/nova-hero-prism_37426a5b.jpg'); background-blend-mode: screen, screen, normal, luminosity; filter: saturate(.72) brightness(.72); }
+.dark .hero-prism { background-image: radial-gradient(circle at 12% 30%, rgba(181,106,86,.23), transparent 28%), radial-gradient(circle at 89% 18%, rgba(108,174,175,.21), transparent 30%), linear-gradient(110deg, rgba(19,23,25,.97), rgba(24,32,34,.91)), url('https://novacloud-7brtkefk.manus.space/manus-storage/nova-hero-prism_37426a5b.jpg'); background-blend-mode: screen, screen, normal, luminosity; filter: saturate(.72) brightness(.72); }
 .dark .hero-prism::before { background: rgba(166,104,80,.19); }.dark .hero-prism::after { background: rgba(93,164,161,.19); }
 .dark .brand { color: #f1f0e8; }.dark .desktop-nav button, .dark .sign-in { color: #acb1aa; }.dark .desktop-nav button:hover, .dark .sign-in:hover { color: #f6f5ee; }
 .dark .theme-toggle { border-color: rgba(214,225,213,.19); color: #d8e6df; background: rgba(29,42,43,.68); }.dark .theme-toggle:hover { background: rgba(53,75,75,.8); }

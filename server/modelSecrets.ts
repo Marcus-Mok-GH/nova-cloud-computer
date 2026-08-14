@@ -1,21 +1,16 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { ENV } from "./_core/env";
 
-/**
- * API keys for user-defined model endpoints are encrypted before database storage.
- * Ciphertext is intentionally the only key-related value ever persisted or returned by the data layer.
- */
+/** Private custom-model keys are encrypted with AES-256-GCM before they reach Postgres. */
 export function createSecretBox(secret: string) {
   if (!secret) throw new Error("Nova cannot protect model credentials because its server secret is unavailable.");
   const key = createHash("sha256").update(secret).digest();
-
   return {
     encrypt(plainText: string) {
       const iv = randomBytes(12);
       const cipher = createCipheriv("aes-256-gcm", key, iv);
       const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
-      const tag = cipher.getAuthTag();
-      return [iv, tag, encrypted].map(part => part.toString("base64url")).join(".");
+      return [iv, cipher.getAuthTag(), encrypted].map(part => part.toString("base64url")).join(".");
     },
     decrypt(cipherText: string) {
       const [ivPart, tagPart, payloadPart] = cipherText.split(".");
@@ -27,10 +22,5 @@ export function createSecretBox(secret: string) {
   };
 }
 
-export function encryptModelApiKey(apiKey: string) {
-  return createSecretBox(ENV.cookieSecret).encrypt(apiKey);
-}
-
-export function decryptModelApiKey(cipherText: string) {
-  return createSecretBox(ENV.cookieSecret).decrypt(cipherText);
-}
+export const encryptModelApiKey = (apiKey: string) => createSecretBox(ENV.modelCredentialSecret).encrypt(apiKey);
+export const decryptModelApiKey = (cipherText: string) => createSecretBox(ENV.modelCredentialSecret).decrypt(cipherText);

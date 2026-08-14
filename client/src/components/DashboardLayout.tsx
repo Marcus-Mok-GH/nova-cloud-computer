@@ -20,7 +20,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { Globe2, LayoutDashboard, LogOut, PanelLeft, SlidersHorizontal } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -66,12 +65,10 @@ export default function DashboardLayout({
             <h1 className="text-2xl font-semibold tracking-tight text-center">
               Sign in to continue
             </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
-            </p>
+            <p className="text-sm text-muted-foreground text-center max-w-sm">Access to this dashboard requires a passwordless email sign-in.</p>
           </div>
           <Button
-            onClick={() => startLogin()}
+            onClick={() => window.location.assign("/sign-in")}
             size="lg"
             className="w-full shadow-lg hover:shadow-xl transition-all"
           >

@@ -6,7 +6,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import {
   ArrowDown,
   ArrowLeft,
@@ -87,7 +86,7 @@ function scrollToSection(id: string) {
 }
 
 function NovaMark({ className = "" }: { className?: string }) {
-  return <img src="/manus-storage/nova-starburst_63824153.png" alt="" className={className} />;
+  return <img src="https://novacloud-7brtkefk.manus.space/manus-storage/nova-starburst_63824153.png" alt="" className={className} />;
 }
 
 function WorkspaceScene({ activeMode, onModeChange }: { activeMode: WorkspaceMode; onModeChange: (mode: WorkspaceMode) => void }) {
@@ -157,7 +156,7 @@ export default function Home() {
       setLocation("/app");
       return;
     }
-    startLogin();
+    setLocation("/sign-in");
   };
 
   return (
@@ -187,7 +186,7 @@ export default function Home() {
 
       <section className="story-section workspace-story" id="workspace">
         <div className="story-visual visual-with-art">
-          <img src="/manus-storage/nova-workspace-orbit_00dc6e95.jpg" alt="Abstract translucent surfaces in the Nova visual style" className="visual-art" />
+          <img src="https://novacloud-7brtkefk.manus.space/manus-storage/nova-workspace-orbit_00dc6e95.jpg" alt="Abstract translucent surfaces in the Nova visual style" className="visual-art" />
           <WorkspaceScene activeMode={activeMode} onModeChange={setActiveMode} />
         </div>
         <div className="story-copy">
@@ -223,7 +222,7 @@ export default function Home() {
       </section>
 
       <section className="studio-section">
-        <div className="studio-image-wrap"><img src="/manus-storage/nova-community-studio_abe0bb17.jpg" alt="Editorial creative studio composition" className="studio-image" /><div className="image-label"><NovaMark className="image-label-mark" /><span>Build from a quieter place</span></div></div>
+        <div className="studio-image-wrap"><img src="https://novacloud-7brtkefk.manus.space/manus-storage/nova-community-studio_abe0bb17.jpg" alt="Editorial creative studio composition" className="studio-image" /><div className="image-label"><NovaMark className="image-label-mark" /><span>Build from a quieter place</span></div></div>
         <div className="studio-copy"><span className="section-index">03 — Make it yours</span><h2>A place for the parts of life that don’t fit in a spreadsheet.</h2><p>Shape a research library, a working brief, or a project that grows over time. Nova keeps the container, your standing rules, and your model preference in the same private space.</p><button className="text-link" onClick={enterNova}>Open your personal cloud <ArrowUpRight size={16} /></button></div>
       </section>
 

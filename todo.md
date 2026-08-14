@@ -45,3 +45,15 @@
 
 - [x] Change the Nova repository visibility to public.
 - [x] Verify the public repository URL and visibility.
+
+# External Deployment and Authentication
+
+- [x] Verify whether the Manus OAuth application can serve an external Vercel domain.
+- [x] Define the Vercel-managed Neon architecture, including passwordless email login.
+- [x] Replace Manus authentication with the selected compatible auth flow.
+- [x] Configure Vercel deployment and required production environment variables.
+- [ ] Verify the external deployment and passwordless sign-in journey.
+- [x] Provision and connect the Neon database through Vercel’s marketplace integration.
+- [ ] Fix the Vercel-managed Neon connection path and prove an external database connection.
+- [ ] Apply Nova’s Postgres schema and verify workspace persistence on Vercel-managed Neon.
+- [ ] Browser-verify the deployed Neon magic-link session and protected workspace route.

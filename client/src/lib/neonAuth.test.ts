@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   exchangeNeonVerifierAndGetJwt,
   extractNeonJwt,
+  getNeonJwtFromTokenEndpoint,
   neonAuthFetchOptions,
   resolveNeonAuthUrl,
 } from "./neonAuth";
@@ -37,6 +38,15 @@ describe("extractNeonJwt", () => {
 
     await expect(exchangeNeonVerifierAndGetJwt({ getSession, token })).resolves.toBe("header.payload.signature");
     expect(token).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Neon’s same-origin token endpoint when the session client does not expose its signed header", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ token: "header.payload.signature" }), { status: 200 }));
+
+    await expect(getNeonJwtFromTokenEndpoint("https://nova.example/api/neon-auth/", fetchImpl)).resolves.toBe(
+      "header.payload.signature",
+    );
+    expect(fetchImpl).toHaveBeenCalledWith("https://nova.example/api/neon-auth/token", { credentials: "include" });
   });
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {

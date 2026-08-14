@@ -83,3 +83,4 @@
 - [ ] Dispatch Neon Auth proxy requests inside the proven Vercel catch-all API function instead of relying on unresolved nested function routing.
 - [ ] Derive the Neon Auth endpoint from the original request URL when Vercel omits the catch-all route parameter.
 - [ ] Preserve Neon’s signed-session response header through the catch-all proxy so the browser client forwards a JWT to Nova’s API.
+- [ ] Use the verified same-origin Neon token endpoint as the workspace bearer-token fallback when the installed adapter does not surface the signed session header.

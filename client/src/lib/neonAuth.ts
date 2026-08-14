@@ -47,6 +47,20 @@ export function extractNeonJwt(result: NeonTokenResult) {
   return isSignedJwt(sessionToken) ? sessionToken! : null;
 }
 
+export async function getNeonJwtFromTokenEndpoint(
+  baseUrl: string,
+  fetchImpl: typeof fetch = fetch,
+) {
+  try {
+    const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/token`, { credentials: "include" });
+    if (!response.ok) return null;
+    const payload = await response.json() as { token?: string | null };
+    return isSignedJwt(payload.token) ? payload.token! : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * `getSession()` consumes Neon’s magic-link verifier when one is present in the
  * callback URL. Only after that exchange can `token()` yield the signed JWT
@@ -60,6 +74,7 @@ export async function exchangeNeonVerifierAndGetJwt(client: NeonAuthTokenClient)
 }
 
 export async function getNeonAccessToken() {
-  if (!neonAuth) return null;
-  return exchangeNeonVerifierAndGetJwt(neonAuth);
+  if (!neonAuth || !authUrl) return null;
+  const session = await neonAuth.getSession();
+  return extractNeonJwt(session) ?? getNeonJwtFromTokenEndpoint(authUrl);
 }

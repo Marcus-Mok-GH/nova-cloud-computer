@@ -76,3 +76,4 @@
 - [ ] Replace the invalid-hostname external rewrite with a serverless Neon Auth proxy that forwards request bodies, cookies, and upstream response headers safely.
 - [ ] Route the public Neon Auth proxy through a static Vercel function endpoint because the nested catch-all destination returns 404.
 - [ ] Preserve Neon Auth callback query parameters through the static proxy so `neon_auth_session_verifier` reaches the session exchange endpoint.
+- [ ] Use a same-origin dynamic Neon Auth base path because the installed Neon adapter bypasses caller-supplied custom fetch implementations.

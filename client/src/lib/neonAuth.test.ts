@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   exchangeNeonVerifierAndGetJwt,
   extractNeonJwt,
-  getNeonAuthProxyRequestUrl,
   neonAuthFetchOptions,
+  resolveNeonAuthUrl,
 } from "./neonAuth";
 
 describe("extractNeonJwt", () => {
@@ -30,23 +30,13 @@ describe("extractNeonJwt", () => {
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {
     expect(neonAuthFetchOptions.fetchOptions.credentials).toBe("include");
-    expect(neonAuthFetchOptions.fetchOptions.customFetchImpl).toEqual(expect.any(Function));
   });
 
-  it("routes Vercel Neon SDK calls through Nova’s static proxy without dropping callback queries", () => {
+  it("uses Nova’s same-origin dynamic auth base path on Vercel while preserving direct local development access", () => {
     const neonUrl = "https://example.neonauth.example.com/neondb/auth";
-    expect(
-      getNeonAuthProxyRequestUrl(
-        `${neonUrl}/get-session?neon_auth_session_verifier=verifier-123`,
-        neonUrl,
-        "https://nova-cloud-computer.vercel.app",
-        "nova-cloud-computer.vercel.app",
-      ),
-    ).toBe(
-      "https://nova-cloud-computer.vercel.app/api/neon-auth?proxyPath=get-session&neon_auth_session_verifier=verifier-123",
+    expect(resolveNeonAuthUrl(neonUrl, "https://nova-cloud-computer.vercel.app", "nova-cloud-computer.vercel.app")).toBe(
+      "https://nova-cloud-computer.vercel.app/api/neon-auth",
     );
-    expect(getNeonAuthProxyRequestUrl(`${neonUrl}/get-session`, neonUrl, "http://localhost:3000", "localhost")).toBe(
-      `${neonUrl}/get-session`,
-    );
+    expect(resolveNeonAuthUrl(neonUrl, "http://localhost:3000", "localhost")).toBe(neonUrl);
   });
 });

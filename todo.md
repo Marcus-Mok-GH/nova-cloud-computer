@@ -62,3 +62,4 @@
 - [x] Diagnose and resolve the deployed magic-link request that remains pending instead of confirming delivery.
 - [x] Preserve Vercel serverless API routes while applying the static SPA fallback.
 - [x] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.
+- [x] Verify and record the GitHub-to-Vercel automatic deployment linkage for the public Nova repository.

@@ -37,6 +37,10 @@ The final production sign-in verification is complete. The Neon Magic Link plugi
 
 Production application persistence was also verified. An authenticated test user created the project **“Neon persistence verification”** in the deployed workspace, reloaded `/app`, and the project remained visible with its original description. This confirms Nova’s tenant-scoped workspace data is being persisted through Vercel’s API to the Vercel-managed Neon Postgres database. The shared Neon SMTP sender successfully delivered this disposable-inbox test; production should still use a configured sender domain and dedicated SMTP provider such as Resend for deliverability and operational control.[6]
 
+## GitHub-to-Vercel linkage
+
+Nova’s public repository, [`Marcus-Mok-GH/nova-cloud-computer`](https://github.com/Marcus-Mok-GH/nova-cloud-computer), is already connected to Vercel project `prj_qUEuLpLJndnrWOtVau8HQTteG3c8`. Vercel production deployments are triggered automatically from the repository’s `main` branch. The verified production branch alias is [`nova-cloud-computer-git-main-sjdjdiejdrirhdkjejs-projects.vercel.app`](https://nova-cloud-computer-git-main-sjdjdiejdrirhdkjejs-projects.vercel.app); the latest GitHub-triggered deployment is in the `READY` state.
+
 ## Sources
 
 [1] [Manus Website Builder — Getting started](https://manus.im/docs/website-builder/getting-started)

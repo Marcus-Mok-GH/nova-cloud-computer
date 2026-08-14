@@ -80,3 +80,4 @@
 - [ ] Rewrite proxied Neon Auth session-cookie domains for Nova’s same-origin host so the browser retains the callback session.
 - [x] Include the static Neon Auth proxy-cookie regression test in Vitest discovery and rerun the complete suite.
 - [ ] Replace the query-injected proxy route because it drops the callback verifier before the upstream Neon session exchange.
+- [ ] Dispatch Neon Auth proxy requests inside the proven Vercel catch-all API function instead of relying on unresolved nested function routing.

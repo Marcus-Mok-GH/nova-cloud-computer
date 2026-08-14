@@ -40,5 +40,5 @@ async function authenticateBearerToken(header: string | undefined): Promise<User
 }
 
 export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
-  return { req: opts.req, res: opts.res, user: await authenticateBearerToken(opts.req.headers.authorization) };
+  return { req: opts.req, res: opts.res, user: await authenticateBearerToken(opts.req.header("authorization")) };
 }

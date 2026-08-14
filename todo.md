@@ -52,13 +52,13 @@
 - [x] Define the Vercel-managed Neon architecture, including passwordless email login.
 - [x] Replace Manus authentication with the selected compatible auth flow.
 - [x] Configure Vercel deployment and required production environment variables.
-- [ ] Verify the external deployment and passwordless sign-in journey.
+- [x] Verify the external deployment and passwordless sign-in journey.
 - [x] Provision and connect the Neon database through Vercel’s marketplace integration.
-- [ ] Fix the Vercel-managed Neon connection path and prove an external database connection.
-- [ ] Apply Nova’s Postgres schema and verify workspace persistence on Vercel-managed Neon.
-- [ ] Browser-verify the deployed Neon magic-link session and protected workspace route.
-- [ ] Use a disposable inbox to request, receive, and complete a one-time Nova magic-link sign-in test.
-- [ ] Add a Vercel SPA fallback so direct passwordless routes resolve instead of returning a platform 404.
-- [ ] Diagnose and resolve the deployed magic-link request that remains pending instead of confirming delivery.
-- [ ] Preserve Vercel serverless API routes while applying the static SPA fallback.
-- [ ] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.
+- [x] Fix the Vercel-managed Neon connection path and prove an external database connection.
+- [x] Apply Nova’s Postgres schema and verify workspace persistence on Vercel-managed Neon.
+- [x] Browser-verify the deployed Neon magic-link session and protected workspace route.
+- [x] Use a disposable inbox to request, receive, and complete a one-time Nova magic-link sign-in test.
+- [x] Add a Vercel SPA fallback so direct passwordless routes resolve instead of returning a platform 404.
+- [x] Diagnose and resolve the deployed magic-link request that remains pending instead of confirming delivery.
+- [x] Preserve Vercel serverless API routes while applying the static SPA fallback.
+- [x] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.

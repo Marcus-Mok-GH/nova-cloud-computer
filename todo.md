@@ -63,3 +63,4 @@
 - [x] Preserve Vercel serverless API routes while applying the static SPA fallback.
 - [x] Directly enable the Neon Managed Better Auth Magic Link plugin and complete the disposable-inbox sign-in verification.
 - [x] Verify and record the GitHub-to-Vercel automatic deployment linkage for the public Nova repository.
+- [x] Diagnose and fix the reported production email-login "Load failed" error, then repeat the magic-link verification.

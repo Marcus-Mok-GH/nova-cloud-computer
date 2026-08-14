@@ -18,12 +18,15 @@ import {
   Layers3,
   Menu,
   MessageCircle,
+  Moon,
   Plus,
   Search,
   Sparkles,
+  Sun,
   X,
   Zap,
 } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   Accordion,
   AccordionContent,
@@ -138,6 +141,7 @@ function WorkspaceScene({ activeMode, onModeChange }: { activeMode: WorkspaceMod
 }
 
 export default function Home() {
+  const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("Organize");
   const [orbitIndex, setOrbitIndex] = useState(0);
@@ -154,7 +158,8 @@ export default function Home() {
             {navigation.map((item) => <button key={item} onClick={() => scrollToSection(item === "Product" ? "workspace" : item === "Guides" ? "orbit" : item === "Resources" ? "faq" : "about")}>{item}{item !== "Guides" && <ChevronDown size={12} />}</button>)}
             <button onClick={() => scrollToSection("pricing")}>Pricing</button>
           </nav>
-          <div className="topbar-actions"><button className="sign-in" onClick={() => scrollToSection("workspace")}>Log in</button><Button className="dark-pill small-pill" onClick={() => scrollToSection("workspace")}>Create your space</Button></div>
+          <div className="topbar-actions"><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`} title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button><button className="sign-in" onClick={() => scrollToSection("workspace")}>Log in</button><Button className="dark-pill small-pill" onClick={() => scrollToSection("workspace")}>Create your space</Button></div>
+          <button className="theme-toggle mobile-theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>
           <button className="menu-button" aria-label={menuOpen ? "Close menu" : "Open menu"} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X /> : <Menu />}</button>
         </header>
         {menuOpen && <div className="mobile-menu">{[...navigation, "Pricing"].map((item) => <button key={item} onClick={() => { setMenuOpen(false); scrollToSection(item === "Product" ? "workspace" : item === "Guides" ? "orbit" : item === "Resources" ? "faq" : item === "Pricing" ? "pricing" : "about"); }}>{item}</button>)}<Button className="dark-pill" onClick={() => { setMenuOpen(false); scrollToSection("workspace"); }}>Create your space</Button></div>}

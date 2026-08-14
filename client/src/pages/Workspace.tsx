@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Bot, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Trash2 } from "lucide-react";
+import { Bot, ChevronRight, FileText, Folder, FolderPlus, MoreHorizontal, MoveRight, Paperclip, Pencil, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 
 const elapsed = (date: Date) => {
@@ -33,6 +33,14 @@ export default function Workspace() {
     if (!name) return;
     kind === "folder" ? createFolder.mutate({ name }) : createFile.mutate({ name, content: "" });
   };
+  const chooseFolder = (excludeId?: number) => {
+    const available = folders.filter(folder => folder.id !== excludeId);
+    const name = window.prompt(`Move to which folder? Leave blank for Home. Available: ${available.map(folder => folder.name).join(", ")}`)?.trim();
+    if (!name) return null;
+    const folder = available.find(item => item.name.toLowerCase() === name.toLowerCase());
+    if (!folder) { toast.error("Choose a folder that exists in your workspace."); return undefined; }
+    return folder.id;
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim()) return;
@@ -46,9 +54,9 @@ export default function Workspace() {
   return <DashboardLayout><div className="grid min-h-[calc(100vh-10.5rem)] gap-4 xl:grid-cols-[250px_minmax(0,1fr)_280px]">
     <aside className="order-2 rounded-2xl border border-white/9 bg-[#10161f] p-3 xl:order-1">
       <div className="mb-3 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Your computer</span><Button variant="ghost" size="icon" onClick={() => make("folder")} className="size-7 text-white/55 hover:bg-white/8 hover:text-white"><FolderPlus className="size-4" /></Button></div>
-      <div className="space-y-1"><div className="flex items-center gap-2 rounded-lg bg-cyan-300/10 px-2.5 py-2 text-sm text-cyan-100"><Folder className="size-4 text-cyan-300" />Home</div>{folders.map(folder => <div key={folder.id} className="group flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-white/62 hover:bg-white/6"><ChevronRight className="size-3 text-white/28" /><Folder className="size-4 text-amber-200" /><span className="min-w-0 flex-1 truncate">{folder.name}</span><button onClick={() => { const name = window.prompt("Rename folder", folder.name)?.trim(); if (name) renameFolder.mutate({ id: folder.id, name }); }} className="hidden text-white/35 group-hover:block"><Pencil className="size-3" /></button><button onClick={() => window.confirm(`Delete ${folder.name} and its contents?`) && removeFolder.mutate({ id: folder.id })} className="hidden text-rose-200/70 group-hover:block"><Trash2 className="size-3" /></button></div>)}</div>
+      <div className="space-y-1"><div className="flex items-center gap-2 rounded-lg bg-cyan-300/10 px-2.5 py-2 text-sm text-cyan-100"><Folder className="size-4 text-cyan-300" />Home</div>{folders.map(folder => <div key={folder.id} className="group flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-white/62 hover:bg-white/6"><ChevronRight className="size-3 text-white/28" /><Folder className="size-4 text-amber-200" /><span className="min-w-0 flex-1 truncate">{folder.name}</span><button onClick={() => { const parentId = chooseFolder(folder.id); if (parentId !== undefined) renameFolder.mutate({ id: folder.id, parentId }); }} className="hidden text-white/35 group-hover:block"><MoveRight className="size-3" /></button><button onClick={() => { const name = window.prompt("Rename folder", folder.name)?.trim(); if (name) renameFolder.mutate({ id: folder.id, name }); }} className="hidden text-white/35 group-hover:block"><Pencil className="size-3" /></button><button onClick={() => window.confirm(`Delete ${folder.name} and its contents?`) && removeFolder.mutate({ id: folder.id })} className="hidden text-rose-200/70 group-hover:block"><Trash2 className="size-3" /></button></div>)}</div>
       <p className="mt-5 px-2 text-[10px] font-semibold uppercase tracking-[.16em] text-white/40">Recent files</p>
-      <div className="mt-2 space-y-1">{files.length ? files.map(file => <div key={file.id} className="group flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-white/60 hover:bg-white/6 hover:text-white"><FileText className="size-4 text-sky-200" /><span className="min-w-0 flex-1 truncate">{file.name}</span><button onClick={() => { const name = window.prompt("Rename file", file.name)?.trim(); if (name) renameFile.mutate({ id: file.id, name }); }} className="hidden text-white/35 group-hover:block"><Pencil className="size-3" /></button><button onClick={() => window.confirm(`Delete ${file.name}?`) && removeFile.mutate({ id: file.id })} className="hidden text-rose-200/70 group-hover:block"><Trash2 className="size-3" /></button></div>) : <p className="px-2 py-3 text-xs leading-5 text-white/35">Add files or folders. Nova can help you keep them organized.</p>}</div>
+      <div className="mt-2 space-y-1">{files.length ? files.map(file => <div key={file.id} className="group flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-white/60 hover:bg-white/6 hover:text-white"><FileText className="size-4 text-sky-200" /><span className="min-w-0 flex-1 truncate">{file.name}</span><button onClick={() => { const folderId = chooseFolder(); if (folderId !== undefined) renameFile.mutate({ id: file.id, folderId }); }} className="hidden text-white/35 group-hover:block"><MoveRight className="size-3" /></button><button onClick={() => { const name = window.prompt("Rename file", file.name)?.trim(); if (name) renameFile.mutate({ id: file.id, name }); }} className="hidden text-white/35 group-hover:block"><Pencil className="size-3" /></button><button onClick={() => window.confirm(`Delete ${file.name}?`) && removeFile.mutate({ id: file.id })} className="hidden text-rose-200/70 group-hover:block"><Trash2 className="size-3" /></button></div>) : <p className="px-2 py-3 text-xs leading-5 text-white/35">Add files or folders. Nova can help you keep them organized.</p>}</div>
       <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => make("file")} className="border-white/10 bg-transparent text-xs text-white/70 hover:bg-white/7 hover:text-white"><Plus className="mr-1 size-3" />File</Button><Button variant="outline" onClick={() => createChat.mutate({ title: "New workspace conversation" })} className="border-white/10 bg-transparent text-xs text-white/70 hover:bg-white/7 hover:text-white"><Plus className="mr-1 size-3" />Chat</Button></div>
     </aside>
 

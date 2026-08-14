@@ -8,10 +8,10 @@ let nextId = 1;
 
 vi.mock("./db", () => ({
   createWorkspaceFolderForUser: vi.fn(async (ownerId: number, input: { name: string }) => { const item = { id: nextId++, ownerId, name: input.name }; folders.set(item.id, item); return item; }),
-  updateWorkspaceFolderForUser: vi.fn(async (ownerId: number, id: number, input: { name?: string }) => { const item = folders.get(id); if (!item || item.ownerId !== ownerId) return undefined; return { ...item, name: input.name ?? item.name }; }),
+  updateWorkspaceFolderForUser: vi.fn(async (ownerId: number, id: number, input: { name?: string }) => { const item = folders.get(id); if (!item || item.ownerId !== ownerId) return undefined; const updated = { ...item, name: input.name ?? item.name }; folders.set(id, updated); return updated; }),
   deleteWorkspaceFolderForUser: vi.fn(async (ownerId: number, id: number) => folders.get(id)?.ownerId === ownerId && folders.delete(id)),
   createWorkspaceFileForUser: vi.fn(async (ownerId: number, input: { name: string; content?: string }) => { const item = { id: nextId++, ownerId, name: input.name, content: input.content ?? "" }; files.set(item.id, item); return item; }),
-  updateWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number) => files.get(id)?.ownerId === ownerId ? files.get(id) : undefined),
+  updateWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number, input: { name?: string; content?: string }) => { const item = files.get(id); if (!item || item.ownerId !== ownerId) return undefined; const updated = { ...item, name: input.name ?? item.name, content: input.content ?? item.content }; files.set(id, updated); return updated; }),
   deleteWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number) => files.get(id)?.ownerId === ownerId && files.delete(id)),
   createChatForUser: vi.fn(async (ownerId: number, title: string) => { const item = { id: nextId++, ownerId, title }; chats.set(item.id, item); return item; }),
   listChatMessagesForUser: vi.fn(async (ownerId: number, id: number) => chats.get(id)?.ownerId === ownerId ? [] : undefined),
@@ -30,7 +30,10 @@ describe("workspace computer router", () => {
     const folder = await owner.folders.create({ name: "Plans" });
     const file = await owner.files.create({ name: "brief.md", content: "Private draft" });
     const chat = await owner.chats.create({ title: "Plan launch" });
-    expect(await owner.workspace.computer()).toMatchObject({ folders: [expect.objectContaining({ id: folder.id })], files: [expect.objectContaining({ id: file.id })], chats: [expect.objectContaining({ id: chat.id })] });
+    await expect(owner.folders.update({ id: folder.id, name: "Updated plans" })).resolves.toMatchObject({ name: "Updated plans" });
+    await expect(owner.files.update({ id: file.id, name: "updated-brief.md" })).resolves.toMatchObject({ name: "updated-brief.md" });
+    expect(await owner.workspace.computer()).toMatchObject({ folders: [expect.objectContaining({ id: folder.id, name: "Updated plans" })], files: [expect.objectContaining({ id: file.id, name: "updated-brief.md" })], chats: [expect.objectContaining({ id: chat.id })] });
+    await expect(owner.files.delete({ id: file.id })).resolves.toEqual({ success: true });
   });
   it("does not permit a second user to access or delete private computer items", async () => {
     const owner = appRouter.createCaller(context(1)); const stranger = appRouter.createCaller(context(2));

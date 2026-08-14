@@ -90,6 +90,9 @@
 - [x] Add a lower authenticated navigation for Deployments, Chats, and Settings.
 - [x] Wire agent chat requests to safe workspace file and folder actions.
 - [x] Verify the redesigned authenticated workspace with tests and browser checks.
-- [ ] Load persisted chat history after navigation or reload and let users open conversations from the Chats destination.
-- [ ] Add user and agent support for file and folder rename, move, and delete actions in the chat-first workspace.
-- [ ] Add regression and browser coverage for workspace item CRUD and persisted conversation history.
+- [x] Load persisted chat history after navigation or reload and let users open conversations from the Chats destination.
+- [x] Add user and agent support for file and folder rename, move, and delete actions in the chat-first workspace.
+- [x] Add regression and browser coverage for workspace item CRUD and persisted conversation history.
+- [ ] Add complete user and agent folder/file move support, including folder rename and move behavior.
+- [ ] Verify workspace file and folder rename, move, and delete flows end to end in the browser.
+- [ ] Add regression coverage for agent-driven and folder-management rename, move, and delete actions.

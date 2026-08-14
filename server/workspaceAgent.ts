@@ -14,6 +14,19 @@ type AgentAction = { kind: "folder" | "file"; name: string; operation?: "created
 
 async function runDirectWorkspaceAction(ownerId: number, content: string) {
   const computer = await getWorkspaceComputer(ownerId);
+  const renameFolder = content.match(/rename\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+to\s+['"]?([^'".\n]+)['"]?/i);
+  if (renameFolder?.[1] && renameFolder[2]) {
+    const folder = computer.folders.find(item => item.name.toLowerCase() === renameFolder[1].trim().toLowerCase());
+    const updated = folder && await updateWorkspaceFolderForUser(ownerId, folder.id, { name: renameFolder[2].trim() });
+    if (updated) return { reply: `Renamed the folder to **${updated.name}**.`, actions: [{ kind: "folder" as const, name: updated.name, operation: "renamed" as const }] };
+  }
+  const moveFolder = content.match(/move\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+(?:to|into)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i);
+  if (moveFolder?.[1] && moveFolder[2]) {
+    const folder = computer.folders.find(item => item.name.toLowerCase() === moveFolder[1].trim().toLowerCase());
+    const destination = computer.folders.find(item => item.name.toLowerCase() === moveFolder[2].trim().toLowerCase());
+    const updated = folder && destination && folder.id !== destination.id && await updateWorkspaceFolderForUser(ownerId, folder.id, { parentId: destination.id });
+    if (updated) return { reply: `Moved **${folder.name}** into **${destination.name}**.`, actions: [{ kind: "folder" as const, name: folder.name, operation: "moved" as const }] };
+  }
   const renameFile = content.match(/rename\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?\s+to\s+['"]?([\w.-]+)['"]?/i);
   if (renameFile?.[1] && renameFile[2]) {
     const file = computer.files.find(item => item.name.toLowerCase() === renameFile[1].toLowerCase());

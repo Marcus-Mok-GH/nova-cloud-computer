@@ -152,4 +152,7 @@
 - [x] Add a Settings card for authenticated password-only Codebuff key entry and safe connection metadata.
 - [x] Add opt-in Agent VM planner controls with selected-file consent and a third-party data warning.
 - [x] Add credential-isolation, persistence, router, adapter, and rendered-UI regression tests for Codebuff planning.
-- [ ] Verify TypeScript, the full test suite, production build, GitHub push, and deployed production behavior before publishing the Codebuff planner.
+- [x] Verify TypeScript, the full test suite, production build, GitHub push, and deployed production behavior before publishing the Codebuff planner.
+- [ ] Browser-verify the deployed production Settings page shows the password-only Codebuff API key card with no credential disclosure.
+- [ ] Browser-verify the deployed production Workspace shows the default-off Codebuff planner controls, selected-file consent flow, and provider-aware activity UI.
+- [ ] Repair the production serverless bundle so Codebuff’s SDK dependency does not break Neon Auth requests, then repeat authenticated production verification.

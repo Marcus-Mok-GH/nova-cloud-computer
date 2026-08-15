@@ -114,5 +114,5 @@
 - [x] Make the Workspace tab render the active workspace’s persisted files and folders with practical empty, loading, and error states.
 - [x] Add regression coverage for the Workspace tab’s rendered folders and files.
 - [x] Add rendered-UI regression coverage for Workspace folders, files, loading, empty, and error states.
-- [ ] Diagnose and repair the surfaced production deployment startup failure without regressing the external Vercel deployment.
-- [ ] Research viable free cloud-VM providers for Nova’s workspace model and recommend one based on practical product constraints.
+- [x] Diagnose and repair the surfaced production deployment startup failure without regressing the external Vercel deployment; the Vercel production build for commit e74feb4 is READY and `/app` loads successfully.
+- [x] Research viable free cloud-VM providers for Nova’s workspace model and recommend one based on practical product constraints; documented the Oracle Always Free proof-of-concept recommendation and alternatives.

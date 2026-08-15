@@ -139,3 +139,4 @@
 - [x] Rename Daytona zero-spend allowance messaging to the accurate Nova-configured run-cap policy unless and until Daytona credit telemetry is integrated.
 - [ ] Configure the Daytona API credential only after the integration is tested and deploy the verified production integration.
 - [ ] Add the validated `DAYTONA_API_KEY` to the linked Vercel project’s Production environment; automatic synchronization is blocked because this environment has no Vercel configuration credential.
+- [ ] Repair the Vercel Daytona deployment by making the already-applied Neon migration replay-safe, then verify the GitHub-triggered production build.

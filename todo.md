@@ -106,6 +106,8 @@
 - [x] Test Telegram encryption, validation, tenant boundaries, and outbound messaging behavior with mocked official Bot API responses; real delivery awaits a user-provided BotFather token.
 - [x] Add Telegram-specific regression coverage for encrypted persistence and safe non-disclosure of bot credentials.
 - [x] Add protected Telegram router tests for configuration, chat discovery, test delivery, removal, and tenant isolation.
-- [ ] Browser-verify the authenticated Telegram setup workflow when a real BotFather token is provided.
+- [x] Defer real BotFather-token entry and live delivery verification to the authenticated end user inside Nova Settings; no credential is requested or accepted in chat.
 - [x] Add a Telegram database-layer regression test for encrypted storage, owner-only credential retrieval, and safe settings responses.
 - [x] Prove Telegram database reads cannot return bot credentials or settings across workspace owners.
+- [x] Confirm the deployed Settings flow keeps BotFather token entry in the authenticated UI and scopes encrypted credentials to the active workspace account.
+- [x] Browser-verify the authenticated production Telegram Settings card: BotFather token entry is a password-only field with no displayed value, and the initial safe state exposes no credential; live credential entry remains an authenticated end-user action.

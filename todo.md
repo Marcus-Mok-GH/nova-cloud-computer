@@ -144,3 +144,5 @@
 - [x] Repair the Vercel Daytona deployment by making the already-applied Neon migration replay-safe, then verify the GitHub-triggered production build is READY.
 - [x] Evaluate Freebuff’s framework for use by Nova’s AI agent, including its runtime model, licensing, supported tools, security posture, and Daytona compatibility.
 - [x] Decide not to make Freebuff the default agent runtime; document Codebuff SDK as a future opt-in, explicit-consent provider with Daytona retaining command execution and isolation.
+- [x] Verify that a user-provided Codebuff API key works with Nova’s proposed Codebuff SDK integration and distinguish it from Freebuff CLI’s separate no-key mode.
+- [x] Define the required encrypted per-workspace credential storage and server-only execution boundary if Codebuff is added.

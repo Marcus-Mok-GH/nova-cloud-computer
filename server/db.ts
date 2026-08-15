@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -14,6 +14,7 @@ import {
   workspaceFolders,
   workspaceSettings,
   telegramBotSettings,
+  agentVmRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 
@@ -437,4 +438,74 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [deleted] = await db.delete(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).returning({ id: telegramBotSettings.id });
   return Boolean(deleted);
+}
+
+type AgentVmRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "disabled";
+
+async function getAgentVmRunForUser(ownerId: number, runId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return (await db.select().from(agentVmRuns).where(and(eq(agentVmRuns.id, runId), eq(agentVmRuns.workspaceId, workspace.id))).limit(1))[0];
+}
+
+export function toSafeAgentVmRun(run: typeof agentVmRuns.$inferSelect) {
+  return {
+    id: run.id,
+    provider: run.provider,
+    sandboxId: run.sandboxId,
+    task: run.task,
+    status: run.status,
+    resultSummary: run.resultSummary,
+    errorMessage: run.errorMessage,
+    artifactFileId: run.artifactFileId,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+  };
+}
+
+export async function listAgentVmRunsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const runs = await db.select().from(agentVmRuns).where(eq(agentVmRuns.workspaceId, workspace.id)).orderBy(desc(agentVmRuns.createdAt)).limit(20);
+  return runs.map(toSafeAgentVmRun);
+}
+
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, task: input.task, status: "queued" }).returning();
+  if (!created) throw new Error("Nova could not queue the agent VM run.");
+  return toSafeAgentVmRun(created);
+}
+
+export async function updateAgentVmRunForUser(ownerId: number, runId: number, input: { status?: AgentVmRunStatus; sandboxId?: string | null; resultSummary?: string | null; errorMessage?: string | null; artifactFileId?: number | null; startedAt?: Date | null; completedAt?: Date | null }) {
+  const db = await requireDb();
+  const run = await getAgentVmRunForUser(ownerId, runId);
+  if (!run) return undefined;
+  const updateSet: Partial<typeof agentVmRuns.$inferInsert> = { updatedAt: new Date() };
+  if (input.status !== undefined) updateSet.status = input.status;
+  if (input.sandboxId !== undefined) updateSet.sandboxId = input.sandboxId;
+  if (input.resultSummary !== undefined) updateSet.resultSummary = input.resultSummary;
+  if (input.errorMessage !== undefined) updateSet.errorMessage = input.errorMessage;
+  if (input.artifactFileId !== undefined) updateSet.artifactFileId = input.artifactFileId;
+  if (input.startedAt !== undefined) updateSet.startedAt = input.startedAt;
+  if (input.completedAt !== undefined) updateSet.completedAt = input.completedAt;
+  const [updated] = await db.update(agentVmRuns).set(updateSet).where(eq(agentVmRuns.id, run.id)).returning();
+  return updated ? toSafeAgentVmRun(updated) : undefined;
+}
+
+export async function getActiveAgentVmRunForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const active = (await db.select().from(agentVmRuns).where(and(eq(agentVmRuns.workspaceId, workspace.id), inArray(agentVmRuns.status, ["queued", "running"]))).limit(1))[0];
+  return active ? toSafeAgentVmRun(active) : undefined;
+}
+
+export async function countAgentVmRunsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [result] = await db.select({ total: count() }).from(agentVmRuns).where(eq(agentVmRuns.workspaceId, workspace.id));
+  return Number(result?.total ?? 0);
 }

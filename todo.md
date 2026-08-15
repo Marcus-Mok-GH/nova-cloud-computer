@@ -126,3 +126,16 @@
 - [x] Define Daytona sandbox concurrency, resource, TTL, and network-limit requirements that enforce Nova’s selected zero-spend policy.
 - [x] Compare Daytona and E2B for Nova’s agent VM across isolation, lifecycle, persistence, API control, observability, commercial model, and no-card safeguards.
 - [x] Select Daytona as the preferred Nova agent-VM platform; retain E2B as the self-hosting contingency and retain the zero-spend feature-disablement policy at credit exhaustion.
+- [x] Define tenant-scoped Daytona sandbox-run persistence, API contracts, and a secure workspace bundle model.
+- [x] Add a server-only Daytona client that creates, labels, executes in, and deletes bounded agent sandboxes without exposing the provider key.
+- [x] Add safe agent tools for creating a run, executing allowlisted workspace commands, streaming sanitized status, importing declared artifacts, and cancelling active work.
+- [x] Enforce Daytona zero-spend controls: one active run per owner, resource limits, default-deny egress, timeout/TTL, and credit-exhaustion disablement.
+- [x] Build authenticated Workspace controls and run-status history for Daytona agent execution.
+- [x] Add unit, router, persistence, and rendered-UI tests for Daytona agent VM behavior and tenant isolation.
+- [x] Implement verified polling-based Daytona run progress updates and surface sanitized status changes in Workspace.
+- [x] Add tracked zero-spend allowance enforcement that blocks new Daytona runs when Nova’s configured trial allowance is exhausted.
+- [x] Add a Daytona database-layer persistence test for run creation, state transitions, cancellation, artifact linkage, and owner isolation.
+- [x] Add a rendered-Workspace regression test proving polling observes an active Daytona run transition to completion.
+- [x] Rename Daytona zero-spend allowance messaging to the accurate Nova-configured run-cap policy unless and until Daytona credit telemetry is integrated.
+- [ ] Configure the Daytona API credential only after the integration is tested and deploy the verified production integration.
+- [ ] Add the validated `DAYTONA_API_KEY` to the linked Vercel project’s Production environment; automatic synchronization is blocked because this environment has no Vercel configuration credential.

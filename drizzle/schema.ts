@@ -1,4 +1,4 @@
-import { boolean, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 /** Internal Nova profile mapped one-to-one to the immutable Neon Auth subject. */
 export const userRole = pgEnum("user_role", ["user", "admin"]);
@@ -7,6 +7,7 @@ export const taskStatus = pgEnum("task_status", ["todo", "in_progress", "done"])
 export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom"]);
 export const modelCompatibility = pgEnum("model_compatibility", ["openai", "anthropic"]);
 export const chatMessageRole = pgEnum("chat_message_role", ["user", "assistant"]);
+export const agentVmRunStatus = pgEnum("agent_vm_run_status", ["queued", "running", "succeeded", "failed", "cancelled", "disabled"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -134,6 +135,23 @@ export const telegramBotSettings = pgTable("telegram_bot_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("telegram_bot_settings_workspace_unique").on(table.workspaceId)]);
 
+/** A safe, auditable record of a short-lived agent task executed in an external sandbox. */
+export const agentVmRuns = pgTable("agent_vm_runs", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  provider: varchar("provider", { length: 32 }).default("daytona").notNull(),
+  sandboxId: varchar("sandboxId", { length: 256 }),
+  task: text("task").notNull(),
+  status: agentVmRunStatus("status").default("queued").notNull(),
+  resultSummary: text("resultSummary"),
+  errorMessage: varchar("errorMessage", { length: 1200 }),
+  artifactFileId: integer("artifactFileId").references(() => workspaceFiles.id, { onDelete: "set null" }),
+  startedAt: timestamp("startedAt", { withTimezone: true }),
+  completedAt: timestamp("completedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("agent_vm_runs_workspace_created_idx").on(table.workspaceId, table.createdAt)]);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
@@ -144,3 +162,4 @@ export type WorkspaceFile = typeof workspaceFiles.$inferSelect;
 export type Chat = typeof chats.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect;
+export type AgentVmRun = typeof agentVmRuns.$inferSelect;

@@ -11,8 +11,9 @@ import {
   updateWorkspaceFolderForUser,
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
+import { startAgentVmRun } from "./agentVm";
 
-type AgentAction = { kind: "folder" | "file" | "telegram"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" };
+type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
 async function runDirectWorkspaceAction(ownerId: number, content: string) {
   const computer = await getWorkspaceComputer(ownerId);
@@ -23,6 +24,12 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const text = telegramMessage[1].trim().replace(/["']$/, "");
     const sent = await sendTelegramMessage(credentials.token, credentials.chatId, text);
     return { reply: `Sent your Telegram message (message #${sent.message_id}).`, actions: [{ kind: "telegram" as const, name: text, operation: "sent" as const }] };
+  }
+  const vmTask = content.match(/(?:use|run|start|launch)\s+(?:a\s+)?(?:daytona\s+)?(?:vm|sandbox)\s+(?:to|for)\s+(.+)/i);
+  if (vmTask?.[1]?.trim()) {
+    const started = await startAgentVmRun(ownerId, { task: vmTask[1].trim() });
+    if (!started.configured) return { reply: started.message, actions: [{ kind: "vm" as const, name: "Daytona", operation: "disabled" as const }] };
+    return { reply: started.message, actions: [{ kind: "vm" as const, name: `run #${started.run?.id ?? ""}`, operation: "completed" as const }] };
   }
   const renameFolder = content.match(/rename\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+to\s+['"]?([^'".\n]+)['"]?/i);
   if (renameFolder?.[1] && renameFolder[2]) {
@@ -71,7 +78,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const created = await createWorkspaceFileForUser(ownerId, { name: file[1].trim(), content: exact });
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
-  return { reply: "I can create, rename, move, and delete folders or plain-text files. Once you connect Telegram in Settings, you can also say: “Send Telegram: Project update is ready.”", actions: [] as AgentAction[] };
+  return { reply: "I can create, rename, move, and delete folders or plain-text files. You can also explicitly ask me to use a VM, for example: “Use a Daytona VM to inspect my workspace.”", actions: [] as AgentAction[] };
 }
 
 const tools = [
@@ -84,6 +91,7 @@ const tools = [
   { type: "function", function: { name: "move_folder", description: "Move an existing workspace folder into a different named folder.", parameters: { type: "object", properties: { name: { type: "string" }, destinationName: { type: "string" } }, required: ["name", "destinationName"] } } },
   { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
+  { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-isolated Daytona VM task only when the user explicitly asks to use a VM or sandbox. The optional Python code may only analyze the provided workspace bundle and must not use network or process-launching libraries.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
 ];
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
@@ -94,7 +102,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, or Telegram-send requests. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
     initial = await invokeLLM({ model: "gpt-5-mini", messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
@@ -110,7 +118,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
 
   for (const call of toolCalls.slice(0, 3)) {
     try {
-      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string };
+      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string };
       if (call.function.name === "create_folder") {
         const folder = args.name?.trim() ? await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() }) : undefined;
         if (folder) actions.push({ kind: "folder", name: folder.name });
@@ -158,6 +166,11 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         if (!credentials?.chatId || !args.text?.trim()) throw new Error("Telegram is not ready");
         const sent = await sendTelegramMessage(credentials.token, credentials.chatId, args.text.trim());
         actions.push({ kind: "telegram", name: `message #${sent.message_id}`, operation: "sent" });
+      }
+      if (call.function.name === "run_workspace_vm") {
+        if (!args.task?.trim()) throw new Error("A VM task is required");
+        const started = await startAgentVmRun(ownerId, { task: args.task.trim(), code: args.code });
+        actions.push({ kind: "vm", name: started.run ? `run #${started.run.id}` : "Daytona", operation: started.configured ? "completed" : "disabled" });
       }
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true }) });
     } catch {

@@ -31,6 +31,7 @@ import {
   saveTelegramSettingsForUser,
   updateTelegramChatForUser,
 } from "./db";
+import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { runWorkspaceAgent } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
@@ -90,6 +91,10 @@ const telegramConfigureInput = z.object({
   botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096),
   chatId: z.string().trim().min(1).max(64).nullable().optional(),
 });
+const agentVmRunInput = z.object({
+  task: z.string().trim().min(3, "Describe the VM task.").max(1600),
+  code: z.string().max(12000).optional(),
+});
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -129,6 +134,24 @@ export const appRouter = router({
     remove: protectedProcedure.mutation(async ({ ctx }) => {
       const deleted = await deleteTelegramSettingsForUser(ctx.user.id);
       return { success: deleted } as const;
+    }),
+  }),
+  agentVm: router({
+    status: protectedProcedure.query(({ ctx }) => getAgentVmStatus(ctx.user.id)),
+    list: protectedProcedure.query(({ ctx }) => listAgentVmRuns(ctx.user.id)),
+    start: protectedProcedure.input(agentVmRunInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await startAgentVmRun(ctx.user.id, input);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Nova could not start that agent VM run.";
+        const code = /active agent VM run/i.test(message) ? "PRECONDITION_FAILED" : /blocked|limits/i.test(message) ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR";
+        throw new TRPCError({ code, message });
+      }
+    }),
+    cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const run = await cancelAgentVmRun(ctx.user.id, input.id);
+      if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "That active agent VM run is not available in your Nova space." });
+      return run;
     }),
   }),
   folders: router({

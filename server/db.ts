@@ -14,6 +14,7 @@ import {
   workspaceFolders,
   workspaceSettings,
   telegramBotSettings,
+  codebuffSettings,
   agentVmRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
@@ -440,6 +441,57 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   return Boolean(deleted);
 }
 
+function toSafeCodebuffSettings(setting: typeof codebuffSettings.$inferSelect | undefined) {
+  if (!setting) return { configured: false as const, updatedAt: null };
+  return { configured: true as const, updatedAt: setting.updatedAt };
+}
+
+export async function getCodebuffSettingsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const setting = (await db.select().from(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).limit(1))[0];
+  return toSafeCodebuffSettings(setting);
+}
+
+export async function saveCodebuffSettingsForUser(ownerId: number, apiKey: string) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  await db.insert(codebuffSettings).values({
+    workspaceId: workspace.id,
+    encryptedApiKey: encryptPrivateCredential(apiKey),
+  }).onConflictDoUpdate({
+    target: codebuffSettings.workspaceId,
+    set: { encryptedApiKey: encryptPrivateCredential(apiKey), updatedAt: new Date() },
+  });
+  return getCodebuffSettingsForUser(ownerId);
+}
+
+export async function getCodebuffCredentialsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const setting = (await db.select().from(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).limit(1))[0];
+  return setting ? { apiKey: decryptPrivateCredential(setting.encryptedApiKey) } : undefined;
+}
+
+export async function deleteCodebuffSettingsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [deleted] = await db.delete(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).returning({ id: codebuffSettings.id });
+  return Boolean(deleted);
+}
+
+export async function getWorkspaceFilesByIdsForUser(ownerId: number, fileIds: number[]) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  if (!fileIds.length) return [];
+  const files = await db.select().from(workspaceFiles).where(and(
+    eq(workspaceFiles.workspaceId, workspace.id),
+    inArray(workspaceFiles.id, fileIds),
+  ));
+  const byId = new Map(files.map(file => [file.id, file]));
+  return fileIds.map(id => byId.get(id)).filter((file): file is typeof workspaceFiles.$inferSelect => Boolean(file));
+}
+
 type AgentVmRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "disabled";
 
 async function getAgentVmRunForUser(ownerId: number, runId: number) {
@@ -472,10 +524,10 @@ export async function listAgentVmRunsForUser(ownerId: number) {
   return runs.map(toSafeAgentVmRun);
 }
 
-export async function createAgentVmRunForUser(ownerId: number, input: { task: string }) {
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "daytona" | "codebuff" }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, task: input.task, status: "queued" }).returning();
+  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "daytona", task: input.task, status: "queued" }).returning();
   if (!created) throw new Error("Nova could not queue the agent VM run.");
   return toSafeAgentVmRun(created);
 }
@@ -506,6 +558,6 @@ export async function getActiveAgentVmRunForUser(ownerId: number) {
 export async function countAgentVmRunsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [result] = await db.select({ total: count() }).from(agentVmRuns).where(eq(agentVmRuns.workspaceId, workspace.id));
+  const [result] = await db.select({ total: count() }).from(agentVmRuns).where(and(eq(agentVmRuns.workspaceId, workspace.id), eq(agentVmRuns.provider, "daytona")));
   return Number(result?.total ?? 0);
 }

@@ -146,3 +146,10 @@
 - [x] Decide not to make Freebuff the default agent runtime; document Codebuff SDK as a future opt-in, explicit-consent provider with Daytona retaining command execution and isolation.
 - [x] Verify that a user-provided Codebuff API key works with Nova’s proposed Codebuff SDK integration and distinguish it from Freebuff CLI’s separate no-key mode.
 - [x] Define the required encrypted per-workspace credential storage and server-only execution boundary if Codebuff is added.
+- [x] Define the Codebuff planner request, consent, bundle, and return contract without exposing workspace credentials or Daytona access.
+- [x] Add replay-safe owner-scoped encrypted Codebuff credential persistence and protected status, configure, remove, and planner-run procedures.
+- [x] Implement the server-only Codebuff SDK adapter with bounded planning and sanitized structured output.
+- [x] Add a Settings card for authenticated password-only Codebuff key entry and safe connection metadata.
+- [x] Add opt-in Agent VM planner controls with selected-file consent and a third-party data warning.
+- [x] Add credential-isolation, persistence, router, adapter, and rendered-UI regression tests for Codebuff planning.
+- [ ] Verify TypeScript, the full test suite, production build, GitHub push, and deployed production behavior before publishing the Codebuff planner.

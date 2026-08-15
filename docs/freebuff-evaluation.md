@@ -20,7 +20,7 @@ The official privacy documentation is a material constraint for Nova. It says Co
 
 It is **technically possible**, but Freebuff should not be Nova’s default agent runtime. The safe architecture is to retain **Daytona as the execution boundary** and, only after a user explicitly chooses the provider for an individual run, invoke Codebuff’s SDK on the server with a deliberately selected workspace bundle. The SDK receives project files as an explicit map and offers custom-tool definitions, which makes a narrow adapter feasible.[2]
 
-The adapter must not hand Codebuff direct Daytona credentials, raw user API keys, database access, or a general shell. Instead, it should expose only Nova-owned tools such as `request_workspace_bundle`, `propose_daytona_command`, `read_declared_result`, and `import_declared_artifact`. Nova’s server validates every requested command against its existing allowlist before sending it to the Daytona sandbox. A Codebuff/Freebuff request that needs external model access must run in a separate **egress-approved** sandbox profile, never Nova’s default blocked-egress profile.
+The adapter must not hand Codebuff direct Daytona credentials, raw user API keys, database access, or a general shell. Nova’s first release deliberately omits tools altogether: Codebuff receives only an explicitly selected, bounded file map and returns a structured **plan**, not commands or file mutations. Daytona remains separate and retains its blocked-egress execution posture.
 
 > **Recommendation:** Adopt **Codebuff SDK as an optional, per-run “Freebuff-style coding” provider only after explicit informed consent. Do not invoke the Freebuff CLI as a background agent, and do not make either provider the default for private workspaces.
 
@@ -28,13 +28,13 @@ This boundary is necessary because the official policy says the service uses pro
 
 ## Guarded implementation path
 
-The first integration should be deliberately small. Add a provider selector named **Codebuff (external context)** to the Agent VM panel, defaulted off. Before a run starts, show a consent summary that lists every selected file and warns that the bundle is sent to Codebuff. Store a per-run provider record and only sanitized streaming events. A server-only `CODEBUFF_API_KEY` belongs in the production environment, while user-owned custom model keys and Daytona credentials stay unavailable to Codebuff. Run the Codebuff planner with `maxAgentSteps`, then execute only Nova-approved shell actions in the short-lived Daytona sandbox.
+The first integration is deliberately small and is now implemented. The **Codebuff planner** switch in Workspace defaults off. Before every run, the user selects up to twelve files and confirms that their contents will be sent to Codebuff. Nova stores a provider-labelled private run record and a Markdown planning artifact, while returning no private credential to the browser. The user enters their own API key only in authenticated Settings; Nova encrypts it at rest, decrypts it only within the server-side adapter, and never forwards it to Daytona, prompts, browser state, or agent tools. Each request is limited to six agent steps, 75 seconds, 24,000 characters per file, and 120,000 total bundle characters.[2]
 
 ## Codebuff key compatibility
 
 **Yes.** A Codebuff API key is the documented credential for programmatic `@codebuff/sdk` use: it is supplied when constructing `CodebuffClient`, then used by `client.run()` to run the chosen agent.[2] This is the supported way for Nova to provide Freebuff-style agent behavior from its server.
 
-The key is not required by the separate Freebuff CLI product, which advertises a free, no-key interactive terminal experience.[4] Therefore, a Codebuff key does not “unlock” Freebuff CLI; it enables the **Codebuff SDK integration** that Freebuff itself is built upon. In Nova, the user must enter the key only through an authenticated Settings field. Nova should AES-GCM encrypt it at rest, return only connection metadata to the browser, decrypt it only in the server-side Codebuff adapter, and never copy it into a Daytona environment or an agent prompt.
+The key is not required by the separate Freebuff CLI product, which advertises a free, no-key interactive terminal experience.[4] Therefore, a Codebuff key does not “unlock” Freebuff CLI; it enables the **Codebuff SDK integration** that Freebuff itself is built upon. In Nova, the user enters the key only through an authenticated Settings field. Nova AES-GCM encrypts it at rest, returns only connection metadata to the browser, decrypts it only in the server-side Codebuff adapter, and never copies it into a Daytona environment or an agent prompt.
 
 ## References
 

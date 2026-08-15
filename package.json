@@ -15,6 +15,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
+    "@codebuff/sdk": "^0.10.7",
     "@daytona/sdk": "^0.204.1",
     "@hookform/resolvers": "^5.2.2",
     "@neondatabase/neon-js": "0.7.0-beta",

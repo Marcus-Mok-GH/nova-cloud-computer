@@ -16,4 +16,13 @@ describe("custom model credential encryption", () => {
     const [iv, tag, payload] = cipherText.split(".");
     expect(() => box.decrypt(`${iv}.${tag}.${payload}x`)).toThrow();
   });
+
+  it("protects BotFather-style tokens with the same authenticated encryption format", () => {
+    const box = createSecretBox("unit-test-secret");
+    const token = "123456:telegram-private-token";
+    const cipherText = box.encrypt(token);
+    expect(cipherText).not.toContain(token);
+    expect(cipherText.split(".")).toHaveLength(3);
+    expect(box.decrypt(cipherText)).toBe(token);
+  });
 });

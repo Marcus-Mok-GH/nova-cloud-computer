@@ -1,27 +1,39 @@
-# Cloud VM Options for Nova Workspaces
+# No-Credit-Card Runtime Options for Nova Workspaces
 
-Research date: 2026-08-15.
+Research date: 2026-08-15. This assessment applies the strict requirement that the user must not supply a credit card and must not be exposed to an automatic paid-account conversion.
 
-## Product framing
+## Decision
 
-Nova currently stores the user workspace in Neon Postgres and serves the interface from Vercel. A cloud VM should therefore be treated as an optional **per-user execution environment** for future OS-level tools, containers, or long-running local processes. It should not become the source of truth for workspace files or credentials.
+> **There is no mainstream, reliable, permanently running public Linux VM with root access that I can honestly recommend under both constraints.**
 
-## Shortlist
+The previous Oracle recommendation does **not** meet this requirement: Oracle’s official documentation says most users need a credit card at sign-up. Google Compute Engine and AWS VM routes also depend on billing or trial structures, so they are not suitable defaults for this constraint.
 
-| Provider | Ongoing no-cost VM capacity | Main constraint | Fit for Nova |
+## Best no-credit-card option: GitHub Codespaces
+
+Use **GitHub Codespaces** as Nova’s optional *interactive execution workspace* for a proof of concept. A GitHub Free personal account includes 120 compute hours and 15 GB-month of Codespaces storage each month. Without a payment method, GitHub blocks further use after this allowance rather than charging the account. This is the clearest no-credit-card option for launching a Linux development environment against Nova’s existing public GitHub repository.
+
+It is intentionally **not** a permanent per-user VM: its capacity is monthly limited, it is best treated as an on-demand development or agent-run environment, and durable workspace records must remain in Nova’s database and storage layer. Nova should sync a disposable working copy into Codespaces, never store the only copy of a user’s files there.
+
+## Secondary option: Google Cloud Shell
+
+Google Cloud Shell is free for users with a Google Cloud account and supplies a temporary Debian Linux VM with root privileges and 5 GB of persistent `$HOME` storage. However, the VM is discarded after one hour of inactivity, and the home directory is deleted after 120 days without access. It is appropriate for a temporary maintenance shell, not for a user-facing always-on Nova computer.
+
+| Option | Credit card / automatic paid conversion | What it is suitable for | Hard limitation |
 | --- | --- | --- | --- |
-| Oracle Cloud Always Free | Up to 2 AMD micro VMs, or an Arm allocation equivalent to 2 OCPUs and 12 GB RAM; 200 GB block volume total | Free Arm capacity can be unavailable, and idle instances may be reclaimed | Best free proof-of-concept option for one personal workspace |
-| Google Cloud Free Tier | One non-preemptible e2-micro VM, 30 GB standard persistent disk, 1 GB monthly outbound transfer | Limited to three US regions and too small for an interactive workspace runtime | Conservative fallback or lightweight relay only |
-| AWS Free Tier | Up to $200 in new-customer credits over up to six months on the Free plan | Time-limited credits rather than a durable free VM budget | Trial and portability testing, not the preferred long-lived workspace host |
+| **GitHub Codespaces** | No payment method is required for included personal-account use; usage stops once the quota is exhausted | Best fit for on-demand Nova tool runs and development workspaces | 120 included core-hours and 15 GB-month storage per month |
+| **Google Cloud Shell** | Free for Google Cloud users | Temporary maintenance and CLI tasks | VM ends after one inactive hour; 5 GB home storage |
+| Oracle Always Free / Google Compute / AWS EC2 | Not recommended under this requirement | None for this decision | Require or depend on card/billing/trial flows |
+| User-owned computer | No cloud account or card | The only unbounded no-cost execution path | The user device must stay available |
 
-## Recommendation
+## Product recommendation
 
-Use **Oracle Cloud Always Free Ampere A1** for a single-user Nova workspace proof of concept, subject to successful capacity allocation. The documented 2 OCPU / 12 GB RAM equivalent and 200 GB total block volume offer materially more headroom than Google’s e2-micro free allowance. Keep Neon/Postgres and Vercel as the system of record and web plane, and put only disposable execution state on the VM. Implement encrypted backups, a lightweight health check, and automatic recreation before relying on it because Oracle can reclaim idle Always Free instances.
+Keep Nova’s file/folder workspace on Vercel and Neon. Add a **“Run in Codespaces”** action only when we are ready to support an optional, quota-bounded development environment. Display the remaining allowance and make all work exportable to the workspace before a Codespace stops. Do not market this as an always-on cloud VM.
 
-Do not allocate a VM per Nova user until a paid infrastructure model, lifecycle controls, quotas, abuse prevention, and observability are defined. For the current files/folders product, the hosted app and database remain the appropriate architecture.
+For an unlimited, genuinely no-cost execution environment, Nova needs to use the user’s own computer rather than a third-party cloud provider.
 
 ## Sources
 
-1. Oracle, [Always Free Resources](https://docs.oracle.com/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm), updated 2026-06-12.
-2. Google Cloud, [Free Google Cloud features and trial offer](https://docs.cloud.google.com/free/docs/free-cloud-features).
-3. AWS, [AWS Free Tier](https://aws.amazon.com/free/).
+1. GitHub, [GitHub Codespaces billing](https://docs.github.com/en/billing/concepts/product-billing/github-codespaces): 120 compute hours and 15 GB-month for personal GitHub Free; use is blocked without a payment method after the quota.
+2. Google Cloud, [How Cloud Shell works](https://docs.cloud.google.com/shell/docs/how-cloud-shell-works): temporary VM lifecycle, 5 GB home storage, and inactivity deletion behavior.
+3. Google Cloud, [Cloud Shell pricing](https://cloud.google.com/shell/pricing): Cloud Shell is free for users with a Google Cloud account.
+4. Oracle, [OCI Cloud Free Tier](https://docs.oracle.com/iaas/Content/FreeTier/freetier.htm): most users need a mobile phone number and credit card at account creation.

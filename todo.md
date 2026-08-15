@@ -116,3 +116,5 @@
 - [x] Add rendered-UI regression coverage for Workspace folders, files, loading, empty, and error states.
 - [x] Diagnose and repair the surfaced production deployment startup failure without regressing the external Vercel deployment; the Vercel production build for commit e74feb4 is READY and `/app` loads successfully.
 - [x] Research viable free cloud-VM providers for Nova’s workspace model and recommend one based on practical product constraints; documented the Oracle Always Free proof-of-concept recommendation and alternatives.
+- [x] Re-evaluate Nova’s cloud-runtime recommendation against the strict requirement of no credit card and no paid-account conversion.
+- [x] Document the best genuinely free no-credit-card alternative and its operational limitations for the workspace model: GitHub Codespaces for quota-bounded interactive compute, not an always-on VM.

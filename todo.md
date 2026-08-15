@@ -111,3 +111,8 @@
 - [x] Prove Telegram database reads cannot return bot credentials or settings across workspace owners.
 - [x] Confirm the deployed Settings flow keeps BotFather token entry in the authenticated UI and scopes encrypted credentials to the active workspace account.
 - [x] Browser-verify the authenticated production Telegram Settings card: BotFather token entry is a password-only field with no displayed value, and the initial safe state exposes no credential; live credential entry remains an authenticated end-user action.
+- [x] Make the Workspace tab render the active workspace’s persisted files and folders with practical empty, loading, and error states.
+- [x] Add regression coverage for the Workspace tab’s rendered folders and files.
+- [x] Add rendered-UI regression coverage for Workspace folders, files, loading, empty, and error states.
+- [ ] Diagnose and repair the surfaced production deployment startup failure without regressing the external Vercel deployment.
+- [ ] Research viable free cloud-VM providers for Nova’s workspace model and recommend one based on practical product constraints.

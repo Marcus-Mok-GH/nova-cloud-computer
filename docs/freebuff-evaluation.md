@@ -1,0 +1,39 @@
+# Freebuff / Codebuff Evaluation for Nova
+
+## Evidence gathered
+
+Freebuff is the public coding-agent product built on Codebuff. Its repository describes a TypeScript/Bun monorepo containing agents, tools, a CLI, and an SDK. The repository directs application embedders to Codebuff documentation and `@codebuff/sdk`, rather than documenting Freebuff itself as a separately supported server framework.[1]
+
+Codebuff’s SDK supports programmatic agent runs via `CodebuffClient` and `client.run()`. The documented run contract accepts an agent identifier, prompt, project-file map, custom agent and tool definitions, a step limit, an event callback, and prior conversation state. Its events include lifecycle, tool-call, tool-result, text, and error records, which could be translated into Nova’s run-history model.[2]
+
+The official privacy documentation is a material constraint for Nova. It says Codebuff and Freebuff use prompts, messages, code, files, and repository data to provide the service, and that prompts and messages may be analyzed to personalize ads. It further says model or feature submissions may be retained for development, training, testing, evaluation, fine-tuning, and improvement when the relevant model or feature says data may be used for training.[3]
+
+## Product distinction
+
+| Option | What it is | Programmatic fit for Nova | Practical constraint |
+| --- | --- | --- | --- |
+| **Freebuff CLI** | A terminal coding-agent product that the vendor positions as free, no-key, and ad-funded. | Low. Its documented entry point is the interactive `freebuff` terminal command, not a server API. | It needs network access to the Freebuff service, so it conflicts with Nova’s default-deny Daytona egress posture.[4] |
+| **Codebuff SDK** | The documented embeddable interface underlying Freebuff. | High. `CodebuffClient.run()` supports structured inputs, event callbacks, custom agents, custom tools, and a step cap. | It requires a Codebuff API key and sends the provided context to a hosted service.[2] |
+| **Fork / self-host exploration** | The Freebuff repository is Apache-2.0 licensed. | Indeterminate. The license allows reuse, but the public repository itself does not establish a supported self-hosted model-service replacement. | Nova would own ongoing security, model-provider, and operational work.[5] |
+
+## Nova / Daytona fit assessment
+
+It is **technically possible**, but Freebuff should not be Nova’s default agent runtime. The safe architecture is to retain **Daytona as the execution boundary** and, only after a user explicitly chooses the provider for an individual run, invoke Codebuff’s SDK on the server with a deliberately selected workspace bundle. The SDK receives project files as an explicit map and offers custom-tool definitions, which makes a narrow adapter feasible.[2]
+
+The adapter must not hand Codebuff direct Daytona credentials, raw user API keys, database access, or a general shell. Instead, it should expose only Nova-owned tools such as `request_workspace_bundle`, `propose_daytona_command`, `read_declared_result`, and `import_declared_artifact`. Nova’s server validates every requested command against its existing allowlist before sending it to the Daytona sandbox. A Codebuff/Freebuff request that needs external model access must run in a separate **egress-approved** sandbox profile, never Nova’s default blocked-egress profile.
+
+> **Recommendation:** Adopt **Codebuff SDK as an optional, per-run “Freebuff-style coding” provider only after explicit informed consent. Do not invoke the Freebuff CLI as a background agent, and do not make either provider the default for private workspaces.
+
+This boundary is necessary because the official policy says the service uses prompts, messages, code, files, and repository data to provide the service; prompts/messages may be analyzed for ad personalization, and some submissions may be retained for model or product improvement.[3] The vendor’s free CLI is explicitly supported by text ads and advertises no API key, while the documented SDK requires an API key, so the two consumption models should not be conflated.[2] [4]
+
+## Guarded implementation path
+
+The first integration should be deliberately small. Add a provider selector named **Codebuff (external context)** to the Agent VM panel, defaulted off. Before a run starts, show a consent summary that lists every selected file and warns that the bundle is sent to Codebuff. Store a per-run provider record and only sanitized streaming events. A server-only `CODEBUFF_API_KEY` belongs in the production environment, while user-owned custom model keys and Daytona credentials stay unavailable to Codebuff. Run the Codebuff planner with `maxAgentSteps`, then execute only Nova-approved shell actions in the short-lived Daytona sandbox.
+
+## References
+
+[1]: https://github.com/CodebuffAI/freebuff "CodebuffAI/freebuff repository"
+[2]: https://www.codebuff.com/docs/advanced/sdk "Codebuff SDK & Programmatic Access"
+[3]: https://www.codebuff.com/docs/advanced/privacy "Codebuff Privacy"
+[4]: https://freebuff.com/cli "Freebuff CLI"
+[5]: https://raw.githubusercontent.com/CodebuffAI/freebuff/main/LICENSE "Freebuff Apache License 2.0"

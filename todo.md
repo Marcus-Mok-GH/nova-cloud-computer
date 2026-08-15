@@ -142,3 +142,5 @@
 - [x] Use the authorized Vercel CLI to set Nova’s existing validated `DAYTONA_API_KEY` for Production; production Workspace now reports Daytona as Ready.
 - [x] Authenticate the local Vercel CLI through the user-authorized device-login link and configure Nova’s Production `DAYTONA_API_KEY` without printing the value.
 - [x] Repair the Vercel Daytona deployment by making the already-applied Neon migration replay-safe, then verify the GitHub-triggered production build is READY.
+- [x] Evaluate Freebuff’s framework for use by Nova’s AI agent, including its runtime model, licensing, supported tools, security posture, and Daytona compatibility.
+- [x] Decide not to make Freebuff the default agent runtime; document Codebuff SDK as a future opt-in, explicit-consent provider with Daytona retaining command execution and isolation.

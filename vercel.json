@@ -9,7 +9,11 @@
   "functions": {
     "api/[...path].ts": {
       "maxDuration": 10,
-      "includeFiles": "dist/server/**"
+      "includeFiles": [
+        "dist/server/**",
+        "node_modules/.pnpm/web-tree-sitter@*/node_modules/web-tree-sitter/tree-sitter.wasm",
+        "node_modules/.pnpm/@codebuff+sdk@*/node_modules/@codebuff/sdk/dist/wasm/*.wasm"
+      ]
     }
   }
 }

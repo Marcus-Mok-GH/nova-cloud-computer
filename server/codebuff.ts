@@ -1,4 +1,4 @@
-import { CodebuffClient, type AgentDefinition } from "@codebuff/sdk";
+import type { AgentDefinition } from "@codebuff/sdk";
 import {
   createAgentVmRunForUser,
   createWorkspaceFileForUser,
@@ -138,6 +138,7 @@ export async function startCodebuffPlannerRun(ownerId: number, input: { prompt: 
   await updateAgentVmRunForUser(ownerId, run.id, { status: "running", startedAt: new Date() });
 
   try {
+    const { CodebuffClient } = await import("@codebuff/sdk");
     const client = new CodebuffClient({
       apiKey: credentials.apiKey,
       projectFiles,

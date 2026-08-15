@@ -120,3 +120,9 @@
 - [x] Document the best genuinely free no-credit-card alternative and its operational limitations for the workspace model: GitHub Codespaces for quota-bounded interactive compute, not an always-on VM.
 - [x] Define an agent-executable Linux VM strategy for Nova under the no-credit-card constraint, including scoped workspace bundles, an ephemeral GitHub-hosted Ubuntu Actions runner, and durable result persistence outside the VM.
 - [x] Clarify the product and infrastructure limitation: no reliable always-on third-party VM satisfies both zero-cost and no-credit-card requirements, so GitHub Actions is limited to bounded agent jobs.
+- [x] Evaluate Daytona as Nova’s agent-VM and sandbox platform, including lifecycle, isolation, control APIs, persistence, pricing, and security boundaries.
+- [x] Decide to replace the GitHub Actions agent-VM proposal with Daytona for Nova’s constrained agent-compute rollout; document the server-side API-key boundary, scoped workspace transfer, lifecycle controls, and post-credit cost decision.
+- [x] Decide Nova’s post-Daytona-trial cost policy: disable new agent runs at credit exhaustion; never collect a card, convert to paid usage, or silently fall back to a paid route.
+- [x] Define Daytona sandbox concurrency, resource, TTL, and network-limit requirements that enforce Nova’s selected zero-spend policy.
+- [x] Compare Daytona and E2B for Nova’s agent VM across isolation, lifecycle, persistence, API control, observability, commercial model, and no-card safeguards.
+- [x] Select Daytona as the preferred Nova agent-VM platform; retain E2B as the self-hosting contingency and retain the zero-spend feature-disablement policy at credit exhaustion.

@@ -6,6 +6,7 @@ const updateFolder = vi.fn(async (_owner: number, id: number, input: { name?: st
 const updateFile = vi.fn(async (_owner: number, id: number, input: { folderId?: number | null }) => ({ id, name: "welcome.md", folderId: input.folderId ?? null }));
 const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
+const telegramCredentials = vi.fn(async () => undefined);
 const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
 const invoke = vi.fn();
 
@@ -18,6 +19,7 @@ vi.mock("./db", () => ({
   updateWorkspaceFileForUser: updateFile,
   deleteWorkspaceFileForUser: deleteFile,
   deleteWorkspaceFolderForUser: deleteFolder,
+  getTelegramCredentialsForUser: telegramCredentials,
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 

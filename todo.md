@@ -99,3 +99,8 @@
 - [x] Add hosted-model tool support for file move and folder rename, move, and delete actions.
 - [x] Add regression coverage for agent file moves, folder moves, and file/folder deletion paths.
 - [x] Expose direct user controls and verify agent-driven file and folder delete flows in the production browser.
+- [ ] Add encrypted per-user Telegram Bot token and chat configuration storage.
+- [ ] Add tenant-scoped Telegram token validation, configuration, and message-sending APIs.
+- [ ] Add Telegram setup and test-message controls to Nova Settings.
+- [ ] Allow Nova’s workspace agent to send explicit user-requested Telegram messages.
+- [ ] Test Telegram encryption, validation, tenant boundaries, and outbound messaging behavior.

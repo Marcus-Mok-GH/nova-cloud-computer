@@ -122,6 +122,18 @@ export const chatMessages = pgTable("chat_messages", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/** Telegram Bot credentials are encrypted at rest and never returned to the browser. */
+export const telegramBotSettings = pgTable("telegram_bot_settings", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  encryptedBotToken: text("encryptedBotToken").notNull(),
+  chatId: varchar("chatId", { length: 64 }),
+  botUsername: varchar("botUsername", { length: 128 }),
+  botDisplayName: varchar("botDisplayName", { length: 256 }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("telegram_bot_settings_workspace_unique").on(table.workspaceId)]);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
@@ -131,3 +143,4 @@ export type WorkspaceFolder = typeof workspaceFolders.$inferSelect;
 export type WorkspaceFile = typeof workspaceFiles.$inferSelect;
 export type Chat = typeof chats.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
+export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect;

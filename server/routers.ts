@@ -25,8 +25,14 @@ import {
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
   updateWorkspaceModelSettingsForUser,
+  deleteTelegramSettingsForUser,
+  getTelegramCredentialsForUser,
+  getTelegramSettingsForUser,
+  saveTelegramSettingsForUser,
+  updateTelegramChatForUser,
 } from "./db";
 import { runWorkspaceAgent } from "./workspaceAgent";
+import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -80,6 +86,10 @@ const fileUpdateInput = z.object({
   content: z.string().max(200000).optional(),
   folderId: z.number().int().positive().nullable().optional(),
 }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide a file change." });
+const telegramConfigureInput = z.object({
+  botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096),
+  chatId: z.string().trim().min(1).max(64).nullable().optional(),
+});
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -96,6 +106,29 @@ export const appRouter = router({
       const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
       if (!settings) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
       return settings;
+    }),
+  }),
+  telegram: router({
+    status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),
+    configure: protectedProcedure.input(telegramConfigureInput).mutation(async ({ ctx, input }) => {
+      const bot = await validateTelegramBotToken(input.botToken);
+      return saveTelegramSettingsForUser(ctx.user.id, { botToken: input.botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
+    }),
+    discoverChat: protectedProcedure.mutation(async ({ ctx }) => {
+      const credentials = await getTelegramCredentialsForUser(ctx.user.id);
+      if (!credentials) throw new TRPCError({ code: "NOT_FOUND", message: "Add and validate a Telegram bot token first." });
+      const chatId = await discoverTelegramChat(credentials.token);
+      return updateTelegramChatForUser(ctx.user.id, chatId);
+    }),
+    sendTest: protectedProcedure.input(z.object({ text: z.string().trim().min(1).max(4096).default("Nova is connected to your Telegram bot.") })).mutation(async ({ ctx, input }) => {
+      const credentials = await getTelegramCredentialsForUser(ctx.user.id);
+      if (!credentials?.chatId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Send /start to your bot in Telegram, then discover its chat before sending a message." });
+      const sent = await sendTelegramMessage(credentials.token, credentials.chatId, input.text);
+      return { success: true as const, messageId: sent.message_id };
+    }),
+    remove: protectedProcedure.mutation(async ({ ctx }) => {
+      const deleted = await deleteTelegramSettingsForUser(ctx.user.id);
+      return { success: deleted } as const;
     }),
   }),
   folders: router({

@@ -15,6 +15,13 @@
       "when": 1786716427012,
       "tag": "0001_productive_wrecker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786771743271,
+      "tag": "0002_optimal_mysterio",
+      "breakpoints": true
     }
   ]
 }

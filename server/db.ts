@@ -13,8 +13,9 @@ import {
   workspaceFiles,
   workspaceFolders,
   workspaceSettings,
+  telegramBotSettings,
 } from "../drizzle/schema";
-import { encryptModelApiKey } from "./modelSecrets";
+import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -375,4 +376,65 @@ export async function getWorkspaceComputer(ownerId: number) {
     getWorkspaceModelSettingsForUser(ownerId),
   ]);
   return { workspace, folders, files, chats: chatRows, settings };
+}
+
+function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined) {
+  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null };
+  return {
+    configured: true as const,
+    chatId: setting.chatId,
+    botUsername: setting.botUsername,
+    botDisplayName: setting.botDisplayName,
+  };
+}
+
+export async function getTelegramSettingsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
+  return toSafeTelegramSettings(setting);
+}
+
+export async function saveTelegramSettingsForUser(ownerId: number, input: { botToken: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  await db.insert(telegramBotSettings).values({
+    workspaceId: workspace.id,
+    encryptedBotToken: encryptPrivateCredential(input.botToken),
+    chatId: input.chatId ?? null,
+    botUsername: input.botUsername ?? null,
+    botDisplayName: input.botDisplayName ?? null,
+  }).onConflictDoUpdate({
+    target: telegramBotSettings.workspaceId,
+    set: {
+      encryptedBotToken: encryptPrivateCredential(input.botToken),
+      chatId: input.chatId ?? null,
+      botUsername: input.botUsername ?? null,
+      botDisplayName: input.botDisplayName ?? null,
+      updatedAt: new Date(),
+    },
+  });
+  return getTelegramSettingsForUser(ownerId);
+}
+
+export async function updateTelegramChatForUser(ownerId: number, chatId: string) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [updated] = await db.update(telegramBotSettings).set({ chatId, updatedAt: new Date() }).where(eq(telegramBotSettings.workspaceId, workspace.id)).returning();
+  return toSafeTelegramSettings(updated);
+}
+
+export async function getTelegramCredentialsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
+  if (!setting) return undefined;
+  return { token: decryptPrivateCredential(setting.encryptedBotToken), chatId: setting.chatId, botUsername: setting.botUsername, botDisplayName: setting.botDisplayName };
+}
+
+export async function deleteTelegramSettingsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [deleted] = await db.delete(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).returning({ id: telegramBotSettings.id });
+  return Boolean(deleted);
 }

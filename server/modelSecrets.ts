@@ -24,3 +24,5 @@ export function createSecretBox(secret: string) {
 
 export const encryptModelApiKey = (apiKey: string) => createSecretBox(ENV.modelCredentialSecret).encrypt(apiKey);
 export const decryptModelApiKey = (cipherText: string) => createSecretBox(ENV.modelCredentialSecret).decrypt(cipherText);
+export const encryptPrivateCredential = encryptModelApiKey;
+export const decryptPrivateCredential = decryptModelApiKey;

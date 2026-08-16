@@ -23,13 +23,41 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 
+const envState = { nvidiaNimApiKey: "" };
+vi.mock("./_core/env", () => ({
+  ENV: {
+    appId: "",
+    cookieSecret: "",
+    oAuthServerUrl: "",
+    ownerOpenId: "",
+    forgeApiUrl: "",
+    forgeApiKey: "",
+    nvidiaNimApiUrl: "https://integrate.api.nvidia.com/v1",
+    get nvidiaNimApiKey() { return envState.nvidiaNimApiKey; },
+    databaseUrl: "",
+    neonAuthBaseUrl: "",
+    modelCredentialSecret: "",
+    isProduction: false,
+  }
+}));
+
 const { runWorkspaceAgent } = await import("./workspaceAgent");
 
 describe("Nova keyless workspace agent", () => {
   const originalBuiltIn = process.env.BUILT_IN_FORGE_API_KEY;
   const originalOpenAi = process.env.OPENAI_API_KEY;
   const originalNim = process.env.NVIDIA_NIM_API_KEY;
-  afterEach(() => { process.env.BUILT_IN_FORGE_API_KEY = originalBuiltIn; process.env.OPENAI_API_KEY = originalOpenAi; process.env.NVIDIA_NIM_API_KEY = originalNim; vi.clearAllMocks(); });
+  afterEach(() => {
+    process.env.BUILT_IN_FORGE_API_KEY = originalBuiltIn;
+    process.env.OPENAI_API_KEY = originalOpenAi;
+    if (originalNim === undefined) {
+      delete process.env.NVIDIA_NIM_API_KEY;
+    } else {
+      process.env.NVIDIA_NIM_API_KEY = originalNim;
+    }
+    envState.nvidiaNimApiKey = "";
+    vi.clearAllMocks();
+  });
 
   it("creates a requested plain-text file without a hosted model key", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
@@ -69,6 +97,7 @@ describe("Nova keyless workspace agent", () => {
   it("executes folder deletion from the hosted-model tool path", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
     process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
+    envState.nvidiaNimApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "delete_folder", arguments: '{"name":"Archive"}' } }] } }] });
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Deleted Archive." } }] });
     await expect(runWorkspaceAgent(7, 3, "Delete folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });

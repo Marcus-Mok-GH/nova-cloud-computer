@@ -26,15 +26,12 @@ import {
   updateWorkspaceFolderForUser,
   updateWorkspaceModelSettingsForUser,
   deleteTelegramSettingsForUser,
-  deleteCodebuffSettingsForUser,
   getTelegramCredentialsForUser,
   getTelegramSettingsForUser,
-  saveCodebuffSettingsForUser,
   saveTelegramSettingsForUser,
   updateTelegramChatForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
-import { getCodebuffPlannerStatus, startCodebuffPlannerRun } from "./codebuff";
 import { runWorkspaceAgent } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
@@ -94,16 +91,6 @@ const telegramConfigureInput = z.object({
   botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096),
   chatId: z.string().trim().min(1).max(64).nullable().optional(),
 });
-const codebuffConfigureInput = z.object({
-  apiKey: z.string().trim().min(16, "Enter a complete Codebuff API key.").max(4096),
-});
-const codebuffPlanInput = z.object({
-  prompt: z.string().trim().min(3, "Describe the plan you need.").max(1600),
-  fileIds: z.array(z.number().int().positive()).min(1, "Select at least one workspace file to share with Codebuff.").max(12),
-  consent: z.literal(true, { error: "Confirm that the selected file contents will be sent to Codebuff before running the planner." }),
-}).superRefine((input, context) => {
-  if (new Set(input.fileIds).size !== input.fileIds.length) context.addIssue({ code: "custom", path: ["fileIds"], message: "Select each workspace file only once." });
-});
 const agentVmRunInput = z.object({
   task: z.string().trim().min(3, "Describe the VM task.").max(1600),
   code: z.string().max(12000).optional(),
@@ -147,20 +134,6 @@ export const appRouter = router({
     remove: protectedProcedure.mutation(async ({ ctx }) => {
       const deleted = await deleteTelegramSettingsForUser(ctx.user.id);
       return { success: deleted } as const;
-    }),
-  }),
-  codebuff: router({
-    status: protectedProcedure.query(({ ctx }) => getCodebuffPlannerStatus(ctx.user.id)),
-    configure: protectedProcedure.input(codebuffConfigureInput).mutation(({ ctx, input }) => saveCodebuffSettingsForUser(ctx.user.id, input.apiKey)),
-    remove: protectedProcedure.mutation(async ({ ctx }) => ({ success: await deleteCodebuffSettingsForUser(ctx.user.id) } as const)),
-    plan: protectedProcedure.input(codebuffPlanInput).mutation(async ({ ctx, input }) => {
-      try {
-        return await startCodebuffPlannerRun(ctx.user.id, input);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Nova could not start that Codebuff planning request.";
-        const code = /active agent work|selected files|not available/i.test(message) ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
-        throw new TRPCError({ code, message });
-      }
     }),
   }),
   agentVm: router({

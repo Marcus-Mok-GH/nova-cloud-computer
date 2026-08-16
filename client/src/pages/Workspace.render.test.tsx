@@ -7,7 +7,6 @@ const state = vi.hoisted(() => ({
   computer: { data: undefined as unknown, isError: false, isLoading: false, refetch: vi.fn() },
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false },
   agentVmRuns: { data: [] as Array<{ id: number; provider?: string; task: string; status: string; resultSummary: string | null; errorMessage: string | null }>, isError: false, isLoading: false },
-  codebuffStatus: { data: { configured: false, provider: "codebuff", limits: { maxSelectedFiles: 12, maxAgentSteps: 6 } }, isError: false, isLoading: false },
 }));
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -18,11 +17,10 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     workspace: { computer: { useQuery: () => state.computer } },
     agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => state.agentVmRuns }, start: { useMutation: () => mutation }, cancel: { useMutation: () => mutation } },
-    codebuff: { status: { useQuery: () => state.codebuffStatus }, plan: { useMutation: () => mutation } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: [], isLoading: false }) }, send: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, codebuff: { status: { invalidate } } }),
+    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } } }),
   },
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()] }));
@@ -35,7 +33,6 @@ describe("Workspace rendered browser states", () => {
     state.computer = { data: undefined, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false };
     state.agentVmRuns = { data: [], isError: false, isLoading: false };
-    state.codebuffStatus = { data: { configured: false, provider: "codebuff", limits: { maxSelectedFiles: 12, maxAgentSteps: 6 } }, isError: false, isLoading: false };
   });
 
   it("renders persisted root folders and files from the workspace computer query", () => {
@@ -55,9 +52,6 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Workspace folders");
     expect(markup).toContain("Agent VM");
     expect(markup).toContain("Setup needed");
-    expect(markup).toContain("Codebuff planner");
-    expect(markup).toContain("Optional and off by default");
-    expect(markup).not.toContain("Create Codebuff plan");
   });
 
   it("renders loading, empty, and error states for the workspace browser", () => {
@@ -74,7 +68,7 @@ describe("Workspace rendered browser states", () => {
   it("renders private agent VM history and the enforced execution limits", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 1, maxRuns: 50, remainingRuns: 49, exhausted: false } }, isError: false, isLoading: false };
-    state.agentVmRuns = { data: [{ id: 9, provider: "codebuff", task: "Inspect workspace notes", status: "succeeded", resultSummary: "2 files inspected", errorMessage: null }], isError: false, isLoading: false };
+    state.agentVmRuns = { data: [{ id: 9, provider: "daytona", task: "Inspect workspace notes", status: "succeeded", resultSummary: "2 files inspected", errorMessage: null }], isError: false, isLoading: false };
 
     const markup = renderWorkspace();
     expect(markup).toContain("Run in agent VM");
@@ -82,7 +76,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("1 active run");
     expect(markup).toContain("network access stays blocked");
     expect(markup).toContain("1/50 configured run cap");
-    expect(markup).toContain("Codebuff plan");
+    expect(markup).toContain("Daytona VM");
   });
 
   it("polls active VM work quickly and reflects the next completed run snapshot", () => {

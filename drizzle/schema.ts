@@ -135,15 +135,6 @@ export const telegramBotSettings = pgTable("telegram_bot_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("telegram_bot_settings_workspace_unique").on(table.workspaceId)]);
 
-/** Codebuff credentials are encrypted at rest and never returned to the browser. */
-export const codebuffSettings = pgTable("codebuff_settings", {
-  id: serial("id").primaryKey(),
-  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  encryptedApiKey: text("encryptedApiKey").notNull(),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
-}, table => [uniqueIndex("codebuff_settings_workspace_unique").on(table.workspaceId)]);
-
 /** A safe, auditable record of a short-lived external agent task or planning request. */
 export const agentVmRuns = pgTable("agent_vm_runs", {
   id: serial("id").primaryKey(),
@@ -171,5 +162,4 @@ export type WorkspaceFile = typeof workspaceFiles.$inferSelect;
 export type Chat = typeof chats.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect;
-export type CodebuffSettings = typeof codebuffSettings.$inferSelect;
 export type AgentVmRun = typeof agentVmRuns.$inferSelect;

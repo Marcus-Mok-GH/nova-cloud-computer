@@ -1,14 +1,11 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { getFolderTrail, getWorkspaceContents } from "@/lib/workspaceBrowser";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  BrainCircuit,
   ChevronRight,
   FilePlus2,
   FileText,
@@ -45,11 +42,6 @@ export default function Workspace() {
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [vmTask, setVmTask] = useState("");
-  const [codebuffEnabled, setCodebuffEnabled] = useState(false);
-  const [codebuffPickerOpen, setCodebuffPickerOpen] = useState(false);
-  const [codebuffPrompt, setCodebuffPrompt] = useState("");
-  const [codebuffFileIds, setCodebuffFileIds] = useState<number[]>([]);
-  const [codebuffConsent, setCodebuffConsent] = useState(false);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const folders = computer.data?.folders ?? [];
   const allFiles = computer.data?.files ?? [];
@@ -59,7 +51,6 @@ export default function Workspace() {
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const agentVmRuns = trpc.agentVm.list.useQuery(undefined, { retry: false, refetchInterval: query => getAgentVmPollInterval(query.state.data) });
-  const codebuffStatus = trpc.codebuff.status.useQuery(undefined, { retry: false });
 
   const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
   const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
@@ -95,16 +86,6 @@ export default function Workspace() {
     onSuccess: () => {
       utils.agentVm.list.invalidate();
       toast.success("Agent VM run cancelled.");
-    },
-    onError: error => toast.error(error.message),
-  });
-  const startCodebuffPlan = trpc.codebuff.plan.useMutation({
-    onSuccess: result => {
-      utils.agentVm.list.invalidate();
-      utils.workspace.computer.invalidate();
-      if (result.plan) toast.success("Codebuff planning result saved as a private workspace file.");
-      else toast.error(result.message);
-      setCodebuffConsent(false);
     },
     onError: error => toast.error(error.message),
   });
@@ -147,7 +128,6 @@ export default function Workspace() {
 
   const vm = agentVmStatus.data;
   const vmCanRun = Boolean(vm?.configured && !vm.allowance.exhausted);
-  const codebuffCanRun = Boolean(codebuffStatus.data?.configured && codebuffEnabled && codebuffFileIds.length && codebuffConsent);
   const itemCount = visibleContents.folders.length + visibleContents.files.length;
   return <DashboardLayout><div className="grid min-h-[calc(100vh-10.5rem)] gap-4 xl:grid-cols-[250px_minmax(0,1fr)_280px]">
     <aside className="rounded-2xl border border-white/9 bg-[#10161f] p-3">
@@ -165,18 +145,11 @@ export default function Workspace() {
       </div>
     </section>
     <aside className="space-y-4">
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent VM</p><span className={`rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] ${vmCanRun ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-200/10 text-amber-100"}`}>{vm?.allowance.exhausted ? "Run cap reached" : vm?.configured ? "Ready" : "Setup needed"}</span></div><p className="mt-3 text-xs leading-5 text-white/52">Nova runs explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked.</p><Textarea value={vmTask} onChange={event => setVmTask(event.target.value)} placeholder="Describe a safe workspace task…" className="mt-3 min-h-20 resize-none border-white/10 bg-black/15 text-xs text-white placeholder:text-white/30 focus-visible:ring-cyan-300/30" /><Button onClick={() => startVmRun.mutate({ task: vmTask.trim() })} disabled={!vmTask.trim() || startVmRun.isPending || !vmCanRun} className="mt-2 w-full bg-cyan-300 text-xs text-slate-950 hover:bg-cyan-200">{startVmRun.isPending ? "Starting sandbox…" : "Run in agent VM"}</Button><p className="mt-2 text-[10px] leading-4 text-white/33">{vm?.allowance.usedRuns ?? 0}/{vm?.allowance.maxRuns ?? 0} configured run cap · 1 active run · 30s task limit · polling status</p>
-        <div className="mt-4 border-t border-white/8 pt-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><BrainCircuit className="size-4 text-violet-200" /><p className="text-xs font-medium text-white/80">Codebuff planner</p></div><Switch checked={codebuffEnabled} onCheckedChange={setCodebuffEnabled} aria-label="Use Codebuff planner" /></div><p className="mt-2 text-[10px] leading-4 text-white/43">Optional and off by default. It produces a plan only; Codebuff receives nothing until you select files and confirm the transfer.</p>{codebuffEnabled && <div className="mt-3 space-y-3 rounded-xl border border-violet-200/10 bg-violet-300/[.035] p-3">{codebuffStatus.data?.configured ? <><Textarea value={codebuffPrompt} onChange={event => setCodebuffPrompt(event.target.value)} placeholder="What should Codebuff plan?" className="min-h-16 resize-none border-white/10 bg-black/15 text-xs text-white placeholder:text-white/30 focus-visible:ring-violet-200/30" /><Button variant="outline" onClick={() => setCodebuffPickerOpen(true)} className="w-full border-violet-200/15 bg-transparent text-xs text-violet-100 hover:bg-violet-300/10 hover:text-white">Choose files ({codebuffFileIds.length})</Button><label className="flex cursor-pointer items-start gap-2 text-[10px] leading-4 text-white/55"><input type="checkbox" checked={codebuffConsent} onChange={event => setCodebuffConsent(event.target.checked)} className="mt-0.5 accent-violet-300" />I understand the selected file contents will be sent to Codebuff’s hosted service for this request.</label><Button onClick={() => startCodebuffPlan.mutate({ prompt: codebuffPrompt.trim(), fileIds: codebuffFileIds, consent: true })} disabled={!codebuffCanRun || !codebuffPrompt.trim() || startCodebuffPlan.isPending} className="w-full bg-violet-200 text-xs text-slate-950 hover:bg-violet-100">{startCodebuffPlan.isPending ? "Planning…" : "Create Codebuff plan"}</Button></> : <div><p className="text-[10px] leading-4 text-white/50">Add your private Codebuff API key in Settings before this optional planner can run.</p><Button variant="outline" onClick={() => setLocation("/app/settings")} className="mt-3 w-full border-violet-200/15 bg-transparent text-xs text-violet-100 hover:bg-violet-300/10 hover:text-white">Open Settings</Button></div>}</div>}</div></section>
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent activity</p><span className="text-[10px] text-white/30">Private</span></div><div className="mt-3 space-y-3">{agentVmRuns.data?.slice(0, 3).map(run => <div key={run.id} className="rounded-xl border border-white/7 bg-white/[.025] p-3"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-medium text-white/78">{run.task}</p><span className={`text-[10px] ${run.status === "succeeded" ? "text-emerald-200" : run.status === "failed" ? "text-rose-200" : "text-amber-100"}`}>{run.status}</span></div><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-white/30">{run.provider === "codebuff" ? "Codebuff plan" : "Daytona VM"}</p>{run.resultSummary && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/42">{run.resultSummary}</p>}{run.errorMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-rose-100/55">{run.errorMessage}</p>}{run.provider === "daytona" && (run.status === "queued" || run.status === "running") && <button onClick={() => cancelVmRun.mutate({ id: run.id })} className="mt-2 text-[10px] font-medium text-rose-200/75 hover:text-rose-100">Cancel run</button>}</div>)}{!agentVmRuns.data?.length && <p className="text-xs leading-5 text-white/35">No agent work has run in this workspace.</p>}</div></section>
+      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent VM</p><span className={`rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] ${vmCanRun ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-200/10 text-amber-100"}`}>{vm?.allowance.exhausted ? "Run cap reached" : vm?.configured ? "Ready" : "Setup needed"}</span></div><p className="mt-3 text-xs leading-5 text-white/52">Nova runs explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked.</p><Textarea value={vmTask} onChange={event => setVmTask(event.target.value)} placeholder="Describe a safe workspace task…" className="mt-3 min-h-20 resize-none border-white/10 bg-black/15 text-xs text-white placeholder:text-white/30 focus-visible:ring-cyan-300/30" /><Button onClick={() => startVmRun.mutate({ task: vmTask.trim() })} disabled={!vmTask.trim() || startVmRun.isPending || !vmCanRun} className="mt-2 w-full bg-cyan-300 text-xs text-slate-950 hover:bg-cyan-200">{startVmRun.isPending ? "Starting sandbox…" : "Run in agent VM"}</Button><p className="mt-2 text-[10px] leading-4 text-white/33">{vm?.allowance.usedRuns ?? 0}/{vm?.allowance.maxRuns ?? 0} configured run cap · 1 active run · 30s task limit · polling status</p></section>
+      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent activity</p><span className="text-[10px] text-white/30">Private</span></div><div className="mt-3 space-y-3">{agentVmRuns.data?.slice(0, 3).map(run => <div key={run.id} className="rounded-xl border border-white/7 bg-white/[.025] p-3"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-medium text-white/78">{run.task}</p><span className={`text-[10px] ${run.status === "succeeded" ? "text-emerald-200" : run.status === "failed" ? "text-rose-200" : "text-amber-100"}`}>{run.status}</span></div><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-white/30">Daytona VM</p>{run.resultSummary && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/42">{run.resultSummary}</p>}{run.errorMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-rose-100/55">{run.errorMessage}</p>}{(run.status === "queued" || run.status === "running") && <button onClick={() => cancelVmRun.mutate({ id: run.id })} className="mt-2 text-[10px] font-medium text-rose-200/75 hover:text-rose-100">Cancel run</button>}</div>)}{!agentVmRuns.data?.length && <p className="text-xs leading-5 text-white/35">No agent work has run in this workspace.</p>}</div></section>
       <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">On this computer</p><div className="mt-4 grid grid-cols-2 gap-2"><Metric value={folders.length} label="folders" /><Metric value={allFiles.length} label="files" /></div><div className="mt-6"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Recently changed</p><span className="text-[10px] text-white/30">Private</span></div><div className="mt-3 space-y-3">{allFiles.slice(0, 5).map(file => <div key={file.id} className="flex gap-2"><FileText className="mt-0.5 size-3.5 text-sky-200" /><div className="min-w-0"><p className="truncate text-xs text-white/70">{file.name}</p><p className="text-[10px] text-white/35">Edited {elapsed(file.updatedAt)}</p></div></div>)}{allFiles.length === 0 && <p className="text-xs leading-5 text-white/35">Your recent work will appear here.</p>}</div></div></section>
     </aside>
-    <CodebuffFilePicker open={codebuffPickerOpen} onOpenChange={setCodebuffPickerOpen} files={allFiles} selectedIds={codebuffFileIds} maxFiles={codebuffStatus.data?.limits.maxSelectedFiles ?? 12} onSelectedIdsChange={setCodebuffFileIds} />
   </div></DashboardLayout>;
-}
-
-function CodebuffFilePicker({ open, onOpenChange, files, selectedIds, maxFiles, onSelectedIdsChange }: { open: boolean; onOpenChange: (open: boolean) => void; files: Array<{ id: number; name: string; content?: string }>; selectedIds: number[]; maxFiles: number; onSelectedIdsChange: (ids: number[]) => void }) {
-  const toggle = (id: number) => { if (selectedIds.includes(id)) onSelectedIdsChange(selectedIds.filter(value => value !== id)); else if (selectedIds.length < maxFiles) onSelectedIdsChange([...selectedIds, id]); else toast.error(`Choose up to ${maxFiles} files for one planning request.`); };
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[84vh] overflow-y-auto sm:max-w-xl"><DialogHeader><DialogTitle className="font-[DM_Serif_Display] text-3xl">Choose context for Codebuff</DialogTitle><DialogDescription>Only the checked file contents are sent to Codebuff’s hosted service. Nova does not include other workspace files, your API keys, Daytona credentials, shell access, or deployment access.</DialogDescription></DialogHeader><div className="mt-4 space-y-2">{files.length ? files.map(file => <label key={file.id} className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition hover:bg-muted/45"><input type="checkbox" checked={selectedIds.includes(file.id)} onChange={() => toggle(file.id)} className="mt-1 accent-violet-600" /><span className="min-w-0"><span className="block truncate text-sm font-semibold">{file.name}</span><span className="mt-1 block text-xs text-muted-foreground">{(file.content?.length ?? 0).toLocaleString()} characters available · Nova sends up to 24,000 characters per file.</span></span></label>) : <p className="rounded-xl border border-dashed p-5 text-sm text-muted-foreground">Create a workspace file before requesting a Codebuff plan.</p>}</div><DialogFooter className="mt-5"><span className="mr-auto text-xs text-muted-foreground">{selectedIds.length}/{maxFiles} selected</span><Button onClick={() => onOpenChange(false)}>Use selected files</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function WorkspaceError({ onRetry }: { onRetry: () => void }) {

@@ -142,17 +142,4 @@
 - [x] Use the authorized Vercel CLI to set Nova’s existing validated `DAYTONA_API_KEY` for Production; production Workspace now reports Daytona as Ready.
 - [x] Authenticate the local Vercel CLI through the user-authorized device-login link and configure Nova’s Production `DAYTONA_API_KEY` without printing the value.
 - [x] Repair the Vercel Daytona deployment by making the already-applied Neon migration replay-safe, then verify the GitHub-triggered production build is READY.
-- [x] Evaluate Freebuff’s framework for use by Nova’s AI agent, including its runtime model, licensing, supported tools, security posture, and Daytona compatibility.
-- [x] Decide not to make Freebuff the default agent runtime; document Codebuff SDK as a future opt-in, explicit-consent provider with Daytona retaining command execution and isolation.
-- [x] Verify that a user-provided Codebuff API key works with Nova’s proposed Codebuff SDK integration and distinguish it from Freebuff CLI’s separate no-key mode.
-- [x] Define the required encrypted per-workspace credential storage and server-only execution boundary if Codebuff is added.
-- [x] Define the Codebuff planner request, consent, bundle, and return contract without exposing workspace credentials or Daytona access.
-- [x] Add replay-safe owner-scoped encrypted Codebuff credential persistence and protected status, configure, remove, and planner-run procedures.
-- [x] Implement the server-only Codebuff SDK adapter with bounded planning and sanitized structured output.
-- [x] Add a Settings card for authenticated password-only Codebuff key entry and safe connection metadata.
-- [x] Add opt-in Agent VM planner controls with selected-file consent and a third-party data warning.
-- [x] Add credential-isolation, persistence, router, adapter, and rendered-UI regression tests for Codebuff planning.
-- [x] Verify TypeScript, the full test suite, production build, GitHub push, and deployed production behavior before publishing the Codebuff planner.
-- [x] Browser-verify the deployed production Settings page shows the password-only Codebuff API key card with no credential disclosure.
-- [x] Browser-verify the deployed production Workspace shows the default-off Codebuff planner controls, selected-file consent flow, and provider-aware activity UI.
-- [x] Repair the production serverless bundle so Codebuff’s SDK dependency does not break Neon Auth requests, then repeat authenticated production verification.
+- [x] Remove Codebuff SDK dependency, database schema, TRPC router, server adapter, client UI, and documentation.

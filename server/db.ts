@@ -14,7 +14,6 @@ import {
   workspaceFolders,
   workspaceSettings,
   telegramBotSettings,
-  codebuffSettings,
   agentVmRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
@@ -441,45 +440,6 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   return Boolean(deleted);
 }
 
-function toSafeCodebuffSettings(setting: typeof codebuffSettings.$inferSelect | undefined) {
-  if (!setting) return { configured: false as const, updatedAt: null };
-  return { configured: true as const, updatedAt: setting.updatedAt };
-}
-
-export async function getCodebuffSettingsForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const setting = (await db.select().from(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).limit(1))[0];
-  return toSafeCodebuffSettings(setting);
-}
-
-export async function saveCodebuffSettingsForUser(ownerId: number, apiKey: string) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  await db.insert(codebuffSettings).values({
-    workspaceId: workspace.id,
-    encryptedApiKey: encryptPrivateCredential(apiKey),
-  }).onConflictDoUpdate({
-    target: codebuffSettings.workspaceId,
-    set: { encryptedApiKey: encryptPrivateCredential(apiKey), updatedAt: new Date() },
-  });
-  return getCodebuffSettingsForUser(ownerId);
-}
-
-export async function getCodebuffCredentialsForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const setting = (await db.select().from(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).limit(1))[0];
-  return setting ? { apiKey: decryptPrivateCredential(setting.encryptedApiKey) } : undefined;
-}
-
-export async function deleteCodebuffSettingsForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const [deleted] = await db.delete(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).returning({ id: codebuffSettings.id });
-  return Boolean(deleted);
-}
-
 export async function getWorkspaceFilesByIdsForUser(ownerId: number, fileIds: number[]) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
@@ -524,7 +484,7 @@ export async function listAgentVmRunsForUser(ownerId: number) {
   return runs.map(toSafeAgentVmRun);
 }
 
-export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "daytona" | "codebuff" }) {
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "daytona" }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "daytona", task: input.task, status: "queued" }).returning();

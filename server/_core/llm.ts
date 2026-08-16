@@ -67,6 +67,8 @@ export type InvokeParams = {
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
   model?: string;
+  apiUrl?: string;
+  apiKey?: string;
   thinking?: Record<string, unknown>;
   reasoning?: Record<string, unknown>;
 };
@@ -217,9 +219,9 @@ const resolveApiUrl = () =>
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
     : "https://forge.manus.im/v1/chat/completions";
 
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+const assertApiKey = (apiKey = ENV.forgeApiKey) => {
+  if (!apiKey) {
+    throw new Error("LLM API key is not configured");
   }
 };
 
@@ -340,7 +342,18 @@ const fetchWithBackoff = async (
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const hasCustomApiUrl = params.apiUrl && params.apiUrl.trim().length > 0;
+  const hasCustomApiKey = params.apiKey && params.apiKey.trim().length > 0;
+
+  if (hasCustomApiUrl !== hasCustomApiKey) {
+    throw new Error("apiUrl and apiKey must be provided together");
+  }
+
+  const requestApiKey = hasCustomApiKey ? params.apiKey : ENV.forgeApiKey;
+  const requestApiUrl = hasCustomApiUrl
+    ? `${params.apiUrl!.replace(/\/$/, "")}/chat/completions`
+    : resolveApiUrl();
+  assertApiKey(requestApiKey);
 
   const {
     messages,
@@ -401,11 +414,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetchWithBackoff(resolveApiUrl(), {
+  const response = await fetchWithBackoff(requestApiUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${requestApiKey}`,
     },
     body: JSON.stringify(payload),
   });

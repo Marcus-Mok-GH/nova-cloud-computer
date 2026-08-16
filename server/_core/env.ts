@@ -6,6 +6,8 @@ export const ENV = {
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  nvidiaNimApiUrl: (process.env.NVIDIA_NIM_API_URL && process.env.NVIDIA_NIM_API_URL.trim().length > 0) ? process.env.NVIDIA_NIM_API_URL : "https://integrate.api.nvidia.com/v1",
+  nvidiaNimApiKey: process.env.NVIDIA_NIM_API_KEY ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   neonAuthBaseUrl: process.env.NEON_AUTH_BASE_URL ?? "",
   /** Prefer an application-specific secret; Vercel-managed Postgres credentials provide a secure fallback. */

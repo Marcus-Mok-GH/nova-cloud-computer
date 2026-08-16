@@ -8,28 +8,37 @@ type UseAuthOptions = { redirectOnUnauthenticated?: boolean; redirectPath?: stri
 export const LAST_ACTIVE_KEY = "nova_last_active_timestamp";
 export const ACTIVITY_THROTTLE_MS = 10_000; // Throttle localStorage updates to at most once every 10 seconds
 
-export function updateLastActiveTimestamp() {
-  if (typeof window === "undefined") return;
+function getUserScopedKey(userId: number): string {
+  return `${LAST_ACTIVE_KEY}_user_${userId}`;
+}
+
+export function updateLastActiveTimestamp(userId?: number) {
+  if (typeof window === "undefined" || userId === undefined) return;
   try {
-    localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()));
+    localStorage.setItem(getUserScopedKey(userId), String(Date.now()));
   } catch {
     // ignore storage errors
   }
 }
 
-export function getLastActiveTimestamp(): number | null {
-  if (typeof window === "undefined") return null;
+export function getLastActiveTimestamp(userId?: number): number | null {
+  if (typeof window === "undefined" || userId === undefined) return null;
   try {
-    const val = localStorage.getItem(LAST_ACTIVE_KEY);
+    const val = localStorage.getItem(getUserScopedKey(userId));
     return val ? Number(val) : null;
   } catch {
     return null;
   }
 }
 
-export function clearLastActiveTimestamp() {
+export function clearLastActiveTimestamp(userId?: number) {
   if (typeof window === "undefined") return;
   try {
+    // Clear user-specific timestamp if userId provided
+    if (userId !== undefined) {
+      localStorage.removeItem(getUserScopedKey(userId));
+    }
+    // Also clear legacy unscoped key for backwards compatibility
     localStorage.removeItem(LAST_ACTIVE_KEY);
   } catch {
     // ignore
@@ -50,8 +59,8 @@ export function useAuth(options?: UseAuthOptions) {
   const utils = trpc.useUtils();
   const meQuery = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
 
-  const logout = useCallback(async () => {
-    clearLastActiveTimestamp();
+  const logout = useCallback(async (userId?: number) => {
+    clearLastActiveTimestamp(userId);
     await neonAuth?.signOut();
     utils.auth.me.setData(undefined, null);
     await utils.invalidate();
@@ -66,19 +75,20 @@ export function useAuth(options?: UseAuthOptions) {
 
   // Handle inactivity expiration & activity tracking
   useEffect(() => {
-    if (typeof window === "undefined" || !state.isAuthenticated) return;
+    if (typeof window === "undefined" || !state.isAuthenticated || !state.user?.id) return;
 
-    const lastActive = getLastActiveTimestamp();
+    const userId = state.user.id;
+    const lastActive = getLastActiveTimestamp(userId);
 
     // Check if session has expired due to 7 days of inactivity
     if (isSessionExpiredDueToInactivity(lastActive)) {
-      logout();
+      logout(userId);
       return;
     }
 
     // Initialize last active timestamp if not present
     if (!lastActive) {
-      updateLastActiveTimestamp();
+      updateLastActiveTimestamp(userId);
     }
 
     // Event listener to record activity (throttled)
@@ -87,7 +97,7 @@ export function useAuth(options?: UseAuthOptions) {
       const now = Date.now();
       if (now - lastUpdated > ACTIVITY_THROTTLE_MS) {
         lastUpdated = now;
-        updateLastActiveTimestamp();
+        updateLastActiveTimestamp(userId);
       }
     };
 
@@ -96,9 +106,9 @@ export function useAuth(options?: UseAuthOptions) {
 
     // Periodic check for inactivity
     const checkInterval = setInterval(() => {
-      const currentLastActive = getLastActiveTimestamp();
+      const currentLastActive = getLastActiveTimestamp(userId);
       if (isSessionExpiredDueToInactivity(currentLastActive)) {
-        logout();
+        logout(userId);
       }
     }, 60_000);
 
@@ -106,12 +116,12 @@ export function useAuth(options?: UseAuthOptions) {
       events.forEach(evt => window.removeEventListener(evt, handleUserActivity));
       clearInterval(checkInterval);
     };
-  }, [state.isAuthenticated, logout]);
+  }, [state.isAuthenticated, state.user?.id, logout]);
 
   useEffect(() => {
     if (!redirectOnUnauthenticated || state.loading || state.user || typeof window === "undefined") return;
     if (window.location.pathname !== redirectPath) window.location.assign(redirectPath);
   }, [redirectOnUnauthenticated, redirectPath, state.loading, state.user]);
 
-  return { ...state, refresh: () => meQuery.refetch(), logout };
+  return { ...state, refresh: () => meQuery.refetch(), logout: () => logout(state.user?.id) };
 }

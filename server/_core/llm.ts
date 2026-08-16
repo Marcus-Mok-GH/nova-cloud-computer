@@ -342,9 +342,16 @@ const fetchWithBackoff = async (
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  const requestApiKey = params.apiKey ?? ENV.forgeApiKey;
-  const requestApiUrl = params.apiUrl
-    ? `${params.apiUrl.replace(/\/$/, "")}/chat/completions`
+  const hasCustomApiUrl = params.apiUrl && params.apiUrl.trim().length > 0;
+  const hasCustomApiKey = params.apiKey && params.apiKey.trim().length > 0;
+
+  if (hasCustomApiUrl !== hasCustomApiKey) {
+    throw new Error("apiUrl and apiKey must be provided together");
+  }
+
+  const requestApiKey = hasCustomApiKey ? params.apiKey : ENV.forgeApiKey;
+  const requestApiUrl = hasCustomApiUrl
+    ? `${params.apiUrl!.replace(/\/$/, "")}/chat/completions`
     : resolveApiUrl();
   assertApiKey(requestApiKey);
 

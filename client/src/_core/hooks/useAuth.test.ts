@@ -36,23 +36,25 @@ describe("Inactivity & Session Persistence", () => {
   });
 
   it("updates and retrieves the last active timestamp in localStorage", () => {
+    const userId = 42;
     const now = 1700000000000;
     vi.setSystemTime(now);
 
-    expect(getLastActiveTimestamp()).toBeNull();
+    expect(getLastActiveTimestamp(userId)).toBeNull();
 
-    updateLastActiveTimestamp();
+    updateLastActiveTimestamp(userId);
 
-    expect(getLastActiveTimestamp()).toBe(now);
-    expect(mockLocalStorage.getItem(LAST_ACTIVE_KEY)).toBe(String(now));
+    expect(getLastActiveTimestamp(userId)).toBe(now);
+    expect(mockLocalStorage.getItem(`${LAST_ACTIVE_KEY}_user_${userId}`)).toBe(String(now));
   });
 
   it("clears the last active timestamp from localStorage", () => {
-    updateLastActiveTimestamp();
-    expect(getLastActiveTimestamp()).not.toBeNull();
+    const userId = 42;
+    updateLastActiveTimestamp(userId);
+    expect(getLastActiveTimestamp(userId)).not.toBeNull();
 
-    clearLastActiveTimestamp();
-    expect(getLastActiveTimestamp()).toBeNull();
+    clearLastActiveTimestamp(userId);
+    expect(getLastActiveTimestamp(userId)).toBeNull();
   });
 
   it("correctly evaluates session expiration due to inactivity", () => {
@@ -82,5 +84,70 @@ describe("Inactivity & Session Persistence", () => {
   it("handles null or invalid timestamp gracefully", () => {
     expect(isSessionExpiredDueToInactivity(null)).toBe(false);
     expect(isSessionExpiredDueToInactivity(NaN)).toBe(false);
+  });
+
+  it("scopes last-active timestamp to specific user IDs, preventing cross-account leakage", () => {
+    const userId1 = 101;
+    const userId2 = 202;
+
+    const now = 1700000000000;
+    const staleTimestamp = now - (8 * 24 * 60 * 60 * 1000); // 8 days ago (expired)
+    const freshTimestamp = now - (1 * 24 * 60 * 60 * 1000); // 1 day ago (fresh)
+
+    vi.setSystemTime(now);
+
+    // User 1 signs in and gets a stale timestamp (simulating old activity)
+    vi.setSystemTime(staleTimestamp);
+    updateLastActiveTimestamp(userId1);
+
+    // Advance time to now
+    vi.setSystemTime(now);
+
+    // Verify User 1's timestamp is stale and would trigger expiration
+    const user1Timestamp = getLastActiveTimestamp(userId1);
+    expect(user1Timestamp).toBe(staleTimestamp);
+    expect(isSessionExpiredDueToInactivity(user1Timestamp, now)).toBe(true);
+
+    // User 2 signs in (different account) - should NOT inherit User 1's timestamp
+    const user2Timestamp = getLastActiveTimestamp(userId2);
+    expect(user2Timestamp).toBeNull(); // No timestamp yet for User 2
+
+    // User 2 should NOT be expired (null timestamp doesn't cause expiration)
+    expect(isSessionExpiredDueToInactivity(user2Timestamp, now)).toBe(false);
+
+    // User 2 records activity now
+    updateLastActiveTimestamp(userId2);
+    const user2NewTimestamp = getLastActiveTimestamp(userId2);
+    expect(user2NewTimestamp).toBe(now);
+    expect(isSessionExpiredDueToInactivity(user2NewTimestamp, now)).toBe(false);
+
+    // Verify User 1's stale timestamp is still intact and independent
+    expect(getLastActiveTimestamp(userId1)).toBe(staleTimestamp);
+    expect(getLastActiveTimestamp(userId2)).toBe(now);
+
+    // Cleanup: clear User 1's timestamp
+    clearLastActiveTimestamp(userId1);
+    expect(getLastActiveTimestamp(userId1)).toBeNull();
+    // User 2's timestamp should remain unaffected
+    expect(getLastActiveTimestamp(userId2)).toBe(now);
+  });
+
+  it("does not update or retrieve timestamps when userId is undefined", () => {
+    const now = 1700000000000;
+    vi.setSystemTime(now);
+
+    // Attempt to update without userId - should be no-op
+    updateLastActiveTimestamp(undefined);
+    expect(mockLocalStorage.getItem(LAST_ACTIVE_KEY)).toBeNull();
+
+    // Attempt to get without userId - should return null
+    expect(getLastActiveTimestamp(undefined)).toBeNull();
+
+    // Verify that we can still set a timestamp with a valid userId
+    updateLastActiveTimestamp(123);
+    expect(getLastActiveTimestamp(123)).toBe(now);
+
+    // But undefined still returns null
+    expect(getLastActiveTimestamp(undefined)).toBeNull();
   });
 });

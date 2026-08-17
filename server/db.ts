@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -15,6 +15,7 @@ import {
   workspaceSettings,
   telegramBotSettings,
   codebuffSettings,
+  nvidiaInferenceAllowances,
   agentVmRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
@@ -478,6 +479,35 @@ export async function deleteCodebuffSettingsForUser(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [deleted] = await db.delete(codebuffSettings).where(eq(codebuffSettings.workspaceId, workspace.id)).returning({ id: codebuffSettings.id });
   return Boolean(deleted);
+}
+
+export async function getNvidiaInferenceAllowanceForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const allowance = (await db.select().from(nvidiaInferenceAllowances).where(eq(nvidiaInferenceAllowances.workspaceId, workspace.id)).limit(1))[0];
+  return {
+    usedRequests: Number(allowance?.usedRequests ?? 0),
+    updatedAt: allowance?.updatedAt ?? null,
+  };
+}
+
+/** Atomically claim one workspace request only when its configured allowance remains available. */
+export async function claimNvidiaInferenceRequestForUser(ownerId: number, maxRequests: number) {
+  if (!Number.isInteger(maxRequests) || maxRequests < 1) return undefined;
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const result = await db.execute(sql`
+    INSERT INTO "nvidia_inference_allowances" ("workspaceId", "usedRequests", "createdAt", "updatedAt")
+    VALUES (${workspace.id}, 1, now(), now())
+    ON CONFLICT ("workspaceId") DO UPDATE
+    SET "usedRequests" = "nvidia_inference_allowances"."usedRequests" + 1,
+        "updatedAt" = now()
+    WHERE "nvidia_inference_allowances"."usedRequests" < ${maxRequests}
+    RETURNING "usedRequests"
+  `) as unknown as { rows?: Array<{ usedRequests: number }> } | Array<{ usedRequests: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  const claimed = rows[0];
+  return claimed ? { usedRequests: Number(claimed.usedRequests) } : undefined;
 }
 
 export async function getWorkspaceFilesByIdsForUser(ownerId: number, fileIds: number[]) {

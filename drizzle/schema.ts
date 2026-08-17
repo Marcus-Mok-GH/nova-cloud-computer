@@ -144,6 +144,15 @@ export const codebuffSettings = pgTable("codebuff_settings", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("codebuff_settings_workspace_unique").on(table.workspaceId)]);
 
+/** A server-enforced, per-workspace allowance for Nova's optional NVIDIA inference capability. */
+export const nvidiaInferenceAllowances = pgTable("nvidia_inference_allowances", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  usedRequests: integer("usedRequests").default(0).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("nvidia_inference_allowances_workspace_unique").on(table.workspaceId)]);
+
 /** A safe, auditable record of a short-lived external agent task or planning request. */
 export const agentVmRuns = pgTable("agent_vm_runs", {
   id: serial("id").primaryKey(),
@@ -172,4 +181,5 @@ export type Chat = typeof chats.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect;
 export type CodebuffSettings = typeof codebuffSettings.$inferSelect;
+export type NvidiaInferenceAllowance = typeof nvidiaInferenceAllowances.$inferSelect;
 export type AgentVmRun = typeof agentVmRuns.$inferSelect;

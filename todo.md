@@ -156,3 +156,23 @@
 - [x] Browser-verify the deployed production Settings page shows the password-only Codebuff API key card with no credential disclosure.
 - [x] Browser-verify the deployed production Workspace shows the default-off Codebuff planner controls, selected-file consent flow, and provider-aware activity UI.
 - [x] Repair the production serverless bundle so Codebuff’s SDK dependency does not break Neon Auth requests, then repeat authenticated production verification.
+- [x] Inspect the connected Vercel account for user-owned deployments that appear to operate as an NVIDIA API server or proxy, and report verified evidence: `nvidia-wake-monitor` has no deployment, and the ready `api-server` is a Chess API rather than an NVIDIA API service.
+- [x] Confirm that the initially cloned `Marcus-Mok-GH/Chess.com-app` repository is not the intended source and remove its isolated local clone without modifying either repository or Nova.
+- [x] Verify the user-specified replacement source, `Marcus-Mok-GH/API-server`, against the deployed API service before cloning or defining Nova’s first integration capability.
+- [x] Clone and assess the verified replacement API server codebase without altering its deployed API contract.
+- [x] Implement and test the selected replacement API enhancement with a backward-compatible contract.
+- [x] Add a protected Nova server integration and authenticated workspace experience for the replacement API capability.
+- [ ] Verify the linked replacement API and Nova deployments, GitHub synchronization, production behavior, and cross-service error handling before release.
+- [x] Define the NVIDIA gateway’s authenticated request contract, bounded input/output policy, rate-limit behavior, and server-only credential boundary.
+- [x] Implement and test an authenticated NVIDIA chat-completion gateway in `Marcus-Mok-GH/API-server` with no client-side provider-key exposure.
+- [ ] Configure the NVIDIA credential only as a sensitive production environment variable on the API-server deployment, then verify the gateway’s health and authorization behavior.
+- [x] Add Nova’s protected server-to-server client, per-user request limits, and an authenticated Workspace experience for the NVIDIA gateway.
+- [ ] Verify the linked NVIDIA gateway and Nova production deployments, GitHub synchronization, browser behavior, and failure handling before release.
+- [x] Correct the API-server middleware matcher so `/api/*` bypasses locale middleware, then verify the deployed NVIDIA health route and authorization boundary.
+- [x] Correct the API-server middleware matcher so `/api/*` bypasses locale middleware, then verify the deployed NVIDIA health route and authorization boundary.
+- [x] Add owner-scoped NVIDIA request-allowance persistence with a replay-safe Neon migration.
+- [x] Add Nova’s server-only NVIDIA gateway client and authenticated tRPC status/completion procedures.
+- [x] Add an authenticated Workspace card for NVIDIA inference with loading, unavailable, allowance, and response states.
+- [x] Add NVIDIA gateway router, persistence, client, and rendered-Workspace regression tests.
+- [ ] Verify Nova’s full test suite and production build; configure only the required production environment variables; then push and validate the linked production deployment.
+- [x] Clone and reconcile the user-updated `Marcus-Mok-GH/nova-cloud-computer` repository before continuing the local NVIDIA integration work.

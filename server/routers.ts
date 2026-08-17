@@ -35,6 +35,7 @@ import {
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { getCodebuffPlannerStatus, startCodebuffPlannerRun } from "./codebuff";
+import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
@@ -108,6 +109,9 @@ const agentVmRunInput = z.object({
   task: z.string().trim().min(3, "Describe the VM task.").max(1600),
   code: z.string().max(12000).optional(),
 });
+const nvidiaCompletionInput = z.object({
+  prompt: z.string().trim().min(3, "Describe what you want NVIDIA to help with.").max(12000),
+});
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -160,6 +164,20 @@ export const appRouter = router({
         const message = error instanceof Error ? error.message : "Nova could not start that Codebuff planning request.";
         const code = /active agent work|selected files|not available/i.test(message) ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
         throw new TRPCError({ code, message });
+      }
+    }),
+  }),
+  nvidia: router({
+    status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)),
+    complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await completeWithNvidiaGateway(ctx.user.id, input.prompt);
+      } catch (error) {
+        if (error instanceof NvidiaGatewayClientError) {
+          const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." });
       }
     }),
   }),

@@ -1,0 +1,151 @@
+import { claimNvidiaInferenceRequestForUser, getNvidiaInferenceAllowanceForUser } from "./db";
+
+const DEFAULT_MAX_REQUESTS = 50;
+const MAX_CONFIGURED_REQUESTS = 1000;
+const REQUEST_TIMEOUT_MS = 20_000;
+const ERROR_MESSAGE_LIMIT = 600;
+
+type GatewayHealth = {
+  status?: string;
+  provider?: string;
+  providerConfigured?: boolean;
+};
+
+type GatewayCompletion = {
+  text?: string;
+  model?: string;
+  usage?: {
+    completion_tokens?: number;
+    prompt_tokens?: number;
+    total_tokens?: number;
+  };
+};
+
+export class NvidiaGatewayClientError extends Error {
+  constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
+    super(message);
+    this.name = "NvidiaGatewayClientError";
+  }
+}
+
+function configuredGatewayUrl() {
+  const raw = process.env.NVIDIA_GATEWAY_URL?.trim();
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return undefined;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function configuredGatewayToken() {
+  const token = process.env.NOVA_NVIDIA_GATEWAY_TOKEN?.trim();
+  return token && token.length >= 32 ? token : undefined;
+}
+
+function getMaxRequests() {
+  const parsed = Number.parseInt(process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE ?? String(DEFAULT_MAX_REQUESTS), 10);
+  return Number.isInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_CONFIGURED_REQUESTS) : DEFAULT_MAX_REQUESTS;
+}
+
+function sanitizeGatewayError(error: unknown) {
+  const message = error instanceof Error ? error.message : "NVIDIA inference is temporarily unavailable. Please retry shortly.";
+  return message.replace(/Bearer\s+\S+/gi, "Bearer [private credential]").slice(0, ERROR_MESSAGE_LIMIT);
+}
+
+function serviceHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function gatewayFetch(path: string, init: RequestInit = {}) {
+  const baseUrl = configuredGatewayUrl();
+  const token = configuredGatewayToken();
+  if (!baseUrl || !token) throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. An administrator must configure Nova’s server-only gateway connection.", "configuration");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: { ...serviceHeaders(token), ...init.headers },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw new NvidiaGatewayClientError(sanitizeGatewayError(error), "unavailable");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function isNvidiaGatewayConfigured() {
+  return Boolean(configuredGatewayUrl() && configuredGatewayToken());
+}
+
+export async function getNvidiaGatewayStatus(ownerId: number) {
+  const allowance = await getNvidiaInferenceAllowanceForUser(ownerId);
+  const maxRequests = getMaxRequests();
+  const base = {
+    provider: "nvidia-nim" as const,
+    model: "nvidia/nemotron-3-nano-30b-a3b",
+    allowance: {
+      usedRequests: allowance.usedRequests,
+      maxRequests,
+      remainingRequests: Math.max(0, maxRequests - allowance.usedRequests),
+      exhausted: allowance.usedRequests >= maxRequests,
+    },
+  };
+  if (!isNvidiaGatewayConfigured()) {
+    return { ...base, configured: false as const, reachable: false as const, providerConfigured: false as const };
+  }
+  try {
+    const response = await gatewayFetch("/api/nvidia/health");
+    const health = await response.json() as GatewayHealth;
+    return {
+      ...base,
+      configured: true as const,
+      reachable: response.ok && health.status === "ok",
+      providerConfigured: Boolean(health.providerConfigured),
+    };
+  } catch {
+    return { ...base, configured: true as const, reachable: false as const, providerConfigured: false as const };
+  }
+}
+
+export async function completeWithNvidiaGateway(ownerId: number, prompt: string) {
+  const status = await getNvidiaGatewayStatus(ownerId);
+  if (!status.configured || !status.reachable || !status.providerConfigured) {
+    throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.", "configuration");
+  }
+  const claim = await claimNvidiaInferenceRequestForUser(ownerId, status.allowance.maxRequests);
+  if (!claim) {
+    throw new NvidiaGatewayClientError("This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.", "rate_limit");
+  }
+  const response = await gatewayFetch("/api/nvidia/chat", {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  });
+  const payload = await response.json().catch(() => undefined) as GatewayCompletion | { error?: { message?: string } } | undefined;
+  if (!response.ok) {
+    const message = payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(message ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
+  }
+  const completion = payload as GatewayCompletion | undefined;
+  if (!completion?.text || typeof completion.text !== "string") {
+    throw new NvidiaGatewayClientError("NVIDIA returned an invalid completion. Please retry shortly.", "invalid_response");
+  }
+  return {
+    text: completion.text,
+    model: completion.model ?? status.model,
+    usage: completion.usage ?? null,
+    allowance: {
+      usedRequests: claim.usedRequests,
+      maxRequests: status.allowance.maxRequests,
+      remainingRequests: Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+      exhausted: claim.usedRequests >= status.allowance.maxRequests,
+    },
+  };
+}

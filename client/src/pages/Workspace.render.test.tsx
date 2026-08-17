@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false },
   agentVmRuns: { data: [] as Array<{ id: number; provider?: string; task: string; status: string; resultSummary: string | null; errorMessage: string | null }>, isError: false, isLoading: false },
   codebuffStatus: { data: { configured: false, provider: "codebuff", limits: { maxSelectedFiles: 12, maxAgentSteps: 6 } }, isError: false, isLoading: false },
+  nvidiaStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
 }));
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -19,10 +20,11 @@ vi.mock("@/lib/trpc", () => ({
     workspace: { computer: { useQuery: () => state.computer } },
     agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => state.agentVmRuns }, start: { useMutation: () => mutation }, cancel: { useMutation: () => mutation } },
     codebuff: { status: { useQuery: () => state.codebuffStatus }, plan: { useMutation: () => mutation } },
+    nvidia: { status: { useQuery: () => state.nvidiaStatus }, complete: { useMutation: () => mutation } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: [], isLoading: false }) }, send: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, codebuff: { status: { invalidate } } }),
+    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, codebuff: { status: { invalidate } }, nvidia: { status: { invalidate } } }),
   },
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()] }));
@@ -36,6 +38,7 @@ describe("Workspace rendered browser states", () => {
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false };
     state.agentVmRuns = { data: [], isError: false, isLoading: false };
     state.codebuffStatus = { data: { configured: false, provider: "codebuff", limits: { maxSelectedFiles: 12, maxAgentSteps: 6 } }, isError: false, isLoading: false };
+    state.nvidiaStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
   });
 
   it("renders persisted root folders and files from the workspace computer query", () => {
@@ -55,6 +58,9 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Workspace folders");
     expect(markup).toContain("Agent VM");
     expect(markup).toContain("Setup needed");
+    expect(markup).toContain("NVIDIA inference");
+    expect(markup).toContain("protected server-to-server NVIDIA NIM gateway");
+    expect(markup).toContain("0/50 configured request allowance");
     expect(markup).toContain("Codebuff planner");
     expect(markup).toContain("Optional and off by default");
     expect(markup).not.toContain("Create Codebuff plan");

@@ -176,3 +176,4 @@
 - [x] Add NVIDIA gateway router, persistence, client, and rendered-Workspace regression tests.
 - [ ] Verify Nova’s full test suite and production build; configure only the required production environment variables; then push and validate the linked production deployment.
 - [x] Clone and reconcile the user-updated `Marcus-Mok-GH/nova-cloud-computer` repository before continuing the local NVIDIA integration work.
+- [x] Harden Nova’s server-only NVIDIA status client against an empty successful gateway-health body while retaining explicit safe provider-readiness and chat-endpoint failure handling.

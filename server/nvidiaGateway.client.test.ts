@@ -46,4 +46,15 @@ describe("NVIDIA gateway client", () => {
     expect(status).toMatchObject({ configured: false, reachable: false, providerConfigured: false });
     await expect(completeWithNvidiaGateway(7, "Draft a summary")).rejects.toBeInstanceOf(NvidiaGatewayClientError);
   });
+
+  it("keeps a successful gateway reachable when a health response body is unavailable", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await expect(getNvidiaGatewayStatus(7)).resolves.toMatchObject({
+      configured: true,
+      reachable: true,
+      providerConfigured: false,
+      providerConfigurationKnown: false,
+    });
+  });
 });

@@ -99,25 +99,47 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     },
   };
   if (!isNvidiaGatewayConfigured()) {
-    return { ...base, configured: false as const, reachable: false as const, providerConfigured: false as const };
+    return {
+      ...base,
+      configured: false as const,
+      reachable: false as const,
+      providerConfigured: false as const,
+      providerConfigurationKnown: false as const,
+    };
   }
   try {
     const response = await gatewayFetch("/api/nvidia/health");
-    const health = await response.json() as GatewayHealth;
+    const rawHealth = await response.text().catch(() => "");
+    let health: GatewayHealth | undefined;
+    if (rawHealth) {
+      try {
+        health = JSON.parse(rawHealth) as GatewayHealth;
+      } catch {
+        health = undefined;
+      }
+    }
+    const providerConfigurationKnown = health?.status === "ok" && typeof health.providerConfigured === "boolean";
     return {
       ...base,
       configured: true as const,
-      reachable: response.ok && health.status === "ok",
-      providerConfigured: Boolean(health.providerConfigured),
+      reachable: response.ok,
+      providerConfigured: Boolean(health?.providerConfigured),
+      providerConfigurationKnown,
     };
   } catch {
-    return { ...base, configured: true as const, reachable: false as const, providerConfigured: false as const };
+    return {
+      ...base,
+      configured: true as const,
+      reachable: false as const,
+      providerConfigured: false as const,
+      providerConfigurationKnown: false as const,
+    };
   }
 }
 
 export async function completeWithNvidiaGateway(ownerId: number, prompt: string) {
   const status = await getNvidiaGatewayStatus(ownerId);
-  if (!status.configured || !status.reachable || !status.providerConfigured) {
+  if (!status.configured || !status.reachable || (status.providerConfigurationKnown && !status.providerConfigured)) {
     throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.", "configuration");
   }
   const claim = await claimNvidiaInferenceRequestForUser(ownerId, status.allowance.maxRequests);

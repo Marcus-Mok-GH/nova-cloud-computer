@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import NovaMark from "@/components/NovaMark";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { getFolderTrail, getWorkspaceContents } from "@/lib/workspaceBrowser";
@@ -6,6 +7,8 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  ArrowUp,
+  ChevronDown,
   ChevronRight,
   FilePlus2,
   FileText,
@@ -19,7 +22,6 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  Send,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -130,11 +132,53 @@ export default function Workspace() {
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
 
   if (chatId) {
-    return <DashboardLayout><section className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-4xl flex-col overflow-hidden rounded-[1.45rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(57,191,201,0.14),transparent_43%),#111823] shadow-2xl shadow-black/20">
-      <header className="flex items-center justify-between border-b border-white/9 px-5 py-4"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" onClick={() => setLocation("/app/chats")} className="text-white/55 hover:bg-white/8 hover:text-white"><ArrowLeft className="size-4" /></Button><span className="grid size-8 place-items-center rounded-xl bg-cyan-300 text-slate-950"><MessageSquareText className="size-4" /></span><div><p className="text-sm font-semibold">Nova conversation</p><p className="text-xs text-white/43">Private workspace context</p></div></div><MoreHorizontal className="size-4 text-white/45" /></header>
-      <div className="flex flex-1 overflow-y-auto px-6 py-8"><div className="mx-auto flex w-full max-w-2xl flex-col gap-4 self-end">{savedMessages.isLoading ? <p className="text-sm text-white/45">Loading conversation…</p> : savedMessages.data?.map(message => <div key={message.id} className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user" ? "ml-auto bg-cyan-300 text-slate-950" : "bg-white/8 text-white/80"}`}>{message.content}</div>)}{send.isPending && <div className="w-fit rounded-2xl bg-white/8 px-4 py-3 text-sm text-white/55">Nova is working…</div>}</div></div>
-      <form onSubmit={submit} className="border-t border-white/9 bg-black/10 p-3 sm:p-4"><div className="rounded-2xl border border-white/12 bg-[#0b1018] p-2 focus-within:border-cyan-300/55"><Textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Message Nova about your workspace…" className="min-h-16 resize-none border-0 bg-transparent px-2 py-2 text-sm text-white placeholder:text-white/35 focus-visible:ring-0" /><div className="flex items-center justify-between px-1"><Paperclip className="size-4 text-white/40" /><Button type="submit" disabled={!draft.trim()} className="h-8 rounded-lg bg-cyan-300 px-3 text-xs text-slate-950 hover:bg-cyan-200"><Send className="mr-1.5 size-3.5" />Send</Button></div></div></form>
-    </section></DashboardLayout>;
+    return (
+      <DashboardLayout>
+        <section className="mx-auto flex h-[calc(100vh-6.5rem)] max-w-3xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_16px_50px_rgba(10,10,10,0.06)] lg:h-[calc(100vh-3rem)] dark:border-white/10 dark:bg-neutral-900">
+          <header className="flex items-center justify-between border-b border-neutral-100 px-5 py-3.5 dark:border-white/5">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setLocation("/app/chats")} className="grid size-8 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>
+              <span className="grid size-9 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><MessageSquareText className="size-4" /></span>
+              <div>
+                <p className="text-sm font-bold tracking-tight">Nova conversation</p>
+                <p className="text-xs text-neutral-400">Private workspace context</p>
+              </div>
+            </div>
+            <MoreHorizontal className="size-4 text-neutral-400" />
+          </header>
+          <div className="flex flex-1 flex-col overflow-y-auto px-5 py-6">
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 self-end">
+              {savedMessages.isLoading ? (
+                <p className="text-sm text-neutral-400">Loading conversation…</p>
+              ) : (
+                savedMessages.data?.map(message => (
+                  message.role === "user" ? (
+                    <div key={message.id} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
+                  ) : (
+                    <div key={message.id} className="flex items-start gap-2.5">
+                      <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
+                      <div className="max-w-[85%]">
+                        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
+                        <div className="rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div>
+                      </div>
+                    </div>
+                  )
+                ))
+              )}
+              {send.isPending && <div className="flex items-start gap-2.5"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span><div className="rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">Nova is working…</div></div>}
+            </div>
+          </div>
+          <form onSubmit={submit} className="border-t border-neutral-100 bg-white p-3 dark:border-white/5 dark:bg-neutral-900">
+            <div className="flex items-center gap-2 rounded-full border border-neutral-200 bg-[#fafafa] px-4 py-2 transition focus-within:border-[#f97316] focus-within:ring-4 focus-within:ring-[#f97316]/10 dark:border-white/10 dark:bg-neutral-950">
+              <Paperclip className="size-4 shrink-0 text-neutral-400" />
+              <Textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask Nova…" className="min-h-9 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 text-sm placeholder:text-neutral-400 focus-visible:ring-0" />
+              <span className="hidden items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 ring-1 ring-neutral-200 sm:inline-flex dark:bg-neutral-900 dark:text-neutral-200 dark:ring-white/10">Claude <ChevronDown className="size-3" /></span>
+              <button type="submit" disabled={!draft.trim() || send.isPending} className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f97316] text-white transition hover:bg-[#ea580c] disabled:opacity-40" aria-label="Go"><ArrowUp className="size-4" /></button>
+            </div>
+          </form>
+        </section>
+      </DashboardLayout>
+    );
   }
 
   const vm = agentVmStatus.data;
@@ -142,50 +186,203 @@ export default function Workspace() {
   const nvidia = nvidiaStatus.data;
   const nvidiaCanRun = Boolean(nvidia?.configured && nvidia?.reachable && nvidia?.providerConfigured && !nvidia.allowance.exhausted);
   const itemCount = visibleContents.folders.length + visibleContents.files.length;
-  return <DashboardLayout><div className="grid min-h-[calc(100vh-10.5rem)] gap-4 xl:grid-cols-[250px_minmax(0,1fr)_280px]">
-    <aside className="rounded-2xl border border-white/9 bg-[#10161f] p-3">
-      <div className="mb-3 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Workspace folders</span><Button variant="ghost" size="icon" onClick={() => make("folder")} className="size-7 text-white/55 hover:bg-white/8 hover:text-white"><FolderPlus className="size-4" /></Button></div>
-      <div className="space-y-1"><button onClick={() => setActiveFolderId(null)} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${activeFolderId === null ? "bg-cyan-300/10 text-cyan-100" : "text-white/62 hover:bg-white/6"}`}><HardDrive className="size-4 text-cyan-300" /><span className="flex-1">Home</span></button>{folders.map(folder => <button key={folder.id} onClick={() => setActiveFolderId(folder.id)} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${activeFolderId === folder.id ? "bg-white/9 text-white" : "text-white/62 hover:bg-white/6"}`}><ChevronRight className="size-3 text-white/28" /><Folder className="size-4 text-amber-200" /><span className="min-w-0 flex-1 truncate">{folder.name}</span></button>)}</div>
-      <div className="mt-5 rounded-xl border border-cyan-300/12 bg-cyan-300/[.045] p-3"><p className="text-xs font-medium text-cyan-100">Need a second pair of hands?</p><p className="mt-1 text-[11px] leading-5 text-white/45">Ask Nova to organize items or explicitly use a safe VM task.</p><Button variant="outline" onClick={() => createChat.mutate({ title: "New workspace conversation" })} className="mt-3 w-full border-cyan-200/15 bg-transparent text-xs text-cyan-100 hover:bg-cyan-300/10 hover:text-cyan-50"><MessageSquareText className="mr-1.5 size-3.5" />Ask Nova</Button></div>
-    </aside>
-    <section className="min-w-0 overflow-hidden rounded-[1.45rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(57,191,201,0.14),transparent_43%),#111823] shadow-2xl shadow-black/20">
-      <header className="border-b border-white/9 px-5 py-5 sm:px-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-[11px] font-semibold uppercase tracking-[.18em] text-cyan-200/75">Your private computer</p><div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm"><button onClick={() => setActiveFolderId(null)} className="font-medium text-white hover:text-cyan-100">Home</button>{folderTrail.map(folder => <span key={folder.id} className="flex items-center gap-1.5"><ChevronRight className="size-3 text-white/30" /><button onClick={() => setActiveFolderId(folder.id)} className="font-medium text-white/70 hover:text-cyan-100">{folder.name}</button></span>)}</div></div><div className="flex gap-2"><Button variant="outline" onClick={() => make("folder")} className="border-white/12 bg-white/[.03] text-xs text-white/80 hover:bg-white/8 hover:text-white"><FolderPlus className="mr-1.5 size-3.5" />New folder</Button><Button onClick={() => make("file")} className="bg-cyan-300 text-xs text-slate-950 hover:bg-cyan-200"><FilePlus2 className="mr-1.5 size-3.5" />New file</Button></div></div></header>
-      <div className="p-5 sm:p-6"><div className="mb-7 flex items-end justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">{currentFolder?.name ?? "Workspace"}</h1><p className="mt-1 text-sm text-white/48">{itemCount} item{itemCount === 1 ? "" : "s"} in this location</p></div>{activeFolderId !== null && <Button variant="ghost" onClick={() => setActiveFolderId(currentFolder?.parentId ?? null)} className="text-xs text-white/60 hover:bg-white/8 hover:text-white"><ArrowLeft className="mr-1.5 size-3.5" />Up one level</Button>}</div>
-        {computer.isLoading ? <div className="grid min-h-80 place-items-center text-sm text-white/45">Opening your private workspace…</div> : itemCount ? <div className="space-y-7">
-          {visibleContents.folders.length > 0 && <div><p className="mb-3 text-[10px] font-semibold uppercase tracking-[.16em] text-white/40">Folders</p><div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">{visibleContents.folders.map(folder => <FolderCard key={folder.id} name={folder.name} onOpen={() => setActiveFolderId(folder.id)} onMove={() => { const parentId = chooseFolder(folder.id); if (parentId !== undefined) renameFolder.mutate({ id: folder.id, parentId }); }} onRename={() => { const name = window.prompt("Rename folder", folder.name)?.trim(); if (name) renameFolder.mutate({ id: folder.id, name }); }} onDelete={() => window.confirm(`Delete ${folder.name} and its contents?`) && removeFolder.mutate({ id: folder.id })} />)}</div></div>}
-          {visibleContents.files.length > 0 && <div><p className="mb-3 text-[10px] font-semibold uppercase tracking-[.16em] text-white/40">Files</p><div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">{visibleContents.files.map(file => <FileCard key={file.id} name={file.name} changed={elapsed(file.updatedAt)} onMove={() => { const folderId = chooseFolder(); if (folderId !== undefined) renameFile.mutate({ id: file.id, folderId }); }} onRename={() => { const name = window.prompt("Rename file", file.name)?.trim(); if (name) renameFile.mutate({ id: file.id, name }); }} onDelete={() => window.confirm(`Delete ${file.name}?`) && removeFile.mutate({ id: file.id })} />)}</div></div>}
-        </div> : <EmptyFolder onFolder={() => make("folder")} onFile={() => make("file")} />}
+  return (
+    <DashboardLayout>
+      <div className="mx-auto grid max-w-[1200px] gap-4 p-4 md:p-6 xl:grid-cols-[230px_minmax(0,1fr)_290px]">
+        <aside className="h-fit rounded-2xl border border-neutral-200 bg-white p-3 dark:border-white/10 dark:bg-neutral-900">
+          <div className="mb-2 flex items-center justify-between px-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Workspace folders</span>
+            <button onClick={() => make("folder")} className="grid size-7 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="New folder"><FolderPlus className="size-4" /></button>
+          </div>
+          <div className="space-y-0.5">
+            <button onClick={() => setActiveFolderId(null)} className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${activeFolderId === null ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950" : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"}`}>
+              <HardDrive className={`size-4 ${activeFolderId === null ? "text-[#fb923c]" : "text-neutral-400"}`} />
+              <span className="flex-1">Home</span>
+            </button>
+            {folders.map(folder => (
+              <button key={folder.id} onClick={() => setActiveFolderId(folder.id)} className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${activeFolderId === folder.id ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950" : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"}`}>
+                <ChevronRight className="size-3 text-neutral-300 dark:text-neutral-600" />
+                <Folder className="size-4 text-[#f97316]" />
+                <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-5 rounded-xl bg-[#f97316]/8 p-3">
+            <p className="text-xs font-bold text-[#c2410c] dark:text-[#fdba74]">Need a second pair of hands?</p>
+            <p className="mt-1 text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">Ask Nova to organize items or explicitly use a safe VM task.</p>
+            <Button variant="outline" onClick={() => createChat.mutate({ title: "New workspace conversation" })} className="mt-3 w-full rounded-full border-neutral-200 bg-white text-xs text-neutral-800 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800">
+              <MessageSquareText className="mr-1.5 size-3.5" />Ask Nova
+            </Button>
+          </div>
+        </aside>
+
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_16px_50px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-neutral-900">
+          <header className="border-b border-neutral-100 px-5 py-4 sm:px-6 dark:border-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
+                  <button onClick={() => setActiveFolderId(null)} className="font-bold text-neutral-950 hover:text-[#f97316] dark:text-white">Home</button>
+                  {folderTrail.map(folder => (
+                    <span key={folder.id} className="flex items-center gap-1.5">
+                      <ChevronRight className="size-3 text-neutral-300 dark:text-neutral-600" />
+                      <button onClick={() => setActiveFolderId(folder.id)} className="font-medium text-neutral-500 hover:text-[#f97316] dark:text-neutral-400">{folder.name}</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => make("folder")} className="rounded-full border-neutral-200 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-200 dark:hover:bg-neutral-800 dark:hover:text-white"><FolderPlus className="mr-1.5 size-3.5" />New folder</Button>
+                <Button onClick={() => make("file")} className="rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]"><FilePlus2 className="mr-1.5 size-3.5" />New file</Button>
+              </div>
+            </div>
+          </header>
+          <div className="p-5 sm:p-6">
+            <div className="mb-7 flex items-end justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-extrabold tracking-tight">{currentFolder?.name ?? "Home"}</h1>
+                <p className="mt-1 text-sm text-neutral-400">{itemCount} item{itemCount === 1 ? "" : "s"} in this location</p>
+              </div>
+              {activeFolderId !== null && (
+                <Button variant="ghost" onClick={() => setActiveFolderId(currentFolder?.parentId ?? null)} className="text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white">
+                  <ArrowLeft className="mr-1.5 size-3.5" />Up one level
+                </Button>
+              )}
+            </div>
+            {computer.isLoading ? (
+              <div className="grid min-h-80 place-items-center text-sm text-neutral-400">Opening your private workspace…</div>
+            ) : itemCount ? (
+              <div className="space-y-7">
+                {visibleContents.folders.length > 0 && (
+                  <div>
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Folders</p>
+                    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {visibleContents.folders.map(folder => (
+                        <FolderCard key={folder.id} name={folder.name} onOpen={() => setActiveFolderId(folder.id)} onMove={() => { const parentId = chooseFolder(folder.id); if (parentId !== undefined) renameFolder.mutate({ id: folder.id, parentId }); }} onRename={() => { const name = window.prompt("Rename folder", folder.name)?.trim(); if (name) renameFolder.mutate({ id: folder.id, name }); }} onDelete={() => window.confirm(`Delete ${folder.name} and its contents?`) && removeFolder.mutate({ id: folder.id })} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {visibleContents.files.length > 0 && (
+                  <div>
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Files</p>
+                    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {visibleContents.files.map(file => (
+                        <FileCard key={file.id} name={file.name} changed={elapsed(file.updatedAt)} onMove={() => { const folderId = chooseFolder(); if (folderId !== undefined) renameFile.mutate({ id: file.id, folderId }); }} onRename={() => { const name = window.prompt("Rename file", file.name)?.trim(); if (name) renameFile.mutate({ id: file.id, name }); }} onDelete={() => window.confirm(`Delete ${file.name}?`) && removeFile.mutate({ id: file.id })} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <EmptyFolder onFolder={() => make("folder")} onFile={() => make("file")} />
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-4">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">NVIDIA inference</p>
+              <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${nvidiaCanRun ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>{nvidia?.allowance.exhausted ? "Allowance reached" : nvidiaCanRun ? "Ready" : "Setup needed"}</span>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">Use Nova's protected server-to-server NVIDIA NIM gateway for a short, private text response. Nova never exposes the provider key to this browser.</p>
+            <Textarea value={nvidiaPrompt} onChange={event => setNvidiaPrompt(event.target.value)} placeholder="Ask NVIDIA to help with a workspace idea…" className="mt-3 min-h-20 resize-none border-neutral-200 bg-[#fafafa] text-xs placeholder:text-neutral-400 focus-visible:ring-[#f97316]/25 dark:border-white/10 dark:bg-neutral-950" />
+            <Button onClick={() => completeWithNvidia.mutate({ prompt: nvidiaPrompt.trim() })} disabled={!nvidiaPrompt.trim() || completeWithNvidia.isPending || !nvidiaCanRun} className="mt-2 w-full rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]">{completeWithNvidia.isPending ? "Generating…" : "Ask NVIDIA"}</Button>
+            <p className="mt-2 text-[10px] leading-4 text-neutral-400">{nvidia?.allowance.usedRequests ?? 0}/{nvidia?.allowance.maxRequests ?? 0} configured request allowance · {nvidia?.model ?? "NVIDIA NIM"}</p>
+            {!nvidiaCanRun && <p className="mt-2 text-[10px] leading-4 text-amber-600/80 dark:text-amber-300/70">{nvidia?.allowance.exhausted ? "Nova has blocked new NVIDIA requests for this workspace until an administrator raises its configured cap." : "NVIDIA is unavailable until the server-only gateway connection and provider credential are configured."}</p>}
+            {nvidiaResponse && (
+              <div className="mt-3 rounded-xl border border-[#f97316]/20 bg-[#f97316]/5 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#c2410c] dark:text-[#fdba74]">NVIDIA response</p>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-neutral-600 dark:text-neutral-300">{nvidiaResponse}</p>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Agent VM</p>
+              <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${vmCanRun ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>{vm?.allowance.exhausted ? "Run cap reached" : vm?.configured ? "Ready" : "Setup needed"}</span>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">Nova runs explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked.</p>
+            <Textarea value={vmTask} onChange={event => setVmTask(event.target.value)} placeholder="Describe a safe workspace task…" className="mt-3 min-h-20 resize-none border-neutral-200 bg-[#fafafa] text-xs placeholder:text-neutral-400 focus-visible:ring-[#f97316]/25 dark:border-white/10 dark:bg-neutral-950" />
+            <Button onClick={() => startVmRun.mutate({ task: vmTask.trim() })} disabled={!vmTask.trim() || startVmRun.isPending || !vmCanRun} className="mt-2 w-full rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]">{startVmRun.isPending ? "Starting sandbox…" : "Run in agent VM"}</Button>
+            <p className="mt-2 text-[10px] leading-4 text-neutral-400">{vm?.allowance.usedRuns ?? 0}/{vm?.allowance.maxRuns ?? 0} configured run cap · 1 active run · 30s task limit · polling status</p>
+          </section>
+
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Agent activity</p>
+              <span className="text-[10px] text-neutral-300 dark:text-neutral-600">Private</span>
+            </div>
+            <div className="mt-3 space-y-3">
+              {agentVmRuns.data?.slice(0, 3).map(run => (
+                <div key={run.id} className="rounded-xl border border-neutral-100 bg-[#fafafa] p-3 dark:border-white/5 dark:bg-neutral-950">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-xs font-semibold text-neutral-800 dark:text-neutral-200">{run.task}</p>
+                    <span className={`text-[10px] font-bold ${run.status === "succeeded" ? "text-emerald-600 dark:text-emerald-300" : run.status === "failed" ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300"}`}>{run.status}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-neutral-400">Daytona VM</p>
+                  {run.resultSummary && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">{run.resultSummary}</p>}
+                  {run.errorMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-red-500/80 dark:text-red-300/70">{run.errorMessage}</p>}
+                  {run.provider === "daytona" && (run.status === "queued" || run.status === "running") && <button onClick={() => cancelVmRun.mutate({ id: run.id })} className="mt-2 text-[10px] font-bold text-red-500 hover:text-red-600">Cancel run</button>}
+                </div>
+              ))}
+              {!agentVmRuns.data?.length && <p className="text-xs leading-5 text-neutral-400">No agent work has run in this workspace.</p>}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">On this computer</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Metric value={folders.length} label="folders" />
+              <Metric value={allFiles.length} label="files" />
+            </div>
+            <div className="mt-6">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Recently changed</p>
+                <span className="text-[10px] text-neutral-300 dark:text-neutral-600">Private</span>
+              </div>
+              <div className="mt-3 space-y-3">
+                {allFiles.slice(0, 5).map(file => (
+                  <div key={file.id} className="flex gap-2">
+                    <FileText className="mt-0.5 size-3.5 shrink-0 text-[#f97316]" />
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-300">{file.name}</p>
+                      <p className="text-[10px] text-neutral-400">Edited {elapsed(file.updatedAt)}</p>
+                    </div>
+                  </div>
+                ))}
+                {allFiles.length === 0 && <p className="text-xs leading-5 text-neutral-400">Your recent work will appear here.</p>}
+              </div>
+            </div>
+          </section>
+        </aside>
       </div>
-    </section>
-    <aside className="space-y-4">
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">NVIDIA inference</p><span className={`rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] ${nvidiaCanRun ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-200/10 text-amber-100"}`}>{nvidia?.allowance.exhausted ? "Allowance reached" : nvidiaCanRun ? "Ready" : "Setup needed"}</span></div><p className="mt-3 text-xs leading-5 text-white/52">Use Nova’s protected server-to-server NVIDIA NIM gateway for a short, private text response. Nova never exposes the provider key to this browser.</p><Textarea value={nvidiaPrompt} onChange={event => setNvidiaPrompt(event.target.value)} placeholder="Ask NVIDIA to help with a workspace idea…" className="mt-3 min-h-20 resize-none border-white/10 bg-black/15 text-xs text-white placeholder:text-white/30 focus-visible:ring-cyan-300/30" /><Button onClick={() => completeWithNvidia.mutate({ prompt: nvidiaPrompt.trim() })} disabled={!nvidiaPrompt.trim() || completeWithNvidia.isPending || !nvidiaCanRun} className="mt-2 w-full bg-cyan-300 text-xs text-slate-950 hover:bg-cyan-200">{completeWithNvidia.isPending ? "Generating…" : "Ask NVIDIA"}</Button><p className="mt-2 text-[10px] leading-4 text-white/33">{nvidia?.allowance.usedRequests ?? 0}/{nvidia?.allowance.maxRequests ?? 0} configured request allowance · {nvidia?.model ?? "NVIDIA NIM"}</p>{!nvidiaCanRun && <p className="mt-2 text-[10px] leading-4 text-amber-100/60">{nvidia?.allowance.exhausted ? "Nova has blocked new NVIDIA requests for this workspace until an administrator raises its configured cap." : "NVIDIA is unavailable until the server-only gateway connection and provider credential are configured."}</p>}{nvidiaResponse && <div className="mt-3 rounded-xl border border-cyan-300/12 bg-cyan-300/[.045] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-cyan-100/75">NVIDIA response</p><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-white/72">{nvidiaResponse}</p></div>}</section>
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent VM</p><span className={`rounded-full px-2 py-1 text-[9px] font-semibold uppercase tracking-[.12em] ${vmCanRun ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-200/10 text-amber-100"}`}>{vm?.allowance.exhausted ? "Run cap reached" : vm?.configured ? "Ready" : "Setup needed"}</span></div><p className="mt-3 text-xs leading-5 text-white/52">Nova runs explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked.</p><Textarea value={vmTask} onChange={event => setVmTask(event.target.value)} placeholder="Describe a safe workspace task…" className="mt-3 min-h-20 resize-none border-white/10 bg-black/15 text-xs text-white placeholder:text-white/30 focus-visible:ring-cyan-300/30" /><Button onClick={() => startVmRun.mutate({ task: vmTask.trim() })} disabled={!vmTask.trim() || startVmRun.isPending || !vmCanRun} className="mt-2 w-full bg-cyan-300 text-xs text-slate-950 hover:bg-cyan-200">{startVmRun.isPending ? "Starting sandbox…" : "Run in agent VM"}</Button><p className="mt-2 text-[10px] leading-4 text-white/33">{vm?.allowance.usedRuns ?? 0}/{vm?.allowance.maxRuns ?? 0} configured run cap · 1 active run · 30s task limit · polling status</p></section>
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Agent activity</p><span className="text-[10px] text-white/30">Private</span></div><div className="mt-3 space-y-3">{agentVmRuns.data?.slice(0, 3).map(run => <div key={run.id} className="rounded-xl border border-white/7 bg-white/[.025] p-3"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-medium text-white/78">{run.task}</p><span className={`text-[10px] ${run.status === "succeeded" ? "text-emerald-200" : run.status === "failed" ? "text-rose-200" : "text-amber-100"}`}>{run.status}</span></div><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-white/30">Daytona VM</p>{run.resultSummary && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/42">{run.resultSummary}</p>}{run.errorMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-rose-100/55">{run.errorMessage}</p>}{run.provider === "daytona" && (run.status === "queued" || run.status === "running") && <button onClick={() => cancelVmRun.mutate({ id: run.id })} className="mt-2 text-[10px] font-medium text-rose-200/75 hover:text-rose-100">Cancel run</button>}</div>)}{!agentVmRuns.data?.length && <p className="text-xs leading-5 text-white/35">No agent work has run in this workspace.</p>}</div></section>
-      <section className="rounded-2xl border border-white/9 bg-[#10161f] p-4"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">On this computer</p><div className="mt-4 grid grid-cols-2 gap-2"><Metric value={folders.length} label="folders" /><Metric value={allFiles.length} label="files" /></div><div className="mt-6"><div className="flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-white/45">Recently changed</p><span className="text-[10px] text-white/30">Private</span></div><div className="mt-3 space-y-3">{allFiles.slice(0, 5).map(file => <div key={file.id} className="flex gap-2"><FileText className="mt-0.5 size-3.5 text-sky-200" /><div className="min-w-0"><p className="truncate text-xs text-white/70">{file.name}</p><p className="text-[10px] text-white/35">Edited {elapsed(file.updatedAt)}</p></div></div>)}{allFiles.length === 0 && <p className="text-xs leading-5 text-white/35">Your recent work will appear here.</p>}</div></div></section>
-    </aside>
-  </div></DashboardLayout>;
+    </DashboardLayout>
+  );
 }
 
 function WorkspaceError({ onRetry }: { onRetry: () => void }) {
-  return <DashboardLayout><div className="grid min-h-[65vh] place-items-center text-center"><div><Sparkles className="mx-auto text-cyan-200" /><h1 className="mt-4 text-2xl font-semibold">Nova could not open your computer.</h1><p className="mt-2 text-sm text-white/45">Your files remain private. Try reconnecting to your workspace.</p><Button className="mt-5 bg-cyan-300 text-slate-950" onClick={onRetry}>Try again</Button></div></div></DashboardLayout>;
+  return <DashboardLayout><div className="grid min-h-[65vh] place-items-center text-center"><div><NovaMark size={40} className="mx-auto" /><h1 className="mt-4 text-2xl font-extrabold tracking-tight">Nova could not open your computer.</h1><p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">Your files remain private. Try reconnecting to your workspace.</p><Button className="mt-5 rounded-full bg-[#f97316] hover:bg-[#ea580c]" onClick={onRetry}>Try again</Button></div></div></DashboardLayout>;
 }
 
 function FolderCard({ name, onOpen, onMove, onRename, onDelete }: { name: string; onOpen: () => void; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="rounded-2xl border border-white/9 bg-white/[.035] p-4 transition hover:border-cyan-300/25 hover:bg-white/[.06]"><button onClick={onOpen} className="flex w-full items-center gap-3 text-left"><span className="grid size-10 place-items-center rounded-xl bg-amber-200/10 text-amber-200"><FolderOpen className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-white/88">{name}</span><span className="mt-0.5 block text-[11px] text-white/38">Folder</span></span><ChevronRight className="size-4 text-white/30" /></button><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
+  return <div className="rounded-xl border border-neutral-200 bg-[#fafafa] p-4 transition hover:border-neutral-300 hover:bg-white hover:shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:hover:border-white/20"><button onClick={onOpen} className="flex w-full items-center gap-3 text-left"><span className="grid size-10 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316]"><FolderOpen className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-neutral-900 dark:text-white">{name}</span><span className="mt-0.5 block text-[11px] text-neutral-400">Folder</span></span><ChevronRight className="size-4 text-neutral-300 dark:text-neutral-600" /></button><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
 }
 
 function FileCard({ name, changed, onMove, onRename, onDelete }: { name: string; changed: string; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="rounded-2xl border border-white/9 bg-white/[.035] p-4 transition hover:border-sky-200/25 hover:bg-white/[.06]"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-sky-200/10 text-sky-200"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-white/88">{name}</span><span className="mt-0.5 block text-[11px] text-white/38">Edited {changed}</span></span></div><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
+  return <div className="rounded-xl border border-neutral-200 bg-[#fafafa] p-4 transition hover:border-neutral-300 hover:bg-white hover:shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:hover:border-white/20"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-neutral-900 dark:text-white">{name}</span><span className="mt-0.5 block text-[11px] text-neutral-400">Edited {changed}</span></span></div><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
 }
 
 function EmptyFolder({ onFolder, onFile }: { onFolder: () => void; onFile: () => void }) {
-  return <div className="grid min-h-80 place-items-center rounded-3xl border border-dashed border-white/13 bg-white/[.025] p-8 text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200"><Sparkles className="size-5" /></span><h2 className="mt-4 text-lg font-medium">This folder is ready for your work.</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-white/46">Create a file or folder here, or ask Nova to help shape your workspace.</p><div className="mt-6 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={onFolder} className="border-white/12 bg-transparent text-white/75 hover:bg-white/8 hover:text-white"><FolderPlus className="mr-1.5 size-4" />New folder</Button><Button onClick={onFile} className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"><Plus className="mr-1.5 size-4" />New file</Button></div></div></div>;
+  return <div className="grid min-h-80 place-items-center rounded-2xl border border-dashed border-neutral-200 bg-[#fafafa] p-8 text-center dark:border-white/10 dark:bg-neutral-950"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#f97316]/10 text-[#f97316]"><Sparkles className="size-5" /></span><h2 className="mt-4 text-lg font-bold tracking-tight">This folder is ready for your work.</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-neutral-500 dark:text-neutral-400">Create a file or folder here, or ask Nova to help shape your workspace.</p><div className="mt-6 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={onFolder} className="rounded-full border-neutral-200 font-semibold text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-200 dark:hover:bg-neutral-800 dark:hover:text-white"><FolderPlus className="mr-1.5 size-4" />New folder</Button><Button onClick={onFile} className="rounded-full bg-[#f97316] font-semibold hover:bg-[#ea580c]"><Plus className="mr-1.5 size-4" />New file</Button></div></div></div>;
 }
 
 function ItemActions({ label, onMove, onRename, onDelete }: { label: string; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="mt-4 flex justify-end gap-1 border-t border-white/8 pt-3"><button aria-label={`Move ${label}`} onClick={onMove} className="rounded-md p-1.5 text-white/38 transition hover:bg-white/8 hover:text-white"><MoveRight className="size-3.5" /></button><button aria-label={`Rename ${label}`} onClick={onRename} className="rounded-md p-1.5 text-white/38 transition hover:bg-white/8 hover:text-white"><Pencil className="size-3.5" /></button><button aria-label={`Delete ${label}`} onClick={onDelete} className="rounded-md p-1.5 text-rose-200/65 transition hover:bg-rose-300/10 hover:text-rose-100"><Trash2 className="size-3.5" /></button></div>;
+  return <div className="mt-4 flex justify-end gap-1 border-t border-neutral-100 pt-3 dark:border-white/5"><button aria-label={`Move ${label}`} onClick={onMove} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><MoveRight className="size-3.5" /></button><button aria-label={`Rename ${label}`} onClick={onRename} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><Pencil className="size-3.5" /></button><button aria-label={`Delete ${label}`} onClick={onDelete} className="rounded-md p-1.5 text-red-400/70 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="size-3.5" /></button></div>;
 }
 
 function Metric({ value, label }: { value: number; label: string }) {
-  return <div className="rounded-xl bg-white/5 p-3"><p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-[11px] text-white/43">{label}</p></div>;
+  return <div className="rounded-xl bg-[#fafafa] p-3 dark:bg-neutral-950"><p className="text-2xl font-extrabold tracking-tight">{value}</p><p className="mt-1 text-[11px] text-neutral-400">{label}</p></div>;
 }

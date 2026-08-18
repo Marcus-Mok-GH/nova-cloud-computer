@@ -55,13 +55,22 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
   }
 }
 
-async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<User | null> {
+async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<{ user: User; identity: NeonIdentity } | null> {
   if (!ENV.cookieSecret) return null;
   const sessionToken = parseCookieHeader(cookieHeader ?? "")[COOKIE_NAME];
   if (!sessionToken) return null;
   const session = await sdk.verifySession(sessionToken);
   if (!session) return null;
-  return getUserByOpenId(session.openId);
+  const user = await getUserByOpenId(session.openId);
+  if (!user) return null;
+  return {
+    user,
+    identity: {
+      openId: session.openId,
+      email: user.email,
+      name: user.name || session.name || user.email?.split("@")[0] || "Nova member",
+    },
+  };
 }
 
 async function persistFirstPartySession(opts: CreateExpressContextOptions, identity: NeonIdentity) {
@@ -81,5 +90,11 @@ export async function createContext(opts: CreateExpressContextOptions): Promise<
     return { req: opts.req, res: opts.res, user: bearer.user };
   }
 
-  return { req: opts.req, res: opts.res, user: await authenticateFirstPartySession(opts.req.header("cookie")) };
+  const firstParty = await authenticateFirstPartySession(opts.req.header("cookie"));
+  if (firstParty) {
+    await persistFirstPartySession(opts, firstParty.identity);
+    return { req: opts.req, res: opts.res, user: firstParty.user };
+  }
+
+  return { req: opts.req, res: opts.res, user: null };
 }

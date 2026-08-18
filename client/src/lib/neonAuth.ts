@@ -30,6 +30,9 @@ export const neonAuth = authUrl
     })
   : null;
 
+export const NEON_JWT_STORAGE_KEY = "nova_neon_access_token";
+
+type StoredNeonJwt = { token: string; expiresAt: number };
 type NeonTokenResult = { data?: { token?: string | null; session?: { token?: string | null } | null } | null };
 type NeonAuthTokenClient = {
   getSession: () => Promise<NeonTokenResult>;
@@ -38,6 +41,61 @@ type NeonAuthTokenClient = {
 
 function isSignedJwt(token: string | null | undefined) {
   return Boolean(token && token.split(".").length === 3);
+}
+
+function getJwtExpirationMs(token: string) {
+  try {
+    const [, payload] = token.split(".");
+    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = normalizedPayload.padEnd(Math.ceil(normalizedPayload.length / 4) * 4, "=");
+    const decodedPayload = JSON.parse(atob(paddedPayload)) as { exp?: unknown };
+    return typeof decodedPayload.exp === "number" ? decodedPayload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function getStorage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberNeonJwt(token: string | null | undefined, now = Date.now()) {
+  if (!isSignedJwt(token)) return null;
+  const expiresAt = getJwtExpirationMs(token!);
+  if (!expiresAt || expiresAt <= now) return token!;
+  try {
+    getStorage()?.setItem(NEON_JWT_STORAGE_KEY, JSON.stringify({ token: token!, expiresAt } satisfies StoredNeonJwt));
+  } catch {
+    // Ignore storage failures; the cookie-backed session remains the source of truth.
+  }
+  return token!;
+}
+
+export function getRememberedNeonJwt(now = Date.now()) {
+  try {
+    const raw = getStorage()?.getItem(NEON_JWT_STORAGE_KEY);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as Partial<StoredNeonJwt>;
+    if (!isSignedJwt(stored.token) || typeof stored.expiresAt !== "number" || stored.expiresAt <= now) {
+      clearRememberedNeonJwt();
+      return null;
+    }
+    return stored.token!;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRememberedNeonJwt() {
+  try {
+    getStorage()?.removeItem(NEON_JWT_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
 }
 
 export function extractNeonJwt(result: NeonTokenResult) {
@@ -55,7 +113,7 @@ export async function getNeonJwtFromTokenEndpoint(
     const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/token`, { credentials: "include" });
     if (!response.ok) return null;
     const payload = await response.json() as { token?: string | null };
-    return isSignedJwt(payload.token) ? payload.token! : null;
+    return rememberNeonJwt(payload.token);
   } catch {
     return null;
   }
@@ -68,13 +126,15 @@ export async function getNeonJwtFromTokenEndpoint(
  */
 export async function exchangeNeonVerifierAndGetJwt(client: NeonAuthTokenClient) {
   const session = await client.getSession();
-  const sessionJwt = extractNeonJwt(session);
+  const sessionJwt = rememberNeonJwt(extractNeonJwt(session));
   if (sessionJwt) return sessionJwt;
-  return extractNeonJwt(await client.token());
+  return rememberNeonJwt(extractNeonJwt(await client.token()));
 }
 
 export async function getNeonAccessToken() {
   if (!neonAuth || !authUrl) return null;
+  const remembered = getRememberedNeonJwt();
+  if (remembered) return remembered;
   const session = await neonAuth.getSession();
-  return extractNeonJwt(session) ?? getNeonJwtFromTokenEndpoint(authUrl);
+  return rememberNeonJwt(extractNeonJwt(session)) ?? getNeonJwtFromTokenEndpoint(authUrl);
 }

@@ -70,7 +70,7 @@ export default function SignIn() {
             <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
               Email address
               <input
-                className="mt-2 h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-sm text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-[#f97316] focus:ring-4 focus:ring-[#f97316]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-white"
+                className="mt-2 h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-base text-neutral-950 sm:text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#f97316] focus:ring-4 focus:ring-[#f97316]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-white"
                 value={email}
                 onChange={event => setEmail(event.target.value)}
                 type="email"

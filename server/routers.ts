@@ -32,6 +32,9 @@ import {
   getTelegramSettingsForUser,
   saveTelegramSettingsForUser,
   updateTelegramChatForUser,
+  listAutomationsForUser,
+  listAutomationRunsForUser,
+  updateAutomationForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -182,6 +185,15 @@ export const appRouter = router({
       const run = await cancelAgentVmRun(ctx.user.id, input.id);
       if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "That active agent VM run is not available in your Nova space." });
       return run;
+    }),
+  }),
+  automations: router({
+    list: protectedProcedure.query(({ ctx }) => listAutomationsForUser(ctx.user.id)),
+    runs: protectedProcedure.input(z.object({ automationId: z.number().int().positive() })).query(({ ctx, input }) => listAutomationRunsForUser(ctx.user.id, input.automationId)),
+    update: protectedProcedure.input(z.object({ id: z.number().int().positive(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const automation = await updateAutomationForUser(ctx.user.id, input.id, { enabled: input.enabled });
+      if (!automation) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
+      return automation;
     }),
   }),
   folders: router({

@@ -66,6 +66,12 @@ export async function getUserByOpenId(openId: string) {
   return (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
 }
 
+export async function deleteUserAccount(userId: number): Promise<boolean> {
+  const db = await requireDb();
+  const [deleted] = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return Boolean(deleted);
+}
+
 export async function getOrCreateWorkspace(ownerId: number) {
   const db = await requireDb();
   const existing = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);

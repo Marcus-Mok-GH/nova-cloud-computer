@@ -1,4 +1,4 @@
-/** Nova style reminder: preserve the editorial light/dark theme system across the whole application. */
+/** Nova app router — Zo-inspired clean light theme system with orange accents across the whole application. */
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";

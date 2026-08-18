@@ -1,9 +1,9 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
 import { neonAuth } from "@/lib/neonAuth";
 import { getMagicLinkCallbackUrl } from "@/lib/authCallbackUrl";
-import { ArrowLeft, Mail, Sparkles } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import NovaMark from "@/components/NovaMark";
+import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
+import React, { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 
 export default function SignIn() {
@@ -21,7 +21,7 @@ export default function SignIn() {
   async function requestLink(event: FormEvent) {
     event.preventDefault();
     if (!neonAuth) {
-      setError("Nova’s passwordless login is still being connected to its Neon workspace. Please try again shortly.");
+      setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
       return;
     }
     setPending(true);
@@ -40,14 +40,60 @@ export default function SignIn() {
     }
   }
 
-  return <main className="min-h-screen bg-[#f4f3eb] text-[#202522] flex items-center justify-center p-6">
-    <section className="w-full max-w-md rounded-[2rem] border border-black/10 bg-white/65 p-8 shadow-[0_24px_80px_rgba(32,42,40,.12)] backdrop-blur-sm">
-      <Link href="/" className="inline-flex items-center gap-2 text-sm text-[#53615a] hover:text-[#18231f]"><ArrowLeft size={15} /> Back to Nova</Link>
-      <div className="mt-10 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#19312e] text-[#dff1e7]"><Sparkles size={19} /></div>
-      <p className="mt-6 text-xs font-semibold uppercase tracking-[.18em] text-[#647067]">Your personal cloud</p>
-      <h1 className="mt-2 font-serif text-4xl leading-none tracking-tight">Sign in without a password.</h1>
-      {sent ? <div className="mt-6 rounded-2xl border border-[#9dbdb0] bg-[#e5f0e8] p-5 text-sm leading-relaxed text-[#254239]"><Mail className="mb-3" size={18} /><strong className="block">Check your email.</strong> We sent a private, time-limited link to <span className="font-medium">{email}</span>. Open it in this browser to enter Nova.</div> : <form onSubmit={requestLink} className="mt-7 space-y-4"><label className="block text-sm font-medium">Email address<input className="mt-2 h-12 w-full rounded-xl border border-black/15 bg-white px-4 outline-none transition focus:border-[#386a5c] focus:ring-2 focus:ring-[#8ec6b2]/50" value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" /></label>{error ? <p className="text-sm text-red-700">{error}</p> : null}<Button className="h-12 w-full rounded-xl bg-[#19312e] text-white hover:bg-[#26463f]" disabled={pending} type="submit">{pending ? "Sending secure link…" : "Email me a sign-in link"}</Button></form>}
-      <p className="mt-6 text-xs leading-relaxed text-[#68736c]">Nova uses a passwordless, time-limited magic link. We do not store a password for this sign-in method.</p>
-    </section>
-  </main>;
+  return (
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-white p-6 dark:bg-neutral-950">
+      <div className="absolute -top-32 left-1/2 size-96 -translate-x-1/2 rounded-full bg-[#f97316]/8 blur-3xl" aria-hidden="true" />
+      <Link href="/" className="absolute left-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white">
+        <ArrowLeft size={15} /> Back to site
+      </Link>
+
+      <section className="relative w-full max-w-md rounded-3xl border border-neutral-200 bg-white p-8 shadow-[0_24px_80px_rgba(10,10,10,0.08)] sm:p-10 dark:border-white/10 dark:bg-neutral-900">
+        <div className="flex items-center gap-2.5">
+          <NovaMark size={26} ariaHidden={false} />
+          <span className="text-lg font-extrabold tracking-tight text-neutral-950 dark:text-white">Nova</span>
+        </div>
+        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Sign in to Nova.</h1>
+        <p className="mt-3 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+          Run your projects, files, and AI in a space that works 24/7.
+        </p>
+
+        {sent ? (
+          <div className="mt-7 rounded-2xl border border-[#f97316]/30 bg-[#f97316]/8 p-5">
+            <Mail className="mb-3 text-[#f97316]" size={18} />
+            <strong className="block text-sm text-neutral-900 dark:text-white">Check your email.</strong>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
+              We sent a private, time-limited link to <span className="font-semibold">{email}</span>. Open it in this browser to enter Nova.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={requestLink} className="mt-7 space-y-4">
+            <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+              Email address
+              <input
+                className="mt-2 h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-sm text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-[#f97316] focus:ring-4 focus:ring-[#f97316]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-white"
+                value={email}
+                onChange={event => setEmail(event.target.value)}
+                type="email"
+                autoComplete="email"
+                required
+                placeholder="you@example.com"
+              />
+            </label>
+            {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+            <button
+              className="pill-btn pill-btn-primary w-full"
+              disabled={pending}
+              type="submit"
+            >
+              {pending ? "Sending secure link…" : <>Email me a sign-in link <ArrowRight size={15} /></>}
+            </button>
+          </form>
+        )}
+
+        <p className="mt-6 text-xs leading-relaxed text-neutral-400 dark:text-neutral-500">
+          Nova uses a passwordless, time-limited magic link. We do not store a password for this sign-in method.
+        </p>
+      </section>
+    </main>
+  );
 }

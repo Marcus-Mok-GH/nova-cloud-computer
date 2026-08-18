@@ -22,9 +22,6 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.693.0
         version: 3.1110.0
-      '@codebuff/sdk':
-        specifier: ^0.10.7
-        version: 0.10.7
       '@daytona/sdk':
         specifier: ^0.204.1
         version: 0.204.1
@@ -646,10 +643,6 @@ packages:
 
   '@chevrotain/utils@11.0.3':
     resolution: {integrity: sha512-YslZMgtJUyuMbZ+aKvfF3x1f5liK4mWNxghFRv7jqRR9C3R3fAOGTTKvxXDa2Y1s9zSbcpuO0cAxDYsc9SrXoQ==}
-
-  '@codebuff/sdk@0.10.7':
-    resolution: {integrity: sha512-ypOVxKxhAHIkLnsFZs9DOx8QFQt4e8hAaJgEnWNBerGqNV7PGrmfPT7L70WCfT4/TKFxEMp0R9xN8Wc1g2iYXQ==}
-    engines: {node: '>=18.0.0'}
 
   '@date-fns/tz@1.4.1':
     resolution: {integrity: sha512-P5LUNhtbj6YfI3iJjw5EL9eUAG6OitD0W3fWQcpQjDRc/QIsL0tRNuO1PcDvPccWL1fSTXXdE1ds+l95DV/OFA==}
@@ -6773,23 +6766,6 @@ snapshots:
   '@chevrotain/types@11.0.3': {}
 
   '@chevrotain/utils@11.0.3': {}
-
-  '@codebuff/sdk@0.10.7':
-    dependencies:
-      '@ai-sdk/anthropic': 2.0.50(zod@4.3.6)
-      '@jitl/quickjs-wasmfile-release-sync': 0.31.0
-      '@vscode/tree-sitter-wasm': 0.1.4
-      ai: 5.0.237(zod@4.3.6)
-      diff: 8.0.3
-      gray-matter: 4.0.3
-      ignore: 7.0.5
-      micromatch: 4.0.8
-      web-tree-sitter: 0.25.6
-      ws: 8.21.3
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   '@date-fns/tz@1.4.1': {}
 

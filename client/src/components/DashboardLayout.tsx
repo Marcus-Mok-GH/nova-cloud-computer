@@ -9,19 +9,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { HardDrive, LogOut, MessageSquareText, Rocket, Search, Settings2, Sparkles } from "lucide-react";
+import { Folder, HardDrive, LogOut, MessageSquareText, Rocket, Search, Settings2, Sparkles } from "lucide-react";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const nav = [
   { icon: HardDrive, label: "Home", path: "/app" },
+  { icon: Folder, label: "Files", path: "/app/files" },
   { icon: MessageSquareText, label: "Chats", path: "/app/chats" },
   { icon: Rocket, label: "Deployments", path: "/app/deployments" },
   { icon: Settings2, label: "Settings", path: "/app/settings" },
 ];
 
 const mobileTabs = [
-  { icon: Sparkles, label: "Space", path: "/app" },
+  { icon: Sparkles, label: "Home", path: "/app" },
+  { icon: Folder, label: "Files", path: "/app/files" },
   { icon: MessageSquareText, label: "Chats", path: "/app/chats" },
   { icon: Rocket, label: "Deploys", path: "/app/deployments" },
   { icon: Settings2, label: "Settings", path: "/app/settings" },
@@ -154,7 +156,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Mobile bottom tabs */}
       <nav aria-label="Workspace navigation" className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md lg:hidden dark:border-white/10 dark:bg-neutral-950/95">
-        <div className="mx-auto grid max-w-xl grid-cols-4 gap-1">
+        <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
           {mobileTabs.map(tab => {
             const active = isActive(tab.path);
             return (

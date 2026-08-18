@@ -36,7 +36,7 @@ describe("Workspace rendered browser states", () => {
     state.nvidiaStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
   });
 
-  it("renders persisted root folders and files from the workspace computer query", () => {
+  it("renders workspace counts without folder browsing controls", () => {
     state.computer = {
       data: {
         folders: [{ id: 1, name: "Plans", parentId: null }],
@@ -48,24 +48,27 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Plans");
-    expect(markup).toContain("launch-brief.md");
-    expect(markup).toContain("Workspace folders");
-    expect(markup).toContain("Usage");
-    expect(markup).toContain("NVIDIA requests");
-    expect(markup).toContain("VM runs");
+    expect(markup).toContain("Home");
+    expect(markup).toContain("Workspace");
+    expect(markup).toContain("NVIDIA requests used");
+    expect(markup).toContain("VM runs used");
+    expect(markup).toContain("1");
     expect(markup).toContain("0/50");
+    expect(markup).not.toContain("Plans");
+    expect(markup).not.toContain("launch-brief.md");
+    expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Ask NVIDIA");
     expect(markup).not.toContain("Run in agent VM");
     expect(markup).not.toContain("Codebuff");
   });
 
-  it("renders loading, empty, and error states for the workspace browser", () => {
+  it("renders loading, empty, and error states for the workspace summary", () => {
     state.computer = { data: undefined, isError: false, isLoading: true, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("Opening your private workspace");
+    expect(renderWorkspace()).toContain("—");
 
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("This folder is ready for your work.");
+    expect(renderWorkspace()).toContain("folders");
+    expect(renderWorkspace()).toContain("files");
 
     state.computer = { data: undefined, isError: true, isLoading: false, refetch: vi.fn() };
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
@@ -79,8 +82,9 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("12/50");
     expect(markup).toContain("7/50");
-    expect(markup).toContain("NVIDIA requests");
-    expect(markup).toContain("VM runs");
+    expect(markup).toContain("NVIDIA requests used");
+    expect(markup).toContain("VM runs used");
+    expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask NVIDIA");
   });

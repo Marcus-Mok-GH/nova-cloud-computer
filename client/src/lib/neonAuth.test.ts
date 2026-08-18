@@ -1,11 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  NEON_JWT_STORAGE_KEY,
+  clearRememberedNeonJwt,
   exchangeNeonVerifierAndGetJwt,
   extractNeonJwt,
+  getRememberedNeonJwt,
   getNeonJwtFromTokenEndpoint,
   neonAuthFetchOptions,
+  rememberNeonJwt,
   resolveNeonAuthUrl,
 } from "./neonAuth";
+
+function createJwt(payload: Record<string, unknown>) {
+  const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${encode({ alg: "RS256", typ: "JWT" })}.${encode(payload)}.signature`;
+}
 
 describe("extractNeonJwt", () => {
   it("returns the JWT from Neon Auth's token API response", () => {
@@ -47,6 +56,39 @@ describe("extractNeonJwt", () => {
       "header.payload.signature",
     );
     expect(fetchImpl).toHaveBeenCalledWith("https://nova.example/api/neon-auth/token", { credentials: "include" });
+  });
+
+  it("persists a signed JWT in localStorage until its expiration", () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    const now = 1_700_000_000_000;
+    const token = createJwt({ exp: Math.floor((now + 60_000) / 1000) });
+
+    expect(rememberNeonJwt(token, now)).toBe(token);
+    expect(getRememberedNeonJwt(now + 1_000)).toBe(token);
+
+    expect(getRememberedNeonJwt(now + 61_000)).toBeNull();
+    expect(storage.has(NEON_JWT_STORAGE_KEY)).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("clears the remembered JWT from localStorage", () => {
+    const removeItem = vi.fn();
+    vi.stubGlobal("localStorage", {
+      getItem: vi.fn(),
+      setItem: vi.fn(),
+      removeItem,
+    });
+
+    clearRememberedNeonJwt();
+
+    expect(removeItem).toHaveBeenCalledWith(NEON_JWT_STORAGE_KEY);
+    vi.unstubAllGlobals();
   });
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {

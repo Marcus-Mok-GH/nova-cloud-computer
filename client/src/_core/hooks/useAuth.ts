@@ -1,4 +1,4 @@
-import { neonAuth } from "@/lib/neonAuth";
+import { clearRememberedNeonJwt, neonAuth } from "@/lib/neonAuth";
 import { trpc } from "@/lib/trpc";
 import { SEVEN_DAYS_MS } from "@shared/const";
 import { useCallback, useEffect, useMemo } from "react";
@@ -62,6 +62,7 @@ export function useAuth(options?: UseAuthOptions) {
 
   const logout = useCallback(async (userId?: number) => {
     clearLastActiveTimestamp(userId);
+    clearRememberedNeonJwt();
     const tasks: Promise<unknown>[] = [clearFirstPartySession()];
     if (neonAuth) tasks.push(neonAuth.signOut());
     await Promise.allSettled(tasks);

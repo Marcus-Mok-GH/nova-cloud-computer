@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import SignIn from "./pages/SignIn";
 import Chats from "./pages/Chats";
 import Deployments from "./pages/Deployments";
+import Files from "./pages/Files";
 import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
 
@@ -19,6 +20,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/sign-in"} component={SignIn} />
       <Route path={"/app"} component={Workspace} />
+      <Route path={"/app/files"} component={Files} />
       <Route path={"/app/chats"} component={Chats} />
       <Route path={"/app/deployments"} component={Deployments} />
       <Route path={"/app/settings"} component={WorkspaceSettings} />

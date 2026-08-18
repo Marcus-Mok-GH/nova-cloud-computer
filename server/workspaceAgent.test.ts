@@ -95,6 +95,19 @@ describe("Nova keyless workspace agent", () => {
     expect(deleteFile).toHaveBeenCalledWith(7, 15);
   });
 
+  it("reports an unavailable model connection instead of a canned AI reply", async () => {
+    delete process.env.NVIDIA_NIM_API_KEY;
+    envState.nvidiaNimApiKey = "";
+    envState.forgeApiKey = "";
+
+    await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
+      actions: [],
+      message: expect.objectContaining({ role: "assistant", content: expect.stringContaining("AI model is not connected") }),
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("uses the managed model for ordinary chat when the NIM credential is absent", async () => {
     delete process.env.NVIDIA_NIM_API_KEY;
     envState.forgeApiKey = "managed-forge-key";

@@ -134,7 +134,10 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const connection = getWorkspaceAgentConnection();
   if (!connection) {
     const direct = await runDirectWorkspaceAction(ownerId, content);
-    const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
+    const reply = direct.actions.length > 0
+      ? direct.reply
+      : "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
+    const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);

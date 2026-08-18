@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
   "outputDirectory": "dist/public",
   "routes": [
@@ -11,5 +12,11 @@
       "maxDuration": 10,
       "includeFiles": "dist/server/**"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/automations/cron",
+      "schedule": "0 8 * * *"
+    }
+  ]
 }

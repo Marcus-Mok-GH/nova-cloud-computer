@@ -16,6 +16,8 @@ import {
   telegramBotSettings,
   nvidiaInferenceAllowances,
   agentVmRuns,
+  automations,
+  automationRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 
@@ -550,4 +552,102 @@ export async function countAgentVmRunsForUser(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [result] = await db.select({ total: count() }).from(agentVmRuns).where(and(eq(agentVmRuns.workspaceId, workspace.id), eq(agentVmRuns.provider, "daytona")));
   return Number(result?.total ?? 0);
+}
+
+type AutomationKind = "workspace_digest";
+type AutomationRunStatus = "running" | "succeeded" | "failed" | "skipped";
+
+function toSafeAutomation(automation: typeof automations.$inferSelect) {
+  return {
+    id: automation.id,
+    kind: automation.kind,
+    enabled: automation.enabled,
+    lastRunAt: automation.lastRunAt,
+    lastError: automation.lastError,
+    createdAt: automation.createdAt,
+    updatedAt: automation.updatedAt,
+  };
+}
+
+function toSafeAutomationRun(run: typeof automationRuns.$inferSelect) {
+  return {
+    id: run.id,
+    automationId: run.automationId,
+    runKey: run.runKey,
+    status: run.status,
+    summary: run.summary,
+    errorMessage: run.errorMessage,
+    artifactFileId: run.artifactFileId,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+  };
+}
+
+export async function getOrCreateAutomationForUser(ownerId: number, kind: AutomationKind = "workspace_digest") {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const existing = (await db.select().from(automations).where(and(eq(automations.workspaceId, workspace.id), eq(automations.kind, kind))).limit(1))[0];
+  if (existing) return toSafeAutomation(existing);
+  await db.insert(automations).values({ workspaceId: workspace.id, kind, enabled: false }).onConflictDoNothing();
+  const created = (await db.select().from(automations).where(and(eq(automations.workspaceId, workspace.id), eq(automations.kind, kind))).limit(1))[0];
+  if (!created) throw new Error("Nova could not create the workspace automation.");
+  return toSafeAutomation(created);
+}
+
+export async function listAutomationsForUser(ownerId: number) {
+  const automation = await getOrCreateAutomationForUser(ownerId);
+  return [automation];
+}
+
+export async function updateAutomationForUser(ownerId: number, automationId: number, input: { enabled: boolean }) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [updated] = await db.update(automations).set({ enabled: input.enabled, updatedAt: new Date() }).where(and(eq(automations.id, automationId), eq(automations.workspaceId, workspace.id))).returning();
+  return updated ? toSafeAutomation(updated) : undefined;
+}
+
+export async function listAutomationRunsForUser(ownerId: number, automationId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const automation = (await db.select().from(automations).where(and(eq(automations.id, automationId), eq(automations.workspaceId, workspace.id))).limit(1))[0];
+  if (!automation) return [];
+  const runs = await db.select().from(automationRuns).where(and(eq(automationRuns.automationId, automation.id), eq(automationRuns.workspaceId, workspace.id))).orderBy(desc(automationRuns.createdAt)).limit(12);
+  return runs.map(toSafeAutomationRun);
+}
+
+export async function listEnabledAutomationsForScheduler(limit: number) {
+  const db = await requireDb();
+  const rows = await db.select({ automation: automations, ownerId: workspaces.ownerId }).from(automations).innerJoin(workspaces, eq(automations.workspaceId, workspaces.id)).where(eq(automations.enabled, true)).orderBy(asc(automations.lastRunAt)).limit(limit);
+  return rows.map(({ automation, ownerId }) => ({ automation: { ...toSafeAutomation(automation), workspaceId: automation.workspaceId }, ownerId }));
+}
+
+export async function claimAutomationRun(input: { automationId: number; workspaceId: number; runKey: string }) {
+  const db = await requireDb();
+  const [created] = await db.insert(automationRuns).values({ automationId: input.automationId, workspaceId: input.workspaceId, runKey: input.runKey, status: "running" }).onConflictDoNothing().returning();
+  return created ? toSafeAutomationRun(created) : undefined;
+}
+
+export async function updateAutomationRun(input: { automationId: number; workspaceId: number; runId: number; status: AutomationRunStatus; summary?: string | null; errorMessage?: string | null; artifactFileId?: number | null; completedAt?: Date | null }) {
+  const db = await requireDb();
+  const [updated] = await db.update(automationRuns).set({
+    status: input.status,
+    summary: input.summary,
+    errorMessage: input.errorMessage,
+    artifactFileId: input.artifactFileId,
+    completedAt: input.completedAt,
+    updatedAt: new Date(),
+  }).where(and(eq(automationRuns.id, input.runId), eq(automationRuns.automationId, input.automationId), eq(automationRuns.workspaceId, input.workspaceId))).returning();
+  return updated ? toSafeAutomationRun(updated) : undefined;
+}
+
+export async function updateAutomationScheduleState(input: { automationId: number; workspaceId: number; lastRunAt?: Date | null; lastError?: string | null }) {
+  const db = await requireDb();
+  const [updated] = await db.update(automations).set({
+    lastRunAt: input.lastRunAt,
+    lastError: input.lastError,
+    updatedAt: new Date(),
+  }).where(and(eq(automations.id, input.automationId), eq(automations.workspaceId, input.workspaceId))).returning();
+  return updated ? toSafeAutomation(updated) : undefined;
 }

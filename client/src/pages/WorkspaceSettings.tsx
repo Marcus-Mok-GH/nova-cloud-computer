@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Bot, Check, Eye, KeyRound, Loader2, LogOut, MessageCircle, Plus, Send, ShieldCheck, Sparkles, Trash2, UserX } from "lucide-react";
+import { Bot, Check, Eye, KeyRound, Loader2, LogOut, MessageCircle, Plus, Send, ShieldCheck, Sparkles, Trash2, UserX, Zap } from "lucide-react";
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -55,6 +55,7 @@ export default function WorkspaceSettings() {
     <section className="grid gap-7 lg:grid-cols-[.82fr_1.18fr]"><div className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-6"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences. Keep important approval boundaries and working style here.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={saveRules} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></div>
       <div className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Custom endpoints</p><h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Bring your own model</h2><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Add as many private endpoints as you need. Each stores its own endpoint compatibility and image-input capability.</p></div><CustomModelDialog open={customOpen} onOpenChange={setCustomOpen} name={customName} modelId={modelId} baseUrl={baseUrl} compatibility={compatibility} apiKey={apiKey} supportsImageInput={supportsImageInput} onNameChange={setCustomName} onModelIdChange={setModelId} onBaseUrlChange={setBaseUrl} onCompatibilityChange={setCompatibility} onApiKeyChange={setApiKey} onSupportsImageChange={setSupportsImageInput} onSubmit={submitCustom} loading={createCustom.isPending} /></div><div className="mt-6 space-y-3">{customModels.length ? customModels.map(model => { const active = settings.data?.activeProvider === "custom" && settings.data.activeCustomModelId === model.id; return <article key={model.id} className={`rounded-2xl border p-4 ${active ? "border-[#729b90] bg-[#eaf2ed] dark:border-[#6f9d90] dark:bg-[#274138]" : "border-border bg-muted/25"}`}><div className="flex items-start gap-3"><div className="mt-0.5 rounded-xl bg-background p-2 text-[#638f84]"><Bot size={17} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold">{model.name}</h3>{active && <span className="rounded-full bg-[#cce5da] px-2 py-0.5 text-[9px] font-bold text-[#3f655b] dark:bg-[#416c60] dark:text-[#d8f2e7]">Active</span>}</div><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{model.modelId} · {model.compatibility}-compatible</p><div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold text-muted-foreground"><span className="inline-flex items-center gap-1"><KeyRound size={11} /> key saved privately</span>{model.supportsImageInput && <span className="inline-flex items-center gap-1"><Eye size={11} /> accepts images</span>}</div></div><div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => selectCustom(model.id, model.modelId)} disabled={updateSettings.isPending}>{active ? "Selected" : "Use"}</Button><Button variant="ghost" size="icon" aria-label={`Remove ${model.name}`} onClick={() => deleteCustom.mutate({ id: model.id })} disabled={deleteCustom.isPending} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div></div></article>; }) : <div className="rounded-2xl border border-dashed px-5 py-10 text-center"><Bot className="mx-auto text-[#75a79a]" size={22} /><p className="mt-3 font-[DM_Serif_Display] text-2xl">Your own connection point.</p><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Add a compatible endpoint to make it part of this personal workspace.</p></div>}</div></div></section>
     <TelegramBotCard />
+    <AutomationCard />
     <AccountManagementCard />
   </div></DashboardLayout>;
 }
@@ -156,6 +157,27 @@ function AccountManagementCard() {
       </div>
     </section>
   );
+}
+
+function AutomationCard() {
+  const utils = trpc.useUtils();
+  const automations = trpc.automations.list.useQuery(undefined, { retry: false });
+  const automation = automations.data?.find(item => item.kind === "workspace_digest");
+  const runs = trpc.automations.runs.useQuery({ automationId: automation?.id ?? 0 }, { enabled: Boolean(automation?.id), retry: false });
+  const update = trpc.automations.update.useMutation({
+    onSuccess: async data => {
+      await Promise.all([utils.automations.list.invalidate(), utils.automations.runs.invalidate({ automationId: data.id })]);
+      toast.success(data.enabled ? "Daily workspace briefing enabled." : "Daily workspace briefing paused.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const latestRun = runs.data?.[0];
+  const lastRunLabel = latestRun?.completedAt ? new Date(latestRun.completedAt).toLocaleString() : "No run yet";
+
+  return <section className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Automations</p><h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">A daily briefing with a memory</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Nova creates a private markdown snapshot of this workspace at 08:00 UTC each day. The setting and every run stay tied to this account; no workspace content is sent to a third party.</p></div><span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${automation?.enabled ? "bg-[#e4f0eb] text-[#42665d] dark:bg-[#28473f] dark:text-[#c5e1d6]" : "bg-muted text-muted-foreground"}`}><Zap size={14} /> {automation?.enabled ? "Enabled" : "Paused"}</span></div>
+    <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto]"><div className="rounded-2xl border bg-muted/20 p-4"><div className="flex items-center justify-between gap-4"><div><p className="text-sm font-bold">Daily workspace briefing</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Writes a new report to your private workspace once per UTC day.</p></div><Switch checked={Boolean(automation?.enabled)} onCheckedChange={enabled => automation && update.mutate({ id: automation.id, enabled })} disabled={!automation || update.isPending || automations.isLoading} aria-label="Enable daily workspace briefing" /></div></div><div className="rounded-2xl border bg-muted/20 p-4 text-sm"><p className="font-bold">Latest activity</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{runs.isLoading ? "Loading history…" : latestRun ? `${latestRun.status} · ${lastRunLabel}` : lastRunLabel}</p>{latestRun?.errorMessage && <p className="mt-2 text-xs leading-5 text-destructive">{latestRun.errorMessage}</p>}</div></div>
+    {automations.isError && <p className="mt-3 text-xs text-destructive">Your automation setting could not load. Your saved preference has not been changed.</p>}
+  </section>;
 }
 
 function TelegramBotCard() {

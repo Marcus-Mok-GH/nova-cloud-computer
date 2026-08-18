@@ -50,6 +50,13 @@
       "when": 1786809000000,
       "tag": "0006_drop_codebuff_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787028035124,
+      "tag": "0007_melodic_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

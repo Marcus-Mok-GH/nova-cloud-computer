@@ -8,6 +8,8 @@ export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "g
 export const modelCompatibility = pgEnum("model_compatibility", ["openai", "anthropic"]);
 export const chatMessageRole = pgEnum("chat_message_role", ["user", "assistant"]);
 export const agentVmRunStatus = pgEnum("agent_vm_run_status", ["queued", "running", "succeeded", "failed", "cancelled", "disabled"]);
+export const automationKind = pgEnum("automation_kind", ["workspace_digest"]);
+export const automationRunStatus = pgEnum("automation_run_status", ["running", "succeeded", "failed", "skipped"]);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -161,6 +163,40 @@ export const agentVmRuns = pgTable("agent_vm_runs", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("agent_vm_runs_workspace_created_idx").on(table.workspaceId, table.createdAt)]);
 
+/** A durable, account-owned automation configuration. Each workspace owns its own enabled state and history. */
+export const automations = pgTable("automations", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  kind: automationKind("kind").default("workspace_digest").notNull(),
+  enabled: boolean("enabled").default(false).notNull(),
+  lastRunAt: timestamp("lastRunAt", { withTimezone: true }),
+  lastError: varchar("lastError", { length: 1200 }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("automations_workspace_kind_unique").on(table.workspaceId, table.kind),
+  index("automations_enabled_idx").on(table.enabled),
+]);
+
+/** An immutable, idempotency-keyed ledger of runs for an account-owned automation. */
+export const automationRuns = pgTable("automation_runs", {
+  id: serial("id").primaryKey(),
+  automationId: integer("automationId").notNull().references(() => automations.id, { onDelete: "cascade" }),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  runKey: varchar("runKey", { length: 96 }).notNull(),
+  status: automationRunStatus("status").default("running").notNull(),
+  summary: text("summary"),
+  errorMessage: varchar("errorMessage", { length: 1200 }),
+  artifactFileId: integer("artifactFileId").references(() => workspaceFiles.id, { onDelete: "set null" }),
+  startedAt: timestamp("startedAt", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("automation_runs_automation_run_key_unique").on(table.automationId, table.runKey),
+  index("automation_runs_workspace_created_idx").on(table.workspaceId, table.createdAt),
+]);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
@@ -173,3 +209,5 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect;
 export type NvidiaInferenceAllowance = typeof nvidiaInferenceAllowances.$inferSelect;
 export type AgentVmRun = typeof agentVmRuns.$inferSelect;
+export type Automation = typeof automations.$inferSelect;
+export type AutomationRun = typeof automationRuns.$inferSelect;

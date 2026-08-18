@@ -57,6 +57,13 @@
       "when": 1787028035124,
       "tag": "0007_melodic_mister_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787033018053,
+      "tag": "0008_account_owned_automations",
+      "breakpoints": true
     }
   ]
 }

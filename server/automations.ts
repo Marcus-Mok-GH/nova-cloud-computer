@@ -1,6 +1,8 @@
 import {
   claimAutomationRun,
   createWorkspaceFileForUser,
+  getAutomationForScheduleTask,
+  getAutomationRecordForUser,
   getOrCreateWorkspace,
   getWorkspaceComputer,
   listAutomationsForUser,
@@ -10,12 +12,31 @@ import {
 
 const ERROR_LIMIT = 1000;
 
+/** Daily at 09:00 UTC. Heartbeat cron expressions include a seconds field. */
+export const WORKSPACE_DIGEST_CRON = "0 0 9 * * *";
+
 export type WorkspaceBriefingInput = {
   workspace: { name: string };
   folders: Array<{ name: string }>;
   files: Array<{ name: string; mimeType: string; updatedAt: Date }>;
   chats: Array<{ title: string; updatedAt: Date }>;
   settings: { workspaceRules?: string | null };
+};
+
+type AutomationRecord = {
+  id: number;
+  ownerId?: number;
+  workspaceId?: number;
+  kind: "workspace_digest";
+  enabled: boolean;
+  lastRunAt: Date | null;
+};
+
+export type AutomationRunOutcome = {
+  processed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
 };
 
 function safeError(error: unknown) {
@@ -32,7 +53,7 @@ function shortList(values: string[], limit = 6) {
   return values.slice(0, limit).map(value => `- ${value}`).join("\n");
 }
 
-/** Creates a stable per-automation run key so duplicate in-app requests cannot create duplicate artifacts. */
+/** Creates a stable per-automation run key so duplicate scheduled delivery cannot create duplicate artifacts. */
 export function getAutomationRunKey(kind: "workspace_digest", now: Date) {
   return `${kind}:${utcDateKey(now)}`;
 }
@@ -74,61 +95,99 @@ function alreadyRanToday(lastRunAt: Date | null, now: Date) {
   return Boolean(lastRunAt && utcDateKey(lastRunAt) === utcDateKey(now));
 }
 
+function emptyOutcome(): AutomationRunOutcome {
+  return { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
+}
+
+/** Runs one verified account-owned automation. Its run and artifact are always written to the same account workspace. */
+async function runAutomationForOwner(ownerId: number, automation: AutomationRecord, now: Date, workspaceId?: number): Promise<AutomationRunOutcome> {
+  const outcome = emptyOutcome();
+  if (!automation.enabled || alreadyRanToday(automation.lastRunAt, now)) {
+    outcome.skipped = 1;
+    return outcome;
+  }
+
+  const persistedWorkspaceId = workspaceId ?? automation.workspaceId;
+  const workspace = persistedWorkspaceId ? { id: persistedWorkspaceId } : await getOrCreateWorkspace(ownerId);
+  if (automation.workspaceId !== undefined && automation.workspaceId !== workspace.id) {
+    throw new Error("Scheduled automation ownership does not match its workspace.");
+  }
+
+  const runKey = getAutomationRunKey(automation.kind, now);
+  const run = await claimAutomationRun({ automationId: automation.id, ownerId, workspaceId: workspace.id, runKey });
+  if (!run) {
+    outcome.skipped = 1;
+    return outcome;
+  }
+
+  outcome.processed = 1;
+  try {
+    const computer = await getWorkspaceComputer(ownerId);
+    const artifact = await createWorkspaceFileForUser(ownerId, {
+      name: `daily-workspace-briefing-${utcDateKey(now)}.md`,
+      content: buildWorkspaceBriefing(computer, now),
+      mimeType: "text/markdown",
+    });
+    if (!artifact) throw new Error("Nova could not save the daily workspace briefing.");
+
+    const summary = "Saved a private daily workspace briefing.";
+    await updateAutomationRun({
+      automationId: automation.id,
+      ownerId,
+      workspaceId: workspace.id,
+      runId: run.id,
+      status: "succeeded",
+      summary,
+      artifactFileId: artifact.id,
+      completedAt: now,
+    });
+    await updateAutomationScheduleState({ automationId: automation.id, ownerId, workspaceId: workspace.id, lastRunAt: now, lastError: null });
+    outcome.succeeded = 1;
+  } catch (error) {
+    const message = safeError(error);
+    await updateAutomationRun({
+      automationId: automation.id,
+      ownerId,
+      workspaceId: workspace.id,
+      runId: run.id,
+      status: "failed",
+      errorMessage: message,
+      completedAt: now,
+    });
+    await updateAutomationScheduleState({ automationId: automation.id, ownerId, workspaceId: workspace.id, lastError: message });
+    outcome.failed = 1;
+  }
+
+  return outcome;
+}
+
 /** Runs enabled automations only for the authenticated Nova account that invoked this procedure. */
 export async function runDueAutomationsForUser(ownerId: number, now = new Date()) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const automations = await listAutomationsForUser(ownerId);
-  const outcome = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
+  const outcome = emptyOutcome();
 
   for (const automation of automations) {
-    if (!automation.enabled || alreadyRanToday(automation.lastRunAt, now)) {
-      outcome.skipped += 1;
-      continue;
-    }
-
-    const runKey = getAutomationRunKey(automation.kind, now);
-    const run = await claimAutomationRun({ automationId: automation.id, workspaceId: workspace.id, runKey });
-    if (!run) {
-      outcome.skipped += 1;
-      continue;
-    }
-
-    outcome.processed += 1;
-    try {
-      const computer = await getWorkspaceComputer(ownerId);
-      const artifact = await createWorkspaceFileForUser(ownerId, {
-        name: `daily-workspace-briefing-${utcDateKey(now)}.md`,
-        content: buildWorkspaceBriefing(computer, now),
-        mimeType: "text/markdown",
-      });
-      if (!artifact) throw new Error("Nova could not save the daily workspace briefing.");
-
-      const summary = "Saved a private daily workspace briefing.";
-      await updateAutomationRun({
-        automationId: automation.id,
-        workspaceId: workspace.id,
-        runId: run.id,
-        status: "succeeded",
-        summary,
-        artifactFileId: artifact.id,
-        completedAt: now,
-      });
-      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: workspace.id, lastRunAt: now, lastError: null });
-      outcome.succeeded += 1;
-    } catch (error) {
-      const message = safeError(error);
-      await updateAutomationRun({
-        automationId: automation.id,
-        workspaceId: workspace.id,
-        runId: run.id,
-        status: "failed",
-        errorMessage: message,
-        completedAt: now,
-      });
-      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: workspace.id, lastError: message });
-      outcome.failed += 1;
-    }
+    const current = await runAutomationForOwner(ownerId, automation, now, workspace.id);
+    outcome.processed += current.processed;
+    outcome.succeeded += current.succeeded;
+    outcome.failed += current.failed;
+    outcome.skipped += current.skipped;
   }
 
   return outcome;
+}
+
+/** Executes one automation only after it has been loaded through the owning authenticated account. */
+export async function runAutomationForUser(ownerId: number, automationId: number, now = new Date()) {
+  const automation = await getAutomationRecordForUser(ownerId, automationId);
+  if (!automation) return undefined;
+  return runAutomationForOwner(ownerId, automation, now);
+}
+
+/** Executes the automation authenticated by a platform-issued schedule task identifier. */
+export async function runAutomationForScheduleTask(scheduleCronTaskUid: string, now = new Date()) {
+  const automation = await getAutomationForScheduleTask(scheduleCronTaskUid);
+  if (!automation) return undefined;
+  return runAutomationForOwner(automation.ownerId, automation, now);
 }

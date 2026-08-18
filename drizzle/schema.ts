@@ -166,22 +166,28 @@ export const agentVmRuns = pgTable("agent_vm_runs", {
 /** A durable, account-owned automation configuration. Each workspace owns its own enabled state and history. */
 export const automations = pgTable("automations", {
   id: serial("id").primaryKey(),
+  /** Direct account ownership keeps every automation queryable and auditable by its creator. */
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
   workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   kind: automationKind("kind").default("workspace_digest").notNull(),
   enabled: boolean("enabled").default(false).notNull(),
+  /** Opaque platform task identifier used to authenticate scheduled callbacks. */
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }).unique(),
   lastRunAt: timestamp("lastRunAt", { withTimezone: true }),
   lastError: varchar("lastError", { length: 1200 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   uniqueIndex("automations_workspace_kind_unique").on(table.workspaceId, table.kind),
-  index("automations_enabled_idx").on(table.enabled),
+  index("automations_owner_enabled_idx").on(table.ownerId, table.enabled),
 ]);
 
 /** An immutable, idempotency-keyed ledger of runs for an account-owned automation. */
 export const automationRuns = pgTable("automation_runs", {
   id: serial("id").primaryKey(),
   automationId: integer("automationId").notNull().references(() => automations.id, { onDelete: "cascade" }),
+  /** The account that owns the automation and every resulting artifact. */
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
   workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   runKey: varchar("runKey", { length: 96 }).notNull(),
   status: automationRunStatus("status").default("running").notNull(),
@@ -194,7 +200,7 @@ export const automationRuns = pgTable("automation_runs", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   uniqueIndex("automation_runs_automation_run_key_unique").on(table.automationId, table.runKey),
-  index("automation_runs_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  index("automation_runs_owner_created_idx").on(table.ownerId, table.createdAt),
 ]);
 
 export type Workspace = typeof workspaces.$inferSelect;

@@ -66,6 +66,18 @@ export async function getUserByOpenId(openId: string) {
   return (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
 }
 
+export async function deleteUserAccount(userId: number): Promise<boolean> {
+  const db = await requireDb();
+  // Note: This deletes the local user record and associated workspace data via cascade.
+  // The external Neon Auth identity (managed by Neon's Better Auth service) is not
+  // automatically deleted because the Neon Auth Admin API does not currently expose
+  // a deleteUser method. Users who need to fully remove their authentication identity
+  // should contact Neon support or use the Neon Console to manually delete the auth user.
+  // Reference: https://neon.com/docs/auth/guides/plugins/admin (Admin plugin methods)
+  const [deleted] = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return Boolean(deleted);
+}
+
 export async function getOrCreateWorkspace(ownerId: number) {
   const db = await requireDb();
   const existing = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);

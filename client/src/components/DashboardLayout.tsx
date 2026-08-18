@@ -1,14 +1,8 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useLocation } from "wouter";
-import { Bot, Cloud, MessageSquareText, Rocket, Settings2, Sparkles, LogOut } from "lucide-react";
+import { Cloud, MessageSquareText, Rocket, Settings2, Sparkles } from "lucide-react";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const tabs = [
@@ -45,18 +39,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <span><span className="block text-sm font-semibold tracking-tight">Nova</span><span className="block text-[10px] uppercase tracking-[0.16em] text-white/40">Personal computer</span></span>
           </button>
           <div className="hidden items-center gap-2 text-xs text-white/50 sm:flex"><span className="size-1.5 rounded-full bg-emerald-300" /> Agent online</div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition hover:bg-white/7 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
-                <Avatar className="size-7 border border-white/15"><AvatarFallback className="bg-white/8 text-[10px] text-white">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar>
-                <span className="hidden max-w-36 truncate text-xs text-white/70 sm:block">{user.email}</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52 border-white/10 bg-[#151b24] text-white">
-              <div className="px-2 py-2 text-xs text-white/50">{user.email}</div>
-              <DropdownMenuItem onClick={logout} className="cursor-pointer text-rose-300 focus:text-rose-200"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2 rounded-xl px-1.5 py-1">
+            <Avatar className="size-7 border border-white/15"><AvatarFallback className="bg-white/8 text-[10px] text-white">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar>
+            <span className="hidden max-w-36 truncate text-xs text-white/70 sm:block">{user.email}</span>
+          </div>
         </div>
       </header>
 

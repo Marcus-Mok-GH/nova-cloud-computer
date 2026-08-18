@@ -28,4 +28,9 @@ describe("auth.me", () => {
     const caller = appRouter.createCaller(createContext(null));
     await expect(caller.auth.me()).resolves.toBeNull();
   });
+
+  it("rejects deleteAccount when not authenticated", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+    await expect(caller.auth.deleteAccount()).rejects.toThrow();
+  });
 });

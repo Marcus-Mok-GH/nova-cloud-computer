@@ -27,10 +27,8 @@ vi.mock("./db", () => ({
   createWorkspaceFolderForUser: vi.fn(), updateWorkspaceFolderForUser: vi.fn(), deleteWorkspaceFolderForUser: vi.fn(), createWorkspaceFileForUser: vi.fn(), updateWorkspaceFileForUser: vi.fn(), deleteWorkspaceFileForUser: vi.fn(),
   createChatForUser: vi.fn(), listChatMessagesForUser: vi.fn(), createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
   getTelegramSettingsForUser: vi.fn(), saveTelegramSettingsForUser: vi.fn(), getTelegramCredentialsForUser: vi.fn(), updateTelegramChatForUser: vi.fn(), deleteTelegramSettingsForUser: vi.fn(),
-  saveCodebuffSettingsForUser: vi.fn(), deleteCodebuffSettingsForUser: vi.fn(),
 }));
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
-vi.mock("./codebuff", () => ({ getCodebuffPlannerStatus: vi.fn(), startCodebuffPlannerRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 vi.mock("./nvidiaGateway", () => ({

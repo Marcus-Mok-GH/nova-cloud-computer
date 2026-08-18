@@ -121,6 +121,7 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     deleteAccount: protectedProcedure.mutation(async ({ ctx }) => {
       const success = await deleteUserAccount(ctx.user.id);
+      if (!success) throw new TRPCError({ code: "NOT_FOUND", message: "Account deletion could not be completed." });
       return { success };
     }),
   }),

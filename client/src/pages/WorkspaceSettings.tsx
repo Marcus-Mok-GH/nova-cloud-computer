@@ -142,7 +142,10 @@ function AccountManagementCard() {
               <AlertDialogCancel disabled={deleteAccountMutation.isPending}>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 disabled={confirmText !== "DELETE" || deleteAccountMutation.isPending}
-                onClick={handleDeleteAccount}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleDeleteAccount();
+                }}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 {deleteAccountMutation.isPending && <Loader2 size={15} className="mr-2 animate-spin" />}

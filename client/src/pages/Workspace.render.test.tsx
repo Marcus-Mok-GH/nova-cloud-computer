@@ -1,12 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Workspace, { getAgentVmPollInterval } from "./Workspace";
+import Workspace from "./Workspace";
 
 const state = vi.hoisted(() => ({
   computer: { data: undefined as unknown, isError: false, isLoading: false, refetch: vi.fn() },
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false },
-  agentVmRuns: { data: [] as Array<{ id: number; provider?: string; task: string; status: string; resultSummary: string | null; errorMessage: string | null }>, isError: false, isLoading: false },
   nvidiaStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
 }));
 
@@ -17,8 +16,8 @@ vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { child
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     workspace: { computer: { useQuery: () => state.computer } },
-    agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => state.agentVmRuns }, start: { useMutation: () => mutation }, cancel: { useMutation: () => mutation } },
-    nvidia: { status: { useQuery: () => state.nvidiaStatus }, complete: { useMutation: () => mutation } },
+    agentVm: { status: { useQuery: () => state.agentVmStatus } },
+    nvidia: { status: { useQuery: () => state.nvidiaStatus } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: [], isLoading: false }) }, send: { useMutation: () => mutation } },
@@ -34,7 +33,6 @@ describe("Workspace rendered browser states", () => {
   beforeEach(() => {
     state.computer = { data: undefined, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false } }, isError: false, isLoading: false };
-    state.agentVmRuns = { data: [], isError: false, isLoading: false };
     state.nvidiaStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
   });
 
@@ -53,11 +51,12 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Plans");
     expect(markup).toContain("launch-brief.md");
     expect(markup).toContain("Workspace folders");
-    expect(markup).toContain("Agent VM");
-    expect(markup).toContain("Setup needed");
-    expect(markup).toContain("NVIDIA inference");
-    expect(markup).toContain("protected server-to-server NVIDIA NIM gateway");
-    expect(markup).toContain("0/50 configured request allowance");
+    expect(markup).toContain("Usage");
+    expect(markup).toContain("NVIDIA requests");
+    expect(markup).toContain("VM runs");
+    expect(markup).toContain("0/50");
+    expect(markup).not.toContain("Ask NVIDIA");
+    expect(markup).not.toContain("Run in agent VM");
     expect(markup).not.toContain("Codebuff");
   });
 
@@ -72,30 +71,17 @@ describe("Workspace rendered browser states", () => {
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
   });
 
-  it("renders private agent VM history and the enforced execution limits", () => {
+  it("renders the current workspace usage counters without execution controls", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 1, maxRuns: 50, remainingRuns: 49, exhausted: false } }, isError: false, isLoading: false };
-    state.agentVmRuns = { data: [{ id: 9, provider: "daytona", task: "Inspect workspace notes", status: "succeeded", resultSummary: "2 files inspected", errorMessage: null }], isError: false, isLoading: false };
+    state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 7, maxRuns: 50, remainingRuns: 43, exhausted: false } }, isError: false, isLoading: false };
+    state.nvidiaStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Run in agent VM");
-    expect(markup).toContain("Inspect workspace notes");
-    expect(markup).toContain("1 active run");
-    expect(markup).toContain("network access stays blocked");
-    expect(markup).toContain("1/50 configured run cap");
-    expect(markup).toContain("Daytona VM");
-    expect(markup).not.toContain("Codebuff");
-  });
-
-  it("polls active VM work quickly and reflects the next completed run snapshot", () => {
-    expect(getAgentVmPollInterval([{ status: "running" }])).toBe(1250);
-    expect(getAgentVmPollInterval([{ status: "succeeded" }])).toBe(5000);
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    state.agentVmRuns = { data: [{ id: 14, task: "Summarize notes", status: "running", resultSummary: null, errorMessage: null }], isError: false, isLoading: false };
-    expect(renderWorkspace()).toContain("running");
-    state.agentVmRuns = { data: [{ id: 14, task: "Summarize notes", status: "succeeded", resultSummary: "Summary stored", errorMessage: null }], isError: false, isLoading: false };
-    const completed = renderWorkspace();
-    expect(completed).toContain("succeeded");
-    expect(completed).toContain("Summary stored");
+    expect(markup).toContain("12/50");
+    expect(markup).toContain("7/50");
+    expect(markup).toContain("NVIDIA requests");
+    expect(markup).toContain("VM runs");
+    expect(markup).not.toContain("Describe a safe workspace task");
+    expect(markup).not.toContain("Ask NVIDIA");
   });
 });

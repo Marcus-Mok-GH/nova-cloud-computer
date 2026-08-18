@@ -43,9 +43,6 @@ export default function Workspace() {
   const [, setLocation] = useLocation();
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
-  const [vmTask, setVmTask] = useState("");
-  const [nvidiaPrompt, setNvidiaPrompt] = useState("");
-  const [nvidiaResponse, setNvidiaResponse] = useState("");
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const folders = computer.data?.folders ?? [];
   const allFiles = computer.data?.files ?? [];
@@ -54,7 +51,6 @@ export default function Workspace() {
   const currentFolder = activeFolderId === null ? undefined : folders.find(folder => folder.id === activeFolderId);
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
-  const agentVmRuns = trpc.agentVm.list.useQuery(undefined, { retry: false, refetchInterval: query => getAgentVmPollInterval(query.state.data) });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
 
   const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
@@ -74,31 +70,6 @@ export default function Workspace() {
     onSuccess: result => {
       utils.workspace.computer.invalidate();
       utils.chats.messages.invalidate({ chatId: result.chatId });
-    },
-    onError: error => toast.error(error.message),
-  });
-  const startVmRun = trpc.agentVm.start.useMutation({
-    onSuccess: result => {
-      setVmTask("");
-      utils.agentVm.list.invalidate();
-      utils.agentVm.status.invalidate();
-      utils.workspace.computer.invalidate();
-      result.configured ? toast.success(result.message) : toast.message(result.message);
-    },
-    onError: error => toast.error(error.message),
-  });
-  const cancelVmRun = trpc.agentVm.cancel.useMutation({
-    onSuccess: () => {
-      utils.agentVm.list.invalidate();
-      toast.success("Agent VM run cancelled.");
-    },
-    onError: error => toast.error(error.message),
-  });
-  const completeWithNvidia = trpc.nvidia.complete.useMutation({
-    onSuccess: result => {
-      setNvidiaResponse(result.text);
-      setNvidiaPrompt("");
-      utils.nvidia.status.invalidate();
     },
     onError: error => toast.error(error.message),
   });
@@ -182,9 +153,7 @@ export default function Workspace() {
   }
 
   const vm = agentVmStatus.data;
-  const vmCanRun = Boolean(vm?.configured && !vm.allowance.exhausted);
   const nvidia = nvidiaStatus.data;
-  const nvidiaCanRun = Boolean(nvidia?.configured && nvidia?.reachable && nvidia?.providerConfigured && !nvidia.allowance.exhausted);
   const itemCount = visibleContents.folders.length + visibleContents.files.length;
   return (
     <DashboardLayout>
@@ -209,7 +178,7 @@ export default function Workspace() {
           </div>
           <div className="mt-5 rounded-xl bg-[#f97316]/8 p-3">
             <p className="text-xs font-bold text-[#c2410c] dark:text-[#fdba74]">Need a second pair of hands?</p>
-            <p className="mt-1 text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">Ask Nova to organize items or explicitly use a safe VM task.</p>
+            <p className="mt-1 text-[11px] leading-5 text-neutral-500 dark:text-neutral-400">Ask Nova to organize items without leaving your workspace.</p>
             <Button variant="outline" onClick={() => createChat.mutate({ title: "New workspace conversation" })} className="mt-3 w-full rounded-full border-neutral-200 bg-white text-xs text-neutral-800 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800">
               <MessageSquareText className="mr-1.5 size-3.5" />Ask Nova
             </Button>
@@ -283,52 +252,12 @@ export default function Workspace() {
         <aside className="space-y-4">
           <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">NVIDIA inference</p>
-              <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${nvidiaCanRun ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>{nvidia?.allowance.exhausted ? "Allowance reached" : nvidiaCanRun ? "Ready" : "Setup needed"}</span>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Usage</p>
+              <span className="text-[10px] text-neutral-300 dark:text-neutral-600">This workspace</span>
             </div>
-            <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">Use Nova's protected server-to-server NVIDIA NIM gateway for a short, private text response. Nova never exposes the provider key to this browser.</p>
-            <Textarea value={nvidiaPrompt} onChange={event => setNvidiaPrompt(event.target.value)} placeholder="Ask NVIDIA to help with a workspace idea…" className="mt-3 min-h-20 resize-none border-neutral-200 bg-[#fafafa] text-xs placeholder:text-neutral-400 focus-visible:ring-[#f97316]/25 dark:border-white/10 dark:bg-neutral-950" />
-            <Button onClick={() => completeWithNvidia.mutate({ prompt: nvidiaPrompt.trim() })} disabled={!nvidiaPrompt.trim() || completeWithNvidia.isPending || !nvidiaCanRun} className="mt-2 w-full rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]">{completeWithNvidia.isPending ? "Generating…" : "Ask NVIDIA"}</Button>
-            <p className="mt-2 text-[10px] leading-4 text-neutral-400">{nvidia?.allowance.usedRequests ?? 0}/{nvidia?.allowance.maxRequests ?? 0} configured request allowance · {nvidia?.model ?? "NVIDIA NIM"}</p>
-            {!nvidiaCanRun && <p className="mt-2 text-[10px] leading-4 text-amber-600/80 dark:text-amber-300/70">{nvidia?.allowance.exhausted ? "Nova has blocked new NVIDIA requests for this workspace until an administrator raises its configured cap." : "NVIDIA is unavailable until the server-only gateway connection and provider credential are configured."}</p>}
-            {nvidiaResponse && (
-              <div className="mt-3 rounded-xl border border-[#f97316]/20 bg-[#f97316]/5 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#c2410c] dark:text-[#fdba74]">NVIDIA response</p>
-                <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-neutral-600 dark:text-neutral-300">{nvidiaResponse}</p>
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Agent VM</p>
-              <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${vmCanRun ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>{vm?.allowance.exhausted ? "Run cap reached" : vm?.configured ? "Ready" : "Setup needed"}</span>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">Nova runs explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked.</p>
-            <Textarea value={vmTask} onChange={event => setVmTask(event.target.value)} placeholder="Describe a safe workspace task…" className="mt-3 min-h-20 resize-none border-neutral-200 bg-[#fafafa] text-xs placeholder:text-neutral-400 focus-visible:ring-[#f97316]/25 dark:border-white/10 dark:bg-neutral-950" />
-            <Button onClick={() => startVmRun.mutate({ task: vmTask.trim() })} disabled={!vmTask.trim() || startVmRun.isPending || !vmCanRun} className="mt-2 w-full rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]">{startVmRun.isPending ? "Starting sandbox…" : "Run in agent VM"}</Button>
-            <p className="mt-2 text-[10px] leading-4 text-neutral-400">{vm?.allowance.usedRuns ?? 0}/{vm?.allowance.maxRuns ?? 0} configured run cap · 1 active run · 30s task limit · polling status</p>
-          </section>
-
-          <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Agent activity</p>
-              <span className="text-[10px] text-neutral-300 dark:text-neutral-600">Private</span>
-            </div>
-            <div className="mt-3 space-y-3">
-              {agentVmRuns.data?.slice(0, 3).map(run => (
-                <div key={run.id} className="rounded-xl border border-neutral-100 bg-[#fafafa] p-3 dark:border-white/5 dark:bg-neutral-950">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-xs font-semibold text-neutral-800 dark:text-neutral-200">{run.task}</p>
-                    <span className={`text-[10px] font-bold ${run.status === "succeeded" ? "text-emerald-600 dark:text-emerald-300" : run.status === "failed" ? "text-red-600 dark:text-red-300" : "text-amber-600 dark:text-amber-300"}`}>{run.status}</span>
-                  </div>
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-neutral-400">Daytona VM</p>
-                  {run.resultSummary && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">{run.resultSummary}</p>}
-                  {run.errorMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-red-500/80 dark:text-red-300/70">{run.errorMessage}</p>}
-                  {run.provider === "daytona" && (run.status === "queued" || run.status === "running") && <button onClick={() => cancelVmRun.mutate({ id: run.id })} className="mt-2 text-[10px] font-bold text-red-500 hover:text-red-600">Cancel run</button>}
-                </div>
-              ))}
-              {!agentVmRuns.data?.length && <p className="text-xs leading-5 text-neutral-400">No agent work has run in this workspace.</p>}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Metric value={`${nvidia?.allowance.usedRequests ?? 0}/${nvidia?.allowance.maxRequests ?? 0}`} label="NVIDIA requests" />
+              <Metric value={`${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs" />
             </div>
           </section>
 
@@ -383,6 +312,6 @@ function ItemActions({ label, onMove, onRename, onDelete }: { label: string; onM
   return <div className="mt-4 flex justify-end gap-1 border-t border-neutral-100 pt-3 dark:border-white/5"><button aria-label={`Move ${label}`} onClick={onMove} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><MoveRight className="size-3.5" /></button><button aria-label={`Rename ${label}`} onClick={onRename} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><Pencil className="size-3.5" /></button><button aria-label={`Delete ${label}`} onClick={onDelete} className="rounded-md p-1.5 text-red-400/70 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="size-3.5" /></button></div>;
 }
 
-function Metric({ value, label }: { value: number; label: string }) {
+function Metric({ value, label }: { value: React.ReactNode; label: string }) {
   return <div className="rounded-xl bg-[#fafafa] p-3 dark:bg-neutral-950"><p className="text-2xl font-extrabold tracking-tight">{value}</p><p className="mt-1 text-[11px] text-neutral-400">{label}</p></div>;
 }

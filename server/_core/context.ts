@@ -56,15 +56,22 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
 }
 
 async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<User | null> {
+  if (!ENV.cookieSecret) return null;
   const sessionToken = parseCookieHeader(cookieHeader ?? "")[COOKIE_NAME];
+  if (!sessionToken) return null;
   const session = await sdk.verifySession(sessionToken);
   if (!session) return null;
   return getUserByOpenId(session.openId);
 }
 
 async function persistFirstPartySession(opts: CreateExpressContextOptions, identity: NeonIdentity) {
-  const token = await sdk.createSessionToken(identity.openId, { expiresInMs: SEVEN_DAYS_MS, name: identity.name });
-  opts.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(opts.req), maxAge: SEVEN_DAYS_MS });
+  if (!ENV.cookieSecret) return;
+  try {
+    const token = await sdk.createSessionToken(identity.openId, { expiresInMs: SEVEN_DAYS_MS, name: identity.name });
+    opts.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(opts.req), maxAge: SEVEN_DAYS_MS });
+  } catch (error) {
+    console.warn("[Auth] Could not persist first-party session", error instanceof Error ? error.message : error);
+  }
 }
 
 export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {

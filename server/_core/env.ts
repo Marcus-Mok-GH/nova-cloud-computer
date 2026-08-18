@@ -1,7 +1,8 @@
 export const ENV = {
   // Retained for optional legacy modules that are not part of the Vercel runtime.
   appId: process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
+  /** Prefer a dedicated session secret, then retain backward compatibility with legacy and existing server-only secrets. */
+  cookieSecret: process.env.NOVA_SESSION_SECRET ?? process.env.JWT_SECRET ?? process.env.MODEL_CREDENTIAL_SECRET ?? process.env.POSTGRES_PASSWORD ?? process.env.DATABASE_URL ?? "",
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",

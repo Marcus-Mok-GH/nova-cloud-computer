@@ -5,7 +5,7 @@ export function DashboardLayoutSkeleton() {
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile top bar skeleton */}
-      <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:hidden">
+      <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-neutral-200 bg-white/90 px-4 backdrop-blur-md lg:hidden dark:border-white/10 dark:bg-neutral-950/90">
         <div className="flex items-center gap-2">
           <Skeleton className="h-5 w-5 rounded-md" />
           <Skeleton className="h-4 w-20" />

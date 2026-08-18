@@ -58,13 +58,16 @@ export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath = "/sign-in" } = options ?? {};
   const utils = trpc.useUtils();
   const meQuery = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  const { mutateAsync: clearFirstPartySession } = trpc.auth.logout.useMutation();
 
   const logout = useCallback(async (userId?: number) => {
     clearLastActiveTimestamp(userId);
-    await neonAuth?.signOut();
+    const tasks: Promise<unknown>[] = [clearFirstPartySession()];
+    if (neonAuth) tasks.push(neonAuth.signOut());
+    await Promise.allSettled(tasks);
     utils.auth.me.setData(undefined, null);
     await utils.invalidate();
-  }, [utils]);
+  }, [clearFirstPartySession, utils]);
 
   const state = useMemo(() => ({
     user: meQuery.data ?? null,

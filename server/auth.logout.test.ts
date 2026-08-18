@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { COOKIE_NAME } from "@shared/const";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
@@ -14,8 +15,8 @@ const signedInUser: NonNullable<TrpcContext["user"]> = {
   lastSignedIn: new Date(),
 };
 
-function createContext(user: TrpcContext["user"]): TrpcContext {
-  return { user, req: { headers: {} } as TrpcContext["req"], res: {} as TrpcContext["res"] };
+function createContext(user: TrpcContext["user"], clearCookie = vi.fn()): TrpcContext {
+  return { user, req: { headers: {} } as TrpcContext["req"], res: { clearCookie } as TrpcContext["res"] };
 }
 
 describe("auth.me", () => {
@@ -27,6 +28,14 @@ describe("auth.me", () => {
   it("returns null when no verified Neon identity is present", async () => {
     const caller = appRouter.createCaller(createContext(null));
     await expect(caller.auth.me()).resolves.toBeNull();
+  });
+
+  it("clears Nova's first-party fallback session on logout", async () => {
+    const clearCookie = vi.fn();
+    const caller = appRouter.createCaller(createContext(signedInUser, clearCookie));
+
+    await expect(caller.auth.logout()).resolves.toEqual({ success: true });
+    expect(clearCookie).toHaveBeenCalledWith(COOKIE_NAME, expect.objectContaining({ httpOnly: true, path: "/" }));
   });
 
   it("rejects deleteAccount when not authenticated", async () => {

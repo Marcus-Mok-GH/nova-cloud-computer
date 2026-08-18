@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
 import {
   createChatForUser,
@@ -33,6 +34,7 @@ import {
   updateTelegramChatForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
@@ -106,6 +108,10 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req));
+      return { success: true };
+    }),
     deleteAccount: protectedProcedure.mutation(async ({ ctx }) => {
       const success = await deleteUserAccount(ctx.user.id);
       if (!success) throw new TRPCError({ code: "NOT_FOUND", message: "Account deletion could not be completed." });

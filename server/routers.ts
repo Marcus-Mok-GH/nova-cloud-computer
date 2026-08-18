@@ -37,6 +37,7 @@ import {
   updateAutomationForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { runDueAutomationsForUser } from "./automations";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent } from "./workspaceAgent";
@@ -194,6 +195,14 @@ export const appRouter = router({
       const automation = await updateAutomationForUser(ctx.user.id, input.id, { enabled: input.enabled });
       if (!automation) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
       return automation;
+    }),
+    runDue: protectedProcedure.mutation(async ({ ctx }) => {
+      try {
+        return await runDueAutomationsForUser(ctx.user.id);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Nova could not run the saved automation.";
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
     }),
   }),
   folders: router({

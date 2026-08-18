@@ -12,11 +12,5 @@
       "maxDuration": 10,
       "includeFiles": "dist/server/**"
     }
-  },
-  "crons": [
-    {
-      "path": "/api/automations/cron",
-      "schedule": "0 8 * * *"
-    }
-  ]
+  }
 }

@@ -617,12 +617,6 @@ export async function listAutomationRunsForUser(ownerId: number, automationId: n
   return runs.map(toSafeAutomationRun);
 }
 
-export async function listEnabledAutomationsForScheduler(limit: number) {
-  const db = await requireDb();
-  const rows = await db.select({ automation: automations, ownerId: workspaces.ownerId }).from(automations).innerJoin(workspaces, eq(automations.workspaceId, workspaces.id)).where(eq(automations.enabled, true)).orderBy(asc(automations.lastRunAt)).limit(limit);
-  return rows.map(({ automation, ownerId }) => ({ automation: { ...toSafeAutomation(automation), workspaceId: automation.workspaceId }, ownerId }));
-}
-
 export async function claimAutomationRun(input: { automationId: number; workspaceId: number; runKey: string }) {
   const db = await requireDb();
   const [created] = await db.insert(automationRuns).values({ automationId: input.automationId, workspaceId: input.workspaceId, runKey: input.runKey, status: "running" }).onConflictDoNothing().returning();

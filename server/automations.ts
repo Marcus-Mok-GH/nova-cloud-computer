@@ -1,13 +1,13 @@
 import {
   claimAutomationRun,
   createWorkspaceFileForUser,
+  getOrCreateWorkspace,
   getWorkspaceComputer,
-  listEnabledAutomationsForScheduler,
+  listAutomationsForUser,
   updateAutomationRun,
   updateAutomationScheduleState,
 } from "./db";
 
-const MAX_AUTOMATIONS_PER_TICK = 25;
 const ERROR_LIMIT = 1000;
 
 export type WorkspaceBriefingInput = {
@@ -32,7 +32,7 @@ function shortList(values: string[], limit = 6) {
   return values.slice(0, limit).map(value => `- ${value}`).join("\n");
 }
 
-/** Creates a stable per-automation run key so duplicate cron delivery cannot create duplicate artifacts. */
+/** Creates a stable per-automation run key so duplicate in-app requests cannot create duplicate artifacts. */
 export function getAutomationRunKey(kind: "workspace_digest", now: Date) {
   return `${kind}:${utcDateKey(now)}`;
 }
@@ -70,13 +70,24 @@ export function buildWorkspaceBriefing(input: WorkspaceBriefingInput, now: Date)
   ].join("\n");
 }
 
-export async function runDueAutomations(now = new Date(), limit = MAX_AUTOMATIONS_PER_TICK) {
-  const scheduled = await listEnabledAutomationsForScheduler(Math.max(1, Math.min(limit, MAX_AUTOMATIONS_PER_TICK)));
+function alreadyRanToday(lastRunAt: Date | null, now: Date) {
+  return Boolean(lastRunAt && utcDateKey(lastRunAt) === utcDateKey(now));
+}
+
+/** Runs enabled automations only for the authenticated Nova account that invoked this procedure. */
+export async function runDueAutomationsForUser(ownerId: number, now = new Date()) {
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const automations = await listAutomationsForUser(ownerId);
   const outcome = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
 
-  for (const { automation, ownerId } of scheduled) {
+  for (const automation of automations) {
+    if (!automation.enabled || alreadyRanToday(automation.lastRunAt, now)) {
+      outcome.skipped += 1;
+      continue;
+    }
+
     const runKey = getAutomationRunKey(automation.kind, now);
-    const run = await claimAutomationRun({ automationId: automation.id, workspaceId: automation.workspaceId, runKey });
+    const run = await claimAutomationRun({ automationId: automation.id, workspaceId: workspace.id, runKey });
     if (!run) {
       outcome.skipped += 1;
       continue;
@@ -95,34 +106,29 @@ export async function runDueAutomations(now = new Date(), limit = MAX_AUTOMATION
       const summary = "Saved a private daily workspace briefing.";
       await updateAutomationRun({
         automationId: automation.id,
-        workspaceId: automation.workspaceId,
+        workspaceId: workspace.id,
         runId: run.id,
         status: "succeeded",
         summary,
         artifactFileId: artifact.id,
         completedAt: now,
       });
-      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: automation.workspaceId, lastRunAt: now, lastError: null });
+      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: workspace.id, lastRunAt: now, lastError: null });
       outcome.succeeded += 1;
     } catch (error) {
       const message = safeError(error);
       await updateAutomationRun({
         automationId: automation.id,
-        workspaceId: automation.workspaceId,
+        workspaceId: workspace.id,
         runId: run.id,
         status: "failed",
         errorMessage: message,
         completedAt: now,
       });
-      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: automation.workspaceId, lastError: message });
+      await updateAutomationScheduleState({ automationId: automation.id, workspaceId: workspace.id, lastError: message });
       outcome.failed += 1;
     }
   }
 
   return outcome;
-}
-
-export function isAuthorizedAutomationCron(authorization: string | undefined) {
-  const secret = process.env.CRON_SECRET?.trim();
-  return Boolean(secret && authorization === `Bearer ${secret}`);
 }

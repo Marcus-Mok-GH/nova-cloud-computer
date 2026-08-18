@@ -3,22 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = {
   claimAutomationRun: vi.fn(),
   createWorkspaceFileForUser: vi.fn(),
+  getOrCreateWorkspace: vi.fn(),
   getWorkspaceComputer: vi.fn(),
-  listEnabledAutomationsForScheduler: vi.fn(),
+  listAutomationsForUser: vi.fn(),
   updateAutomationRun: vi.fn(),
   updateAutomationScheduleState: vi.fn(),
 };
 
 vi.mock("./db", () => db);
 
-const { buildWorkspaceBriefing, getAutomationRunKey, isAuthorizedAutomationCron, runDueAutomations } = await import("./automations");
+const { buildWorkspaceBriefing, getAutomationRunKey, runDueAutomationsForUser } = await import("./automations");
 
 const now = new Date("2026-08-18T08:00:00.000Z");
 
 beforeEach(() => {
-  process.env.CRON_SECRET = "automation-test-secret";
   vi.clearAllMocks();
-  db.listEnabledAutomationsForScheduler.mockResolvedValue([]);
+  db.getOrCreateWorkspace.mockResolvedValue({ id: 31, ownerId: 7 });
+  db.listAutomationsForUser.mockResolvedValue([]);
 });
 
 describe("account-scoped automations", () => {
@@ -42,15 +43,9 @@ describe("account-scoped automations", () => {
     expect(getAutomationRunKey("workspace_digest", now)).toBe("workspace_digest:2026-08-18");
   });
 
-  it("accepts only the configured cron bearer secret", () => {
-    expect(isAuthorizedAutomationCron("Bearer automation-test-secret")).toBe(true);
-    expect(isAuthorizedAutomationCron("Bearer another-secret")).toBe(false);
-    expect(isAuthorizedAutomationCron(undefined)).toBe(false);
-  });
-
-  it("writes a run and artifact only to the scheduled account workspace", async () => {
-    db.listEnabledAutomationsForScheduler.mockResolvedValue([
-      { automation: { id: 9, kind: "workspace_digest", workspaceId: 31 }, ownerId: 7 },
+  it("writes a run and artifact only to the authenticated account workspace", async () => {
+    db.listAutomationsForUser.mockResolvedValue([
+      { id: 9, kind: "workspace_digest", enabled: true, lastRunAt: null },
     ]);
     db.claimAutomationRun.mockResolvedValue({ id: 12 });
     db.getWorkspaceComputer.mockResolvedValue({
@@ -62,7 +57,9 @@ describe("account-scoped automations", () => {
     });
     db.createWorkspaceFileForUser.mockResolvedValue({ id: 44 });
 
-    await expect(runDueAutomations(now)).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0, skipped: 0 });
+    await expect(runDueAutomationsForUser(7, now)).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0, skipped: 0 });
+    expect(db.getOrCreateWorkspace).toHaveBeenCalledWith(7);
+    expect(db.listAutomationsForUser).toHaveBeenCalledWith(7);
     expect(db.claimAutomationRun).toHaveBeenCalledWith({ automationId: 9, workspaceId: 31, runKey: "workspace_digest:2026-08-18" });
     expect(db.getWorkspaceComputer).toHaveBeenCalledWith(7);
     expect(db.createWorkspaceFileForUser).toHaveBeenCalledWith(7, expect.objectContaining({ name: "daily-workspace-briefing-2026-08-18.md", mimeType: "text/markdown" }));
@@ -70,14 +67,24 @@ describe("account-scoped automations", () => {
     expect(db.updateAutomationScheduleState).toHaveBeenCalledWith(expect.objectContaining({ automationId: 9, workspaceId: 31, lastError: null }));
   });
 
-  it("does not rerun a duplicate delivery for the same account and day", async () => {
-    db.listEnabledAutomationsForScheduler.mockResolvedValue([
-      { automation: { id: 9, kind: "workspace_digest", workspaceId: 31 }, ownerId: 7 },
+  it("does not rerun a duplicate in-app request for the same account and day", async () => {
+    db.listAutomationsForUser.mockResolvedValue([
+      { id: 9, kind: "workspace_digest", enabled: true, lastRunAt: null },
     ]);
     db.claimAutomationRun.mockResolvedValue(undefined);
 
-    await expect(runDueAutomations(now)).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0, skipped: 1 });
+    await expect(runDueAutomationsForUser(7, now)).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0, skipped: 1 });
     expect(db.getWorkspaceComputer).not.toHaveBeenCalled();
     expect(db.createWorkspaceFileForUser).not.toHaveBeenCalled();
+  });
+
+  it("skips a disabled automation without reading or writing workspace data", async () => {
+    db.listAutomationsForUser.mockResolvedValue([
+      { id: 9, kind: "workspace_digest", enabled: false, lastRunAt: null },
+    ]);
+
+    await expect(runDueAutomationsForUser(7, now)).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0, skipped: 1 });
+    expect(db.claimAutomationRun).not.toHaveBeenCalled();
+    expect(db.getWorkspaceComputer).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { neonAuth } from "@/lib/neonAuth";
-import { getMagicLinkCallbackUrl } from "@/lib/authCallbackUrl";
 import NovaMark from "@/components/NovaMark";
-import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
+import { ArrowLeft, ArrowRight, Mail, RotateCcw } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 
@@ -10,6 +9,7 @@ export default function SignIn() {
   const { isAuthenticated, loading } = useAuth();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,26 +18,58 @@ export default function SignIn() {
     if (!loading && isAuthenticated) setLocation("/app");
   }, [isAuthenticated, loading, setLocation]);
 
-  async function requestLink(event: FormEvent) {
+  async function requestOtp(event?: FormEvent) {
+    event?.preventDefault();
+    if (!neonAuth) {
+      setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+    try {
+      const result = await neonAuth.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
+      if (result.error) {
+        setError(result.error.message ?? "Nova could not send a verification code to that address.");
+        return;
+      }
+      setOtp("");
+      setSent(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Nova could not send a verification code to that address.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function verifyOtp(event: FormEvent) {
     event.preventDefault();
     if (!neonAuth) {
       setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
       return;
     }
+
+    const code = otp.replace(/\s/g, "");
     setPending(true);
     setError(null);
     try {
-      const result = await neonAuth.signIn.magicLink({
-        email,
-        callbackURL: getMagicLinkCallbackUrl(window.location.origin, import.meta.env.VITE_APP_URL),
-      });
-      if (result.error) setError(result.error.message ?? "Nova could not send that sign-in link.");
-      else setSent(true);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nova could not send that sign-in link.");
+      const result = await neonAuth.signIn.emailOtp({ email, otp: code });
+      if (result.error) {
+        setError(result.error.message ?? "That verification code is invalid or has expired. Request a new code and try again.");
+        return;
+      }
+      window.location.assign("/app");
+    } catch (verificationError) {
+      setError(verificationError instanceof Error ? verificationError.message : "Nova could not verify that code. Please try again.");
     } finally {
       setPending(false);
     }
+  }
+
+  function startOver() {
+    setSent(false);
+    setOtp("");
+    setError(null);
   }
 
   return (
@@ -58,15 +90,45 @@ export default function SignIn() {
         </p>
 
         {sent ? (
-          <div className="mt-7 rounded-2xl border border-[#f97316]/30 bg-[#f97316]/8 p-5">
-            <Mail className="mb-3 text-[#f97316]" size={18} />
-            <strong className="block text-sm text-neutral-900 dark:text-white">Check your email.</strong>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
-              We sent a private, time-limited link to <span className="font-semibold">{email}</span>. Open it in this browser to enter Nova.
-            </p>
-          </div>
+          <form onSubmit={verifyOtp} className="mt-7 space-y-4">
+            <div className="rounded-2xl border border-[#f97316]/30 bg-[#f97316]/8 p-5">
+              <Mail className="mb-3 text-[#f97316]" size={18} />
+              <strong className="block text-sm text-neutral-900 dark:text-white">Enter your verification code.</strong>
+              <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
+                We sent a time-limited code to <span className="font-semibold">{email}</span>.
+              </p>
+            </div>
+            <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+              Verification code
+              <input
+                className="mt-2 h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-center font-mono text-lg tracking-[0.35em] text-neutral-950 outline-none transition placeholder:tracking-normal placeholder:text-neutral-400 focus:border-[#f97316] focus:ring-4 focus:ring-[#f97316]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-white"
+                value={otp}
+                onChange={event => setOtp(event.target.value.replace(/\s/g, ""))}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={8}
+                required
+                autoFocus
+                placeholder="123456"
+              />
+            </label>
+            {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">
+              {pending ? "Verifying code…" : <>Verify and sign in <ArrowRight size={15} /></>}
+            </button>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <button className="font-medium text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white" disabled={pending} type="button" onClick={() => void requestOtp()}>
+                <RotateCcw className="mr-1 inline" size={14} /> Resend code
+              </button>
+              <button className="font-medium text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white" disabled={pending} type="button" onClick={startOver}>
+                Use a different email
+              </button>
+            </div>
+          </form>
         ) : (
-          <form onSubmit={requestLink} className="mt-7 space-y-4">
+          <form onSubmit={requestOtp} className="mt-7 space-y-4">
             <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
               Email address
               <input
@@ -76,22 +138,19 @@ export default function SignIn() {
                 type="email"
                 autoComplete="email"
                 required
+                autoFocus
                 placeholder="you@example.com"
               />
             </label>
             {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
-            <button
-              className="pill-btn pill-btn-primary w-full"
-              disabled={pending}
-              type="submit"
-            >
-              {pending ? "Sending secure link…" : <>Email me a sign-in link <ArrowRight size={15} /></>}
+            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">
+              {pending ? "Sending verification code…" : <>Email me a verification code <ArrowRight size={15} /></>}
             </button>
           </form>
         )}
 
         <p className="mt-6 text-xs leading-relaxed text-neutral-400 dark:text-neutral-500">
-          Nova uses a passwordless, time-limited magic link. We do not store a password for this sign-in method.
+          Nova uses a passwordless, time-limited one-time code. We do not store a password for this sign-in method.
         </p>
       </section>
     </main>

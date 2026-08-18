@@ -46,7 +46,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     openId: user.openId,
     name: user.name ?? null,
     email: user.email ?? null,
-    loginMethod: user.loginMethod ?? "neon_magic_link",
+    loginMethod: user.loginMethod ?? "neon_email_otp",
     role: user.role ?? "user",
     lastSignedIn: user.lastSignedIn ?? new Date(),
   }).onConflictDoUpdate({
@@ -54,7 +54,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     set: {
       name: user.name ?? null,
       email: user.email ?? null,
-      loginMethod: user.loginMethod ?? "neon_magic_link",
+      loginMethod: user.loginMethod ?? "neon_email_otp",
       lastSignedIn: user.lastSignedIn ?? new Date(),
       updatedAt: new Date(),
     },

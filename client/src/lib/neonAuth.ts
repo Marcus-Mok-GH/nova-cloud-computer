@@ -61,11 +61,7 @@ export async function getNeonJwtFromTokenEndpoint(
   }
 }
 
-/**
- * `getSession()` consumes Neon’s magic-link verifier when one is present in the
- * callback URL. Only after that exchange can `token()` yield the signed JWT
- * Nova sends to its protected API.
- */
+/** Retrieves the signed Neon session JWT after a completed sign-in flow. */
 export async function exchangeNeonVerifierAndGetJwt(client: NeonAuthTokenClient) {
   const session = await client.getSession();
   const sessionJwt = extractNeonJwt(session);

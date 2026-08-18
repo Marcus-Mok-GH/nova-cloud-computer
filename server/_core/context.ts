@@ -31,7 +31,7 @@ async function authenticateBearerToken(header: string | undefined): Promise<User
     const { payload } = await jwtVerify(header.slice(7), keySet, { issuer, audience: issuer });
     const identity = normalizeNeonIdentity(payload);
     if (!identity) return null;
-    await upsertUser({ ...identity, loginMethod: "neon_magic_link", lastSignedIn: new Date() });
+    await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
     return (await getUserByOpenId(identity.openId)) ?? null;
   } catch (error) {
     console.warn("[Auth] Neon token validation failed", error instanceof Error ? error.message : error);

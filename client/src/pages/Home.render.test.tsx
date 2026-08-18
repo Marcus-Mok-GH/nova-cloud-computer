@@ -7,7 +7,6 @@ import SignIn from "./SignIn";
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: false, loading: false }) }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light", toggleTheme: vi.fn(), switchable: true }) }));
 vi.mock("@/lib/neonAuth", () => ({ neonAuth: null }));
-vi.mock("@/lib/authCallbackUrl", () => ({ getMagicLinkCallbackUrl: () => "http://localhost/cb" }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()], Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 
 describe("landing and sign-in render", () => {
@@ -24,7 +23,7 @@ describe("landing and sign-in render", () => {
   it("renders the Zo-style sign-in page", () => {
     const markup = renderToStaticMarkup(<SignIn />);
     expect(markup).toContain("Sign in to Nova.");
-    expect(markup).toContain("Email me a sign-in link");
+    expect(markup).toContain("Email me a verification code");
     expect(markup).toContain("you@example.com");
   });
 });

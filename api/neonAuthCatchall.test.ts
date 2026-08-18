@@ -8,7 +8,7 @@ import {
 describe("Neon Auth catch-all dispatch", () => {
   it("reserves only the Neon Auth namespace while retaining its endpoint path", () => {
     expect(getNeonAuthPathFromCatchall(["neon-auth", "get-session"])).toBe("get-session");
-    expect(getNeonAuthPathFromCatchall("neon-auth/magic-link/verify")).toBe("magic-link/verify");
+    expect(getNeonAuthPathFromCatchall("neon-auth/email-otp/send-verification-otp")).toBe("email-otp/send-verification-otp");
     expect(getNeonAuthPathFromCatchall(["trpc", "auth.me"])).toBeNull();
   });
 

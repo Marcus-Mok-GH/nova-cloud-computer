@@ -7,7 +7,7 @@ const signedInUser: NonNullable<TrpcContext["user"]> = {
   openId: "neon-user-id",
   email: "sample@example.com",
   name: "Sample User",
-  loginMethod: "neon_magic_link",
+  loginMethod: "neon_email_otp",
   role: "user",
   createdAt: new Date(),
   updatedAt: new Date(),

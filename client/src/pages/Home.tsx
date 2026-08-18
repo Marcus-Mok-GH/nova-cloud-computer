@@ -368,7 +368,7 @@ export default function Home() {
             <a className="flex items-center gap-2" href="#top"><NovaMark size={22} /><span className="text-[17px] font-extrabold tracking-tight">Nova</span></a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-neutral-400">A personal cloud computer for people building a richer working life.</p>
           </div>
-          <div className="grid grid-cols-3 gap-6 text-sm">
+          <div className="grid grid-cols-2 gap-6 text-sm sm:grid-cols-3">
             <div><p className="mb-4 font-bold">Explore</p><div className="flex flex-col gap-3 text-neutral-400"><a className="transition-colors hover:text-white" href="#product">Your space</a><a className="transition-colors hover:text-white" href="#features">Features</a><a className="transition-colors hover:text-white" href="#faq">Questions</a></div></div>
             <div><p className="mb-4 font-bold">Company</p><div className="flex flex-col gap-3 text-neutral-400"><a className="transition-colors hover:text-white" href="#top">About</a><a className="transition-colors hover:text-white" href="#pricing">Plans</a><a className="transition-colors hover:text-white" href="#top">Journal</a></div></div>
             <div><p className="mb-4 font-bold">Follow</p><div className="flex flex-col gap-3 text-neutral-400"><a className="transition-colors hover:text-white" href="#top">Notes</a><a className="transition-colors hover:text-white" href="#top">Field guide</a><a className="transition-colors hover:text-white" href="#top">Contact</a></div></div>

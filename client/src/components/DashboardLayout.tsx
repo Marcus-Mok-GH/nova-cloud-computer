@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -31,12 +31,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { loading, user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
-  const runDueAutomations = trpc.automations.runDue.useMutation();
   const recentChats = (computer.data?.chats ?? []).slice(0, 4);
-
-  useEffect(() => {
-    if (user) runDueAutomations.mutate();
-  }, [user?.id]);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {

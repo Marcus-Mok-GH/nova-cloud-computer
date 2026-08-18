@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
+import { parse as parseCookie } from "cookie";
 import { z } from "zod";
 import {
   createChatForUser,
@@ -16,6 +17,7 @@ import {
   deleteWorkspaceFolderForUser,
   getProjectForUser,
   getOrCreateWorkspace,
+  getAutomationRecordForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
@@ -34,10 +36,12 @@ import {
   updateTelegramChatForUser,
   listAutomationsForUser,
   listAutomationRunsForUser,
+  setAutomationScheduleTaskForUser,
   updateAutomationForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
-import { runDueAutomationsForUser } from "./automations";
+import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
+import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent } from "./workspaceAgent";
@@ -192,6 +196,31 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => listAutomationsForUser(ctx.user.id)),
     runs: protectedProcedure.input(z.object({ automationId: z.number().int().positive() })).query(({ ctx, input }) => listAutomationRunsForUser(ctx.user.id, input.automationId)),
     update: protectedProcedure.input(z.object({ id: z.number().int().positive(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const existing = await getAutomationRecordForUser(ctx.user.id, input.id);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
+
+      const sessionToken = parseCookie(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? "";
+      if (!sessionToken) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Your Nova session is not ready to save a background schedule. Refresh the page and try again." });
+      }
+
+      if (input.enabled) {
+        if (existing.scheduleCronTaskUid) {
+          await updateHeartbeatJob(existing.scheduleCronTaskUid, { cron: WORKSPACE_DIGEST_CRON, path: "/api/scheduled/automation", method: "POST", enable: true }, sessionToken);
+        } else {
+          const scheduled = await createHeartbeatJob({
+            name: `nova-automation-${existing.id}`,
+            cron: WORKSPACE_DIGEST_CRON,
+            path: "/api/scheduled/automation",
+            method: "POST",
+            description: "Daily private Nova workspace briefing",
+          }, sessionToken);
+          await setAutomationScheduleTaskForUser(ctx.user.id, existing.id, scheduled.taskUid);
+        }
+      } else if (existing.scheduleCronTaskUid) {
+        await updateHeartbeatJob(existing.scheduleCronTaskUid, { enable: false }, sessionToken);
+      }
+
       const automation = await updateAutomationForUser(ctx.user.id, input.id, { enabled: input.enabled });
       if (!automation) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
       return automation;

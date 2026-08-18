@@ -1,6 +1,6 @@
 /**
  * Nova restyled in the spirit of Zo Computer:
- * clean white surfaces, ink-dark text, a vivid orange accent (#f97316),
+ * clean white surfaces, ink-dark text, and an accessible burnt-orange accent (#c2410c),
  * tight Inter typography, and a "Space" app shell — sidebar, search,
  * recent chats, chat composer with model picker, and mobile bottom tabs.
  */
@@ -102,6 +102,7 @@ a { color: inherit; text-decoration: none; }
 /* ---------------- Landing ---------------- */
 
 .site-shell { background: #fff; overflow: hidden; }
+.dark .site-shell { background: oklch(0.145 0 0); }
 
 .nav-shell {
   position: sticky; top: 0; z-index: 40;
@@ -131,7 +132,8 @@ a { color: inherit; text-decoration: none; }
   color: oklch(0.145 0 0);
 }
 .dark .hero-title { color: oklch(0.985 0 0); }
-.hero-title .hero-accent { color: oklch(0.705 0.213 47.604); }
+.hero-title .hero-accent { color: #c2410c; }
+.dark .hero-title .hero-accent { color: #fb923c; }
 
 .pill-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -141,8 +143,8 @@ a { color: inherit; text-decoration: none; }
   transition: transform .16s cubic-bezier(0,0,.2,1), box-shadow .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
 }
 .pill-btn:active { transform: scale(.97); }
-.pill-btn-primary { background: oklch(0.705 0.213 47.604); color: #fff; box-shadow: 0 1px 2px oklch(0.705 0.213 47.604 / 0.35), 0 8px 18px oklch(0.705 0.213 47.604 / 0.22); }
-.pill-btn-primary:hover { background: oklch(0.646 0.222 41.116); box-shadow: 0 2px 4px oklch(0.705 0.213 47.604 / 0.3), 0 10px 24px oklch(0.705 0.213 47.604 / 0.26); transform: translateY(-1px); }
+.pill-btn-primary { background: #c2410c; color: #fff; box-shadow: 0 1px 2px #c2410c59, 0 8px 18px #c2410c38; }
+.pill-btn-primary:hover { background: #9a3412; box-shadow: 0 2px 4px #c2410c4d, 0 10px 24px #c2410c42; transform: translateY(-1px); }
 .pill-btn-dark { background: oklch(0.145 0 0); color: #fff; }
 .pill-btn-dark:hover { background: oklch(0.32 0 0); transform: translateY(-1px); }
 .pill-btn-ghost { background: #fff; color: oklch(0.145 0 0); border-color: oklch(0.922 0 0); box-shadow: 0 1px 2px oklch(0.145 0 0 / 0.05); }
@@ -171,8 +173,9 @@ a { color: inherit; text-decoration: none; }
 
 .section-eyebrow {
   text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700;
-  color: oklch(0.705 0.213 47.604);
+  color: #c2410c;
 }
+.dark .section-eyebrow { color: #fb923c; }
 
 .section-title {
   font-weight: 800; letter-spacing: -0.03em; line-height: 1.08; color: oklch(0.145 0 0);
@@ -204,7 +207,8 @@ a { color: inherit; text-decoration: none; }
 }
 .dark .mock-chrome { background: oklch(0.17 0 0); border-color: oklch(1 0 0 / 0.08); }
 .mock-dot { width: 9px; height: 9px; border-radius: 999px; background: oklch(0.922 0 0); }
-.mock-dot.orange { background: oklch(0.705 0.213 47.604); }
+.mock-dot.orange { background: #c2410c; }
+.dark .mock-dot.orange { background: #fb923c; }
 .mock-url {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   height: 24px; border-radius: 999px; background: #fff; border: 1px solid oklch(0.922 0 0);
@@ -255,7 +259,7 @@ a { color: inherit; text-decoration: none; }
 .mock-crumb em { font-style: normal; color: oklch(0.556 0 0); font-weight: 500; }
 .mock-add {
   height: 26px; padding: 0 12px; border-radius: 999px; border: 0;
-  background: oklch(0.705 0.213 47.604); color: #fff; font-size: 10px; font-weight: 600;
+  background: #c2410c; color: #fff; font-size: 10px; font-weight: 600;
 }
 .mock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px 16px; }
 .mock-folder, .mock-file {
@@ -265,8 +269,9 @@ a { color: inherit; text-decoration: none; }
 .dark .mock-folder, .dark .mock-file { background: oklch(0.205 0 0); border-color: oklch(1 0 0 / 0.1); color: oklch(0.985 0 0); }
 .mock-folder small, .mock-file small { display: block; font-size: 9px; font-weight: 500; color: oklch(0.556 0 0); }
 .mock-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: oklch(0.97 0 0); color: oklch(0.32 0 0); }
-.mock-icon.orange { background: oklch(0.705 0.213 47.604 / 0.12); color: oklch(0.705 0.213 47.604); }
+.mock-icon.orange { background: #c2410c1f; color: #c2410c; }
 .dark .mock-icon { background: oklch(0.269 0 0); color: oklch(0.708 0 0); }
+.dark .mock-icon.orange { background: #fb923c26; color: #fb923c; }
 
 .mock-chat-panel { margin: 0 16px 14px; border: 1px solid oklch(0.922 0 0); background: #fff; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .dark .mock-chat-panel { background: oklch(0.205 0 0); border-color: oklch(1 0 0 / 0.1); }
@@ -285,7 +290,7 @@ a { color: inherit; text-decoration: none; }
 .mock-go {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 999px; border: 0;
-  background: oklch(0.705 0.213 47.604); color: #fff;
+  background: #c2410c; color: #fff;
 }
 
 .mock-phone {

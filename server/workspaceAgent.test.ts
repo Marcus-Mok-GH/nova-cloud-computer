@@ -23,7 +23,7 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 
-const envState = { nvidiaNimApiKey: "" };
+const envState = { nvidiaNimApiKey: "", forgeApiKey: "" };
 vi.mock("./_core/env", () => ({
   ENV: {
     appId: "",
@@ -31,7 +31,7 @@ vi.mock("./_core/env", () => ({
     oAuthServerUrl: "",
     ownerOpenId: "",
     forgeApiUrl: "",
-    forgeApiKey: "",
+    get forgeApiKey() { return envState.forgeApiKey; },
     nvidiaNimApiUrl: "https://integrate.api.nvidia.com/v1",
     get nvidiaNimApiKey() { return envState.nvidiaNimApiKey; },
     databaseUrl: "",
@@ -56,6 +56,7 @@ describe("Nova keyless workspace agent", () => {
       process.env.NVIDIA_NIM_API_KEY = originalNim;
     }
     envState.nvidiaNimApiKey = "";
+    envState.forgeApiKey = "";
     vi.clearAllMocks();
   });
 
@@ -92,6 +93,20 @@ describe("Nova keyless workspace agent", () => {
     delete process.env.NVIDIA_NIM_API_KEY;
     await expect(runWorkspaceAgent(7, 3, "Delete file welcome.md.")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "deleted", name: "welcome.md" }] });
     expect(deleteFile).toHaveBeenCalledWith(7, 15);
+  });
+
+  it("uses the managed model for ordinary chat when the NIM credential is absent", async () => {
+    delete process.env.NVIDIA_NIM_API_KEY;
+    envState.forgeApiKey = "managed-forge-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "PINEAPPLE" } }] });
+
+    await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
+      actions: [],
+      message: expect.objectContaining({ role: "assistant", content: "PINEAPPLE" }),
+    });
+
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5-mini" }));
+    expect(invoke).not.toHaveBeenCalledWith(expect.objectContaining({ apiKey: expect.anything() }));
   });
 
   it("executes folder deletion from the hosted-model tool path", async () => {

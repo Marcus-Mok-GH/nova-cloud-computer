@@ -16,9 +16,39 @@ import { startAgentVmRun } from "./agentVm";
 
 type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
-const WORKSPACE_AGENT_MODEL = process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.3";
-const WORKSPACE_AGENT_API_URL = ENV.nvidiaNimApiUrl;
+const DEFAULT_WORKSPACE_AGENT_MODEL = "gpt-5-mini";
 const workspaceAgentApiKey = () => process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
+
+type WorkspaceAgentConnection = {
+  model: string;
+  apiUrl?: string;
+  apiKey?: string;
+};
+
+function getWorkspaceAgentConnection(): WorkspaceAgentConnection | undefined {
+  const nvidiaApiKey = workspaceAgentApiKey();
+  if (nvidiaApiKey) {
+    return {
+      model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.3",
+      apiUrl: ENV.nvidiaNimApiUrl,
+      apiKey: nvidiaApiKey,
+    };
+  }
+
+  if (ENV.forgeApiKey) {
+    return {
+      model: process.env.NOVA_DEFAULT_MODEL ?? DEFAULT_WORKSPACE_AGENT_MODEL,
+    };
+  }
+
+  return undefined;
+}
+
+function agentInvokeOptions(connection: WorkspaceAgentConnection) {
+  return connection.apiUrl && connection.apiKey
+    ? { model: connection.model, apiUrl: connection.apiUrl, apiKey: connection.apiKey }
+    : { model: connection.model };
+}
 
 async function runDirectWorkspaceAction(ownerId: number, content: string) {
   const computer = await getWorkspaceComputer(ownerId);
@@ -101,7 +131,8 @@ const tools = [
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
-  if (!workspaceAgentApiKey()) {
+  const connection = getWorkspaceAgentConnection();
+  if (!connection) {
     const direct = await runDirectWorkspaceAction(ownerId, content);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
     return { message, actions: direct.actions };
@@ -110,7 +141,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
-    initial = await invokeLLM({ apiUrl: WORKSPACE_AGENT_API_URL, apiKey: workspaceAgentApiKey(), model: WORKSPACE_AGENT_MODEL, messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
+    initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
   } catch {
     const direct = await runDirectWorkspaceAction(ownerId, content);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
@@ -183,7 +214,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     }
   }
   const final = toolCalls.length
-    ? await invokeLLM({ apiUrl: WORKSPACE_AGENT_API_URL, apiKey: workspaceAgentApiKey(), model: WORKSPACE_AGENT_MODEL, messages: [{ role: "system", content: context }, { role: "user", content }, choice, ...toolMessages] })
+    ? await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }, choice, ...toolMessages] })
     : initial;
   const reply = String(final.choices[0]?.message?.content ?? "I’m ready to help with this workspace.");
   const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });

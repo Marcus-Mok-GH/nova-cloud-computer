@@ -1,5 +1,7 @@
 /** Nova model settings: workspace rules and private model endpoint configuration, never exposing saved API keys. */
+import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -7,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { Bot, Check, Eye, KeyRound, Loader2, MessageCircle, Plus, Send, ShieldCheck, Sparkles, Trash2, WandSparkles } from "lucide-react";
+import { Bot, Check, Eye, KeyRound, Loader2, LogOut, MessageCircle, Plus, Send, ShieldCheck, Sparkles, Trash2, UserX, WandSparkles } from "lucide-react";
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -54,7 +56,104 @@ export default function WorkspaceSettings() {
       <div className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Custom endpoints</p><h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Bring your own model</h2><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">Add as many private endpoints as you need. Each stores its own endpoint compatibility and image-input capability.</p></div><CustomModelDialog open={customOpen} onOpenChange={setCustomOpen} name={customName} modelId={modelId} baseUrl={baseUrl} compatibility={compatibility} apiKey={apiKey} supportsImageInput={supportsImageInput} onNameChange={setCustomName} onModelIdChange={setModelId} onBaseUrlChange={setBaseUrl} onCompatibilityChange={setCompatibility} onApiKeyChange={setApiKey} onSupportsImageChange={setSupportsImageInput} onSubmit={submitCustom} loading={createCustom.isPending} /></div><div className="mt-6 space-y-3">{customModels.length ? customModels.map(model => { const active = settings.data?.activeProvider === "custom" && settings.data.activeCustomModelId === model.id; return <article key={model.id} className={`rounded-2xl border p-4 ${active ? "border-[#729b90] bg-[#eaf2ed] dark:border-[#6f9d90] dark:bg-[#274138]" : "border-border bg-muted/25"}`}><div className="flex items-start gap-3"><div className="mt-0.5 rounded-xl bg-background p-2 text-[#638f84]"><Bot size={17} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold">{model.name}</h3>{active && <span className="rounded-full bg-[#cce5da] px-2 py-0.5 text-[9px] font-bold text-[#3f655b] dark:bg-[#416c60] dark:text-[#d8f2e7]">Active</span>}</div><p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{model.modelId} · {model.compatibility}-compatible</p><div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold text-muted-foreground"><span className="inline-flex items-center gap-1"><KeyRound size={11} /> key saved privately</span>{model.supportsImageInput && <span className="inline-flex items-center gap-1"><Eye size={11} /> accepts images</span>}</div></div><div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => selectCustom(model.id, model.modelId)} disabled={updateSettings.isPending}>{active ? "Selected" : "Use"}</Button><Button variant="ghost" size="icon" aria-label={`Remove ${model.name}`} onClick={() => deleteCustom.mutate({ id: model.id })} disabled={deleteCustom.isPending} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div></div></article>; }) : <div className="rounded-2xl border border-dashed px-5 py-10 text-center"><Bot className="mx-auto text-[#75a79a]" size={22} /><p className="mt-3 font-[DM_Serif_Display] text-2xl">Your own connection point.</p><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Add a compatible endpoint to make it part of this personal workspace.</p></div>}</div></div></section>
     <CodebuffSettingsCard />
     <TelegramBotCard />
+    <AccountManagementCard />
   </div></DashboardLayout>;
+}
+
+function AccountManagementCard() {
+  const { user, logout } = useAuth();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const deleteAccountMutation = trpc.auth.deleteAccount.useMutation({
+    onSuccess: async () => {
+      toast.success("Your account and workspace data have been deleted.");
+      await logout();
+      window.location.assign("/sign-in");
+    },
+    onError: error => {
+      toast.error(error.message || "Failed to delete account.");
+    },
+  });
+
+  const handleDeleteAccount = () => {
+    deleteAccountMutation.mutate();
+  };
+
+  return (
+    <section className="rounded-3xl border border-red-500/20 bg-card p-5 text-card-foreground shadow-sm sm:p-7">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-red-500/80 dark:text-red-400/80">Account & Session</p>
+          <h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Account settings</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Manage your session or permanently delete your user account and all personal workspace data.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
+        <div className="space-y-1">
+          <p className="text-sm font-bold text-foreground">Sign out of Nova</p>
+          <p className="text-xs text-muted-foreground">Logged in as {user?.email || "User"}</p>
+        </div>
+        <Button variant="outline" onClick={() => logout()} className="gap-2">
+          <LogOut size={16} /> Log out
+        </Button>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
+        <div className="space-y-1">
+          <p className="text-sm font-bold text-red-600 dark:text-red-400">Delete account</p>
+          <p className="text-xs text-muted-foreground">
+            Permanently delete your account, projects, files, and settings. This action cannot be undone.
+          </p>
+        </div>
+
+        <AlertDialog open={deleteDialogOpen} onOpenChange={open => { setDeleteDialogOpen(open); if (!open) setConfirmText(""); }}>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" className="gap-2">
+              <UserX size={16} /> Delete my account
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-[DM_Serif_Display] text-2xl text-destructive">
+                Are you absolutely sure?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-3">
+                <span>
+                  This will permanently delete your account (<strong>{user?.email}</strong>) and erase all associated projects, tasks, workspace files, saved credentials, and settings.
+                </span>
+                <span className="block font-medium text-foreground">
+                  Type <strong>DELETE</strong> below to confirm.
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2">
+              <Input
+                value={confirmText}
+                onChange={e => setConfirmText(e.target.value)}
+                placeholder='Type "DELETE" to confirm'
+                className="font-mono"
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteAccountMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={confirmText !== "DELETE" || deleteAccountMutation.isPending}
+                onClick={handleDeleteAccount}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteAccountMutation.isPending && <Loader2 size={15} className="mr-2 animate-spin" />}
+                Delete account permanently
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </section>
+  );
 }
 
 function CodebuffSettingsCard() {

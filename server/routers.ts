@@ -22,6 +22,7 @@ import {
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
   listChatMessagesForUser,
+  getWorkspaceAgentConnection,
   listProjectsForUser,
   listTasksForUser,
   updateTaskStatusForUser,
@@ -293,8 +294,11 @@ export const appRouter = router({
             const firstUser = messages.find(m => m.role === "user");
             const firstAssistant = messages.find(m => m.role === "assistant");
             if (firstUser && firstAssistant) {
+              const connection = await getWorkspaceAgentConnection(ctx.user.id);
               const title = await invokeLLM({
                 model: "z-ai/glm-5.2",
+                apiUrl: connection?.apiUrl,
+                apiKey: connection?.apiKey,
                 messages: [
                   { role: "system", content: "Generate a 3-6 word title for this conversation." },
                   { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },

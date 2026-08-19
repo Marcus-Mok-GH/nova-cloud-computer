@@ -1,3 +1,10 @@
+## 2026-08-19 — Switch sign-in from magic link to email OTP code
+
+- `client/src/pages/SignIn.tsx`: Replaced the one-step magic-link flow with a two-step email-OTP flow (send code → enter code). Uses the existing `input-otp` component for code entry and the `neonAuth.emailOTP` / `neonAuth.signIn.emailOTP` endpoints.
+- `server/db.ts`, `server/_core/context.ts`: Updated the default `loginMethod` label from `neon_magic_link` to `neon_email_otp`.
+- `client/src/pages/Home.render.test.tsx`: Updated the render expectation to match the new button text.
+
+
 
 ## 2026-08-19 — Default NVIDIA provider model to GLM 5.3
 

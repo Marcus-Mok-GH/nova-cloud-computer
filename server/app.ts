@@ -131,6 +131,8 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
                 if (firstUser && firstAssistant) {
                   const title = await invokeLLM({
                     model: "z-ai/glm-5.2",
+                    apiUrl: connection.apiUrl,
+                    apiKey: connection.apiKey,
                     messages: [
                       { role: "system", content: "Generate a 3-6 word title for this conversation." },
                       { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
@@ -180,6 +182,8 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
           if (firstUser && firstAssistant) {
             const title = await invokeLLM({
               model: "z-ai/glm-5.2",
+              apiUrl: connection.apiUrl,
+              apiKey: connection.apiKey,
               messages: [
                 { role: "system", content: "Generate a 3-6 word title for this conversation." },
                 { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },

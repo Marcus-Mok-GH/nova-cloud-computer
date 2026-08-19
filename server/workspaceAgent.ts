@@ -8,6 +8,7 @@ import {
   deleteWorkspaceFolderForUser,
   getWorkspaceComputer,
   getTelegramCredentialsForUser,
+  getWorkspaceModelSettingsForUser,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
 } from "./db";
@@ -25,9 +26,10 @@ type WorkspaceAgentConnection = {
   apiKey?: string;
 };
 
-function getWorkspaceAgentConnection(): WorkspaceAgentConnection | undefined {
+async function getWorkspaceAgentConnection(ownerId: number): Promise<WorkspaceAgentConnection | undefined> {
+  const settings = await getWorkspaceModelSettingsForUser(ownerId);
   const nvidiaApiKey = workspaceAgentApiKey();
-  if (nvidiaApiKey) {
+  if ((settings?.activeProvider === "nvidia-nim" || nvidiaApiKey) && nvidiaApiKey) {
     return {
       model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.3",
       apiUrl: ENV.nvidiaNimApiUrl,
@@ -131,7 +133,7 @@ const tools = [
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
-  const connection = getWorkspaceAgentConnection();
+  const connection = await getWorkspaceAgentConnection(ownerId);
   if (!connection) {
     const direct = await runDirectWorkspaceAction(ownerId, content);
     const reply = direct.actions.length > 0

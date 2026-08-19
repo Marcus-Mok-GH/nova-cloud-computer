@@ -4,7 +4,7 @@ import type { TrpcContext } from "./_core/context";
 type ProjectRecord = { id: number; workspaceId: number; name: string; description: string | null; status: "active" | "archived" };
 type TaskRecord = { id: number; workspaceId: number; projectId: number; title: string; notes: string | null; status: "todo" | "in_progress" | "done" };
 type CustomModelRecord = { id: number; workspaceId: number; name: string; modelId: string; baseUrl: string; compatibility: "openai" | "anthropic"; supportsImageInput: boolean; hasApiKey: true };
-type SettingsRecord = { activeProvider: "anthropic" | "openai" | "gemini" | "custom"; activeModelId: string; activeCustomModelId: number | null; workspaceRules: string | null };
+type SettingsRecord = { activeProvider: "anthropic" | "openai" | "gemini" | "custom" | "nvidia-nim"; activeModelId: string; activeCustomModelId: number | null; workspaceRules: string | null };
 
 const projects = new Map<number, ProjectRecord>();
 const tasks = new Map<number, TaskRecord>();

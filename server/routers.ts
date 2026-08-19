@@ -56,7 +56,7 @@ const projectInput = z.object({
 
 const taskStatus = z.enum(["todo", "in_progress", "done"]);
 const projectStatus = z.enum(["active", "archived"]);
-const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom"]);
+const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "nvidia-nim"]);
 const modelCompatibility = z.enum(["openai", "anthropic"]);
 const projectUpdateInput = z.object({
   id: z.number().int().positive(),

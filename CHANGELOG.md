@@ -13,6 +13,11 @@
 
 # Changelog
 
+## 2026-08-19 — AI renames chat title from first messages
+
+- `server/db.ts`: Added `updateChatForUser`.
+- `server/routers.ts`: Modified `chats.send` to use a placeholder title then generate a concise 3-6 word title via the LLM after the first assistant reply.
+
 ## 2026-08-19 — Fix streaming crash on null assistant content
 
 - `server/_core/llm.ts`: Fixed "Cannot read properties of undefined (reading 'type')" crash. `normalizeMessage` now handles assistant messages whose `content` is `null` (e.g. tool-call responses) by preserving them with empty content and their `tool_calls`, instead of passing `null` into `normalizeContentPart` which accessed `.type` on an undefined value.
@@ -43,10 +48,10 @@
 ## 2026-08-19 — Add streaming chat endpoint and fix fallback responses
 
 - `server/app.ts`: Added `/api/chat/stream` POST endpoint that proxies requests to NVIDIA NIM with SSE streaming and persists the final assistant message. Also added `reader` null checks on both client and server to satisfy TypeScript.
-- `client/src/pages/Workspace.tsx`: Switched the chat submit flow from the tRPC `chats.send` mutation to the new `/api/chat/stream` endpoint so responses stream token-by-token instead of returning a single hardcoded fallback.
-- `server/workspaceAgent.ts`: Minor type alignment for the workspace agent connection path.
+# Changelog
 
-## 2026-08-19 — Remove model chip from home hero mockup
+## 2026-08-19 — Fix AI chat title generation and add stream support
 
-- `client/src/pages/Home.tsx`: Removed the `mock-model-chip` showing "Claude" with a chevron from the hero section chat composer mockup, so the landing page no longer surfaces a model selector.
-- `client/src/index.css`: Removed the now-unused `.mock-model-chip` styles.
+- `server/db.ts`: Added `updateChatForUser`.
+- `server/routers.ts`: Modified `chats.send` to generate a concise title from the first exchange, with LLM failure now safely ignored and titles normalized before saving.
+- `server/app.ts`: Stream endpoint (`/api/chat/stream`) now generates a chat title from the first assistant message as well, using the same validation and try/catch behavior.

@@ -30,6 +30,11 @@ export default function Workspace() {
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
 
+  const refreshMessages = async () => {
+    const result = await savedMessages.refetch();
+    if (!result.error) setPendingUserContent("");
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim() || !chatId || isStreaming) return;
@@ -72,8 +77,7 @@ export default function Workspace() {
             if (data === "[DONE]") {
               setIsStreaming(false);
               setStreamingContent("");
-              setPendingUserContent("");
-              savedMessages.refetch();
+              await refreshMessages();
               return;
             }
 
@@ -90,13 +94,12 @@ export default function Workspace() {
 
       setIsStreaming(false);
       setStreamingContent("");
-      setPendingUserContent("");
-      savedMessages.refetch();
+      await refreshMessages();
     } catch (error) {
       console.error("Stream error:", error);
       setIsStreaming(false);
       setStreamingContent("");
-      setPendingUserContent("");
+      await refreshMessages();
       toast.error(error instanceof Error ? error.message : "Failed to send message");
     }
   };

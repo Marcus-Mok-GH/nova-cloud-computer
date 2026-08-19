@@ -23,7 +23,7 @@
 
 # Changelog
 
-## 2026-08-20
+## Unreleased
 
 - Fixed Vercel API-service response forwarding so streamed chat chunks are relayed correctly, increased chat function duration, and show the user's pending message immediately in the conversation UI.
 

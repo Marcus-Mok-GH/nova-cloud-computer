@@ -23,6 +23,10 @@
 
 # Changelog
 
+## 2026-08-20
+
+- Fixed Vercel API-service response forwarding so streamed chat chunks are relayed correctly, increased chat function duration, and show the user's pending message immediately in the conversation UI.
+
 ## 2026-08-19 — Fix default NVIDIA NIM model to GLM 5.2
 
 - `server/workspaceAgent.ts`: Changed the default NVIDIA NIM chat model from `z-ai/glm-5.3` to `z-ai/glm-5.2` (still overridable via `NVIDIA_NIM_MODEL`). NVIDIA remains the preferred provider whenever a NIM key is present.

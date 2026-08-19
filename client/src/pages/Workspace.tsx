@@ -22,6 +22,7 @@ export default function Workspace() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [draft, setDraft] = useState("");
+  const [pendingUserContent, setPendingUserContent] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
@@ -35,6 +36,7 @@ export default function Workspace() {
 
     const content = draft.trim();
     setDraft("");
+    setPendingUserContent(content);
     setStreamingContent("");
     setIsStreaming(true);
 
@@ -70,6 +72,7 @@ export default function Workspace() {
             if (data === "[DONE]") {
               setIsStreaming(false);
               setStreamingContent("");
+              setPendingUserContent("");
               savedMessages.refetch();
               return;
             }
@@ -87,12 +90,14 @@ export default function Workspace() {
 
       setIsStreaming(false);
       setStreamingContent("");
+      setPendingUserContent("");
       savedMessages.refetch();
     } catch (error) {
       console.error("Stream error:", error);
       setIsStreaming(false);
       setStreamingContent("");
-      toast.error("Failed to send message");
+      setPendingUserContent("");
+      toast.error(error instanceof Error ? error.message : "Failed to send message");
     }
   };
 
@@ -131,6 +136,9 @@ export default function Workspace() {
                     </div>
                   )
                 ))
+              )}
+              {pendingUserContent && (
+                <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{pendingUserContent}</div>
               )}
               {isStreaming && (
                 <div className="flex items-start gap-2.5">

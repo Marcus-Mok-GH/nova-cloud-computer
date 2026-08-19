@@ -1,3 +1,8 @@
+## 2026-08-19 — Remove remaining forge provider fallbacks
+
+- `server/workspaceAgent.ts`: Removed the dead `ENV.forgeApiKey` fallback from `getWorkspaceAgentConnection`. The agent now relies exclusively on NVIDIA NIM credentials when present.
+- `server/workspaceAgent.test.ts`: Removed forge-dependent test cases and updated mocks to reflect the NVIDIA-only provider setup.
+
 ## 2026-08-19 — Remove forge.manus.im LLM provider fallback
 
 - `server/_core/env.ts`: Removed `forgeApiUrl` and `forgeApiKey` from the `ENV` config.
@@ -15,14 +20,10 @@
 - `server/db.ts`, `server/_core/context.ts`: Updated the default `loginMethod` label from `neon_magic_link` to `neon_email_otp`.
 - `client/src/pages/Home.render.test.tsx`: Updated the render expectation to match the new button text.
 
-
-
 ## 2026-08-19 — Fix default NVIDIA NIM model to GLM 5.2
 
 - `server/workspaceAgent.ts`: Changed the default NVIDIA NIM chat model from `z-ai/glm-5.3` to `z-ai/glm-5.2` (still overridable via `NVIDIA_NIM_MODEL`). NVIDIA remains the preferred provider whenever a NIM key is present.
 - `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default model `z-ai/glm-5.2`.
-
-# Changelog
 
 ## 2026-08-19 — AI renames chat title from first messages
 
@@ -59,7 +60,6 @@
 ## 2026-08-19 — Add streaming chat endpoint and fix fallback responses
 
 - `server/app.ts`: Added `/api/chat/stream` POST endpoint that proxies requests to NVIDIA NIM with SSE streaming and persists the final assistant message. Also added `reader` null checks on both client and server to satisfy TypeScript.
-# Changelog
 
 ## 2026-08-19 — Fix AI chat title generation and add stream support
 

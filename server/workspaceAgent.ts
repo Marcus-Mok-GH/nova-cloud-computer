@@ -37,12 +37,6 @@ export async function getWorkspaceAgentConnection(ownerId: number): Promise<Work
     };
   }
 
-  if (ENV.forgeApiKey) {
-    return {
-      model: process.env.NOVA_DEFAULT_MODEL ?? DEFAULT_WORKSPACE_AGENT_MODEL,
-    };
-  }
-
   return undefined;
 }
 

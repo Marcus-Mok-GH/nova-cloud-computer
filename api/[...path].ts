@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createRequire } from "node:module";
+import { Readable } from "node:stream";
 
 const require = createRequire(import.meta.url);
 const { app } = require("../dist/server/app.cjs") as typeof import("../server/app");
@@ -8,9 +9,7 @@ const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma",
 const REQUEST_HEADERS = ["accept", "accept-language", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
 
 export function getNeonAuthPathFromCatchall(path: string | string[] | undefined) {
-  const segments = (Array.isArray(path) ? path : path ? [path] : [])
-    .flatMap(segment => segment.split("/"))
-    .filter(Boolean);
+  const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
   return segments[0] === "neon-auth" ? segments.slice(1).map(segment => encodeURIComponent(segment)).join("/") : null;
 }
 
@@ -50,7 +49,7 @@ async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: stri
   if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
 
   const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
-  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${requestUrl.search}`;
+  const targetUrl = `${baseUrl.replace(/$/, "")}/${path}${requestUrl.search}`;
 
   try {
     const upstream = await fetch(targetUrl, {
@@ -72,8 +71,42 @@ async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: stri
   }
 }
 
+async function proxyApiService(req: VercelRequest, res: VercelResponse, apiServiceUrl: string) {
+  const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
+  const targetUrl = `${apiServiceUrl}${requestUrl.pathname}${requestUrl.search}`;
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: req.method,
+      headers: getRequestHeaders(req.headers),
+      body: getRequestBody(req.method, req.body),
+      redirect: "manual",
+    });
+    for (const name of RESPONSE_HEADERS) {
+      const value = upstream.headers.get(name);
+      if (value) res.setHeader(name, value);
+    }
+    const cookies = getSetCookieHeaders(upstream.headers);
+    if (cookies.length) res.setHeader("set-cookie", cookies.map(normalizeProxiedSessionCookie));
+
+    res.status(upstream.status);
+    if (!upstream.body) return res.end();
+
+    Readable.fromWeb(upstream.body as never).pipe(res);
+  } catch (error) {
+    console.error("[API service proxy] Upstream request failed", error);
+    if (!res.headersSent) return res.status(502).json({ error: "API service is temporarily unavailable." });
+    return res.end();
+  }
+}
+
 export default function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
-  return app(req, res);
+
+  const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
+  if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
+
+  const { app: localApp } = require("../dist/server/app.cjs") as typeof import("../server/app");
+  return localApp(req, res);
 }

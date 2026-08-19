@@ -49,7 +49,7 @@ async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: stri
   if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
 
   const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
-  const targetUrl = `${baseUrl.replace(/$/, "")}/${path}${requestUrl.search}`;
+  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${requestUrl.search}`;
 
   try {
     const upstream = await fetch(targetUrl, {
@@ -92,7 +92,13 @@ async function proxyApiService(req: VercelRequest, res: VercelResponse, apiServi
     res.status(upstream.status);
     if (!upstream.body) return res.end();
 
-    Readable.fromWeb(upstream.body as never).pipe(res);
+    const stream = Readable.fromWeb(upstream.body as never);
+    stream.on("error", error => {
+      console.error("[API service proxy] Upstream response stream failed", error);
+      if (!res.headersSent) res.status(502).json({ error: "API service response was interrupted." });
+      else res.end();
+    });
+    stream.pipe(res);
   } catch (error) {
     console.error("[API service proxy] Upstream request failed", error);
     if (!res.headersSent) return res.status(502).json({ error: "API service is temporarily unavailable." });

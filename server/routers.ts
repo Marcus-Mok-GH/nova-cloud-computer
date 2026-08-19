@@ -287,22 +287,27 @@ export const appRouter = router({
       if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." });
       const result = await runWorkspaceAgent(ctx.user.id, chatId, input.content);
       if (!input.chatId) {
-        const messages = await listChatMessagesForUser(ctx.user.id, chatId);
-        if (messages?.length) {
-          const firstUser = messages.find(m => m.role === "user");
-          const firstAssistant = messages.find(m => m.role === "assistant");
-          if (firstUser && firstAssistant) {
-            const title = await invokeLLM({
-              model: "z-ai/glm-5.2",
-              messages: [
-                { role: "system", content: "Generate a 3-6 word title for this conversation." },
-                { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
-              ],
-              maxTokens: 20,
-            });
-            const titleString = (title?.choices?.[0]?.message?.content ?? "") as string;
-            await updateChatForUser(ctx.user.id, chatId, titleString.slice(0, 60));
+        try {
+          const messages = await listChatMessagesForUser(ctx.user.id, chatId);
+          if (messages?.length) {
+            const firstUser = messages.find(m => m.role === "user");
+            const firstAssistant = messages.find(m => m.role === "assistant");
+            if (firstUser && firstAssistant) {
+              const title = await invokeLLM({
+                model: "z-ai/glm-5.2",
+                messages: [
+                  { role: "system", content: "Generate a 3-6 word title for this conversation." },
+                  { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
+                ],
+                maxTokens: 20,
+              });
+              const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
+              const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
+              await updateChatForUser(ctx.user.id, chatId, normalizedTitle);
+            }
           }
+        } catch (titleError) {
+          console.error("Failed to generate chat title", titleError);
         }
       }
       return { chatId, ...(await result) };

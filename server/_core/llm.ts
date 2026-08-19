@@ -27,9 +27,10 @@ export type MessageContent = string | TextContent | ImageContent | FileContent;
 
 export type Message = {
   role: Role;
-  content: MessageContent | MessageContent[];
+  content: MessageContent | MessageContent[] | null;
   name?: string;
   tool_call_id?: string;
+  tool_calls?: ToolCall[];
 };
 
 export type Tool = {
@@ -145,7 +146,7 @@ const normalizeMessage = (message: Message) => {
   const { role, name, tool_call_id } = message;
 
   if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
+    const content = ensureArray(message.content ?? [])
       .map(part => (typeof part === "string" ? part : JSON.stringify(part)))
       .join("\n");
 
@@ -154,6 +155,18 @@ const normalizeMessage = (message: Message) => {
       name,
       tool_call_id,
       content,
+    };
+  }
+
+  // Assistant messages that carry tool calls have null/undefined content.
+  // Preserve them (and their tool_calls) rather than crashing on the content.
+  if (message.content == null) {
+    return {
+      role,
+      name,
+      tool_call_id,
+      content: "",
+      ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
     };
   }
 

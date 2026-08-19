@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-19 — Fix streaming crash on null assistant content
+
+- `server/_core/llm.ts`: Fixed "Cannot read properties of undefined (reading 'type')" crash. `normalizeMessage` now handles assistant messages whose `content` is `null` (e.g. tool-call responses) by preserving them with empty content and their `tool_calls`, instead of passing `null` into `normalizeContentPart` which accessed `.type` on an undefined value.
+- `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default NVIDIA model `meta/llama-3.1-8b-instruct`.
+
 ## 2026-08-19 — Add NVIDIA NIM as a first-class provider
 
 - `drizzle/schema.ts`: Added `"nvidia-nim"` to the `model_provider` Postgres enum.

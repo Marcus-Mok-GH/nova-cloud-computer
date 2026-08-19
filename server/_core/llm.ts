@@ -143,7 +143,8 @@ const normalizeContentPart = (
 };
 
 const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
+  const {
+    messages, role, name, tool_call_id } = message;
 
   if (role === "tool" || role === "function") {
     const content = ensureArray(message.content ?? [])
@@ -227,12 +228,8 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
 
-const assertApiKey = (apiKey = ENV.forgeApiKey) => {
+const assertApiKey = (apiKey: string) => {
   if (!apiKey) {
     throw new Error("LLM API key is not configured");
   }
@@ -355,17 +352,12 @@ const fetchWithBackoff = async (
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  const hasCustomApiUrl = params.apiUrl && params.apiUrl.trim().length > 0;
-  const hasCustomApiKey = params.apiKey && params.apiKey.trim().length > 0;
-
-  if (hasCustomApiUrl !== hasCustomApiKey) {
-    throw new Error("apiUrl and apiKey must be provided together");
+  if (!params.apiUrl || !params.apiKey) {
+    throw new Error("apiUrl and apiKey are required");
   }
 
-  const requestApiKey = hasCustomApiKey ? params.apiKey : ENV.forgeApiKey;
-  const requestApiUrl = hasCustomApiUrl
-    ? `${params.apiUrl!.replace(/\/$/, "")}/chat/completions`
-    : resolveApiUrl();
+  const requestApiKey = params.apiKey;
+  const requestApiUrl = `${params.apiUrl.replace(/\/$/, "")}/chat/completions`;
   assertApiKey(requestApiKey);
 
   const {
@@ -458,23 +450,3 @@ export type ModelsResponse = {
   data: ModelInfo[];
 };
 
-export async function listLLMModels(): Promise<ModelsResponse> {
-  assertApiKey();
-
-  const url = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-    : "https://forge.manus.im/v1/models";
-
-  const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `List LLM models failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as ModelsResponse;
-}

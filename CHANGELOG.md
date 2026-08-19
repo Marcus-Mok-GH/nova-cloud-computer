@@ -6,10 +6,10 @@
 
 
 
-## 2026-08-19 — Default NVIDIA provider model to GLM 5.3
+## 2026-08-19 — Fix default NVIDIA NIM model to GLM 5.2
 
-- `server/workspaceAgent.ts`: Changed the default NVIDIA NIM chat model from `meta/llama-3.1-8b-instruct` to `z-ai/glm-5.3` (still overridable via `NVIDIA_NIM_MODEL`). NVIDIA remains the preferred provider whenever a NIM key is present.
-- `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default model `z-ai/glm-5.3`.
+- `server/workspaceAgent.ts`: Changed the default NVIDIA NIM chat model from `z-ai/glm-5.3` to `z-ai/glm-5.2` (still overridable via `NVIDIA_NIM_MODEL`). NVIDIA remains the preferred provider whenever a NIM key is present.
+- `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default model `z-ai/glm-5.2`.
 
 # Changelog
 

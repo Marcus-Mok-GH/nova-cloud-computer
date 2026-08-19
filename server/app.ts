@@ -8,7 +8,9 @@ import {
   appendChatMessageForUser,
   getWorkspaceComputer,
   listChatMessagesForUser,
+  updateChatForUser,
 } from "./db";
+import { invokeLLM } from "./_core/llm";
 import { getWorkspaceAgentConnection, runWorkspaceAgent } from "./workspaceAgent";
 
 export const app = express();
@@ -120,6 +122,30 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
             } catch (persistError) {
               console.error("Failed to persist streamed message", persistError);
             }
+
+            try {
+              const messages = await listChatMessagesForUser(user.id, chatId);
+              if (messages?.length === 2) {
+                const firstUser = messages.find(m => m.role === "user");
+                const firstAssistant = messages.find(m => m.role === "assistant");
+                if (firstUser && firstAssistant) {
+                  const title = await invokeLLM({
+                    model: "z-ai/glm-5.2",
+                    messages: [
+                      { role: "system", content: "Generate a 3-6 word title for this conversation." },
+                      { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
+                    ],
+                    maxTokens: 20,
+                  });
+                  const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
+                  const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
+                  await updateChatForUser(user.id, chatId, normalizedTitle);
+                }
+              }
+            } catch (titleError) {
+              console.error("Failed to generate chat title from stream", titleError);
+            }
+
             res.write("data: [DONE]\n\n");
             res.end();
             return;
@@ -144,6 +170,29 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
         await appendChatMessageForUser(user.id, { chatId, role: "assistant", content: fullContent });
       } catch (persistError) {
         console.error("Failed to persist streamed message", persistError);
+      }
+
+      try {
+        const messages = await listChatMessagesForUser(user.id, chatId);
+        if (messages?.length === 2) {
+          const firstUser = messages.find(m => m.role === "user");
+          const firstAssistant = messages.find(m => m.role === "assistant");
+          if (firstUser && firstAssistant) {
+            const title = await invokeLLM({
+              model: "z-ai/glm-5.2",
+              messages: [
+                { role: "system", content: "Generate a 3-6 word title for this conversation." },
+                { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
+              ],
+              maxTokens: 20,
+            });
+            const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
+            const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
+            await updateChatForUser(user.id, chatId, normalizedTitle);
+          }
+        }
+      } catch (titleError) {
+        console.error("Failed to generate chat title from stream", titleError);
       }
     }
 

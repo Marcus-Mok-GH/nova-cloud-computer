@@ -4,7 +4,7 @@ import { boolean, index, integer, pgEnum, pgTable, serial, text, timestamp, uniq
 export const userRole = pgEnum("user_role", ["user", "admin"]);
 export const projectStatus = pgEnum("project_status", ["active", "archived"]);
 export const taskStatus = pgEnum("task_status", ["todo", "in_progress", "done"]);
-export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom"]);
+export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom", "nvidia-nim"]);
 export const modelCompatibility = pgEnum("model_compatibility", ["openai", "anthropic"]);
 export const chatMessageRole = pgEnum("chat_message_role", ["user", "assistant"]);
 export const agentVmRunStatus = pgEnum("agent_vm_run_status", ["queued", "running", "succeeded", "failed", "cancelled", "disabled"]);

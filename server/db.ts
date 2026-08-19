@@ -89,7 +89,7 @@ export async function getOrCreateWorkspace(ownerId: number) {
   return created[0];
 }
 
-type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom";
+type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom" | "nvidia-nim";
 type ModelCompatibility = "openai" | "anthropic";
 
 function toSafeCustomModel(model: typeof customModels.$inferSelect) {

@@ -33,6 +33,7 @@ export type DaytonaSandboxLike = {
 
 export type DaytonaClientLike = {
   create: (input: Record<string, unknown>) => Promise<DaytonaSandboxLike>;
+  get: (sandboxId: string) => Promise<DaytonaSandboxLike>;
 };
 
 export type DaytonaTaskInput = {
@@ -72,7 +73,7 @@ function safePathSegment(value: string, fallback: string) {
     .replace(/[\\/]+/g, "_")
     .replace(/\.{2,}/g, "_")
     .replace(/[^a-zA-Z0-9._-]+/g, "_")
-    .replace(/^[_\.]+/, "")
+    .replace(/^[_.]+/, "")
     .slice(0, 100);
   return normalized || fallback;
 }
@@ -89,7 +90,7 @@ export function validateDaytonaCode(code: string | undefined) {
   if (!code?.trim()) return;
   if (Buffer.byteLength(code, "utf8") > MAX_CODE_BYTES) throw new Error("Nova limits one VM task to 12 KB of Python code.");
   const blocked = /\b(?:subprocess|socket|requests|urllib|http\.client|ftplib|telnetlib|os\.(?:system|popen)|shutil\.rmtree)\b/i;
-  if (blocked.test(code)) throw new Error("That VM task uses a blocked process or network capability. Use the supplied workspace files and standard Python only.");
+  if (blocked.test(code)) throw new Error("That VM task uses a blocked process or network capability. Use the supplied workspace bundle and standard Python only.");
 }
 
 export function buildDaytonaWorkspaceBundle(files: DaytonaWorkspaceFile[], folders: DaytonaWorkspaceFolder[]) {
@@ -129,6 +130,42 @@ function buildTaskScript(code?: string) {
   ].join("\n");
 }
 
+async function ensurePersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
+  const name = `nova-workspace-${workspaceId}`;
+  const labels = {
+    "nova.owner": String(ownerId),
+    "nova.workspace": String(workspaceId),
+    "nova.persistent": "true",
+  };
+
+  try {
+    return await client.get(name);
+  } catch {
+    // not found or not accessible, create it
+  }
+
+  return await client.create({
+    name,
+    language: "python",
+    labels,
+    resources: { cpu: 1, memory: 1, disk: 3 },
+    networkBlockAll: true,
+    ephemeral: false,
+    autoDeleteInterval: -1,
+    public: false,
+  });
+}
+
+async function uploadBundleToSandbox(sandbox: DaytonaSandboxLike, files: DaytonaWorkspaceFile[], folders: DaytonaWorkspaceFolder[], task: string, code?: string) {
+  await sandbox.process.executeCommand("mkdir -p /home/daytona/workspace/input /home/daytona/workspace/output", "/home/daytona", undefined, 10);
+  const bundle = buildDaytonaWorkspaceBundle(files, folders);
+  await sandbox.fs.uploadFile(Buffer.from(JSON.stringify({ task, files: bundle.manifest }, null, 2)), "/home/daytona/workspace/nova-manifest.json");
+  for (const file of bundle.uploads) {
+    await sandbox.fs.uploadFile(Buffer.from(file.content), file.remotePath);
+  }
+  await sandbox.fs.uploadFile(Buffer.from(buildTaskScript(code)), "/home/daytona/workspace/.nova-task.py");
+}
+
 export async function runDaytonaTask(client: DaytonaClientLike, input: DaytonaTaskInput): Promise<DaytonaTaskResult> {
   validateDaytonaCode(input.code);
   const sandbox = await client.create({
@@ -160,5 +197,33 @@ export async function runDaytonaTask(client: DaytonaClientLike, input: DaytonaTa
     return { sandboxId: sandbox.id, output, uploadedFileCount: bundle.uploads.length };
   } finally {
     await sandbox.delete(10, false).catch(() => undefined);
+  }
+}
+
+export async function runDaytonaTaskInPersistentSandbox(client: DaytonaClientLike, input: {
+  workspaceId: number;
+  ownerId: number;
+  task: string;
+  code?: string;
+  files: DaytonaWorkspaceFile[];
+  folders: DaytonaWorkspaceFolder[];
+}): Promise<DaytonaTaskResult> {
+  validateDaytonaCode(input.code);
+  const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
+  await uploadBundleToSandbox(sandbox, input.files, input.folders, input.task, input.code);
+  const response = await sandbox.process.executeCommand("python3 .nova-task.py", "/home/daytona/workspace", undefined, RUN_TIMEOUT_SECONDS);
+  const output = sanitizeDaytonaOutput(response.result);
+  if (response.exitCode && response.exitCode !== 0) throw new Error(output);
+  return { sandboxId: sandbox.id, output, uploadedFileCount: Math.min(input.files.length, MAX_WORKSPACE_FILES) };
+}
+
+export async function initWorkspacePersistentVm(workspaceId: number, ownerId: number): Promise<string | undefined> {
+  const client = getDaytonaClient();
+  if (!client) return undefined;
+  try {
+    const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);
+    return sandbox.id;
+  } catch {
+    return undefined;
   }
 }

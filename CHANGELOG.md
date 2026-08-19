@@ -1,3 +1,8 @@
+## 2026-08-19 — Remove remaining forge provider fallbacks
+
+- `server/workspaceAgent.ts`: Removed the dead `ENV.forgeApiKey` fallback from `getWorkspaceAgentConnection`. The agent now relies exclusively on NVIDIA NIM credentials when present.
+- `server/workspaceAgent.test.ts`: Removed forge-dependent test cases and updated mocks to reflect the NVIDIA-only provider setup.
+
 ## 2026-08-19 — Remove forge.manus.im LLM provider fallback
 
 - `server/_core/env.ts`: Removed `forgeApiUrl` and `forgeApiKey` from the `ENV` config.
@@ -16,13 +21,12 @@
 - `client/src/pages/Home.render.test.tsx`: Updated the render expectation to match the new button text.
 
 
+# Changelog
 
 ## 2026-08-19 — Fix default NVIDIA NIM model to GLM 5.2
 
 - `server/workspaceAgent.ts`: Changed the default NVIDIA NIM chat model from `z-ai/glm-5.3` to `z-ai/glm-5.2` (still overridable via `NVIDIA_NIM_MODEL`). NVIDIA remains the preferred provider whenever a NIM key is present.
 - `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default model `z-ai/glm-5.2`.
-
-# Changelog
 
 ## 2026-08-19 — AI renames chat title from first messages
 
@@ -55,14 +59,3 @@
 - `client/src/pages/Home.tsx`: Footer "Company"/"Follow"/"Explore" link columns now wrap to 2 columns below the `sm` breakpoint instead of forcing 3 cramped columns on narrow phones (≤375px), which was squeezing link labels and touch targets.
 - `client/src/pages/SignIn.tsx`: Email input now uses `text-base` (16px) on mobile and `text-sm` from `sm:` up — 14px inputs trigger unwanted auto-zoom on iOS Safari when focused.
 - `client/src/components/DashboardLayoutSkeleton.tsx`: loading skeleton now mirrors the real `DashboardLayout` mobile structure (sticky top bar + bottom tab bar) instead of showing a desktop-only sidebar skeleton on phones.
-
-## 2026-08-19 — Add streaming chat endpoint and fix fallback responses
-
-- `server/app.ts`: Added `/api/chat/stream` POST endpoint that proxies requests to NVIDIA NIM with SSE streaming and persists the final assistant message. Also added `reader` null checks on both client and server to satisfy TypeScript.
-# Changelog
-
-## 2026-08-19 — Fix AI chat title generation and add stream support
-
-- `server/db.ts`: Added `updateChatForUser`.
-- `server/routers.ts`: Modified `chats.send` to generate a concise title from the first exchange, with LLM failure now safely ignored and titles normalized before saving.
-- `server/app.ts`: Stream endpoint (`/api/chat/stream`) now generates a chat title from the first assistant message as well, using the same validation and try/catch behavior.

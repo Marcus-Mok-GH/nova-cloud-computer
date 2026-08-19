@@ -4,6 +4,12 @@ import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
+import {
+  appendChatMessageForUser,
+  getWorkspaceComputer,
+  listChatMessagesForUser,
+} from "./db";
+import { getWorkspaceAgentConnection, runWorkspaceAgent } from "./workspaceAgent";
 
 export const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -33,6 +39,122 @@ app.post("/api/scheduled/automation", async (req: express.Request, res: express.
       timestamp: new Date().toISOString(),
       context: { path: req.path },
     });
+  }
+});
+
+app.post("/api/chat/stream", async (req: express.Request, res: express.Response) => {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const { chatId, content } = req.body ?? {};
+    if (!chatId || typeof content !== "string" || !content.trim()) {
+      return res.status(400).json({ error: "Missing chatId or content" });
+    }
+
+    await appendChatMessageForUser(user.id, { chatId, role: "user", content: content.trim() });
+
+    const connection = await getWorkspaceAgentConnection(user.id);
+    if (!connection) {
+      return res.status(500).json({ error: "No LLM connection configured" });
+    }
+
+    const computer = await getWorkspaceComputer(user.id);
+    const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+
+    const recent = await listChatMessagesForUser(user.id, chatId);
+    const history = (recent ?? []).slice(-20).map(msg => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    }));
+
+    const nimUrl = `${(connection.apiUrl ?? "https://integrate.api.nvidia.com/v1").replace(/\/$/, "")}/chat/completions`;
+    const response = await fetch(nimUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${connection.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: connection.model,
+        messages: [{ role: "system", content: context }, ...history],
+        stream: true,
+        max_tokens: 2048,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(502).json({ error: `Upstream error: ${response.status} ${response.statusText}`, details: errorText });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      return res.status(500).json({ error: "No stream available" });
+    }
+    const decoder = new TextDecoder();
+    let fullContent = "";
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+
+          const data = trimmed.slice(6).trim();
+          if (data === "[DONE]") {
+            try {
+              await appendChatMessageForUser(user.id, { chatId, role: "assistant", content: fullContent });
+            } catch (persistError) {
+              console.error("Failed to persist streamed message", persistError);
+            }
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            const token = parsed.choices?.[0]?.delta?.content || "";
+            fullContent += token;
+            res.write(`${trimmed}\n\n`);
+          } catch {
+            // skip malformed chunk
+          }
+        }
+      }
+    } catch (streamError) {
+      console.error("Chat stream interrupted", streamError);
+    }
+
+    if (fullContent) {
+      try {
+        await appendChatMessageForUser(user.id, { chatId, role: "assistant", content: fullContent });
+      } catch (persistError) {
+        console.error("Failed to persist streamed message", persistError);
+      }
+    }
+
+    res.end();
+  } catch (error) {
+    console.error("Chat stream endpoint error", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Stream failed" });
+    } else {
+      res.end();
+    }
   }
 });
 

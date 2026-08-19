@@ -21,6 +21,13 @@
 - `client/src/pages/Home.tsx`: Footer "Company"/"Follow"/"Explore" link columns now wrap to 2 columns below the `sm` breakpoint instead of forcing 3 cramped columns on narrow phones (≤375px), which was squeezing link labels and touch targets.
 - `client/src/pages/SignIn.tsx`: Email input now uses `text-base` (16px) on mobile and `text-sm` from `sm:` up — 14px inputs trigger unwanted auto-zoom on iOS Safari when focused.
 - `client/src/components/DashboardLayoutSkeleton.tsx`: loading skeleton now mirrors the real `DashboardLayout` mobile structure (sticky top bar + bottom tab bar) instead of showing a desktop-only sidebar skeleton on phones.
+
+## 2026-08-19 — Add streaming chat endpoint and fix fallback responses
+
+- `server/app.ts`: Added `/api/chat/stream` POST endpoint that proxies requests to NVIDIA NIM with SSE streaming and persists the final assistant message. Also added `reader` null checks on both client and server to satisfy TypeScript.
+- `client/src/pages/Workspace.tsx`: Switched the chat submit flow from the tRPC `chats.send` mutation to the new `/api/chat/stream` endpoint so responses stream token-by-token instead of returning a single hardcoded fallback.
+- `server/workspaceAgent.ts`: Minor type alignment for the workspace agent connection path.
+
 ## 2026-08-19 — Remove model chip from home hero mockup
 
 - `client/src/pages/Home.tsx`: Removed the `mock-model-chip` showing "Claude" with a chevron from the hero section chat composer mockup, so the landing page no longer surfaces a model selector.

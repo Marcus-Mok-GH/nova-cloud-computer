@@ -22,7 +22,6 @@ import {
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
   listChatMessagesForUser,
-  getWorkspaceAgentConnection,
   listProjectsForUser,
   listTasksForUser,
   updateTaskStatusForUser,
@@ -46,7 +45,7 @@ import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
-import { runWorkspaceAgent } from "./workspaceAgent";
+import { runWorkspaceAgent, getWorkspaceAgentConnection } from "./workspaceAgent";
 import { invokeLLM } from "./_core/llm";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";

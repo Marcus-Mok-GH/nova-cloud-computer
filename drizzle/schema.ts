@@ -33,6 +33,7 @@ export const workspaces = pgTable("workspaces", {
   ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 120 }).notNull(),
   description: text("description"),
+  persistentSandboxId: varchar("persistentSandboxId", { length: 256 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("workspaces_owner_unique").on(table.ownerId)]);
@@ -42,6 +43,7 @@ export const projects = pgTable("projects", {
   workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 160 }).notNull(),
   description: text("description"),
+  persistentSandboxId: varchar("persistentSandboxId", { length: 256 }),
   status: projectStatus("status").default("active").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),

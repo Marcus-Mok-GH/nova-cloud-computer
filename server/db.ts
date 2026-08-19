@@ -20,6 +20,7 @@ import {
   automationRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
+import { getDaytonaClient } from "./daytona";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -79,6 +80,47 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
   return Boolean(deleted);
 }
 
+
+async function initWorkspacePersistentVm(workspaceId: number, ownerId: number) {
+  const db = await requireDb();
+  const client = getDaytonaClient();
+  if (!client) return;
+  const existing = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  const current = existing[0];
+  if (!current?.persistentSandboxId) {
+    const sandbox = await client.create({
+      name: "nova-workspace-${workspaceId}",
+      language: "python",
+      labels: { "nova.owner": String(ownerId), "nova.workspace": String(workspaceId) },
+      resources: { cpu: 1, memory: 1, disk: 3 },
+      networkBlockAll: true,
+      ephemeral: false,
+      autoDeleteInterval: -1,
+      ttlMinutes: 0,
+      public: false,
+    });
+    await db.update(workspaces).set({ persistentSandboxId: sandbox.id }).where(eq(workspaces.id, workspaceId));
+  }
+}
+
+export async function getWorkspacePersistentSandbox(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  if (!workspace.persistentSandboxId) return null;
+  const client = getDaytonaClient();
+  if (!client) return null;
+  try {
+    return await client.get(workspace.persistentSandboxId);
+  } catch {
+    return null;
+  }
+}
+
+export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {
+  const db = await requireDb();
+  await db.update(workspaces).set({ persistentSandboxId: sandboxId }).where(eq(workspaces.id, workspaceId));
+}
+
 export async function getOrCreateWorkspace(ownerId: number) {
   const db = await requireDb();
   const existing = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
@@ -86,6 +128,11 @@ export async function getOrCreateWorkspace(ownerId: number) {
   await db.insert(workspaces).values({ ownerId, name: "My Nova Space" }).onConflictDoNothing();
   const created = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
   if (!created[0]) throw new Error("Nova could not create a workspace.");
+  try {
+    await initWorkspacePersistentVm(created[0].id, ownerId);
+  } catch {
+    // Non-blocking: workspace creation succeeds even if persistent VM setup fails.
+  }
   return created[0];
 }
 

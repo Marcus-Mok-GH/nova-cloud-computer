@@ -138,6 +138,6 @@ describe("Nova keyless workspace agent", () => {
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Deleted Archive." } }] });
     await expect(runWorkspaceAgent(7, 3, "Delete folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
     expect(deleteFolder).toHaveBeenCalledWith(7, 11);
-    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "z-ai/glm-5.3" }));
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "z-ai/glm-5.2" }));
   });
 });

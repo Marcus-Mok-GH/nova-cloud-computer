@@ -31,7 +31,7 @@ export async function getWorkspaceAgentConnection(ownerId: number): Promise<Work
   const nvidiaApiKey = workspaceAgentApiKey();
   if ((settings?.activeProvider === "nvidia-nim" || nvidiaApiKey) && nvidiaApiKey) {
     return {
-      model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.3",
+      model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.2",
       apiUrl: ENV.nvidiaNimApiUrl,
       apiKey: nvidiaApiKey,
     };

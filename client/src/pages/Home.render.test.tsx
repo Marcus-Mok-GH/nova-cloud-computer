@@ -24,7 +24,7 @@ describe("landing and sign-in render", () => {
   it("renders the Zo-style sign-in page", () => {
     const markup = renderToStaticMarkup(<SignIn />);
     expect(markup).toContain("Sign in to Nova.");
-    expect(markup).toContain("Email me a sign-in link");
+    expect(markup).toContain("Email me a sign-in code");
     expect(markup).toContain("you@example.com");
   });
 });

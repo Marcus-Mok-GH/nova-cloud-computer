@@ -134,7 +134,6 @@ const features = [
   { icon: Folder, title: "Files", copy: "Browse, edit, and organize your files on your own cloud computer. Folders, plain-text editing, and a clean home view — private by default." },
   { icon: MessageSquareText, title: "Chats", copy: "Every conversation with Nova is saved and searchable. Pick up where you left off, or revisit past work with full context." },
   { icon: ListChecks, title: "Rules", copy: "Teach Nova your preferences. Standing workspace rules shape how future assistant experiences behave." },
-  { icon: Cpu, title: "Model choice", copy: "Choose your AI: Anthropic, OpenAI, or Google Gemini — or connect your own compatible endpoint, encrypted at rest." },
   { icon: TerminalSquare, title: "Agent VM", copy: "Run explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked." },
   { icon: Gauge, title: "NVIDIA gateway", copy: "A protected server-to-server inference gateway for quick private responses, with a clear request allowance." },
   { icon: Send, title: "Telegram", copy: "Send messages and test notifications from your workspace through your own validated Telegram bot." },
@@ -274,7 +273,7 @@ export default function Home() {
             <p className="section-eyebrow">Chat with superpowers</p>
             <h2 className="section-title mt-3 text-4xl sm:text-5xl">Talk to your computer like a person.</h2>
             <p className="mt-5 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-              Nova is wherever you are: in the Space app, in saved conversations, and in Telegram. Pick your model, keep your context, and reach your files from a message.
+              Nova is wherever you are: in the Space app, in saved conversations, and in Telegram. Keep your context, and reach your files from a message.
             </p>
             <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#c2410c] dark:text-white dark:hover:text-[#fb923c]" onClick={enterNova}>Open a conversation <ArrowUpRight size={15} /></button>
           </div>
@@ -292,7 +291,7 @@ export default function Home() {
               <div className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 dark:border-white/10 dark:bg-neutral-900">
                 <Paperclip size={13} className="text-neutral-400" />
                 <span className="flex-1 truncate text-[13px] text-neutral-400">Ask Nova…</span>
-                <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">Claude</span>
+                
                 <button className="grid size-7 place-items-center rounded-full bg-[#c2410c] text-white" type="button" aria-label="Go"><ArrowUpRight size={13} /></button>
               </div>
             </div>
@@ -305,7 +304,7 @@ export default function Home() {
           <div className="mx-auto max-w-2xl text-center">
             <p className="section-eyebrow">Features</p>
             <h2 className="section-title mt-3 text-4xl sm:text-5xl">Everything your cloud computer can do.</h2>
-            <p className="mt-5 text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">Files, chats, model choices, agent tasks, and more — everything lives on one private computer.</p>
+            <p className="mt-5 text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">Files, chats, agent tasks, and more — everything lives on one private computer.</p>
           </div>
           <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {features.map(feature => (
@@ -323,7 +322,7 @@ export default function Home() {
         <div className="ribbon-track">
           {[0, 1].map(copy => (
             <div key={copy} className="flex items-center" aria-hidden={copy === 1}>
-              {["Files", "Chats", "Rules", "Model choice", "Agent VM", "NVIDIA gateway", "Telegram", "Deployments", "Private by design"].map(label => (
+              {["Files", "Chats", "Rules", "Agent VM", "NVIDIA gateway", "Telegram", "Deployments", "Private by design"].map(label => (
                 <span key={label} className="flex items-center gap-6 pr-6 text-xs font-bold uppercase tracking-[0.18em] text-neutral-400 dark:text-neutral-500"><Sparkles size={12} className="text-[#c2410c] dark:text-[#fb923c]" />{label}</span>
               ))}
             </div>
@@ -340,7 +339,7 @@ export default function Home() {
           </div>
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="item-1"><AccordionTrigger className="py-5 text-[15px] font-semibold">What exactly is a personal cloud computer?</AccordionTrigger><AccordionContent className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">It is a private workspace that gives your projects and working preferences a durable home. Nova begins by keeping those things together, so useful context does not vanish between applications.</AccordionContent></AccordionItem>
-            <AccordionItem value="item-2"><AccordionTrigger className="py-5 text-[15px] font-semibold">Which AI model can I choose?</AccordionTrigger><AccordionContent className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">You can save a workspace preference for Anthropic, OpenAI, or Google Gemini, and add any number of custom OpenAI-compatible or Anthropic-compatible endpoints. Model preferences are stored per workspace.</AccordionContent></AccordionItem>
+            
             <AccordionItem value="item-3"><AccordionTrigger className="py-5 text-[15px] font-semibold">How are custom API keys handled?</AccordionTrigger><AccordionContent className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">Nova encrypts a custom endpoint key before storing it and never displays the key again after submission. The saved model record only confirms that a key is present.</AccordionContent></AccordionItem>
             <AccordionItem value="item-4"><AccordionTrigger className="py-5 text-[15px] font-semibold">Can I begin with a small personal project?</AccordionTrigger><AccordionContent className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">That is a great place to begin. A notebook, an idea archive, or a small project hub can grow into a more capable personal workspace whenever you are ready.</AccordionContent></AccordionItem>
           </Accordion>

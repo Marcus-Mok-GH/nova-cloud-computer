@@ -10,6 +10,13 @@ const telegramCredentials = vi.fn(async () => undefined);
 const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
 const invoke = vi.fn();
 
+const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
+  activeProvider: "anthropic",
+  activeModelId: "claude-sonnet",
+  activeCustomModelId: null,
+  workspaceRules: null,
+}));
+
 vi.mock("./db", () => ({
   appendChatMessageForUser: append,
   createWorkspaceFileForUser: createFile,
@@ -20,6 +27,7 @@ vi.mock("./db", () => ({
   deleteWorkspaceFileForUser: deleteFile,
   deleteWorkspaceFolderForUser: deleteFolder,
   getTelegramCredentialsForUser: telegramCredentials,
+  getWorkspaceModelSettingsForUser,
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 

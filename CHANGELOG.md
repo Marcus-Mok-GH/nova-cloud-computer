@@ -13,6 +13,11 @@
 
 # Changelog
 
+## 2026-08-19 — AI renames chat title from first messages
+
+- `server/db.ts`: Added `updateChatForUser`.
+- `server/routers.ts`: Modified `chats.send` to use a placeholder title then generate a concise 3-6 word title via the LLM after the first assistant reply.
+
 ## 2026-08-19 — Fix streaming crash on null assistant content
 
 - `server/_core/llm.ts`: Fixed "Cannot read properties of undefined (reading 'type')" crash. `normalizeMessage` now handles assistant messages whose `content` is `null` (e.g. tool-call responses) by preserving them with empty content and their `tool_calls`, instead of passing `null` into `normalizeContentPart` which accessed `.type` on an undefined value.

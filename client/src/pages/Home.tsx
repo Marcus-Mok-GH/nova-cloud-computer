@@ -98,7 +98,6 @@ function SpaceMockup() {
             <div className="mock-composer">
               <Paperclip size={11} className="text-[#a3a3a3]" />
               <span className="flex-1 truncate text-[10px] text-[#a3a3a3]">Ask Nova…</span>
-              <span className="mock-model-chip">Claude <ChevronDown size={9} /></span>
               <button className="mock-go" type="button" aria-label="Go"><ArrowUpRight size={12} /></button>
             </div>
           </div>

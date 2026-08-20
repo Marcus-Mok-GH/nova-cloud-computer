@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getNeonAuthPathFromCatchall,
   getNeonAuthPathFromRequestUrl,
+  getRequestHeaders,
   normalizeProxiedSessionCookie,
 } from "./[...path]";
 
@@ -23,5 +24,11 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; Secure")).toBe(
       "session=value; Path=/; Secure",
     );
+  });
+
+  it("forwards browser bearer credentials to the protected API service", () => {
+    expect(getRequestHeaders({ authorization: "Bearer signed-neon-jwt" } as any)).toEqual({
+      authorization: "Bearer signed-neon-jwt",
+    });
   });
 });

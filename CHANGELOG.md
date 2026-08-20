@@ -25,6 +25,7 @@
 
 ## Unreleased
 
+- Fixed the Vercel API proxy dropping browser Authorization headers, which prevented OTP sign-in from confirming the newly established Neon session.
 - Fixed Vercel API-service response forwarding so streamed chat chunks are relayed correctly, increased chat function duration, and show the user's pending message immediately in the conversation UI.
 - Fixed OTP login handoff: Nova now obtains a signed Neon access token and verifies the first-party session before opening the workspace, preventing an immediate return to the sign-in screen.
 - Wrapped OTP session setup in `SignIn.tsx` with its own try/catch so token exchange, access-token fetch, and session refresh failures surface a session-specific error instead of the outer OTP verification error.

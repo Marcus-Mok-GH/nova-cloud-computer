@@ -7,9 +7,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { Folder, HardDrive, LogOut, MessageSquareText, Rocket, Search, Settings2, Sparkles } from "lucide-react";
+import { Folder, HardDrive, LogOut, MessageSquareText, Moon, Rocket, Search, Settings2, Sparkles, Sun } from "lucide-react";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -31,6 +32,7 @@ const mobileTabs = [
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const recentChats = (computer.data?.chats ?? []).slice(0, 4);
@@ -72,6 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-2 text-xs text-muted-foreground">{user.email}</div>
+            <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">{theme === "light" ? <Moon className="mr-2 size-4" /> : <Sun className="mr-2 size-4" />}Switch to {theme === "light" ? "dark" : "light"} theme</DropdownMenuItem>
             <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -145,6 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               <div className="px-2 py-2 text-xs text-muted-foreground">{user.email}</div>
+              <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">{theme === "light" ? <Moon className="mr-2 size-4" /> : <Sun className="mr-2 size-4" />}Switch to {theme === "light" ? "dark" : "light"} theme</DropdownMenuItem>
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

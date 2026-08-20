@@ -1,3 +1,7 @@
+## 2026-08-20 — Account menu: theme switcher and sign-out for logged-in users
+
+- `client/src/components/DashboardLayout.tsx`: The account avatar dropdown (mobile top bar and desktop sidebar) now shows a "Switch to dark/light theme" item above the existing Sign out option. Uses the `useTheme` hook from `ThemeContext`; the item reflects the current theme and toggles it via `toggleTheme`.
+
 ## 2026-08-19 — Remove remaining forge provider fallbacks
 
 - `server/workspaceAgent.ts`: Removed the dead `ENV.forgeApiKey` fallback from `getWorkspaceAgentConnection`. The agent now relies exclusively on NVIDIA NIM credentials when present.

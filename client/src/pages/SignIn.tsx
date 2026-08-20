@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { neonAuth } from "@/lib/neonAuth";
+import { exchangeNeonVerifierAndGetJwt, getNeonAccessToken, neonAuth } from "@/lib/neonAuth";
 import NovaMark from "@/components/NovaMark";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
@@ -7,7 +7,7 @@ import { Link, useLocation } from "wouter";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
 export default function SignIn() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, refresh } = useAuth();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -56,9 +56,15 @@ export default function SignIn() {
       });
       if (result.error) setError(result.error.message ?? "Nova could not verify that sign-in code.");
       else {
-        const session = await neonAuth.getSession();
-        if (session.data?.session) setLocation("/app");
-        else setError("Signed in, but Nova could not load your session. Please refresh.");
+        const token = await exchangeNeonVerifierAndGetJwt(neonAuth) ?? await getNeonAccessToken();
+        if (!token) {
+          setError("Your code was accepted, but Nova could not establish a secure session. Please try again.");
+          return;
+        }
+
+        const authentication = await refresh();
+        if (authentication.data) setLocation("/app");
+        else setError("Your code was accepted, but Nova could not confirm your session. Please try again.");
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Nova could not verify that sign-in code.");

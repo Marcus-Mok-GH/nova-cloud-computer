@@ -25,6 +25,7 @@
 
 ## Unreleased
 
+- Restored the proven post-OTP sign-in handoff from the pre-session-refresh implementation: Nova now checks Neon’s session directly and enters the workspace, rather than requiring a separate tRPC session confirmation before navigation.
 - Fixed the Vercel API proxy dropping browser Authorization headers, which prevented OTP sign-in from confirming the newly established Neon session.
 - Fixed Vercel API-service response forwarding so streamed chat chunks are relayed correctly, increased chat function duration, and show the user's pending message immediately in the conversation UI.
 - Fixed OTP login handoff: Nova now obtains a signed Neon access token and verifies the first-party session before opening the workspace, preventing an immediate return to the sign-in screen.

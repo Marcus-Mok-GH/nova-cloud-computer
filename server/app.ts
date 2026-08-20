@@ -93,6 +93,7 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
 
     const reader = response.body?.getReader();
     if (!reader) {

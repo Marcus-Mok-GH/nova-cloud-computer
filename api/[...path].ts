@@ -44,7 +44,7 @@ export function normalizeProxiedSessionCookie(cookie: string) {
   return cookie.replace(/;\s*domain=[^;]+/giu, "");
 }
 
-function forwardUpstreamResponse(upstream: Response, res: VercelResponse) {
+export function forwardUpstreamResponse(upstream: Response, res: VercelResponse) {
   for (const name of RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
     if (value) res.setHeader(name, value);
@@ -53,7 +53,7 @@ function forwardUpstreamResponse(upstream: Response, res: VercelResponse) {
   if (cookies.length) res.setHeader("set-cookie", cookies.map(normalizeProxiedSessionCookie));
 }
 
-async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: string) {
+export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: string) {
   const baseUrl = process.env.NEON_AUTH_BASE_URL;
   if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
 
@@ -75,7 +75,7 @@ async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: stri
   }
 }
 
-async function proxyApiService(req: VercelRequest, res: VercelResponse, apiServiceUrl: string) {
+export async function proxyApiService(req: VercelRequest, res: VercelResponse, apiServiceUrl: string) {
   const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
   const targetUrl = `${apiServiceUrl}${requestUrl.pathname}${requestUrl.search}`;
 

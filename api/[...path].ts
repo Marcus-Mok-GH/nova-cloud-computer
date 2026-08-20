@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const { app } = require("../dist/server/app.cjs") as typeof import("../server/app");
 
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
-const REQUEST_HEADERS = ["accept", "accept-language", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
+const REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
 
 export function getNeonAuthPathFromCatchall(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
@@ -18,7 +18,7 @@ export function getNeonAuthPathFromRequestUrl(requestUrl: string | undefined) {
   return getNeonAuthPathFromCatchall(pathname.replace(/^\/api\/?/u, ""));
 }
 
-function getRequestHeaders(headers: VercelRequest["headers"]) {
+export function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
     const value = headers[name];

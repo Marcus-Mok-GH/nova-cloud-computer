@@ -26,6 +26,9 @@
 ## Unreleased
 
 - Fixed Vercel API-service response forwarding so streamed chat chunks are relayed correctly, increased chat function duration, and show the user's pending message immediately in the conversation UI.
+- Fixed OTP login handoff: Nova now obtains a signed Neon access token and verifies the first-party session before opening the workspace, preventing an immediate return to the sign-in screen.
+- Wrapped OTP session setup in `SignIn.tsx` with its own try/catch so token exchange, access-token fetch, and session refresh failures surface a session-specific error instead of the outer OTP verification error.
+- Updated workspace chat streaming completion paths in `Workspace.tsx` so `refreshMessages` completes before `isStreaming` is cleared, and `pendingUserContent` is cleared only after the associated message refresh succeeds, preventing stale refetches from clearing newer pending content.
 
 ## 2026-08-19 — Fix default NVIDIA NIM model to GLM 5.2
 

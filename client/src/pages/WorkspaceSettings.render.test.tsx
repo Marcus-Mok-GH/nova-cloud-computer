@@ -24,13 +24,11 @@ vi.mock("@/lib/trpc", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 describe("Workspace settings page", () => {
-  it("renders workspace rules without model selector or Codebuff planner controls", () => {
+  it("renders workspace rules without removed Codebuff planner controls", () => {
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("How Nova should help");
     expect(markup).toContain("Telegram Bot");
-    expect(markup).not.toContain("Choose a model home");
-    expect(markup).not.toContain("Bring your own model");
     expect(markup).not.toContain("Codebuff");
     expect(markup).not.toContain("codebuff-api-key");
   });

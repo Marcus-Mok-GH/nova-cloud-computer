@@ -8,6 +8,10 @@
 
 - `client/src/components/DashboardLayout.tsx`: The account avatar dropdown (mobile top bar and desktop sidebar) now shows a "Switch to dark/light theme" item above the existing Sign out option. Uses the `useTheme` hook from `ThemeContext`; the item reflects the current theme and toggles it via `toggleTheme`.
 
+## 2026-08-20 — Refactor: simplify proxy helpers and trim dead code
+
+- `api/[...path].ts` extracted `forwardUpstreamResponse()` to deduplicate response-header and cookie-normalization logic; `client/src/components/AIChatBox.tsx` removed verbose `@example` JSDoc block; `client/src/pages/WorkspaceSettings.render.test.tsx` removed two dead assertions for already-removed model-selector strings and updated test name.
+
 ## 2026-08-19 — Remove remaining forge provider fallbacks
 
 - `server/workspaceAgent.ts`: Removed the dead `ENV.forgeApiKey` fallback from `getWorkspaceAgentConnection`. The agent now relies exclusively on NVIDIA NIM credentials when present.

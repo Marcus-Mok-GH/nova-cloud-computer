@@ -56,15 +56,19 @@ export default function SignIn() {
       });
       if (result.error) setError(result.error.message ?? "Nova could not verify that sign-in code.");
       else {
-        const token = await exchangeNeonVerifierAndGetJwt(neonAuth) ?? await getNeonAccessToken();
-        if (!token) {
-          setError("Your code was accepted, but Nova could not establish a secure session. Please try again.");
-          return;
-        }
+        try {
+          const token = await exchangeNeonVerifierAndGetJwt(neonAuth) ?? await getNeonAccessToken();
+          if (!token) {
+            setError("Your code was accepted, but Nova could not establish a secure session. Please try again.");
+            return;
+          }
 
-        const authentication = await refresh();
-        if (authentication.data) setLocation("/app");
-        else setError("Your code was accepted, but Nova could not confirm your session. Please try again.");
+          const authentication = await refresh();
+          if (authentication.data) setLocation("/app");
+          else setError("Your code was accepted, but Nova could not confirm your session. Please try again.");
+        } catch (sessionError) {
+          setError(sessionError instanceof Error ? sessionError.message : "Nova could not complete your session setup. Please try again.");
+        }
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Nova could not verify that sign-in code.");

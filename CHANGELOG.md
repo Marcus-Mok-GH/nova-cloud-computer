@@ -1,3 +1,9 @@
+## 2026-08-20 — Fix: workspace data showing "-" after persistent-sandbox feature
+
+- Root cause: `drizzle/neon/0009_add_nvidia_nim_to_model_provider.sql` and `0010_add_persistent_sandbox_id.sql` were added in e67ce55 but never registered in `drizzle/neon/meta/_journal.json`, so `drizzle-kit migrate` skipped them and the production `workspaces` table was missing `persistentSandboxId`. Every workspace query then failed with "column ... does not exist", leaving the home dashboard showing "-" for folders/files.
+- Applied migrations 0009 and 0010 directly against the production Neon database (verified: `persistentSandboxId` column present, `model_provider` enum includes `nvidia-nim`, workspace select succeeds).
+- `drizzle/neon/meta/_journal.json`: registered both migrations so future Vercel build deployments track them as applied.
+
 ## 2026-08-20 — Account menu: theme switcher and sign-out for logged-in users
 
 - `client/src/components/DashboardLayout.tsx`: The account avatar dropdown (mobile top bar and desktop sidebar) now shows a "Switch to dark/light theme" item above the existing Sign out option. Uses the `useTheme` hook from `ThemeContext`; the item reflects the current theme and toggles it via `toggleTheme`.

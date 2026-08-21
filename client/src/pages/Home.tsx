@@ -196,7 +196,7 @@ export default function Home() {
             <button className="pill-btn pill-btn-primary" onClick={enterNova}>Sign up <ArrowRight size={16} /></button>
             <button className="pill-btn pill-btn-ghost" onClick={() => scrollToSection("product")}>See your space <ChevronDown size={15} /></button>
           </div>
-          <p className="rise-in-delay-3 mt-5 inline-flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"><Check size={13} className="text-[#c2410c] dark:text-[#fb923c]" /> No credit card required</p>
+          <p className="rise-in-delay-3 mt-5 inline-flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"><Check size={13} className="text-[#f97316] dark:text-[#fb923c]" /> No credit card required</p>
         </div>
 
         <div className="relative mx-auto max-w-6xl px-5 pb-28" id="product">
@@ -217,12 +217,12 @@ export default function Home() {
             <p className="mt-5 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               Your Nova comes with a private workspace for documents, notes, images, and projects — organized by you, or handed to Nova with one sentence.
             </p>
-            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#c2410c] dark:text-white dark:hover:text-[#fb923c]" onClick={() => scrollToSection("features")}>Explore Files <ArrowUpRight size={15} /></button>
+            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#f97316] dark:text-white dark:hover:text-[#fb923c]" onClick={() => scrollToSection("features")}>Explore Files <ArrowUpRight size={15} /></button>
           </div>
           <div className="mock-window float-slower">
             <div className="mock-chrome"><span className="mock-dot orange" /><span className="mock-dot" /><span className="mock-dot" /><span className="mock-url"><Folder size={10} /> Files</span></div>
             <div className="p-6">
-              <div className="mb-5 flex items-center justify-between"><span className="text-sm font-semibold text-neutral-900 dark:text-white">Home</span><button className="rounded-full bg-[#c2410c] px-3.5 py-1.5 text-xs font-semibold text-white" type="button"><Plus size={11} className="mr-1 inline" />Add</button></div>
+              <div className="mb-5 flex items-center justify-between"><span className="text-sm font-semibold text-neutral-900 dark:text-white">Home</span><button className="rounded-full bg-[#f97316] px-3.5 py-1.5 text-xs font-semibold text-white" type="button"><Plus size={11} className="mr-1 inline" />Add</button></div>
               <div className="grid grid-cols-2 gap-3">
                 {mockFiles.map(file => (
                   <div key={file.name} className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 dark:border-white/10 dark:bg-neutral-900">
@@ -248,7 +248,7 @@ export default function Home() {
                   { title: "Website uptime check", detail: "Hourly", state: "Runs automatically" },
                 ].map(row => (
                   <div key={row.title} className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-                    <span className="grid size-9 place-items-center rounded-full bg-[#c2410c]/10 text-[#c2410c] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><Zap size={15} /></span>
+                    <span className="grid size-9 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><Zap size={15} /></span>
                     <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-neutral-900 dark:text-white">{row.title}</span><span className="block text-xs text-neutral-500 dark:text-neutral-400">{row.detail}</span></span>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><span className="size-1.5 rounded-full bg-emerald-500" />{row.state}</span>
                   </div>
@@ -262,7 +262,7 @@ export default function Home() {
             <p className="mt-5 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               Nova's agent VM handles explicit tasks in a private sandbox, and workspace rules keep the important boundaries where you put them. Your computer keeps working while you don't.
             </p>
-            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#c2410c] dark:text-white dark:hover:text-[#fb923c]" onClick={() => scrollToSection("features")}>Explore Automations <ArrowUpRight size={15} /></button>
+            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#f97316] dark:text-white dark:hover:text-[#fb923c]" onClick={() => scrollToSection("features")}>Explore Automations <ArrowUpRight size={15} /></button>
           </div>
         </div>
       </section>
@@ -275,14 +275,14 @@ export default function Home() {
             <p className="mt-5 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               Nova is wherever you are: in the Space app, in saved conversations, and in Telegram. Keep your context, and reach your files from a message.
             </p>
-            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#c2410c] dark:text-white dark:hover:text-[#fb923c]" onClick={enterNova}>Open a conversation <ArrowUpRight size={15} /></button>
+            <button className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-neutral-950 transition-colors hover:text-[#f97316] dark:text-white dark:hover:text-[#fb923c]" onClick={enterNova}>Open a conversation <ArrowUpRight size={15} /></button>
           </div>
           <div className="mock-window float-slower">
             <div className="mock-chrome"><span className="mock-dot orange" /><span className="mock-dot" /><span className="mock-dot" /><span className="mock-url"><MessageSquareText size={10} /> Chat</span></div>
             <div className="space-y-3 p-6">
               <div className="flex justify-end"><div className="max-w-[80%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-[13px] leading-relaxed text-white dark:bg-white dark:text-neutral-950">What did my team change in the launch brief?</div></div>
               <div className="flex items-start gap-2.5">
-                <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#c2410c]/10 text-[#c2410c] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><Bot size={13} /></span>
+                <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><Bot size={13} /></span>
                 <div>
                   <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Nova App</p>
                   <div className="max-w-full rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-[13px] leading-relaxed text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">Three edits since Monday — pricing, timeline, and the Q3 goal. I dropped a summary into the project folder.</div>
@@ -292,7 +292,7 @@ export default function Home() {
                 <Paperclip size={13} className="text-neutral-400" />
                 <span className="flex-1 truncate text-[13px] text-neutral-400">Ask Nova…</span>
                 
-                <button className="grid size-7 place-items-center rounded-full bg-[#c2410c] text-white" type="button" aria-label="Go"><ArrowUpRight size={13} /></button>
+                <button className="grid size-7 place-items-center rounded-full bg-[#f97316] text-white" type="button" aria-label="Go"><ArrowUpRight size={13} /></button>
               </div>
             </div>
           </div>
@@ -309,7 +309,7 @@ export default function Home() {
           <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {features.map(feature => (
               <article key={feature.title} className="feature-card group">
-                <span className="grid size-10 place-items-center rounded-xl bg-[#c2410c]/10 text-[#c2410c] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><feature.icon size={18} /></span>
+                <span className="grid size-10 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><feature.icon size={18} /></span>
                 <h3 className="mt-4 text-[15px] font-bold tracking-tight text-neutral-950 dark:text-white">{feature.title}</h3>
                 <p className="mt-2 text-[13px] leading-relaxed text-neutral-500 dark:text-neutral-400">{feature.copy}</p>
               </article>
@@ -323,7 +323,7 @@ export default function Home() {
           {[0, 1].map(copy => (
             <div key={copy} className="flex items-center" aria-hidden={copy === 1}>
               {["Files", "Chats", "Rules", "Agent VM", "NVIDIA gateway", "Telegram", "Deployments", "Private by design"].map(label => (
-                <span key={label} className="flex items-center gap-6 pr-6 text-xs font-bold uppercase tracking-[0.18em] text-neutral-400 dark:text-neutral-500"><Sparkles size={12} className="text-[#c2410c] dark:text-[#fb923c]" />{label}</span>
+                <span key={label} className="flex items-center gap-6 pr-6 text-xs font-bold uppercase tracking-[0.18em] text-neutral-400 dark:text-neutral-500"><Sparkles size={12} className="text-[#f97316] dark:text-[#fb923c]" />{label}</span>
               ))}
             </div>
           ))}
@@ -348,8 +348,8 @@ export default function Home() {
 
       <section className="mx-auto max-w-6xl px-5 pb-28" id="pricing">
         <div className="relative overflow-hidden rounded-3xl bg-neutral-950 px-6 py-20 text-center dark:bg-neutral-900">
-          <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[#c2410c]/25 blur-3xl" aria-hidden="true" />
-          <div className="absolute -bottom-28 -left-16 size-72 rounded-full bg-[#c2410c]/15 blur-3xl" aria-hidden="true" />
+          <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[#f97316]/25 blur-3xl" aria-hidden="true" />
+          <div className="absolute -bottom-28 -left-16 size-72 rounded-full bg-[#f97316]/15 blur-3xl" aria-hidden="true" />
           <div className="relative">
             <p className="section-eyebrow text-[#fb923c]">A space that remembers you</p>
             <h2 className="mx-auto mt-4 max-w-2xl text-4xl font-extrabold tracking-tight text-white sm:text-5xl">Start where you are. Keep your context.</h2>

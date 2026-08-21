@@ -5,11 +5,15 @@ type TelegramConfig = { token: string; chatId: string | null; botUsername: strin
 const telegramConfigs = new Map<number, TelegramConfig>();
 const validate = vi.fn(async () => ({ id: "1", username: "nova_test_bot", displayName: "Nova Test" }));
 const discover = vi.fn(async () => "-10044");
+const setWebhook = vi.fn(async () => ({ result: true }));
+const getWebhookInfo = vi.fn(async () => ({ url: "https://nova-cloud-computer-server-marcusmok.zocomputer.io/api/telegram/webhook/123456:private-bot-token", has_custom_certificate: false, pending_update_count: 0 }));
 const send = vi.fn(async () => ({ message_id: 77 }));
 
 function safe(ownerId: number) {
   const config = telegramConfigs.get(ownerId);
-  return config ? { configured: true as const, chatId: config.chatId, botUsername: config.botUsername, botDisplayName: config.botDisplayName } : { configured: false as const, chatId: null, botUsername: null, botDisplayName: null };
+  return config
+    ? { configured: true as const, chatId: config.chatId, botUsername: config.botUsername, botDisplayName: config.botDisplayName, webhook: { linked: true, url: "https://nova-cloud-computer-server-marcusmok.zocomputer.io/api/telegram/webhook/123456:private-bot-token" } }
+    : { configured: false as const, chatId: null, botUsername: null, botDisplayName: null, webhook: { linked: false, url: null } };
 }
 
 vi.mock("./db", () => ({
@@ -27,7 +31,7 @@ vi.mock("./db", () => ({
   getOrCreateWorkspace: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
 }));
-vi.mock("./telegram", () => ({ validateTelegramBotToken: validate, discoverTelegramChat: discover, sendTelegramMessage: send }));
+vi.mock("./telegram", () => ({ validateTelegramBotToken: validate, discoverTelegramChat: discover, sendTelegramMessage: send, setTelegramWebhook: setWebhook, getTelegramWebhookInfo: getWebhookInfo }));
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 const { appRouter } = await import("./routers");
 
@@ -42,9 +46,8 @@ describe("Telegram protected router", () => {
     const owner = appRouter.createCaller(context(1));
     const result = await owner.telegram.configure({ botToken: "123456:private-bot-token", chatId: "42" });
     expect(validate).toHaveBeenCalledWith("123456:private-bot-token");
-    expect(result).toEqual({ configured: true, chatId: "42", botUsername: "nova_test_bot", botDisplayName: "Nova Test" });
-    expect(JSON.stringify(result)).not.toContain("private-bot-token");
-    expect(await owner.telegram.status()).toEqual(result);
+    expect(result).toEqual({ success: true, webhookUrl: expect.stringContaining("/api/telegram/webhook/123456%3Aprivate-bot-token"), chatId: "42", botUsername: "nova_test_bot" });
+    expect(await owner.telegram.status()).toMatchObject({ configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } });
   });
 
   it("scopes discovery, test delivery, and removal to the authenticated owner", async () => {

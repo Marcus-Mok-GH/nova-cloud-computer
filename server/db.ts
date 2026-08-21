@@ -38,6 +38,7 @@ import {
   agentVmRuns,
   automations,
   automationRuns,
+  domainVerifications,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { getDaytonaClient } from "./daytona";
@@ -832,4 +833,36 @@ export async function findWorkspaceOwnerByTelegramToken(token: string) {
     }
   }
   return null;
+}
+
+export async function getDomainVerificationStatus(domain: string) {
+  const db = await requireDb();
+  const [record] = await db.select().from(domainVerifications).where(eq(domainVerifications.domain, domain)).limit(1);
+  return record ?? null;
+}
+
+export async function upsertDomainVerification(input: { domain: string; verificationToken: string; dnsRecordName: string; status?: string }) {
+  const db = await requireDb();
+  const [record] = await db.insert(domainVerifications).values({
+    domain: input.domain,
+    verificationToken: input.verificationToken,
+    dnsRecordName: input.dnsRecordName,
+    status: input.status ?? "pending",
+  }).onConflictDoUpdate({
+    target: domainVerifications.domain,
+    set: {
+      verificationToken: input.verificationToken,
+      dnsRecordName: input.dnsRecordName,
+      status: input.status ?? "pending",
+      checkedAt: null,
+      updatedAt: new Date(),
+    },
+  }).returning();
+  return record ?? null;
+}
+
+export async function markDomainVerificationStatus(domain: string, status: string) {
+  const db = await requireDb();
+  const [updated] = await db.update(domainVerifications).set({ status, checkedAt: new Date(), updatedAt: new Date() }).where(eq(domainVerifications.domain, domain)).returning();
+  return updated ?? null;
 }

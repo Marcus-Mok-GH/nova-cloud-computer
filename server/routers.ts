@@ -39,6 +39,9 @@ import {
   setAutomationScheduleTaskForUser,
   updateAutomationForUser,
   updateChatForUser,
+  getDomainVerificationStatus,
+  upsertDomainVerification,
+  markDomainVerificationStatus,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
@@ -50,6 +53,7 @@ import { invokeLLM } from "./_core/llm";
 import { discoverTelegramChat, sendTelegramMessage, setTelegramWebhook, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { ENV } from "./_core/env";
 
 const projectInput = z.object({
   name: z.string().trim().min(1, "A project needs a name.").max(160),
@@ -373,6 +377,43 @@ export const appRouter = router({
       const deleted = await deleteTaskForUser(ctx.user.id, input.id);
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That task is not available in your Nova space." });
       return { success: true } as const;
+    }),
+  }),
+  deployments: router({
+    getDomainVerification: protectedProcedure.input(z.object({ domain: z.string().trim().min(1).max(256) })).query(async ({ ctx, input }) => {
+      const record = await getDomainVerificationStatus(input.domain);
+      return record;
+    }),
+    generateDomainVerificationToken: protectedProcedure.input(z.object({ domain: z.string().trim().min(1).max(256), dnsRecordName: z.string().trim().min(1).max(256) })).mutation(async ({ ctx, input }) => {
+      const token = `strix-verify-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const record = await upsertDomainVerification({
+        domain: input.domain,
+        verificationToken: token,
+        dnsRecordName: input.dnsRecordName,
+        status: "pending",
+      });
+      return record;
+    }),
+    checkDomainVerification: protectedProcedure.input(z.object({ domain: z.string().trim().min(1).max(256) })).mutation(async ({ ctx, input }) => {
+      const record = await getDomainVerificationStatus(input.domain);
+      if (!record) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No verification request found for this domain." });
+      }
+      // Simple DNS check via Google DNS over HTTPS
+      const qname = record.dnsRecordName.endsWith(".") ? record.dnsRecordName : `${record.dnsRecordName}.`;
+      const url = `https://dns.google/resolve?name=${encodeURIComponent(qname)}&type=TXT`;
+      let verified = false;
+      try {
+        const res = await fetch(url, { headers: { accept: "application/dns-json" } });
+        const data = (await res.json()) as { Answer?: Array<{ data: string }> };
+        const answers = data.Answer ?? [];
+        verified = answers.some(answer => answer.data.includes(record.verificationToken));
+      } catch {
+        verified = false;
+      }
+      const status = verified ? "verified" : "pending";
+      const updated = await markDomainVerificationStatus(input.domain, status);
+      return { verified, status: updated?.status ?? status, token: record.verificationToken, dnsRecordName: record.dnsRecordName };
     }),
   }),
 });

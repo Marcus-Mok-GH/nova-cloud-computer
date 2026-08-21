@@ -205,6 +205,23 @@ export const automationRuns = pgTable("automation_runs", {
   index("automation_runs_owner_created_idx").on(table.ownerId, table.createdAt),
 ]);
 
+/** Domain verification records for external services like Strix. */
+export const domainVerifications = pgTable("domain_verifications", {
+  id: serial("id").primaryKey(),
+  domain: varchar("domain", { length: 256 }).notNull(),
+  verificationToken: varchar("verificationToken", { length: 256 }).notNull(),
+  dnsRecordName: varchar("dnsRecordName", { length: 256 }).notNull(),
+  status: varchar("status", { length: 32 }).default("pending").notNull(),
+  checkedAt: timestamp("checkedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("domain_verifications_domain_unique").on(table.domain),
+]);
+
+export type DomainVerification = typeof domainVerifications.$inferSelect;
+export type InsertDomainVerification = typeof domainVerifications.$inferInsert;
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Task = typeof tasks.$inferSelect;

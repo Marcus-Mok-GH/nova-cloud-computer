@@ -1,3 +1,26 @@
+## 2026-08-21 — Add README documenting the codebase and Vercel deployment
+
+- Added `README.md` describing the app, architecture, tech stack, repository layout, key modules, data model, env vars, and build/test scripts.
+- Clarified that the production deployment is Vercel (`https://nova-cloud-computer.vercel.app`) and that the repo must not be deployed as a Zo service.
+
+## 2026-08-21 — Add /start handler to Telegram webhook
+
+- `server/app.ts`: `/api/telegram/webhook/:token` now replies to `/start` (or `start`) with a welcome start message and skips the agent.
+
+## 2026-08-21 — Add inbound Telegram webhook for nova-cloud-computer
+## 2026-08-21 — Force default Telegram bot and add Start button
+
+- `server/_core/env.ts`: Added `defaultTelegramBotToken` from `DEFAULT_TELEGRAM_BOT_TOKEN`.
+- `server/db.ts`: `getTelegramSettingsForUser()` and `getTelegramCredentialsForUser()` now fall back to the default bot profile/token when a workspace has no saved Telegram settings.
+- `server/routers.ts`: `telegram.configure` now accepts an optional `botToken`; when omitted it uses the server default. After saving, it calls Telegram `setWebhook` so inbound updates route to `/api/telegram/webhook/:token`.
+- `server/app.ts`: Added `/api/telegram/webhook/:token` POST handler that maps updates to the workspace owner, creates a Telegram chat if needed, runs `runWorkspaceAgent`, and replies via Telegram.
+- `client/src/pages/WorkspaceSettings.tsx`: Added a Start button that opens the default bot (`https://t.me/<botUsername>?start=`) when a bot username is available.
+
+
+- `server/db.ts`: Added `findWorkspaceOwnerByTelegramToken()` so inbound Telegram updates can be mapped back to a Nova workspace owner.
+- `server/app.ts`: Added `/api/telegram/webhook/:token` POST route. It verifies the token, finds the owner, creates or reuses a Nova chat for the Telegram chat, runs `runWorkspaceAgent`, and sends the assistant reply back through Telegram.
+- Built and deployed to the running Nova server so the Vercel-fronted endpoint accepts Telegram updates.
+
 ## 2026-08-20 — Fix: workspace data showing "-" after persistent-sandbox feature
 
 - Root cause: `drizzle/neon/0009_add_nvidia_nim_to_model_provider.sql` and `0010_add_persistent_sandbox_id.sql` were added in e67ce55 but never registered in `drizzle/neon/meta/_journal.json`, so `drizzle-kit migrate` skipped them and the production `workspaces` table was missing `persistentSandboxId`. Every workspace query then failed with "column ... does not exist", leaving the home dashboard showing "-" for folders/files.

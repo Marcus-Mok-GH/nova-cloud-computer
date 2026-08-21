@@ -19,7 +19,9 @@
 
 - `server/db.ts`: Added `findWorkspaceOwnerByTelegramToken()` so inbound Telegram updates can be mapped back to a Nova workspace owner.
 - `server/app.ts`: Added `/api/telegram/webhook/:token` POST route. It verifies the token, finds the owner, creates or reuses a Nova chat for the Telegram chat, runs `runWorkspaceAgent`, and sends the assistant reply back through Telegram.
-- Built and deployed to the running Nova server so the Vercel-fronted endpoint accepts Telegram updates.## 2026-08-20 — Fix: workspace data showing "-" after persistent-sandbox feature
+- Built and deployed to the running Nova server so the Vercel-fronted endpoint accepts Telegram updates.
+
+## 2026-08-20 — Fix: workspace data showing "-" after persistent-sandbox feature
 
 - Root cause: `drizzle/neon/0009_add_nvidia_nim_to_model_provider.sql` and `0010_add_persistent_sandbox_id.sql` were added in e67ce55 but never registered in `drizzle/neon/meta/_journal.json`, so `drizzle-kit migrate` skipped them and the production `workspaces` table was missing `persistentSandboxId`. Every workspace query then failed with "column ... does not exist", leaving the home dashboard showing "-" for folders/files.
 - Applied migrations 0009 and 0010 directly against the production Neon database (verified: `persistentSandboxId` column present, `model_provider` enum includes `nvidia-nim`, workspace select succeeds).

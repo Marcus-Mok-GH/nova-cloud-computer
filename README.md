@@ -35,9 +35,12 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │  (Drizzle ORM)    │          │  • NVIDIA NIM (OpenAI-compat)│
 │  workspaces,      │          │  • Daytona sandbox VMs       │
 │  chats, files,    │          │  • GitHub Actions runners    │
-│  automations,     │          │  • S3 object storage         │
-│  projects, tasks   │          └────────────────────────────┘
+│  automations,     │          └────────────────────────────┘
+│  projects, tasks   │
 └───────────────────┘
+
+        Object storage:
+        • S3 (workspace files, exports)
 ```
 
 - **Client** — React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
@@ -118,7 +121,7 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | --- | --- |
 | `DATABASE_URL` | Neon Postgres connection string |
 | `NVIDIA_NIM_API_KEY` | NVIDIA NIM credential for the agent LLM |
-| `NVIDIA_GATEWAY_URL` | NVIDIA gateway URL |
+| `NVIDIA_NIM_API_URL` | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`) |
 | `OAUTH_SERVER_URL` | Neon auth / OAuth server URL |
 | `NEON_AUTH_BASE_URL` | Neon auth base URL |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks |

@@ -31,3 +31,25 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
 export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch) {
   return telegramRequest<{ message_id: number }>(token, "sendMessage", { chat_id: chatId, text, disable_web_page_preview: true }, fetchImpl);
 }
+
+export async function setTelegramWebhook(token: string, webhookUrl: string, fetchImpl: typeof fetch = fetch) {
+  return telegramRequest<{ result: boolean; description?: string }>(token, "setWebhook", { url: webhookUrl, allowed_updates: ["message"] }, fetchImpl);
+}
+
+export type TelegramWebhookInfo = {
+  url: string | null;
+  hasCustomCertificate: boolean;
+  pendingUpdateCount: number;
+  lastErrorDate: number | null;
+  lastErrorMessage: string | null;
+  lastSynchronizationErrorDate: number | null;
+  lastSynchronizationErrorMessage: string | null;
+  maxConnections: number | null;
+  ipAddress: string | null;
+  allowedUpdates: string[] | null;
+};
+
+export async function getTelegramWebhookInfo(token: string, fetchImpl: typeof fetch = fetch): Promise<TelegramWebhookInfo> {
+  const result = await telegramRequest<TelegramWebhookInfo>(token, "getWebhookInfo", {}, fetchImpl);
+  return result;
+}

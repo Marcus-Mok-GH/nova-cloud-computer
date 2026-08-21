@@ -6,6 +6,8 @@ import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
 import {
   appendChatMessageForUser,
+  createChatForUser,
+  findWorkspaceOwnerByTelegramToken,
   getWorkspaceComputer,
   listChatMessagesForUser,
   updateChatForUser,
@@ -213,3 +215,55 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
 });
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));
+
+app.post("/api/telegram/webhook/:token", async (req: express.Request, res: express.Response) => {
+  try {
+    const token = req.params.token;
+    if (!token) return res.status(400).json({ error: "missing-token" });
+
+    const update = req.body;
+    const message = update.message ?? update.channel_post;
+    if (!message?.text) return res.status(200).json({ ok: true, skipped: "no-text" });
+
+    const chatId = String(message.chat.id);
+    const text = message.text.trim();
+    if (!text) return res.status(200).json({ ok: true, skipped: "empty-text" });
+
+    const ownerId = await findWorkspaceOwnerByTelegramToken(token);
+    if (!ownerId) return res.status(404).json({ error: "bot-not-configured" });
+
+    // Handle /start: reply with a start message and do not run the agent.
+    if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {
+      // If the user came through the app's deep link, mark the chat as linked.
+      const isAppLink = text.toLowerCase().includes("nova_app_link") || text.toLowerCase().startsWith("/start nova_app_link");
+      if (isAppLink) {
+        await import("./db").then(m => m.updateTelegramChatForUser(ownerId, chatId));
+      }
+      const startMessage =
+        "👋 Welcome to Nova Cloud Computer!\n\n" +
+        "I'm your AI assistant inside this workspace. You can ask me to:\n" +
+        "• Create, rename, move, or delete files\n" +
+        "• Run a VM or sandbox when you ask\n" +
+        "• Send Telegram messages on your behalf\n\n" +
+        (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started.");
+      await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, startMessage));
+      return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
+    }
+
+    const chats = await import("./db").then(m => m.listChatsForUser(ownerId));
+    let chat = chats.find(c => c.title === `Telegram ${chatId}` || c.title === chatId);
+    if (!chat) {
+      const created = await import("./db").then(m => m.createChatForUser(ownerId, `Telegram ${chatId}`));
+      chat = created;
+    }
+
+    const result = await runWorkspaceAgent(ownerId, chat.id, text);
+    const reply = String(result.message?.content ?? "I’m ready to help with this workspace.");
+    await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));
+
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("[Telegram webhook] failed", error);
+    return res.status(500).json({ error: "webhook-failed" });
+  }
+});

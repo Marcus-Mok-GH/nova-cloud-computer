@@ -490,7 +490,8 @@ export async function getTelegramSettingsForUser(ownerId: number) {
     let webhook: { linked: boolean; url: string | null } | null = null;
     try {
       const info = await getTelegramWebhookInfo(token);
-      webhook = { linked: Boolean(info.url), url: info.url ?? null };
+      const safeUrl = scrubTelegramWebhookUrl(info.url ?? null);
+      webhook = { linked: Boolean(safeUrl), url: safeUrl };
     } catch {
       webhook = { linked: false, url: null };
     }

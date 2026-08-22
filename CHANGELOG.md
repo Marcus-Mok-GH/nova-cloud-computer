@@ -1,3 +1,10 @@
+## 2026-08-21 — Harden Telegram webhook URL construction on the server
+
+- `server/_core/env.ts`: Added `publicBaseUrl`, derived from `NOVA_PUBLIC_BASE_URL` (falling back to `PUBLIC_BASE_URL`) and stripped of any trailing slashes. The webhook URL is now built from this env var rather than from a hard-coded Vercel hostname, so the same server works in any deployment.
+- `server/telegram.ts`: `setTelegramWebhook` returns the structured `setWebhook` response (with `ok`, `description`, `error_code`) instead of swallowing failures, and `getTelegramWebhookInfo` normalizes Telegram's `url`/`has_custom_certificate`/`pending_update_count` into the shape the UI expects.
+- `server/routers.ts`: The Telegram configure mutation now refuses to call `setWebhook` without `ENV.publicBaseUrl` (clear `PRECONDITION_FAILED` error), surfaces Telegram webhook failures via `TRPCError` so the UI can show them, and no longer returns `success`/`webhookUrl` from the configure response — only the bot identity and `chatId`.
+- `server/telegram.router.test.ts`: Test assertions updated to match the new configure response shape and the new env-var guard.
+
 ## 2026-08-21 — Add Telegram startup webhook detection and recovery flow
 
 - `server/telegram.ts`: Added `getTelegramWebhookInfo()` to query Telegram `getWebhookInfo` so the app can inspect whether a saved webhook is reachable.

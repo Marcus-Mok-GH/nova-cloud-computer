@@ -13,4 +13,6 @@ export const ENV = {
   modelCredentialSecret: process.env.MODEL_CREDENTIAL_SECRET ?? process.env.POSTGRES_PASSWORD ?? process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
   defaultTelegramBotToken: process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "",
+  /** Public base URL used to construct the Telegram webhook endpoint. Configure in the deployment environment (e.g. NOVA_PUBLIC_BASE_URL=https://nova-cloud-computer-server-marcusmok.zocomputer.io). */
+  publicBaseUrl: (process.env.NOVA_PUBLIC_BASE_URL ?? process.env.PUBLIC_BASE_URL ?? "").trim().replace(/\/+$/, ""),
 };

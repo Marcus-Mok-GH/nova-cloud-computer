@@ -41,8 +41,21 @@ export async function sendTelegramMessage(token: string, chatId: string, text: s
 }
 
 export async function setTelegramWebhook(token: string, webhookUrl: string, fetchImpl: typeof fetch = fetch) {
-  return telegramRequest<{ result: boolean; description?: string }>(token, "setWebhook", { url: webhookUrl, allowed_updates: ["message"] }, fetchImpl);
+  return telegramRequest<{ result: boolean; description?: string }>(token, "setWebhook", { url: webhookUrl, allowed_updates: ["message", "channel_post"] }, fetchImpl);
 }
+
+type RawWebhookInfo = {
+  url?: string;
+  has_custom_certificate?: boolean;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  last_synchronization_error_date?: number;
+  last_synchronization_error_message?: string;
+  max_connections?: number;
+  ip_address?: string;
+  allowed_updates?: string[];
+};
 
 export type TelegramWebhookInfo = {
   url: string | null;
@@ -58,6 +71,17 @@ export type TelegramWebhookInfo = {
 };
 
 export async function getTelegramWebhookInfo(token: string, fetchImpl: typeof fetch = fetch): Promise<TelegramWebhookInfo> {
-  const result = await telegramRequest<TelegramWebhookInfo>(token, "getWebhookInfo", {}, fetchImpl);
-  return result;
+  const raw = await telegramRequest<RawWebhookInfo>(token, "getWebhookInfo", {}, fetchImpl);
+  return {
+    url: raw.url ?? null,
+    hasCustomCertificate: raw.has_custom_certificate ?? false,
+    pendingUpdateCount: raw.pending_update_count ?? 0,
+    lastErrorDate: raw.last_error_date ?? null,
+    lastErrorMessage: raw.last_error_message ?? null,
+    lastSynchronizationErrorDate: raw.last_synchronization_error_date ?? null,
+    lastSynchronizationErrorMessage: raw.last_synchronization_error_message ?? null,
+    maxConnections: raw.max_connections ?? null,
+    ipAddress: raw.ip_address ?? null,
+    allowedUpdates: raw.allowed_updates ?? null,
+  };
 }

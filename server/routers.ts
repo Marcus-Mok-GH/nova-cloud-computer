@@ -150,9 +150,11 @@ export const appRouter = router({
       if (!rawToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A default Telegram bot is not configured on the server." });
       const bot = await validateTelegramBotToken(rawToken);
       await saveTelegramSettingsForUser(ctx.user.id, { botToken: rawToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
-      const webhookUrl = `https://nova-cloud-computer-server-marcusmok.zocomputer.io/api/telegram/webhook/${encodeURIComponent(rawToken)}`;
-      await setTelegramWebhook(rawToken, webhookUrl);
-      return { success: true as const, webhookUrl, chatId: input.chatId ?? null, botUsername: bot.username };
+      if (!ENV.publicBaseUrl) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "NOVA_PUBLIC_BASE_URL is not configured on the server." });
+      const webhookUrl = `${ENV.publicBaseUrl}/api/telegram/webhook/${encodeURIComponent(rawToken)}`;
+      const webhookResult = await setTelegramWebhook(rawToken, webhookUrl);
+      if (!webhookResult) throw new TRPCError({ code: "BAD_GATEWAY", message: "Telegram refused the webhook registration." });
+      return { success: true as const, chatId: input.chatId ?? null, botUsername: bot.username };
     }),
     discoverChat: protectedProcedure.mutation(async ({ ctx }) => {
       const credentials = await getTelegramCredentialsForUser(ctx.user.id);

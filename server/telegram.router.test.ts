@@ -1,3 +1,4 @@
+process.env.NOVA_PUBLIC_BASE_URL ??= "https://nova-cloud-computer-server-marcusmok.zocomputer.io";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
@@ -46,7 +47,7 @@ describe("Telegram protected router", () => {
     const owner = appRouter.createCaller(context(1));
     const result = await owner.telegram.configure({ botToken: "123456:private-bot-token", chatId: "42" });
     expect(validate).toHaveBeenCalledWith("123456:private-bot-token");
-    expect(result).toEqual({ success: true, webhookUrl: expect.stringContaining("/api/telegram/webhook/123456%3Aprivate-bot-token"), chatId: "42", botUsername: "nova_test_bot" });
+    expect(result).toEqual({ success: true, chatId: "42", botUsername: "nova_test_bot" });
     expect(await owner.telegram.status()).toMatchObject({ configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } });
   });
 

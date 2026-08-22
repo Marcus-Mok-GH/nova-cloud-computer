@@ -1,3 +1,7 @@
+## 2026-08-21 — Make webhook unreachable state actionable in the UI
+
+- `client/src/pages/WorkspaceSettings.tsx`: Removed the dead `webhookUrl` variable from `TelegramBotCard`, and replaced the passive "Webhook not reachable" badge with a one-click **Repair webhook** button that re-runs the configure mutation (with an empty token so the saved/default token is reused). This nudges users toward the recovery flow that already exists on the server.
+
 ## 2026-08-21 — Harden Telegram webhook URL construction on the server
 
 - `server/_core/env.ts`: Added `publicBaseUrl`, derived from `NOVA_PUBLIC_BASE_URL` (falling back to `PUBLIC_BASE_URL`) and stripped of any trailing slashes. The webhook URL is now built from this env var rather than from a hard-coded Vercel hostname, so the same server works in any deployment.

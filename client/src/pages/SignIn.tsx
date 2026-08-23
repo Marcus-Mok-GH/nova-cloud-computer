@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { neonAuth } from "@/lib/neonAuth";
+import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import NovaMark from "@/components/NovaMark";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
@@ -57,8 +57,10 @@ export default function SignIn() {
       if (result.error) setError(result.error.message ?? "Nova could not verify that sign-in code.");
       else {
         const session = await neonAuth.getSession();
-        if (session.data?.session) setLocation("/app");
-        else setError("Signed in, but Nova could not load your session. Please refresh.");
+        if (session.data?.session) {
+          await exchangeNeonVerifierAndGetJwt(neonAuth);
+          setLocation("/app");
+        } else setError("Signed in, but Nova could not load your session. Please refresh.");
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Nova could not verify that sign-in code.");

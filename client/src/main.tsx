@@ -12,6 +12,7 @@ const trpcClient = trpc.createClient({
   links: [httpBatchLink({
     url: "/api/trpc",
     transformer: superjson,
+    fetch: (url, options) => fetch(url, { ...options, credentials: "include" }),
     async headers() {
       const token = await getNeonAccessToken();
       return token ? { Authorization: `Bearer ${token}` } : {};

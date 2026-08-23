@@ -1,12 +1,3 @@
-## 2026-08-21 — Add Telegram startup webhook detection and recovery flow
-
-- `server/telegram.ts`: Added `getTelegramWebhookInfo()` to query Telegram `getWebhookInfo` so the app can inspect whether a saved webhook is reachable.
-- `server/db.ts`: `getTelegramSettingsForUser()` now returns `webhook: { linked: boolean; url: string | null }` alongside the existing safe metadata. When the user-specific token fails, it falls back to the default token and still reports its webhook status.
-- `server/routers.ts`: `telegram.status` no longer returns `success`/`webhookUrl`; it returns the settings object with `webhook` info.
-- `client/src/pages/WorkspaceSettings.tsx`: The Telegram status UI now reads `status.data?.webhook?.linked` and shows whether the saved webhook is linked or not, with clearer guidance when it is not linked.
-- `server/telegram.persistence.test.ts`, `server/telegram.router.test.ts`: Updated assertions to match the new `webhook` status payload.
-
-
 ## 2026-08-21 — Add README documenting the codebase and Vercel deployment
 
 - Added `README.md` describing the app, architecture, tech stack, repository layout, key modules, data model, env vars, and build/test scripts.

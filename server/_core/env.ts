@@ -12,5 +12,4 @@ export const ENV = {
   /** Prefer an application-specific secret; Vercel-managed Postgres credentials provide a secure fallback. */
   modelCredentialSecret: process.env.MODEL_CREDENTIAL_SECRET ?? process.env.POSTGRES_PASSWORD ?? process.env.DATABASE_URL ?? "",
   isProduction: process.env.NODE_ENV === "production",
-  defaultTelegramBotToken: process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "",
 };

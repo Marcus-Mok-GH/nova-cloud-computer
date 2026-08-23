@@ -38,11 +38,11 @@ describe("Telegram settings persistence", () => {
     const safe = await saveTelegramSettingsForUser(7, { botToken, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova" });
     expect(stored?.encryptedBotToken).toBe(`encrypted:${botToken}`);
     expect(JSON.stringify(safe)).not.toContain(botToken);
-    expect(safe).toEqual({ configured: true, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova", webhook: { linked: false, url: null } });
+    expect(safe).toEqual({ configured: true, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova" });
     await expect(getTelegramCredentialsForUser(7)).resolves.toMatchObject({ token: botToken, chatId: "-1001" });
     await expect(getTelegramSettingsForUser(7)).resolves.not.toHaveProperty("encryptedBotToken");
     activeWorkspace = otherWorkspace;
     await expect(getTelegramCredentialsForUser(8)).resolves.toBeUndefined();
-    await expect(getTelegramSettingsForUser(8)).resolves.toEqual({ configured: false, chatId: null, botUsername: null, botDisplayName: null, webhook: null });
+    await expect(getTelegramSettingsForUser(8)).resolves.toEqual({ configured: false, chatId: null, botUsername: null, botDisplayName: null });
   });
 });

@@ -73,7 +73,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-2 text-xs text-muted-foreground">{user.name ? `${user.name.charAt(0)}.***` : "User"}</div>
+            <div className="px-2 py-2 text-xs text-muted-foreground">{user.email}</div>
             <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">{theme === "light" ? <Moon className="mr-2 size-4" /> : <Sun className="mr-2 size-4" />}Switch to {theme === "light" ? "dark" : "light"} theme</DropdownMenuItem>
             <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem>
           </DropdownMenuContent>
@@ -147,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              <div className="px-2 py-2 text-xs text-muted-foreground">{user.name ? `${user.name.charAt(0)}.***` : "User"}</div>
+              <div className="px-2 py-2 text-xs text-muted-foreground">{user.email}</div>
               <DropdownMenuItem onClick={toggleTheme} className="cursor-pointer">{theme === "light" ? <Moon className="mr-2 size-4" /> : <Sun className="mr-2 size-4" />}Switch to {theme === "light" ? "dark" : "light"} theme</DropdownMenuItem>
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem>
             </DropdownMenuContent>

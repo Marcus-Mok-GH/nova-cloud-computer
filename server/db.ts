@@ -1,24 +1,4 @@
 import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
-import { ENV } from "./_core/env";
-import { validateTelegramBotToken, getTelegramWebhookInfo } from "./telegram";
-
-const DEFAULT_TELEGRAM_BOT_TOKEN = ENV.defaultTelegramBotToken ?? "";
-
-function getDefaultTelegramBotToken(): string | null {
-  return DEFAULT_TELEGRAM_BOT_TOKEN || null;
-}
-
-async function getDefaultTelegramBotProfile(fetchImpl: typeof fetch = fetch): Promise<{ botUsername: string | null; botDisplayName: string | null } | null> {
-  const token = getDefaultTelegramBotToken();
-  if (!token) return null;
-  try {
-    const bot = await validateTelegramBotToken(token, fetchImpl);
-    return { botUsername: bot.username, botDisplayName: bot.displayName };
-  } catch {
-    return null;
-  }
-}
-
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -469,14 +449,13 @@ export async function getWorkspaceComputer(ownerId: number) {
   return { workspace, folders, files, chats: chatRows, settings };
 }
 
-function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined, webhook?: { linked: boolean; url: string | null } | null) {
-  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null, webhook };
+function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined) {
+  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null };
   return {
     configured: true as const,
     chatId: setting.chatId,
     botUsername: setting.botUsername,
     botDisplayName: setting.botDisplayName,
-    webhook,
   };
 }
 
@@ -484,41 +463,25 @@ export async function getTelegramSettingsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
-  if (setting) {
-    const token = decryptPrivateCredential(setting.encryptedBotToken);
-    let webhook: { linked: boolean; url: string | null } | null = null;
-    try {
-      const info = await getTelegramWebhookInfo(token);
-      webhook = { linked: Boolean(info.url), url: info.url ?? null };
-    } catch {
-      webhook = { linked: false, url: null };
-    }
-    return toSafeTelegramSettings(setting, webhook);
-  }
-  const defaultProfile = await getDefaultTelegramBotProfile();
-  if (!defaultProfile) return { configured: false, chatId: null, botUsername: null, botDisplayName: null, webhook: null };
-  return { configured: true, chatId: null, botUsername: defaultProfile.botUsername, botDisplayName: defaultProfile.botDisplayName, webhook: null };
+  return toSafeTelegramSettings(setting);
 }
 
-export async function saveTelegramSettingsForUser(ownerId: number, input: { botToken?: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) {
+export async function saveTelegramSettingsForUser(ownerId: number, input: { botToken: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const botToken = input.botToken ?? getDefaultTelegramBotToken() ?? "";
-  const botUsername = input.botUsername ?? (await getDefaultTelegramBotProfile())?.botUsername ?? null;
-  const botDisplayName = input.botDisplayName ?? (await getDefaultTelegramBotProfile())?.botDisplayName ?? null;
   await db.insert(telegramBotSettings).values({
     workspaceId: workspace.id,
-    encryptedBotToken: encryptPrivateCredential(botToken),
+    encryptedBotToken: encryptPrivateCredential(input.botToken),
     chatId: input.chatId ?? null,
-    botUsername,
-    botDisplayName,
+    botUsername: input.botUsername ?? null,
+    botDisplayName: input.botDisplayName ?? null,
   }).onConflictDoUpdate({
     target: telegramBotSettings.workspaceId,
     set: {
-      encryptedBotToken: encryptPrivateCredential(botToken),
+      encryptedBotToken: encryptPrivateCredential(input.botToken),
       chatId: input.chatId ?? null,
-      botUsername,
-      botDisplayName,
+      botUsername: input.botUsername ?? null,
+      botDisplayName: input.botDisplayName ?? null,
       updatedAt: new Date(),
     },
   });
@@ -536,13 +499,8 @@ export async function getTelegramCredentialsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
-  if (setting) {
-    return { token: decryptPrivateCredential(setting.encryptedBotToken), chatId: setting.chatId, botUsername: setting.botUsername, botDisplayName: setting.botDisplayName };
-  }
-  const defaultToken = getDefaultTelegramBotToken();
-  if (!defaultToken) return undefined;
-  const defaultProfile = await getDefaultTelegramBotProfile();
-  return { token: defaultToken, chatId: null, botUsername: defaultProfile?.botUsername ?? null, botDisplayName: defaultProfile?.botDisplayName ?? null };
+  if (!setting) return undefined;
+  return { token: decryptPrivateCredential(setting.encryptedBotToken), chatId: setting.chatId, botUsername: setting.botUsername, botDisplayName: setting.botDisplayName };
 }
 
 export async function deleteTelegramSettingsForUser(ownerId: number) {
@@ -815,21 +773,4 @@ export async function updateAutomationScheduleState(input: { automationId: numbe
     eq(automations.workspaceId, input.workspaceId),
   )).returning();
   return updated ? toSafeAutomation(updated) : undefined;
-}
-
-export async function findWorkspaceOwnerByTelegramToken(token: string) {
-  const db = await requireDb();
-  const rows = await db.select().from(telegramBotSettings);
-  for (const row of rows) {
-    try {
-      const decrypted = decryptPrivateCredential(row.encryptedBotToken);
-      if (decrypted === token) {
-        const workspace = (await db.select().from(workspaces).where(eq(workspaces.id, row.workspaceId)).limit(1))[0];
-        return workspace?.ownerId ?? null;
-      }
-    } catch {
-      // skip corrupted encrypted value
-    }
-  }
-  return null;
 }

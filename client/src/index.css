@@ -1,6 +1,6 @@
 /**
  * Nova restyled in the spirit of Zo Computer:
- * clean white surfaces, ink-dark text, and an accessible burnt-orange accent (#f97316),
+ * clean white surfaces, ink-dark text, and an accessible burnt-orange accent (#c2410c),
  * tight Inter typography, and a "Space" app shell — sidebar, search,
  * recent chats, chat composer with model picker, and mobile bottom tabs.
  */
@@ -46,7 +46,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: #f97316;
+  --primary: oklch(0.705 0.213 47.604);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -57,7 +57,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: #f97316;
+  --ring: oklch(0.705 0.213 47.604);
   --surface: oklch(0.985 0 0);
 }
 
@@ -68,7 +68,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: #f97316;
+  --primary: oklch(0.705 0.213 47.604);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -79,14 +79,12 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: #f97316;
+  --ring: oklch(0.705 0.213 47.604);
   --surface: oklch(0.17 0 0);
 }
 
 * { border-color: var(--border); }
 html { scroll-behavior: smooth; }
-:root { color-scheme: light; }
-.dark { color-scheme: dark; }
 body {
   margin: 0;
   min-width: 320px;
@@ -99,9 +97,7 @@ body {
 button, a { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
-button, a, [role="button"] { touch-action: manipulation; }
-button, a { -webkit-tap-highlight-color: transparent; }
-::selection { background: rgba(249,115,22,0.22); }
+::selection { background: oklch(0.705 0.213 47.604 / 0.22); }
 
 /* ---------------- Landing ---------------- */
 
@@ -119,13 +115,13 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .hero-section {
   position: relative; isolation: isolate; overflow: hidden;
   background:
-    radial-gradient(1100px 460px at 50% -12%, rgba(249,115,22,0.07), transparent 62%),
+    radial-gradient(1100px 460px at 50% -12%, oklch(0.705 0.213 47.604 / 0.07), transparent 62%),
     #fff;
   border-bottom: 1px solid oklch(0.97 0 0);
 }
 .dark .hero-section {
   background:
-    radial-gradient(1100px 460px at 50% -12%, rgba(249,115,22,0.12), transparent 62%),
+    radial-gradient(1100px 460px at 50% -12%, oklch(0.705 0.213 47.604 / 0.12), transparent 62%),
     oklch(0.145 0 0);
 }
 
@@ -136,7 +132,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   color: oklch(0.145 0 0);
 }
 .dark .hero-title { color: oklch(0.985 0 0); }
-.hero-title .hero-accent { color: #f97316; }
+.hero-title .hero-accent { color: #c2410c; }
 .dark .hero-title .hero-accent { color: #fb923c; }
 
 .pill-btn {
@@ -147,8 +143,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   transition: transform .16s cubic-bezier(0,0,.2,1), box-shadow .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
 }
 .pill-btn:active { transform: scale(.97); }
-.pill-btn-primary { background: #f97316; color: #fff; box-shadow: 0 1px 2px #f9731659, 0 8px 18px #f9731638; }
-.pill-btn-primary:hover { background: #ea580c; box-shadow: 0 2px 4px #f973164d, 0 10px 24px #f9731642; transform: translateY(-1px); }
+.pill-btn-primary { background: #c2410c; color: #fff; box-shadow: 0 1px 2px #c2410c59, 0 8px 18px #c2410c38; }
+.pill-btn-primary:hover { background: #9a3412; box-shadow: 0 2px 4px #c2410c4d, 0 10px 24px #c2410c42; transform: translateY(-1px); }
 .pill-btn-dark { background: oklch(0.145 0 0); color: #fff; }
 .pill-btn-dark:hover { background: oklch(0.32 0 0); transform: translateY(-1px); }
 .pill-btn-ghost { background: #fff; color: oklch(0.145 0 0); border-color: oklch(0.922 0 0); box-shadow: 0 1px 2px oklch(0.145 0 0 / 0.05); }
@@ -177,7 +173,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .section-eyebrow {
   text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700;
-  color: #f97316;
+  color: #c2410c;
 }
 .dark .section-eyebrow { color: #fb923c; }
 
@@ -194,10 +190,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .dark .feature-card { background: oklch(0.205 0 0); border-color: oklch(1 0 0 / 0.1); }
 .dark .feature-card:hover { border-color: oklch(1 0 0 / 0.2); box-shadow: 0 12px 32px oklch(0 0 0 / 0.4); }
 
-.ribbon-track { display: flex; gap: 0; width: max-content; }
-@media (prefers-reduced-motion: no-preference) {
-  .ribbon-track { animation: ribbon-scroll 26s linear infinite; }
-}
+.ribbon-track { display: flex; gap: 0; width: max-content; animation: ribbon-scroll 26s linear infinite; }
 @keyframes ribbon-scroll { to { transform: translateX(-50%); } }
 
 /* ---------------- Product mockups ---------------- */
@@ -214,7 +207,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 .dark .mock-chrome { background: oklch(0.17 0 0); border-color: oklch(1 0 0 / 0.08); }
 .mock-dot { width: 9px; height: 9px; border-radius: 999px; background: oklch(0.922 0 0); }
-.mock-dot.orange { background: #f97316; }
+.mock-dot.orange { background: #c2410c; }
 .dark .mock-dot.orange { background: #fb923c; }
 .mock-url {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -266,7 +259,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mock-crumb em { font-style: normal; color: oklch(0.556 0 0); font-weight: 500; }
 .mock-add {
   height: 26px; padding: 0 12px; border-radius: 999px; border: 0;
-  background: #f97316; color: #fff; font-size: 10px; font-weight: 600;
+  background: #c2410c; color: #fff; font-size: 10px; font-weight: 600;
 }
 .mock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px 16px; }
 .mock-folder, .mock-file {
@@ -276,7 +269,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .dark .mock-folder, .dark .mock-file { background: oklch(0.205 0 0); border-color: oklch(1 0 0 / 0.1); color: oklch(0.985 0 0); }
 .mock-folder small, .mock-file small { display: block; font-size: 9px; font-weight: 500; color: oklch(0.556 0 0); }
 .mock-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: oklch(0.97 0 0); color: oklch(0.32 0 0); }
-.mock-icon.orange { background: #f973161f; color: #f97316; }
+.mock-icon.orange { background: #c2410c1f; color: #c2410c; }
 .dark .mock-icon { background: oklch(0.269 0 0); color: oklch(0.708 0 0); }
 .dark .mock-icon.orange { background: #fb923c26; color: #fb923c; }
 
@@ -295,7 +288,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mock-go {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 999px; border: 0;
-  background: #f97316; color: #fff;
+  background: #c2410c; color: #fff;
 }
 
 .mock-phone {
@@ -312,12 +305,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mock-tabbar { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid oklch(0.97 0 0); background: #fff; padding: 7px 4px 9px; }
 .dark .mock-tabbar { background: oklch(0.205 0 0); border-color: oklch(1 0 0 / 0.08); }
 .mock-tab { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 7px; font-weight: 600; color: oklch(0.556 0 0); }
-.mock-tab.active { color: #f97316; }
+.mock-tab.active { color: oklch(0.705 0.213 47.604); }
 
-@media (prefers-reduced-motion: no-preference) {
-  .float-slow { animation: float-slow 7s ease-in-out infinite; }
-  .float-slower { animation: float-slow 9s ease-in-out infinite reverse; }
-}
+.float-slow { animation: float-slow 7s ease-in-out infinite; }
+.float-slower { animation: float-slow 9s ease-in-out infinite reverse; }
 @keyframes float-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -118,7 +118,7 @@ export default function SignIn() {
                 disabled={pending || otp.length !== 6}
                 type="submit"
               >
-                {pending ? "Verifying…" : <>Sign in <ArrowRight size={15} /></>}
+                {pending ? "Verifying..." : <>Sign in <ArrowRight size={15} /></>}
               </button>
               <button
                 type="button"
@@ -154,7 +154,7 @@ export default function SignIn() {
               disabled={pending}
               type="submit"
             >
-              {pending ? "Sending code…" : <>Email me a sign-in code <ArrowRight size={15} /></>}
+              {pending ? "Sending code..." : <>Email me a sign-in code <ArrowRight size={15} /></>}
             </button>
           </form>
         )}

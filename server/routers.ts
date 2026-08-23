@@ -47,7 +47,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent, getWorkspaceAgentConnection } from "./workspaceAgent";
 import { invokeLLM } from "./_core/llm";
-import { discoverTelegramChat, sendTelegramMessage, setTelegramWebhook, validateTelegramBotToken } from "./telegram";
+import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -102,7 +102,7 @@ const fileUpdateInput = z.object({
   folderId: z.number().int().positive().nullable().optional(),
 }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide a file change." });
 const telegramConfigureInput = z.object({
-  botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096).optional().default(""),
+  botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096),
   chatId: z.string().trim().min(1).max(64).nullable().optional(),
 });
 const agentVmRunInput = z.object({
@@ -142,13 +142,8 @@ export const appRouter = router({
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),
     configure: protectedProcedure.input(telegramConfigureInput).mutation(async ({ ctx, input }) => {
-      const rawToken = (input.botToken?.trim() || ENV.defaultTelegramBotToken || "").trim();
-      if (!rawToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A default Telegram bot is not configured on the server." });
-      const bot = await validateTelegramBotToken(rawToken);
-      await saveTelegramSettingsForUser(ctx.user.id, { botToken: rawToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
-      const webhookUrl = `https://nova-cloud-computer-server-marcusmok.zocomputer.io/api/telegram/webhook/${encodeURIComponent(rawToken)}`;
-      await setTelegramWebhook(rawToken, webhookUrl);
-      return { success: true as const, webhookUrl, chatId: input.chatId ?? null, botUsername: bot.username };
+      const bot = await validateTelegramBotToken(input.botToken);
+      return saveTelegramSettingsForUser(ctx.user.id, { botToken: input.botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
     }),
     discoverChat: protectedProcedure.mutation(async ({ ctx }) => {
       const credentials = await getTelegramCredentialsForUser(ctx.user.id);

@@ -73,7 +73,7 @@ export function AIChatBox({
   messages,
   onSendMessage,
   isLoading = false,
-  placeholder = "Type your message…",
+  placeholder = "Type your message...",
   className,
   height = "600px",
   emptyStateMessage = "Start a conversation with AI",

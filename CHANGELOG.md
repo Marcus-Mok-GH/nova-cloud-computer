@@ -1,6 +1,6 @@
 ## 2026-08-23 — Fix OTP session persistence and first-party cookie delivery
 
-- `client/src/pages/SignIn.tsx`: After a successful email-OTP sign-in, the Neon JWT is now extracted via `exchangeNeonVerifierAndGetJwt` and persisted to `localStorage` before redirecting to `/app`. Previously the token was not stored, so `auth.me` had no bearer token on the next request and the user was redirected back to the login page.
+- `client/src/pages/SignIn.tsx`: After a successful email-OTP sign-in, the Neon verifier is exchanged for a JWT via `exchangeNeonVerifierAndGetJwt`, which is persisted to `localStorage` before redirecting to `/app`. The redirect is now gated on the JWT being truthy; if the exchange fails, an error is shown instead of redirecting to `/app` with no session.
 - `client/src/main.tsx`: Added `credentials: "include"` to the tRPC `httpBatchLink` so first-party session cookies are sent with requests. This keeps logged-in users authenticated via the first-party session cookie after the Neon JWT expires.
 
 ## 2026-08-21 — Add Telegram startup webhook detection and recovery flow

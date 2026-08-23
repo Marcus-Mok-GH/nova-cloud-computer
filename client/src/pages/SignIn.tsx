@@ -16,7 +16,8 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loading && isAuthenticated) setLocation("/app");
+    if (!loading && isAuthenticated) if (jwt) setLocation("/app");
+          else setError("Signed in, but Nova could not load your session. Please refresh.");
   }, [isAuthenticated, loading, setLocation]);
 
   async function requestOTP(event: FormEvent) {
@@ -58,8 +59,9 @@ export default function SignIn() {
       else {
         const session = await neonAuth.getSession();
         if (session.data?.session) {
-          await exchangeNeonVerifierAndGetJwt(neonAuth);
-          setLocation("/app");
+          const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth);
+          if (jwt) setLocation("/app");
+          else setError("Signed in, but Nova could not load your session. Please refresh.");
         } else setError("Signed in, but Nova could not load your session. Please refresh.");
       }
     } catch (requestError) {

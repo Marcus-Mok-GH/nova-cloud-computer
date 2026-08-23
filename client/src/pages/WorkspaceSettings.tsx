@@ -72,7 +72,7 @@ function AccountManagementCard() {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
         <div className="space-y-1">
           <p className="text-sm font-bold text-foreground">Sign out of Nova</p>
-          <p className="text-xs text-muted-foreground">Logged in as {user?.email || "User"}</p>
+          <p className="text-xs text-muted-foreground">Logged in as {user?.name ? `${user.name.charAt(0)}.***` : "User"}</p>
         </div>
         <Button variant="outline" onClick={() => logout()} className="gap-2">
           <LogOut size={16} /> Log out
@@ -100,7 +100,7 @@ function AccountManagementCard() {
               </AlertDialogTitle>
               <AlertDialogDescription className="space-y-3">
                 <span>
-                  This will permanently delete your account (<strong>{user?.email}</strong>) and erase all associated projects, tasks, workspace files, saved credentials, and settings.
+                  This will permanently delete your account (<strong>{user?.name ? `${user.name.charAt(0)}.***` : "your account"}</strong>) and erase all associated projects, tasks, workspace files, saved credentials, and settings.
                 </span>
                 <span className="block font-medium text-foreground">
                   Type <strong>DELETE</strong> below to confirm.

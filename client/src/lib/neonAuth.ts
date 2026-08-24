@@ -21,6 +21,7 @@ export const neonAuthFetchOptions = {
   fetchOptions: {
     credentials: "include" as const,
   },
+  disableDefaultFetchPlugins: true,
 };
 
 /** Neon Auth owns session cookies; Nova forwards only short-lived JWTs to its tRPC API. */

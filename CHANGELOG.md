@@ -1,3 +1,8 @@
+## 2026-08-24 — Fix email OTP sign-in redirect loop
+
+- `client/src/lib/neonAuth.ts`: Added `disableDefaultFetchPlugins: true` to the Better Auth client options so the built-in `redirectPlugin` does not hijack email OTP verification and navigate the browser away from the Nova sign-in page.
+
+
 ## 2026-08-21 — Add README documenting the codebase and Vercel deployment
 
 - Added `README.md` describing the app, architecture, tech stack, repository layout, key modules, data model, env vars, and build/test scripts.

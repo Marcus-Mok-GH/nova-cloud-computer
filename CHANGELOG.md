@@ -1,3 +1,16 @@
+## 2026-08-26 — Fix Telegram webhook and OTP sign-in session persistence
+
+- `server/app.ts`: Restored `/api/telegram/webhook/:token` POST handler that maps incoming Telegram updates to the workspace owner, creates or reuses a Nova chat for the Telegram conversation, runs `runWorkspaceAgent`, and replies via Telegram. Also handles `/start` deep links to link the Telegram chat to the workspace.
+- `server/db.ts`: Restored `findWorkspaceOwnerByTelegramToken()` so inbound webhook requests can resolve a bot token back to a Nova workspace owner.
+- `client/src/pages/SignIn.tsx`: After OTP verification succeeds and Neon returns a session, Nova now calls `exchangeNeonVerifierAndGetJwt` to extract and persist the Neon access token in localStorage before navigating to `/app`. Without this, the bearer token was missing on first load and the user was immediately redirected back to sign-in.
+- `client/src/main.tsx`: Added `credentials: "include"` to the tRPC httpBatchLink fetch so first-party session cookies are sent with every request, keeping existing sessions alive after the Neon JWT expires.
+
+## 2026-08-24 — Fix TypeScript compile errors and login reproduction
+
+- `server/_core/env.ts`: Added missing `forgeApiUrl` and `forgeApiKey` properties to the `ENV` type, sourced from `BUILT_IN_FORGE_API_URL` and `BUILT_IN_FORGE_API_KEY`.
+- `server/_core/llm.ts`: Fixed destructuring bug in `normalizeMessage` — removed nonexistent `messages` property from the `Message` type destructuring so `tsc --noEmit` passes.
+
+
 ## 2026-08-24 — Fix email OTP sign-in redirect loop
 
 - `client/src/lib/neonAuth.ts`: Added `disableDefaultFetchPlugins: true` to the Better Auth client options so the built-in `redirectPlugin` does not hijack email OTP verification and navigate the browser away from the Nova sign-in page.

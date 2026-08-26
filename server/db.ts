@@ -510,6 +510,23 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   return Boolean(deleted);
 }
 
+export async function findWorkspaceOwnerByTelegramToken(token: string) {
+  const db = await requireDb();
+  const rows = await db.select().from(telegramBotSettings);
+  for (const row of rows) {
+    try {
+      const decrypted = decryptPrivateCredential(row.encryptedBotToken);
+      if (decrypted === token) {
+        const workspace = (await db.select().from(workspaces).where(eq(workspaces.id, row.workspaceId)).limit(1))[0];
+        return workspace?.ownerId ?? null;
+      }
+    } catch {
+      // skip corrupted encrypted value
+    }
+  }
+  return null;
+}
+
 export async function getNvidiaInferenceAllowanceForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);

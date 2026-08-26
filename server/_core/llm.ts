@@ -144,7 +144,7 @@ const normalizeContentPart = (
 
 const normalizeMessage = (message: Message) => {
   const {
-    messages, role, name, tool_call_id } = message;
+    content, role, name, tool_call_id } = message;
 
   if (role === "tool" || role === "function") {
     const content = ensureArray(message.content ?? [])

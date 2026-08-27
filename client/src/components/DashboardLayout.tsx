@@ -17,10 +17,10 @@ import {
   MessageSquareText,
   Moon,
   MoreHorizontal,
+  Plus,
   Rocket,
   Search,
   Settings2,
-  Sparkles,
   Sun,
 } from "lucide-react";
 import NovaMark from "./NovaMark";
@@ -42,9 +42,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
+  const utils = trpc.useUtils();
   const recentChats = (computer.data?.chats ?? []).slice(0, 12);
   const mobileTabs = nav.length > mobilePrimaryCount ? [...nav.slice(0, mobilePrimaryCount), moreTab] : nav;
-  const isChatWorkspace = location.startsWith("/app/chats") || (location === "/app" || location.startsWith("/app?")) && typeof window !== "undefined" && Boolean(new URLSearchParams(window.location.search).get("chatId"));
+  const isChatWorkspace = location.startsWith("/app/chats") || location.startsWith("/app?chatId=");
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.computer.invalidate();
+    },
+  });
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
@@ -63,6 +69,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isActive = (path: string) => {
     if (path === "/app") return location === "/app" || location.startsWith("/app?");
     return location === path || location.startsWith(`${path}?`);
+  };
+
+  const handleNewChat = async () => {
+    try {
+      const chat = await createChat.mutateAsync({ title: "New workspace conversation" });
+      setLocation(`/app?chatId=${chat.id}`);
+    } catch {
+      // The chats page owns the detailed error toast; keep the shell quiet on failure.
+    }
   };
 
   return (
@@ -109,10 +124,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="px-3 pt-3">
+              <button onClick={handleNewChat} disabled={createChat.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#f97316] px-3 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#ea580c] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/50">
+                <Plus className="size-3.5" />
+                {createChat.isPending ? "Creating…" : "New chat"}
+              </button>
+            </div>
+
+            <div className="px-3 pt-2">
               <button onClick={() => setLocation("/app/chats")} className="flex w-full items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-left text-xs font-semibold text-neutral-600 transition hover:border-neutral-300 hover:bg-white hover:text-neutral-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/50 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white">
                 <Search className="size-3.5 text-neutral-400" />
                 Search chats
-                <span className="ml-auto text-[10px] text-neutral-400">⌘K</span>
               </button>
             </div>
 
@@ -137,7 +158,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="px-3 py-8 text-center">
                   <MessageSquareText className="mx-auto size-5 text-neutral-300 dark:text-neutral-600" />
                   <p className="mt-3 text-xs leading-5 text-neutral-400">No conversations yet.</p>
-                  <button onClick={() => setLocation("/app/chats")} className="mt-3 text-xs font-semibold text-[#f97316] hover:underline">Create your first chat</button>
+                  <button onClick={handleNewChat} className="mt-3 text-xs font-semibold text-[#f97316] hover:underline">Create your first chat</button>
                 </div>
               )}
             </div>

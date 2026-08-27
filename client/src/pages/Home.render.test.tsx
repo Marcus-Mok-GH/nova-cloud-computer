@@ -7,6 +7,7 @@ import SignIn from "./SignIn";
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: false, loading: false }) }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light", toggleTheme: vi.fn(), switchable: true }) }));
 vi.mock("@/lib/neonAuth", () => ({ neonAuth: null }));
+vi.mock("@/lib/trpc", () => ({ trpc: { useUtils: () => ({ auth: { me: { fetch: vi.fn() } } }) } }));
 vi.mock("@/lib/authCallbackUrl", () => ({ getMagicLinkCallbackUrl: () => "http://localhost/cb" }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()], Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 

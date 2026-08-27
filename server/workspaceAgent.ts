@@ -15,7 +15,36 @@ import {
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
 
-type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
+export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
+
+export type WorkspaceToolActivity = {
+  id: string;
+  name: string;
+  state: "running" | "completed" | "failed";
+  args: Record<string, string>;
+  summary?: string;
+};
+
+type WorkspaceAgentOptions = {
+  onEvent?: (event: { type: "tool"; tool: WorkspaceToolActivity }) => void | Promise<void>;
+};
+
+const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task"]);
+
+function visibleToolArguments(args: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(args)
+      .filter(([key]) => VISIBLE_TOOL_ARGUMENTS.has(key))
+      .map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 160) : String(value).slice(0, 160)]),
+  );
+}
+
+function actionSummary(action?: AgentAction) {
+  if (!action) return "Nova could not complete this tool call.";
+  if (action.operation === "disabled") return `${action.name} is not configured.`;
+  const operation = action.operation ?? "created";
+  return `${operation[0].toUpperCase()}${operation.slice(1)} ${action.kind}: ${action.name}.`;
+}
 
 const DEFAULT_WORKSPACE_AGENT_MODEL = "gpt-5-mini";
 const workspaceAgentApiKey = () => process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
@@ -125,7 +154,27 @@ const tools = [
   { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-isolated Daytona VM task only when the user explicitly asks to use a VM or sandbox. The optional Python code may only analyze the provided workspace bundle and must not use network or process-launching libraries.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
 ];
 
-export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string) {
+export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string, options: WorkspaceAgentOptions = {}) {
+  const emitTool = async (tool: WorkspaceToolActivity) => {
+    try {
+      await options.onEvent?.({ type: "tool", tool });
+    } catch {
+      // Tool activity must never interrupt the workspace action itself.
+    }
+  };
+  const emitDirectActions = async (actions: AgentAction[]) => {
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      await emitTool({
+        id: `direct-${index}`,
+        name: `workspace_${action.kind}`,
+        state: action.operation === "disabled" ? "failed" : "completed",
+        args: { name: action.name },
+        summary: actionSummary(action),
+      });
+    }
+  };
+
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
   const connection = await getWorkspaceAgentConnection(ownerId);
   if (!connection) {
@@ -133,6 +182,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     const reply = direct.actions.length > 0
       ? direct.reply
       : "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
+    await emitDirectActions(direct.actions);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
     return { message, actions: direct.actions };
   }
@@ -143,6 +193,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
   } catch {
     const direct = await runDirectWorkspaceAction(ownerId, content);
+    await emitDirectActions(direct.actions);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
     return { message, actions: direct.actions };
   }
@@ -152,8 +203,18 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const toolMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
 
   for (const call of toolCalls.slice(0, 3)) {
+    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string } = {};
+    const activity = {
+      id: call.id,
+      name: String(call.function.name),
+      args: {} as Record<string, string>,
+    };
+
     try {
-      const args = JSON.parse(call.function.arguments ?? "{}") as { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string };
+      args = JSON.parse(call.function.arguments ?? "{}") as typeof args;
+      activity.args = visibleToolArguments(args);
+      await emitTool({ ...activity, state: "running" });
+      const actionCount = actions.length;
       if (call.function.name === "create_folder") {
         const folder = args.name?.trim() ? await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() }) : undefined;
         if (folder) actions.push({ kind: "folder", name: folder.name });
@@ -207,8 +268,13 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         const started = await startAgentVmRun(ownerId, { task: args.task.trim(), code: args.code });
         actions.push({ kind: "vm", name: started.run ? `run #${started.run.id}` : "Daytona", operation: started.configured ? "completed" : "disabled" });
       }
-      toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true }) });
+
+      const action = actions[actionCount];
+      const succeeded = Boolean(action) && action.operation !== "disabled";
+      await emitTool({ ...activity, state: succeeded ? "completed" : "failed", summary: actionSummary(action) });
+      toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: succeeded }) });
     } catch {
+      await emitTool({ ...activity, state: "failed", summary: "Nova could not complete this tool call." });
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false }) });
     }
   }

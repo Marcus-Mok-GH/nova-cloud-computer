@@ -130,30 +130,33 @@ function buildTaskScript(code?: string) {
   ].join("\n");
 }
 
-async function ensurePersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
-  const name = `nova-workspace-${workspaceId}`;
-  const labels = {
-    "nova.owner": String(ownerId),
-    "nova.workspace": String(workspaceId),
-    "nova.persistent": "true",
-  };
-
-  try {
-    return await client.get(name);
-  } catch {
-    // not found or not accessible, create it
-  }
-
-  return await client.create({
-    name,
+export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
+  return {
+    name: `nova-workspace-${workspaceId}`,
     language: "python",
-    labels,
+    labels: {
+      "nova.owner": String(ownerId),
+      "nova.workspace": String(workspaceId),
+      "nova.persistent": "true",
+    },
     resources: { cpu: 1, memory: 1, disk: 3 },
     networkBlockAll: true,
     ephemeral: false,
     autoDeleteInterval: -1,
     public: false,
-  });
+  };
+}
+
+async function ensurePersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
+  const config = persistentSandboxConfig(workspaceId, ownerId);
+
+  try {
+    return await client.get(config.name);
+  } catch {
+    // The deterministic workspace name is not present yet, so create it once.
+  }
+
+  return await client.create(config);
 }
 
 async function uploadBundleToSandbox(sandbox: DaytonaSandboxLike, files: DaytonaWorkspaceFile[], folders: DaytonaWorkspaceFolder[], task: string, code?: string) {
@@ -217,13 +220,23 @@ export async function runDaytonaTaskInPersistentSandbox(client: DaytonaClientLik
   return { sandboxId: sandbox.id, output, uploadedFileCount: Math.min(input.files.length, MAX_WORKSPACE_FILES) };
 }
 
-export async function initWorkspacePersistentVm(workspaceId: number, ownerId: number): Promise<string | undefined> {
+export async function initWorkspacePersistentVm(workspaceId: number, ownerId: number, knownSandboxId?: string | null): Promise<string | undefined> {
   const client = getDaytonaClient();
   if (!client) return undefined;
+
   try {
+    if (knownSandboxId) {
+      const sandbox = await client.get(knownSandboxId);
+      return sandbox.id;
+    }
     const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);
     return sandbox.id;
   } catch {
-    return undefined;
+    try {
+      const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);
+      return sandbox.id;
+    } catch {
+      return undefined;
+    }
   }
 }

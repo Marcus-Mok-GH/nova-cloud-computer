@@ -33,6 +33,21 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
   return isTrpcPath(pathname.replace(/^\/api\/?/u, ""));
 }
 
+/**
+ * Requests that depend on Nova's own session and server-only provider settings
+ * must remain co-deployed; they cannot safely be handled by an optional API
+ * service running with different authentication or model configuration.
+ */
+export function isCoDeployedApiPath(path: string | string[] | undefined) {
+  const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
+  return isTrpcPath(segments) || (segments[0] === "chat" && segments[1] === "stream");
+}
+
+export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {
+  const pathname = new URL(requestUrl ?? "/", "http://nova-proxy.local").pathname;
+  return isCoDeployedApiPath(pathname.replace(/^\/api\/?/u, ""));
+}
+
 export function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
@@ -124,7 +139,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
-  if (isTrpcPath(req.query.path) || isTrpcPathFromRequestUrl(req.url)) return app(req, res);
+  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) return app(req, res);
 
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);

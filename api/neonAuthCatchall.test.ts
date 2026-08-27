@@ -4,6 +4,8 @@ import {
   getNeonAuthPathFromCatchall,
   getNeonAuthPathFromRequestUrl,
   getRequestHeaders,
+  isCoDeployedApiPath,
+  isCoDeployedApiPathFromRequestUrl,
   isTrpcPath,
   isTrpcPathFromRequestUrl,
   normalizeProxiedSessionCookie,
@@ -30,6 +32,14 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isTrpcPath("trpc/workspace.dashboard")).toBe(true);
     expect(isTrpcPath(["neon-auth", "get-session"])).toBe(false);
     expect(isTrpcPathFromRequestUrl("/api/trpc/auth.me?batch=1")).toBe(true);
+  });
+
+  it("keeps the authenticated AI chat stream co-deployed", () => {
+    expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
+    expect(isCoDeployedApiPath("chat/stream")).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "other"])).toBe(false);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/chat/stream?request=1")).toBe(true);
   });
 
   it("removes an upstream cookie domain before returning the first-party session cookie", () => {

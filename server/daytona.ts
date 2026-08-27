@@ -146,7 +146,8 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
       "nova.workspace": String(workspaceId),
       "nova.persistent": "true",
     },
-    resources: { cpu: 1, memory: 1, disk: 3 },
+    // Daytona's selected Python snapshot uses its default 1 vCPU, 1 GiB RAM,
+    // and 3 GiB disk. The SDK rejects an explicit resources field with a snapshot.
     networkBlockAll: true,
     ephemeral: false,
     autoDeleteInterval: -1,

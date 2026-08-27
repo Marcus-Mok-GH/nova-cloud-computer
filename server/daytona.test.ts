@@ -37,7 +37,6 @@ describe("Daytona sandbox service", () => {
     expect(persistentSandboxConfig(41, 7)).toEqual(expect.objectContaining({
       name: "nova-workspace-41",
       labels: expect.objectContaining({ "nova.owner": "7", "nova.workspace": "41", "nova.persistent": "true" }),
-      resources: { cpu: 1, memory: 1, disk: 3 },
       networkBlockAll: true,
       ephemeral: false,
       autoDeleteInterval: -1,

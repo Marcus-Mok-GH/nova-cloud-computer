@@ -4,18 +4,23 @@ import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
-import { findWorkspaceOwnerByTelegramToken, deleteChatForUser } from "./db";
+import {
+  findWorkspaceOwnerByTelegramToken,
+  deleteChatForUser,
+  listChatsForUser,
+  updateTelegramChatForUser,
+  createChatForUser,
+} from "./db";
 import { runWorkspaceAgent } from "./workspaceAgent";
+import { sendTelegramMessage } from "./telegram";
 
 // Max Telegram chats per workspace to prevent unbounded DB growth.
 const MAX_TELEGRAM_CHATS = 100;
 
 /** Prune oldest chats if user exceeds MAX_TELEGRAM_CHATS. */
 async function pruneChatsIfNeeded(ownerId: number): Promise<void> {
-  const { listChatsForUser } = await import("./db");
   const chats = await listChatsForUser(ownerId);
   if (chats.length > MAX_TELEGRAM_CHATS) {
-    const { deleteChatForUser } = await import("./db");
     const toDelete = chats.slice(MAX_TELEGRAM_CHATS);
     await Promise.all(toDelete.map(c => deleteChatForUser(ownerId, c.id)));
     console.info(`[Telegram webhook] pruned ${toDelete.length} stale chats for owner ${ownerId}`);
@@ -110,23 +115,23 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
     if (!ownerId) return res.status(404).json({ error: "bot-not-configured" });
     if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {
       const isAppLink = text.toLowerCase().includes("nova_app_link") || text.toLowerCase().startsWith("/start nova_app_link");
-      if (isAppLink) await import("./db").then(m => m.updateTelegramChatForUser(ownerId, chatId));
+      if (isAppLink) await updateTelegramChatForUser(ownerId, chatId);
       const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started.");
-      await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, startMessage));
+      await sendTelegramMessage(token, chatId, startMessage);
       return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
     }
     if (text === "/new") {
-      const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
+      const chat = await createChatForUser(ownerId, "Telegram Chat");
       void pruneChatsIfNeeded(ownerId);
       const reply = `New chat created (ID: ${chat.id}). Ask me anything!`;
-      await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));
+      await sendTelegramMessage(token, chatId, reply);
       return res.status(200).json({ ok: true });
     }
-    const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
+    const chat = await createChatForUser(ownerId, "Telegram Chat");
     void pruneChatsIfNeeded(ownerId);
     const result = await runWorkspaceAgent(ownerId, chat.id, text);
     const reply = String(result.message?.content ?? "I'm ready to help with this workspace.");
-    await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));
+    await sendTelegramMessage(token, chatId, reply);
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error("[Telegram webhook] failed", error);

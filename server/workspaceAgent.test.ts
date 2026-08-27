@@ -132,8 +132,13 @@ describe("Nova keyless workspace agent", () => {
     envState.nvidiaNimApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "delete_folder", arguments: '{"name":"Archive"}' } }] } }] });
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Deleted Archive." } }] });
-    await expect(runWorkspaceAgent(7, 3, "Delete folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
+    const toolEvents: unknown[] = [];
+    await expect(runWorkspaceAgent(7, 3, "Delete folder Archive", { onEvent: event => toolEvents.push(event) })).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
     expect(deleteFolder).toHaveBeenCalledWith(7, 11);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "z-ai/glm-5.2" }));
+    expect(toolEvents).toEqual([
+      { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
+      { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },
+    ]);
   });
 });

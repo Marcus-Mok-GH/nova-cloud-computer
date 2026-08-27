@@ -4,15 +4,8 @@ import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
-import {
-  appendChatMessageForUser,
-  getWorkspaceComputer,
-  listChatMessagesForUser,
-  updateChatForUser,
-  findWorkspaceOwnerByTelegramToken,
-} from "./db";
-import { invokeLLM } from "./_core/llm";
-import { getWorkspaceAgentConnection, runWorkspaceAgent } from "./workspaceAgent";
+import { findWorkspaceOwnerByTelegramToken } from "./db";
+import { runWorkspaceAgent } from "./workspaceAgent";
 
 export const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -55,173 +48,28 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
       return res.status(400).json({ error: "Missing chatId or content" });
     }
 
-    const connection = await getWorkspaceAgentConnection(user.id);
-    if (!connection) {
-      // Keep the chat contract available when a provider key is absent. The
-      // workspace agent persists the exchange and returns a safe explanation
-      // (or completes an explicit local workspace action) without pretending
-      // an external model streamed successfully.
-      const result = await runWorkspaceAgent(user.id, chatId, content.trim());
-      const reply = String(result.message?.content ?? "Nova’s AI model is not connected yet.");
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      res.flushHeaders();
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
-      res.write("data: [DONE]\n\n");
-      return res.end();
-    }
-
-    await appendChatMessageForUser(user.id, { chatId, role: "user", content: content.trim() });
-
-    const computer = await getWorkspaceComputer(user.id);
-    const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
-
-    const recent = await listChatMessagesForUser(user.id, chatId);
-    const history = (recent ?? []).slice(-20).map(msg => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    }));
-
-    const nimUrl = `${(connection.apiUrl ?? "https://integrate.api.nvidia.com/v1").replace(/\/$/, "")}/chat/completions`;
-    const response = await fetch(nimUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${connection.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: connection.model,
-        messages: [{ role: "system", content: context }, ...history],
-        stream: true,
-        max_tokens: 2048,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("[Chat stream] NVIDIA upstream rejected request", { status: response.status, statusText: response.statusText });
-      return res.status(502).json({ error: "Nova’s AI provider is temporarily unavailable. Please retry shortly." });
-    }
-
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      return res.status(500).json({ error: "No stream available" });
-    }
-    const decoder = new TextDecoder();
-    let fullContent = "";
-    let buffer = "";
+    const writeEvent = (event: unknown) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith("data: ")) continue;
-
-          const data = trimmed.slice(6).trim();
-          if (data === "[DONE]") {
-            try {
-              await appendChatMessageForUser(user.id, { chatId, role: "assistant", content: fullContent });
-            } catch (persistError) {
-              console.error("Failed to persist streamed message", persistError);
-            }
-
-            try {
-              const messages = await listChatMessagesForUser(user.id, chatId);
-              if (messages?.length === 2) {
-                const firstUser = messages.find(m => m.role === "user");
-                const firstAssistant = messages.find(m => m.role === "assistant");
-                if (firstUser && firstAssistant) {
-                  const title = await invokeLLM({
-                    model: "z-ai/glm-5.2",
-                    apiUrl: connection.apiUrl,
-                    apiKey: connection.apiKey,
-                    messages: [
-                      { role: "system", content: "Generate a 3-6 word title for this conversation." },
-                      { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
-                    ],
-                    maxTokens: 20,
-                  });
-                  const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
-                  const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
-                  await updateChatForUser(user.id, chatId, normalizedTitle);
-                }
-              }
-            } catch (titleError) {
-              console.error("Failed to generate chat title from stream", titleError);
-            }
-
-            res.write("data: [DONE]\n\n");
-            res.end();
-            return;
-          }
-
-          try {
-            const parsed = JSON.parse(data);
-            const token = parsed.choices?.[0]?.delta?.content || "";
-            fullContent += token;
-            res.write(`${trimmed}\n\n`);
-          } catch {
-            // skip malformed chunk
-          }
-        }
-      }
-    } catch (streamError) {
-      console.error("Chat stream interrupted", streamError);
-    }
-
-    if (fullContent) {
-      try {
-        await appendChatMessageForUser(user.id, { chatId, role: "assistant", content: fullContent });
-      } catch (persistError) {
-        console.error("Failed to persist streamed message", persistError);
-      }
-
-      try {
-        const messages = await listChatMessagesForUser(user.id, chatId);
-        if (messages?.length === 2) {
-          const firstUser = messages.find(m => m.role === "user");
-          const firstAssistant = messages.find(m => m.role === "assistant");
-          if (firstUser && firstAssistant) {
-            const title = await invokeLLM({
-              model: "z-ai/glm-5.2",
-              apiUrl: connection.apiUrl,
-              apiKey: connection.apiKey,
-              messages: [
-                { role: "system", content: "Generate a 3-6 word title for this conversation." },
-                { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
-              ],
-              maxTokens: 20,
-            });
-            const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
-            const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
-            await updateChatForUser(user.id, chatId, normalizedTitle);
-          }
-        }
-      } catch (titleError) {
-        console.error("Failed to generate chat title from stream", titleError);
-      }
-    }
-
-    res.end();
+    const result = await runWorkspaceAgent(user.id, Number(chatId), content.trim(), {
+      onEvent: event => writeEvent(event),
+    });
+    const reply = String(result.message?.content ?? "I’m ready to help with this workspace.");
+    writeEvent({ choices: [{ delta: { content: reply } }] });
+    res.write("data: [DONE]\n\n");
+    return res.end();
   } catch (error) {
     console.error("Chat stream endpoint error", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Nova could not start this response. Please retry shortly." });
-    } else {
-      res.end();
+      return res.status(500).json({ error: "Nova could not start this response. Please retry shortly." });
     }
+    return res.end();
   }
 });
 

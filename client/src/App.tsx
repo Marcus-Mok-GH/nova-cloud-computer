@@ -10,11 +10,11 @@ import SignIn from "./pages/SignIn";
 import Chats from "./pages/Chats";
 import Deployments from "./pages/Deployments";
 import Files from "./pages/Files";
+import More from "./pages/More";
 import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
@@ -24,25 +24,17 @@ function Router() {
       <Route path={"/app/chats"} component={Chats} />
       <Route path={"/app/deployments"} component={Deployments} />
       <Route path={"/app/settings"} component={WorkspaceSettings} />
+      <Route path={"/app/more"} component={More} />
       <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        switchable
-      >
+      <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
           <Toaster />
           <Router />

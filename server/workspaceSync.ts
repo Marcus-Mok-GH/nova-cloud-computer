@@ -1,7 +1,6 @@
 import {
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
-  deleteWorkspaceFileForUser,
   getWorkspaceComputer,
   updateWorkspaceFileForUser,
 } from "./db";
@@ -45,6 +44,17 @@ function safeRelativePath(value: string) {
   return parts.join("/");
 }
 
+async function createDaytonaFolders(sandbox: { fs: any }, destination: string) {
+  const parent = destination.slice(0, destination.lastIndexOf("/"));
+  if (!parent) return;
+  const parts = parent.split("/").filter(Boolean);
+  let current = "";
+  for (const part of parts) {
+    current += `/${part}`;
+    await sandbox.fs.createFolder(current, "755").catch(() => undefined);
+  }
+}
+
 /** Persist the current Neon workspace contents into deterministic S3 objects. */
 export async function persistWorkspaceToObjectStorage(ownerId: number) {
   const computer = await getWorkspaceComputer(ownerId);
@@ -85,7 +95,7 @@ export async function restoreWorkspaceFromObjectStorage(ownerId: number) {
 export async function restoreWorkspaceToDaytona(ownerId: number, sandbox: { fs: any }) {
   await restoreWorkspaceFromObjectStorage(ownerId);
   const computer = await getWorkspaceComputer(ownerId);
-  const uploads: Array<{ source: Buffer; destination: string }> = [];
+  let uploaded = 0;
   for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
     let content = Buffer.from(file.content ?? "", "utf8");
     try {
@@ -100,14 +110,12 @@ export async function restoreWorkspaceToDaytona(ownerId: number, sandbox: { fs: 
     }
     const relative = safeRelativePath(workspaceFilePath(file, computer.folders));
     if (!relative) continue;
-    uploads.push({ source: content, destination: `/home/daytona/workspace/${relative}` });
+    const destination = `/home/daytona/workspace/${relative}`;
+    await createDaytonaFolders(sandbox, destination);
+    await sandbox.fs.uploadFile(content, destination);
+    uploaded += 1;
   }
-  for (const upload of uploads) {
-    const parent = upload.destination.slice(0, upload.destination.lastIndexOf("/"));
-    await sandbox.fs.uploadFile(Buffer.from(""), `${parent}/.nova-dir-marker`).catch(() => undefined);
-    await sandbox.fs.uploadFile(upload.source, upload.destination);
-  }
-  return uploads.length;
+  return uploaded;
 }
 
 async function ensureFolderPath(ownerId: number, path: string, computer: Awaited<ReturnType<typeof getWorkspaceComputer>>) {
@@ -157,6 +165,7 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     if (!name) continue;
     const folderName = parts.join("/");
     const folderId = await ensureFolderPath(ownerId, folderName, computer);
+    if (folderName && folderId === null) continue;
     const key = `${folderName}\0${name}`;
     seen.add(key);
     const existing = computer.files.find(file => file.name === name && (file.folderId ?? null) === (folderId ?? null));
@@ -177,15 +186,8 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     imported += 1;
   }
 
-  // Only remove DB files that are inside the synchronized Daytona tree. This keeps
-  // old workspaces safe if a provider returns a partial listing.
-  if (files.length > 0) {
-    for (const file of computer.files) {
-      const path = workspaceFilePath(file, computer.folders);
-      if (seen.has(`${folderPath(file.folderId, computer.folders)}\0${file.name}`)) continue;
-      if (path && !path.includes("/")) continue;
-      // Nested files absent from the full listing are intentionally retained.
-    }
-  }
+  // A provider may return a partial listing, so deletions are deliberately not inferred here.
+  // The database remains the safe source for objects that were not observed in the sync pass.
+  void seen;
   return imported;
 }

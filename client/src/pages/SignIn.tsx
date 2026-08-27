@@ -67,6 +67,9 @@ export default function SignIn() {
           }
 
           // /app uses auth.me to decide whether the user is authenticated.
+          // Clear the query created before the OTP exchange; otherwise its
+          // cached unauthenticated result can mask the fresh Neon session.
+          await utils.auth.me.invalidate();
           // Fetch it before navigation so the backend sees the Neon JWT and
           // creates Nova's first-party session cookie on the same request.
           const user = await utils.auth.me.fetch();

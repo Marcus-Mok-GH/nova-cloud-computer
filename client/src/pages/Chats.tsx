@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { ChevronRight, MessageSquareText, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { getNeonAccessToken } from "@/lib/neonAuth";
 import { useLocation } from "wouter";
 
 export default function Chats() {
@@ -17,7 +18,8 @@ export default function Chats() {
     if (!window.confirm(`Delete “${title}”? This conversation and its messages will be permanently deleted.`)) return;
     setDeletingId(chatId);
     try {
-      const response = await fetch("/api/chat/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId }) });
+      const token = await getNeonAccessToken().catch(() => null);
+      const response = await fetch("/api/chat/delete", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId }) });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not delete chat");
       await utils.workspace.computer.invalidate();
       toast.success("Chat deleted");
@@ -47,7 +49,7 @@ export default function Chats() {
                 <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-bold text-neutral-900 dark:text-white">{chat.title}</h2><p className="mt-1 text-xs text-neutral-400">Open saved conversation</p></div>
                 <ChevronRight className="size-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-500 dark:text-neutral-600" />
               </button>
-              <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>
+              <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-neutral-400 opacity-100 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>
             </div>
           )) : (
             <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-neutral-200 bg-white text-center dark:border-white/10 dark:bg-neutral-900"><div><Sparkles className="mx-auto size-5 text-[#f97316]" /><p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Begin a conversation with Nova from your workspace.</p></div></div>

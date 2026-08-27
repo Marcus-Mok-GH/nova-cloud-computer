@@ -1,9 +1,10 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
+import { detectLanguage, HighlightedCode, languageLabel } from "@/lib/syntaxHighlight";
 import { getFolderTrail } from "@/lib/workspaceBrowser";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Save, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Pencil, Save, Trash2, X } from "lucide-react";
 import React, { useMemo, useState } from "react";
 
 type OpenFile = { id: number; name: string; content?: string | null; mimeType?: string | null; folderId?: number | null };
@@ -16,9 +17,11 @@ export default function Files() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [openFile, setOpenFile] = useState<OpenFile | null>(null);
   const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
   const folders = computer.data?.folders ?? [];
   const files = computer.data?.files ?? [];
   const trail = useMemo(() => getFolderTrail(folders, activeFolderId), [folders, activeFolderId]);
+  const language = openFile ? detectLanguage(openFile.name, openFile.mimeType) : "text";
 
   const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
@@ -26,14 +29,17 @@ export default function Files() {
     onSuccess: (_, vars) => { if (openFile?.id === vars.id) setOpenFile(null); utils.workspace.computer.invalidate(); toast.success("File deleted"); },
     onError: e => toast.error(e.message),
   });
-  const saveFile = trpc.files.update.useMutation({ onSuccess: async () => { await utils.workspace.computer.invalidate(); toast.success("File saved"); }, onError: e => toast.error(e.message) });
+  const saveFile = trpc.files.update.useMutation({
+    onSuccess: async () => { if (openFile) setOpenFile({ ...openFile, content: draft }); setEditing(false); await utils.workspace.computer.invalidate(); toast.success("File saved"); },
+    onError: e => toast.error(e.message),
+  });
 
   const make = (kind: "file" | "folder") => {
     const name = window.prompt(`Name this ${kind}`)?.trim();
     if (!name) return;
     kind === "folder" ? createFolder.mutate({ name, parentId: activeFolderId }) : createFile.mutate({ name, content: "", folderId: activeFolderId });
   };
-  const open = (file: OpenFile) => { setOpenFile(file); setDraft(file.content ?? ""); };
+  const open = (file: OpenFile) => { setOpenFile(file); setDraft(file.content ?? ""); setEditing(false); };
   const selectFolder = (id: number | null) => { setActiveFolderId(id); if (id !== null) setExpanded(p => new Set(p).add(id)); };
   const remove = (file: any, e?: React.MouseEvent) => { e?.stopPropagation(); if (window.confirm(`Delete “${file.name}”? This cannot be undone.`)) deleteFile.mutate({ id: file.id }); };
 
@@ -52,7 +58,11 @@ export default function Files() {
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-[#1e1e1e]">
         {openFile ? <>
           <div className="flex h-10 shrink-0 items-center border-b border-neutral-200 bg-[#f3f3f3] dark:border-[#2b2b2b] dark:bg-[#181818]"><div className="flex h-full items-center gap-2 border-r border-neutral-200 bg-white px-3 text-xs dark:border-[#2b2b2b] dark:bg-[#1e1e1e]"><File className="size-3.5 text-neutral-500" /><span className="max-w-[260px] truncate">{openFile.name}</span><button onClick={() => setOpenFile(null)} className="rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-white/10"><X className="size-3.5" /></button></div></div>
-          <div className="flex min-h-0 flex-1 flex-col"><div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 py-2 text-[11px] text-neutral-400 dark:border-[#2b2b2b]"><div className="flex min-w-0 items-center gap-1"><span>workspace</span>{trail.map(f => <React.Fragment key={f.id}><ChevronRight className="size-3" /><span className="truncate">{f.name}</span></React.Fragment>)}<ChevronRight className="size-3" /><span className="truncate">{openFile.name}</span></div><span>{openFile.mimeType ?? "Plain text"}</span></div><textarea value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} className="min-h-0 flex-1 resize-none border-0 bg-white p-5 font-mono text-[13px] leading-6 outline-none dark:bg-[#1e1e1e] dark:text-neutral-100" aria-label={`Edit ${openFile.name}`} /><div className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-[#f3f3f3] px-3 py-2 dark:border-[#2b2b2b] dark:bg-[#181818]"><span className="text-[11px] text-neutral-400">{draft.length} characters</span><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setOpenFile(null)}><X className="mr-1.5 size-3.5" />Close</Button><Button size="sm" disabled={saveFile.isPending} onClick={() => saveFile.mutate({ id: openFile.id, content: draft })} className="bg-[#f97316] hover:bg-[#ea580c]"><Save className="mr-1.5 size-3.5" />{saveFile.isPending ? "Saving…" : "Save"}</Button></div></div></div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 py-2 text-[11px] text-neutral-400 dark:border-[#2b2b2b]"><div className="flex min-w-0 items-center gap-1"><span>workspace</span>{trail.map(f => <React.Fragment key={f.id}><ChevronRight className="size-3" /><span className="truncate">{f.name}</span></React.Fragment>)}<ChevronRight className="size-3" /><span className="truncate">{openFile.name}</span></div><span>{languageLabel(language)}</span></div>
+            {editing ? <textarea value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} className="min-h-0 flex-1 resize-none border-0 bg-white p-5 font-mono text-[13px] leading-6 outline-none dark:bg-[#1e1e1e] dark:text-neutral-100" aria-label={`Edit ${openFile.name}`} /> : <div className="min-h-0 flex-1 overflow-auto bg-white dark:bg-[#1e1e1e]"><pre className="m-0 min-h-full whitespace-pre p-5 font-mono text-[13px] leading-6 text-neutral-800 dark:text-neutral-100"><HighlightedCode code={draft} language={language} /></pre></div>}
+            <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-[#f3f3f3] px-3 py-2 dark:border-[#2b2b2b] dark:bg-[#181818]"><span className="text-[11px] text-neutral-400">{draft.length} characters · {languageLabel(language)}</span><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setOpenFile(null)}><X className="mr-1.5 size-3.5" />Close</Button>{editing ? <Button size="sm" disabled={saveFile.isPending} onClick={() => saveFile.mutate({ id: openFile.id, content: draft })} className="bg-[#f97316] hover:bg-[#ea580c]"><Save className="mr-1.5 size-3.5" />{saveFile.isPending ? "Saving…" : "Save"}</Button> : <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="mr-1.5 size-3.5" />Edit</Button>}</div></div>
+          </div>
         </> : <><div className="flex h-10 shrink-0 items-center border-b border-neutral-200 bg-[#f3f3f3] px-4 text-xs text-neutral-500 dark:border-[#2b2b2b] dark:bg-[#181818]">{activeFolderId === null ? "NOVA WORKSPACE" : folders.find(f => f.id === activeFolderId)?.name}</div><div className="flex flex-1 items-center justify-center text-sm text-neutral-400"><div className="text-center"><FolderOpen className="mx-auto mb-3 size-10 opacity-40" /><p>Select a file from the Explorer to open it.</p></div></div></>}
       </main>
     </div>

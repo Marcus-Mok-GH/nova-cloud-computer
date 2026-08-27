@@ -5,9 +5,11 @@ import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { trpc } from "@/lib/trpc";
 
 export default function SignIn() {
   const { isAuthenticated, loading } = useAuth();
+  const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -59,8 +61,20 @@ export default function SignIn() {
         const session = await neonAuth.getSession();
         if (session.data?.session) {
           const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth);
-          if (jwt) setLocation("/app");
-          else setError("Signed in, but Nova could not load your session. Please refresh.");
+          if (!jwt) {
+            setError("Signed in, but Nova could not load your session. Please refresh.");
+            return;
+          }
+
+          // The /app layout reads auth.me from React Query. Fetch it now, while
+          // the Neon JWT is available, so the backend can both authenticate the
+          // user and persist Nova's first-party session cookie before we route.
+          const user = await utils.auth.me.fetch();
+          if (user) {
+            setLocation("/app");
+          } else {
+            setError("Signed in, but Nova could not load your account session. Check your deployment auth configuration.");
+          }
         } else {
           setError("Signed in, but Nova could not load your session. Please refresh.");
         }

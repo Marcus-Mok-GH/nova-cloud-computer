@@ -40,9 +40,7 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments)
-    || (segments[0] === "chat" && segments[1] === "stream")
-    || (segments[0] === "admin" && segments[1] === "backfill-persistent-workspaces");
+  return isTrpcPath(segments) || (segments[0] === "chat" && segments[1] === "stream");
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

@@ -1,11 +1,10 @@
-import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
-import { backfillMissingWorkspacePersistentVms, findWorkspaceOwnerByTelegramToken } from "./db";
+import { findWorkspaceOwnerByTelegramToken } from "./db";
 import { runWorkspaceAgent } from "./workspaceAgent";
 
 export const app = express();
@@ -36,26 +35,6 @@ app.post("/api/scheduled/automation", async (req: express.Request, res: express.
       timestamp: new Date().toISOString(),
       context: { path: req.path },
     });
-  }
-});
-
-/**
- * Temporary production-only route for repairing legacy workspaces. It accepts
- * no user-controlled workspace identifier, limits each call to three repairs,
- * and remains disabled unless its server-only token is configured.
- */
-app.post("/api/admin/backfill-persistent-workspaces", async (req: express.Request, res: express.Response) => {
-  const expected = process.env.PERSISTENT_WORKSPACE_BACKFILL_TOKEN?.trim();
-  const provided = req.get("x-nova-backfill-token")?.trim();
-  if (!expected || !provided || expected.length !== provided.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(provided))) {
-    return res.status(404).json({ error: "not-found" });
-  }
-
-  try {
-    return res.status(200).json({ ok: true, outcome: await backfillMissingWorkspacePersistentVms() });
-  } catch (error) {
-    console.error("[Persistent workspace backfill] failed", error instanceof Error ? error.message : String(error));
-    return res.status(500).json({ error: "persistent-workspace-backfill-failed" });
   }
 });
 

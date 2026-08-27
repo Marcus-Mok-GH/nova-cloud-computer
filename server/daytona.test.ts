@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildDaytonaWorkspaceBundle, persistentSandboxConfig, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
+import { buildDaytonaWorkspaceBundle, ensurePersistentSandbox, persistentSandboxConfig, recoverPersistentSandbox, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
 
 describe("Daytona sandbox service", () => {
   it("creates a bounded network-isolated sandbox, uploads a scoped bundle, records its ID, and always deletes it", async () => {
@@ -42,6 +42,65 @@ describe("Daytona sandbox service", () => {
       autoDeleteInterval: -1,
       public: false,
     }));
+  });
+
+  it("automatically wakes a stopped personal workspace without creating a duplicate", async () => {
+    const start = vi.fn(async () => undefined);
+    const sandbox = {
+      id: "sbx-durable",
+      state: "stopped" as const,
+      start,
+      fs: { uploadFile: vi.fn(async () => undefined) },
+      process: { executeCommand: vi.fn(async () => ({ result: "", exitCode: 0 })) },
+      delete: vi.fn(async () => undefined),
+    };
+    const client: DaytonaClientLike = { get: vi.fn(async () => sandbox), create: vi.fn() };
+
+    await expect(ensurePersistentSandbox(client, 41, 7)).resolves.toBe(sandbox);
+    expect(start).toHaveBeenCalledWith(30);
+    expect(client.create).not.toHaveBeenCalled();
+  });
+
+  it("automatically refreshes and recovers a recoverable personal workspace failure", async () => {
+    const refreshData = vi.fn(async () => undefined);
+    const recover = vi.fn(async () => undefined);
+    const sandbox = {
+      id: "sbx-recovered",
+      state: "error" as const,
+      recoverable: true,
+      refreshData,
+      recover,
+      fs: { uploadFile: vi.fn(async () => undefined) },
+      process: { executeCommand: vi.fn(async () => ({ result: "", exitCode: 0 })) },
+      delete: vi.fn(async () => undefined),
+    };
+    const client: DaytonaClientLike = { get: vi.fn(async () => sandbox), create: vi.fn() };
+
+    await expect(recoverPersistentSandbox(client, 41, 7)).resolves.toBe(sandbox);
+    expect(refreshData).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledWith(30);
+    expect(client.create).not.toHaveBeenCalled();
+  });
+
+  it("creates one replacement when the provider no longer finds a workspace sandbox", async () => {
+    const replacement = {
+      id: "sbx-replacement",
+      fs: { uploadFile: vi.fn(async () => undefined) },
+      process: { executeCommand: vi.fn(async () => ({ result: "", exitCode: 0 })) },
+      delete: vi.fn(async () => undefined),
+    };
+    const client: DaytonaClientLike = {
+      get: vi.fn(async () => { throw new Error("not found"); }),
+      create: vi.fn(async () => replacement),
+    };
+
+    const [first, second] = await Promise.all([
+      ensurePersistentSandbox(client, 41, 7),
+      ensurePersistentSandbox(client, 41, 7),
+    ]);
+    expect(first).toBe(replacement);
+    expect(second).toBe(replacement);
+    expect(client.create).toHaveBeenCalledTimes(1);
   });
 
   it("blocks network and process-launching code before a sandbox is created", () => {

@@ -22,6 +22,11 @@ export type DaytonaWorkspaceFolder = {
 
 export type DaytonaSandboxLike = {
   id: string;
+  state?: "started" | "stopped" | "paused" | "archived" | "error" | string;
+  recoverable?: boolean;
+  start?: (timeout?: number) => Promise<void>;
+  recover?: (timeout?: number) => Promise<void>;
+  refreshData?: () => Promise<void>;
   fs: {
     uploadFile: (content: Buffer, remotePath: string, timeout?: number) => Promise<void>;
   };
@@ -155,16 +160,52 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
   };
 }
 
-async function ensurePersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
-  const config = persistentSandboxConfig(workspaceId, ownerId);
+const persistentSandboxInFlight = new Map<string, Promise<DaytonaSandboxLike>>();
 
+async function wakePersistentSandbox(sandbox: DaytonaSandboxLike): Promise<DaytonaSandboxLike> {
+  if (sandbox.state === "error" && sandbox.recoverable && sandbox.recover) {
+    await sandbox.recover(30);
+  } else if ((sandbox.state === "stopped" || sandbox.state === "paused" || sandbox.state === "archived") && sandbox.start) {
+    await sandbox.start(30);
+  }
+  return sandbox;
+}
+
+async function createOrGetPersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
+  const config = persistentSandboxConfig(workspaceId, ownerId);
   try {
-    return await client.get(config.name);
+    return await wakePersistentSandbox(await client.get(config.name));
   } catch {
     // The deterministic workspace name is not present yet, so create it once.
+    return await wakePersistentSandbox(await client.create(config));
   }
+}
 
-  return await client.create(config);
+export async function ensurePersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
+  const key = `${ownerId}:${workspaceId}`;
+  const existing = persistentSandboxInFlight.get(key);
+  if (existing) return existing;
+
+  const pending = createOrGetPersistentSandbox(client, workspaceId, ownerId);
+  persistentSandboxInFlight.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (persistentSandboxInFlight.get(key) === pending) persistentSandboxInFlight.delete(key);
+  }
+}
+
+export async function recoverPersistentSandbox(client: DaytonaClientLike, workspaceId: number, ownerId: number): Promise<DaytonaSandboxLike> {
+  const config = persistentSandboxConfig(workspaceId, ownerId);
+  try {
+    const sandbox = await client.get(config.name);
+    await sandbox.refreshData?.();
+    return await wakePersistentSandbox(sandbox);
+  } catch {
+    // If the provider can no longer retrieve this sandbox, the normal durable
+    // ensure path will reuse its deterministic name or create a replacement.
+    return ensurePersistentSandbox(client, workspaceId, ownerId);
+  }
 }
 
 async function uploadBundleToSandbox(sandbox: DaytonaSandboxLike, files: DaytonaWorkspaceFile[], folders: DaytonaWorkspaceFolder[], task: string, code?: string) {
@@ -211,6 +252,21 @@ export async function runDaytonaTask(client: DaytonaClientLike, input: DaytonaTa
   }
 }
 
+class DaytonaTaskExitError extends Error {}
+
+async function runTaskInPersistentSandbox(sandbox: DaytonaSandboxLike, input: {
+  task: string;
+  code?: string;
+  files: DaytonaWorkspaceFile[];
+  folders: DaytonaWorkspaceFolder[];
+}): Promise<DaytonaTaskResult> {
+  await uploadBundleToSandbox(sandbox, input.files, input.folders, input.task, input.code);
+  const response = await sandbox.process.executeCommand("python3 .nova-task.py", "/home/daytona/workspace", undefined, RUN_TIMEOUT_SECONDS);
+  const output = sanitizeDaytonaOutput(response.result);
+  if (response.exitCode && response.exitCode !== 0) throw new DaytonaTaskExitError(output);
+  return { sandboxId: sandbox.id, output, uploadedFileCount: Math.min(input.files.length, MAX_WORKSPACE_FILES) };
+}
+
 export async function runDaytonaTaskInPersistentSandbox(client: DaytonaClientLike, input: {
   workspaceId: number;
   ownerId: number;
@@ -221,11 +277,16 @@ export async function runDaytonaTaskInPersistentSandbox(client: DaytonaClientLik
 }): Promise<DaytonaTaskResult> {
   validateDaytonaCode(input.code);
   const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
-  await uploadBundleToSandbox(sandbox, input.files, input.folders, input.task, input.code);
-  const response = await sandbox.process.executeCommand("python3 .nova-task.py", "/home/daytona/workspace", undefined, RUN_TIMEOUT_SECONDS);
-  const output = sanitizeDaytonaOutput(response.result);
-  if (response.exitCode && response.exitCode !== 0) throw new Error(output);
-  return { sandboxId: sandbox.id, output, uploadedFileCount: Math.min(input.files.length, MAX_WORKSPACE_FILES) };
+  try {
+    return await runTaskInPersistentSandbox(sandbox, input);
+  } catch (error) {
+    // Do not repeat a completed user program that reported its own failure.
+    if (error instanceof DaytonaTaskExitError) throw error;
+
+    console.warn(`[Daytona] Persistent task failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
+    const recoveredSandbox = await recoverPersistentSandbox(client, input.workspaceId, input.ownerId);
+    return runTaskInPersistentSandbox(recoveredSandbox, input);
+  }
 }
 
 export async function initWorkspacePersistentVm(workspaceId: number, ownerId: number, knownSandboxId?: string | null): Promise<string | undefined> {

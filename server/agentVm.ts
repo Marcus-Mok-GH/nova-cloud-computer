@@ -4,6 +4,7 @@ import {
   getWorkspaceComputer,
   listAgentVmRunsForUser,
   updateAgentVmRunForUser,
+  updateWorkspacePersistentSandbox,
 } from "./db";
 import { getDaytonaClient, isDaytonaConfigured, runDaytonaTaskInPersistentSandbox } from "./daytona";
 
@@ -47,6 +48,7 @@ export async function startAgentVmRun(ownerId: number, input: { task: string; co
       files: computer.files,
       folders: computer.folders,
     });
+    await updateWorkspacePersistentSandbox(computer.workspace.id, result.sandboxId);
     const artifact = await createWorkspaceFileForUser(ownerId, {
       name: `nova-run-${run.id}.txt`,
       content: `Task: ${input.task}\n\n${result.output}\n`,

@@ -52,7 +52,9 @@ export default function Workspace() {
       });
 
       if (!response.ok) {
-        throw new Error("Stream failed");
+        const payload = await response.json().catch(() => null) as { error?: unknown } | null;
+        const message = typeof payload?.error === "string" ? payload.error : "Nova could not start this response. Please retry shortly.";
+        throw new Error(message);
       }
 
       const reader = response.body?.getReader();

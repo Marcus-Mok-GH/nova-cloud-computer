@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { getNeonAccessToken } from "@/lib/neonAuth";
 import {
   ArrowLeft,
   ArrowUp,
@@ -59,9 +60,11 @@ export default function Workspace() {
     setIsStreaming(true);
 
     try {
+      const token = await getNeonAccessToken();
       const response = await fetch("/api/chat/stream", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ chatId, content }),
       });
 

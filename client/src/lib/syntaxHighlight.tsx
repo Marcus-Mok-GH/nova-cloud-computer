@@ -75,7 +75,7 @@ function tokenize(code: string, language: HighlightLanguage): Token[] {
     ? /(<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g
     : /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b|===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\+=|-=|\*=|\/=|[+\-*\/%=<>!&|^~?:])+/g;
   let last = 0;
-  for (const match of code.matchAll(pattern)) {
+  for (const match of Array.from(code.matchAll(pattern))) {
     const index = match.index ?? 0;
     if (index > last) tokens.push({ kind: "plain", text: code.slice(last, index) });
     const value = match[0];

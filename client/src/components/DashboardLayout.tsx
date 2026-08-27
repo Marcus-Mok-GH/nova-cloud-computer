@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -17,23 +17,41 @@ const nav = [
   { icon: Settings2, label: "Settings", path: "/app/settings" },
 ];
 const moreTab = { icon: MoreHorizontal, label: "More…", path: "/app/more" };
-const mobilePrimaryCount = 4;
+const ITEM_WIDTH = 96;
+const ITEM_GAP = 4;
+const SIDE_PADDING = 16;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
+  const [visibleNavCount, setVisibleNavCount] = useState(nav.length);
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const recentChats = (computer.data?.chats ?? []).slice(0, 12);
-  const mobileTabs = nav.length > mobilePrimaryCount ? [...nav.slice(0, mobilePrimaryCount), moreTab] : nav;
   const isChatWorkspace = location.startsWith("/app/chats") || location.startsWith("/app?chatId=");
   const createChat = trpc.chats.create.useMutation({ onSuccess: async () => { await utils.workspace.computer.invalidate(); } });
+
+  // The number of visible destinations follows the actual available viewport width.
+  // The More item consumes a slot whenever not every destination fits.
+  useEffect(() => {
+    const updateNavCapacity = () => {
+      const width = window.innerWidth;
+      const available = Math.max(0, width - SIDE_PADDING * 2);
+      const capacity = Math.floor((available + ITEM_GAP) / (ITEM_WIDTH + ITEM_GAP));
+      setVisibleNavCount(Math.max(1, Math.min(nav.length, capacity)));
+    };
+    updateNavCapacity();
+    window.addEventListener("resize", updateNavCapacity);
+    return () => window.removeEventListener("resize", updateNavCapacity);
+  }, []);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-white px-6 dark:bg-neutral-950"><div className="w-full max-w-sm rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-[0_24px_80px_rgba(10,10,10,0.08)] dark:border-white/10 dark:bg-neutral-900"><NovaMark size={34} className="mx-auto" /><h1 className="mt-6 text-2xl font-extrabold tracking-tight">Sign in to continue</h1><p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">Your private computer and its agent are available after passwordless sign-in.</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-7 w-full">Sign in</button></div></div>;
 
   const isActive = (path: string) => path === "/app" ? location === "/app" || location.startsWith("/app?") : location === path || location.startsWith(`${path}?`);
+  const showMore = visibleNavCount < nav.length;
+  const visibleNav = showMore ? nav.slice(0, Math.max(0, visibleNavCount - 1)) : nav;
   const handleNewChat = async () => { try { const chat = await createChat.mutateAsync({ title: "New workspace conversation" }); setLocation(`/app?chatId=${chat.id}`); } catch {} };
 
   return (
@@ -48,9 +66,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className={`min-h-[calc(100vh-3.5rem)] pb-24 sm:pb-28 ${isChatWorkspace ? "lg:pl-[292px]" : ""}`}>{children}</main>
 
       <nav aria-label="Workspace navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-neutral-200/90 bg-white/95 px-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(10,10,10,0.04)] backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/95 dark:shadow-none">
-        <div className="mx-auto flex w-full max-w-[1400px] items-stretch justify-center"><div className="flex w-full min-w-0 justify-around gap-1 sm:w-auto sm:gap-1">
-          {nav.map((tab, index) => <button key={tab.label} onClick={() => setLocation(tab.path)} className={`hidden min-w-[58px] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/60 sm:min-w-[78px] sm:flex-none sm:px-4 ${index < mobilePrimaryCount ? "sm:flex" : "lg:flex"} ${isActive(tab.path) ? "bg-[#f97316]/10 text-[#c2410c] dark:text-[#fb923c]" : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"}`}><tab.icon className="size-4 sm:size-[18px]" /><span className="max-w-[100px] truncate">{tab.label}</span></button>)}
-          <button onClick={() => setLocation(moreTab.path)} className={`flex min-w-[58px] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/60 sm:min-w-[78px] sm:flex-none sm:px-4 lg:hidden ${isActive(moreTab.path) || nav.slice(mobilePrimaryCount).some(item => isActive(item.path)) ? "bg-[#f97316]/10 text-[#c2410c] dark:text-[#fb923c]" : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/5"}`}><MoreHorizontal className="size-4 sm:size-[18px]" /><span>More…</span></button>
+        <div className="mx-auto flex w-full max-w-[1400px] items-stretch justify-center"><div className="flex w-full justify-center gap-1">
+          {visibleNav.map(tab => <button key={tab.label} onClick={() => setLocation(tab.path)} className={`flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/60 ${isActive(tab.path) ? "bg-[#f97316]/10 text-[#c2410c] dark:text-[#fb923c]" : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"}`}><tab.icon className="size-[18px]" /><span className="max-w-[100px] truncate">{tab.label}</span></button>)}
+          {showMore && <button onClick={() => setLocation(moreTab.path)} className={`flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-3 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]/60 ${isActive(moreTab.path) || nav.slice(visibleNav.length).some(item => isActive(item.path)) ? "bg-[#f97316]/10 text-[#c2410c] dark:text-[#fb923c]" : "text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/5"}`}><MoreHorizontal className="size-[18px]" /><span>More…</span></button>}
         </div></div>
       </nav>
     </div>

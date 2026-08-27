@@ -55,12 +55,24 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
       return res.status(400).json({ error: "Missing chatId or content" });
     }
 
-    await appendChatMessageForUser(user.id, { chatId, role: "user", content: content.trim() });
-
     const connection = await getWorkspaceAgentConnection(user.id);
     if (!connection) {
-      return res.status(500).json({ error: "No LLM connection configured" });
+      // Keep the chat contract available when a provider key is absent. The
+      // workspace agent persists the exchange and returns a safe explanation
+      // (or completes an explicit local workspace action) without pretending
+      // an external model streamed successfully.
+      const result = await runWorkspaceAgent(user.id, chatId, content.trim());
+      const reply = String(result.message?.content ?? "Nova’s AI model is not connected yet.");
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      return res.end();
     }
+
+    await appendChatMessageForUser(user.id, { chatId, role: "user", content: content.trim() });
 
     const computer = await getWorkspaceComputer(user.id);
     const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
@@ -87,8 +99,8 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(502).json({ error: `Upstream error: ${response.status} ${response.statusText}`, details: errorText });
+      console.error("[Chat stream] NVIDIA upstream rejected request", { status: response.status, statusText: response.statusText });
+      return res.status(502).json({ error: "Nova’s AI provider is temporarily unavailable. Please retry shortly." });
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -206,7 +218,7 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
   } catch (error) {
     console.error("Chat stream endpoint error", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Stream failed" });
+      res.status(500).json({ error: "Nova could not start this response. Please retry shortly." });
     } else {
       res.end();
     }

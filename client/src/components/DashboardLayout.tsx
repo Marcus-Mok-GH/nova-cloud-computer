@@ -10,7 +10,7 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { Folder, HardDrive, LogOut, MessageSquareText, Moon, MoreHorizontal, Rocket, Search, Settings2, Sparkles, Sun } from "lucide-react";
+import { Folder, HardDrive, LogOut, MessageSquareText, Moon, MoreHorizontal, Rocket, Search, Settings2, Sun } from "lucide-react";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -30,7 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
-  const recentChats = (computer.data?.chats ?? []).slice(0, 4);
+  const recentChats = (computer.data?.chats ?? []).slice(0, 12);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) {
@@ -78,7 +78,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </DropdownMenu>
       </header>
 
-      <main className="min-h-[calc(100vh-3.5rem)] pb-24 sm:pb-28">{children}</main>
+      <div className="flex min-h-[calc(100vh-3.5rem)]">
+        {/* Desktop chat sidebar, matching conventional chat applications. */}
+        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem-5rem)] w-[280px] shrink-0 flex-col border-r border-neutral-200 bg-white dark:border-white/10 dark:bg-neutral-900 lg:flex">
+          <div className="border-b border-neutral-200 p-3 dark:border-white/10">
+            <button onClick={() => setLocation("/app")} className="flex w-full items-center gap-2 rounded-xl border border-neutral-200 bg-[#fafafa] px-3 py-2 text-left text-[13px] font-medium text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800">
+              <Search className="size-4 shrink-0" />
+              <span className="flex-1">Search chats</span>
+            </button>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+            <div className="flex items-center justify-between px-2 pb-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Chats</p>
+              <button onClick={() => setLocation("/app/chats")} className="text-[11px] font-semibold text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white">View all</button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+              {recentChats.length > 0 ? recentChats.map(chat => {
+                const active = location.includes(`chatId=${chat.id}`);
+                return (
+                  <button
+                    key={chat.id}
+                    onClick={() => setLocation(`/app?chatId=${chat.id}`)}
+                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13px] font-medium transition-colors ${active ? "bg-neutral-100 text-neutral-950 dark:bg-neutral-800 dark:text-white" : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"}`}
+                  >
+                    <MessageSquareText className="size-3.5 shrink-0 text-[#f97316]" />
+                    <span className="truncate">{chat.title}</span>
+                  </button>
+                );
+              }) : (
+                <p className="px-3 py-6 text-center text-xs text-neutral-400">No recent chats yet.</p>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <main className="min-w-0 flex-1 pb-24 sm:pb-28">{children}</main>
+      </div>
 
       <nav aria-label="Workspace navigation" className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white/95 px-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md dark:border-white/10 dark:bg-neutral-950/95">
         <div className="mx-auto flex w-full max-w-5xl items-stretch justify-center gap-1 overflow-x-auto">

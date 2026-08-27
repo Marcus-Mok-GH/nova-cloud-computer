@@ -7,6 +7,21 @@ import { runAutomationForScheduleTask } from "./automations";
 import { findWorkspaceOwnerByTelegramToken, deleteChatForUser } from "./db";
 import { runWorkspaceAgent } from "./workspaceAgent";
 
+// Max Telegram chats per workspace to prevent unbounded DB growth.
+const MAX_TELEGRAM_CHATS = 100;
+
+/** Prune oldest chats if user exceeds MAX_TELEGRAM_CHATS. */
+async function pruneChatsIfNeeded(ownerId: number): Promise<void> {
+  const { listChatsForUser } = await import("./db");
+  const chats = await listChatsForUser(ownerId);
+  if (chats.length > MAX_TELEGRAM_CHATS) {
+    const { deleteChatForUser } = await import("./db");
+    const toDelete = chats.slice(MAX_TELEGRAM_CHATS);
+    await Promise.all(toDelete.map(c => deleteChatForUser(ownerId, c.id)));
+    console.info(`[Telegram webhook] pruned ${toDelete.length} stale chats for owner ${ownerId}`);
+  }
+}
+
 export const app = express();
 
 // Defense-in-depth HTTP policy: workspace/API responses are private and must not be
@@ -100,10 +115,15 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
       await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, startMessage));
       return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
     }
-    const chats = await import("./db").then(m => m.listChatsForUser(ownerId));
-    let chat = chats.find(c => c.title === `Telegram ${chatId}` || c.title === chatId);
-    if (!chat) chat = await import("./db").then(m => m.createChatForUser(ownerId, `Telegram ${chatId}`));
-    if (!chat) return res.status(503).json({ error: "chat-unavailable" });
+    if (text === "/new") {
+      const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
+      void pruneChatsIfNeeded(ownerId);
+      const reply = `New chat created (ID: ${chat.id}). Ask me anything!`;
+      await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));
+      return res.status(200).json({ ok: true });
+    }
+    const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
+    void pruneChatsIfNeeded(ownerId);
     const result = await runWorkspaceAgent(ownerId, chat.id, text);
     const reply = String(result.message?.content ?? "I'm ready to help with this workspace.");
     await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));

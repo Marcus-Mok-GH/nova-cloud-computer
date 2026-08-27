@@ -1,3 +1,14 @@
+## 2026-08-28 — Refactor: remove dead code and prune unused dependencies
+
+- Removed unreachable client code: `pages/ComponentShowcase.tsx` (1,437-line demo page with no route), `components/AIChatBox.tsx`, `components/ManusDialog.tsx`, `components/Map.tsx`, `hooks/useMobile.tsx`, `lib/authCallbackUrl.ts`, and `client/src/const.ts`.
+- Removed 38 unused shadcn `ui/` components (alert, badge, calendar, chart, form, sidebar, etc.) that no live page or component imports.
+- Removed unused server modules: `_core/map.ts`, `_core/voiceTranscription.ts`, `_core/imageGeneration.ts`, `_core/dataApi.ts`, `_core/storageProxy.ts`, `_core/oauth.ts`, and `neonAuthProxy.ts` (+ its test). No production code imported them.
+- Removed `shared/types.ts` (no importers); kept `shared/const.ts` and `shared/_core/errors.ts` (used by live code).
+- Pruned 34 unused dependencies from `package.json` (AWS SDK packages, form/carousel/chart libraries, 16 Radix primitives whose components were removed, framer-motion, streamdown, tailwindcss-animate, vaul, react-hook-form, etc.) and regenerated the pnpm lockfile.
+- `server/app.ts`: Replaced dynamic `import("./db")`/`import("./telegram")` calls in the Telegram webhook with static imports; identical behavior, less runtime overhead.
+- `server/routers.ts`: Consolidated 12 duplicated `TRPCError NOT_FOUND` throws behind a shared `throwIfNotFound()` helper with the same messages.
+- README updated to reflect the removed files.
+
 ## 2026-08-26 — Fix Telegram webhook and OTP sign-in session persistence
 
 - `server/app.ts`: Restored `/api/telegram/webhook/:token` POST handler that maps incoming Telegram updates to the workspace owner, creates or reuses a Nova chat for the Telegram conversation, runs `runWorkspaceAgent`, and replies via Telegram. Also handles `/start` deep links to link the Telegram chat to the workspace.

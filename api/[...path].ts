@@ -71,7 +71,12 @@ function getSetCookieHeaders(headers: Headers) {
 }
 
 export function normalizeProxiedSessionCookie(cookie: string) {
-  return cookie.replace(/;\s*domain=[^;]+/giu, "");
+  // The upstream auth service issues a third-party CHIPS cookie. Nova proxies
+  // it through its own origin, so retain the secure session attributes while
+  // removing upstream domain and partitioning directives for first-party use.
+  return cookie
+    .replace(/;\s*domain=[^;]+/giu, "")
+    .replace(/;\s*partitioned/giu, "");
 }
 
 export function forwardUpstreamResponse(upstream: Response, res: VercelResponse) {

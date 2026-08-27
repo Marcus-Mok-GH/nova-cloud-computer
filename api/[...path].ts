@@ -98,6 +98,11 @@ export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, pat
       redirect: "manual",
     });
     forwardUpstreamResponse(upstream, res);
+    // Authentication responses must never be reused after an OTP exchange. In
+    // particular, a cached unauthenticated `get-session` response can otherwise
+    // mask the session cookie set by a successful sign-in.
+    res.setHeader("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("pragma", "no-cache");
     return res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
   } catch (error) {
     console.error("[Neon Auth proxy] Upstream request failed", error);

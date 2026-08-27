@@ -156,7 +156,8 @@ describe("Proxy response forwarding", () => {
     await proxyNeonAuth(req, res, "magic-link/verify");
 
     expect(res.statusCode).toBe(200);
-    expect(res.getHeader("cache-control")).toBe("no-store");
+    expect(res.getHeader("cache-control")).toBe("no-store, no-cache, must-revalidate, max-age=0");
+    expect(res.getHeader("pragma")).toBe("no-cache");
     expect(res.getHeader("content-type")).toBe("application/json");
     expect(res.getHeader("set-cookie")).toBe("session=abc; Path=/; Secure");
   });

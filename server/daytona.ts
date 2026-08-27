@@ -57,6 +57,13 @@ export function isDaytonaConfigured() {
   return Boolean(process.env.DAYTONA_API_KEY?.trim());
 }
 
+function safeDaytonaError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/(?:DAYTONA_API_KEY|authorization|bearer)\s*[=:]\s*\S+/gi, "[private credential]")
+    .slice(0, 500);
+}
+
 export function getDaytonaClient(): DaytonaClientLike | undefined {
   const apiKey = process.env.DAYTONA_API_KEY?.trim();
   if (!apiKey) return undefined;
@@ -231,11 +238,15 @@ export async function initWorkspacePersistentVm(workspaceId: number, ownerId: nu
     }
     const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);
     return sandbox.id;
-  } catch {
+  } catch (knownSandboxError) {
+    if (knownSandboxId) {
+      console.warn(`[Daytona] Stored sandbox lookup failed for workspace ${workspaceId}: ${safeDaytonaError(knownSandboxError)}`);
+    }
     try {
       const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);
       return sandbox.id;
-    } catch {
+    } catch (provisionError) {
+      console.error(`[Daytona] Persistent sandbox provisioning failed for workspace ${workspaceId}: ${safeDaytonaError(provisionError)}`);
       return undefined;
     }
   }

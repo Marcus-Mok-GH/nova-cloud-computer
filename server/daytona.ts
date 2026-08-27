@@ -295,7 +295,7 @@ export async function initWorkspacePersistentVm(workspaceId: number, ownerId: nu
 
   try {
     if (knownSandboxId) {
-      const sandbox = await client.get(knownSandboxId);
+      const sandbox = await wakePersistentSandbox(await client.get(knownSandboxId));
       return sandbox.id;
     }
     const sandbox = await ensurePersistentSandbox(client, workspaceId, ownerId);

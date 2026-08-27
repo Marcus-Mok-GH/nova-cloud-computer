@@ -60,7 +60,7 @@ export default function Workspace() {
     setIsStreaming(true);
 
     try {
-      const token = await getNeonAccessToken();
+      const token = await getNeonAccessToken().catch(() => null);
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         credentials: "include",

@@ -1,5 +1,6 @@
 ## 2026-08-28 — Fix chat deletion auth and mobile delete-icon visibility
 
+- CodeRabbit follow-up: treat a failing `getNeonAccessToken()` lookup as no token (`catch(() => null)`) so chat delete/stream requests still run with cookie authentication instead of being skipped when the token endpoint errors.
 - Chat deletion failed ("could not delete chat") when the session cookie was unavailable (Safari ITP, WebViews, iframes): the client `fetch("/api/chat/delete")` sent no `Authorization` header while the endpoint rejects cookie-less requests. The delete call now attaches the Neon access token as a Bearer header and includes credentials, matching the tRPC client.
 - Applied the same auth fix to `fetch("/api/chat/stream")`, which had the identical cookie-only auth pattern.
 - Delete icon in the Chats list is now always visible; it was `opacity-0` + `group-hover:opacity-100`, which is unusable on touch devices with no hover.

@@ -18,7 +18,7 @@ export default function Chats() {
     if (!window.confirm(`Delete “${title}”? This conversation and its messages will be permanently deleted.`)) return;
     setDeletingId(chatId);
     try {
-      const token = await getNeonAccessToken();
+      const token = await getNeonAccessToken().catch(() => null);
       const response = await fetch("/api/chat/delete", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId }) });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not delete chat");
       await utils.workspace.computer.invalidate();

@@ -18,6 +18,21 @@ export function getNeonAuthPathFromRequestUrl(requestUrl: string | undefined) {
   return getNeonAuthPathFromCatchall(pathname.replace(/^\/api\/?/u, ""));
 }
 
+/**
+ * Application RPC calls must be served by the co-deployed Nova API. Sending
+ * them through an optional remote API service can separate the OTP proxy from
+ * the JWT verifier and leave a successfully authenticated user unresolved.
+ */
+export function isTrpcPath(path: string | string[] | undefined) {
+  const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
+  return segments[0] === "trpc";
+}
+
+export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
+  const pathname = new URL(requestUrl ?? "/", "http://nova-proxy.local").pathname;
+  return isTrpcPath(pathname.replace(/^\/api\/?/u, ""));
+}
+
 export function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
@@ -109,9 +124,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
+  if (isTrpcPath(req.query.path) || isTrpcPathFromRequestUrl(req.url)) return app(req, res);
+
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
-  const { app: localApp } = require("../dist/server/app.cjs") as typeof import("../server/app");
-  return localApp(req, res);
+  return app(req, res);
 }

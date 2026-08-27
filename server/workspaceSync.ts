@@ -5,13 +5,14 @@ import {
   updateWorkspaceFileForUser,
 } from "./db";
 import { storageGetSignedUrl, storagePutStable } from "./storage";
+import { requireWorkspaceOwner, requireWorkspaceStorageKey } from "./workspaceSecurity";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
 const INTERNAL_PATHS = new Set([".nova-task.py", "nova-manifest.json"]);
 
 function storageKey(workspaceId: number, fileId: number) {
-  return `nova-workspaces/${workspaceId}/files/${fileId}`;
+  return requireWorkspaceStorageKey(workspaceId, `nova-workspaces/${workspaceId}/files/${fileId}`);
 }
 
 function cleanPath(value: string) {
@@ -55,9 +56,10 @@ async function createDaytonaFolders(sandbox: { fs: any }, destination: string) {
   }
 }
 
-/** Persist the current Neon workspace contents into deterministic S3 objects. */
+/** Persist the current Neon workspace contents into deterministic, private S3 objects. */
 export async function persistWorkspaceToObjectStorage(ownerId: number) {
   const computer = await getWorkspaceComputer(ownerId);
+  await requireWorkspaceOwner(ownerId, computer.workspace.id);
   let uploaded = 0;
   for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
     const body = Buffer.from(file.content ?? "", "utf8");
@@ -71,6 +73,7 @@ export async function persistWorkspaceToObjectStorage(ownerId: number) {
 /** Restore S3-backed file contents into the workspace records, falling back to DB for older files. */
 export async function restoreWorkspaceFromObjectStorage(ownerId: number) {
   const computer = await getWorkspaceComputer(ownerId);
+  await requireWorkspaceOwner(ownerId, computer.workspace.id);
   let restored = 0;
   for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
     try {
@@ -95,6 +98,7 @@ export async function restoreWorkspaceFromObjectStorage(ownerId: number) {
 export async function restoreWorkspaceToDaytona(ownerId: number, sandbox: { fs: any }) {
   await restoreWorkspaceFromObjectStorage(ownerId);
   const computer = await getWorkspaceComputer(ownerId);
+  await requireWorkspaceOwner(ownerId, computer.workspace.id);
   let uploaded = 0;
   for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
     let content = Buffer.from(file.content ?? "", "utf8");
@@ -134,9 +138,10 @@ async function ensureFolderPath(ownerId: number, path: string, computer: Awaited
   return parentId;
 }
 
-/** Import files created/changed inside Daytona back into Neon and S3. */
+/** Import files created/changed inside Daytona back into Neon and private S3. */
 export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: any }) {
   const computer = await getWorkspaceComputer(ownerId);
+  await requireWorkspaceOwner(ownerId, computer.workspace.id);
   const entries = await sandbox.fs.listFiles("/home/daytona/workspace", { depth: 50 });
   const files = entries
     .filter((entry: any) => !entry.isDir && !entry.isDirectory)
@@ -149,7 +154,6 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     })
     .slice(0, MAX_SYNC_FILES);
 
-  const seen = new Set<string>();
   let imported = 0;
   for (const entry of files) {
     const rawPath = cleanPath(String(entry.path ?? entry.name ?? ""));
@@ -166,8 +170,6 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     const folderName = parts.join("/");
     const folderId = await ensureFolderPath(ownerId, folderName, computer);
     if (folderName && folderId === null) continue;
-    const key = `${folderName}\0${name}`;
-    seen.add(key);
     const existing = computer.files.find(file => file.name === name && (file.folderId ?? null) === (folderId ?? null));
     const bytes = await sandbox.fs.downloadFile(entry.path);
     if (!Buffer.isBuffer(bytes) || bytes.byteLength > MAX_SYNC_FILE_BYTES) continue;
@@ -186,8 +188,5 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     imported += 1;
   }
 
-  // A provider may return a partial listing, so deletions are deliberately not inferred here.
-  // The database remains the safe source for objects that were not observed in the sync pass.
-  void seen;
   return imported;
 }

@@ -42,9 +42,9 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPathFromRequestUrl("/api/chat/stream?request=1")).toBe(true);
   });
 
-  it("removes an upstream cookie domain before returning the first-party session cookie", () => {
-    expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; Secure")).toBe(
-      "session=value; Path=/; Secure",
+  it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
+    expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(
+      "session=value; Path=/; HttpOnly; Secure; SameSite=None",
     );
   });
 

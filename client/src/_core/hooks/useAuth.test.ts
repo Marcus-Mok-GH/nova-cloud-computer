@@ -86,6 +86,20 @@ describe("Inactivity & Session Persistence", () => {
     expect(isSessionExpiredDueToInactivity(NaN)).toBe(false);
   });
 
+  it("refreshes a stale activity marker when a user starts a new session", () => {
+    const userId = 42;
+    const now = 1_700_000_000_000;
+    const staleTimestamp = now - (SEVEN_DAYS_MS + 1_000);
+
+    vi.setSystemTime(staleTimestamp);
+    updateLastActiveTimestamp(userId);
+    expect(isSessionExpiredDueToInactivity(getLastActiveTimestamp(userId), now)).toBe(true);
+
+    vi.setSystemTime(now);
+    updateLastActiveTimestamp(userId);
+    expect(isSessionExpiredDueToInactivity(getLastActiveTimestamp(userId), now)).toBe(false);
+  });
+
   it("scopes last-active timestamp to specific user IDs, preventing cross-account leakage", () => {
     const userId1 = 101;
     const userId2 = 202;

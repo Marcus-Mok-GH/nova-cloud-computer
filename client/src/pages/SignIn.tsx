@@ -1,4 +1,4 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { updateLastActiveTimestamp, useAuth } from "@/_core/hooks/useAuth";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import NovaMark from "@/components/NovaMark";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
@@ -71,6 +71,9 @@ export default function SignIn() {
           // creates Nova's first-party session cookie on the same request.
           const user = await utils.auth.me.fetch();
           if (user) {
+            // A fresh OTP proves a new interactive session. Reset any prior
+            // inactivity marker before the workspace auth hook evaluates it.
+            updateLastActiveTimestamp(user.id);
             setLocation("/app");
           } else {
             setError("Signed in, but Nova could not load your account session. Check your deployment auth configuration.");

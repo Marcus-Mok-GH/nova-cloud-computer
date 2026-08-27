@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildDaytonaWorkspaceBundle, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
+import { buildDaytonaWorkspaceBundle, persistentSandboxConfig, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
 
 describe("Daytona sandbox service", () => {
   it("creates a bounded network-isolated sandbox, uploads a scoped bundle, records its ID, and always deletes it", async () => {
@@ -31,6 +31,18 @@ describe("Daytona sandbox service", () => {
     expect(executeCommand).toHaveBeenCalledWith("python3 .nova-task.py", "/home/daytona/workspace", undefined, 30);
     expect(remove).toHaveBeenCalledWith(10, false);
     expect(result).toMatchObject({ sandboxId: "sbx-private", output: "analysis complete", uploadedFileCount: 1 });
+  });
+
+  it("defines one private, non-ephemeral computer for each workspace", () => {
+    expect(persistentSandboxConfig(41, 7)).toEqual(expect.objectContaining({
+      name: "nova-workspace-41",
+      labels: expect.objectContaining({ "nova.owner": "7", "nova.workspace": "41", "nova.persistent": "true" }),
+      resources: { cpu: 1, memory: 1, disk: 3 },
+      networkBlockAll: true,
+      ephemeral: false,
+      autoDeleteInterval: -1,
+      public: false,
+    }));
   });
 
   it("blocks network and process-launching code before a sandbox is created", () => {

@@ -100,10 +100,13 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
       await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, startMessage));
       return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
     }
-    const chats = await import("./db").then(m => m.listChatsForUser(ownerId));
-    let chat = chats.find(c => c.title === `Telegram ${chatId}` || c.title === chatId);
-    if (!chat) chat = await import("./db").then(m => m.createChatForUser(ownerId, `Telegram ${chatId}`));
-    if (!chat) return res.status(503).json({ error: "chat-unavailable" });
+    if (text === "/new") {
+      const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
+      const reply = `New chat created (ID: ${chat.id}). Ask me anything!`;
+      await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));
+      return res.status(200).json({ ok: true });
+    }
+    const chat = await import("./db").then(m => m.createChatForUser(ownerId, "Telegram Chat"));
     const result = await runWorkspaceAgent(ownerId, chat.id, text);
     const reply = String(result.message?.content ?? "I'm ready to help with this workspace.");
     await import("./telegram").then(m => m.sendTelegramMessage(token, chatId, reply));

@@ -32,18 +32,20 @@ export function normalizeNeonIdentity(payload: JWTPayload): NeonIdentity | null 
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 function getJwks() {
-  if (!ENV.neonAuthBaseUrl) return null;
-  if (!jwks) jwks = createRemoteJWKSet(new URL(`${ENV.neonAuthBaseUrl.replace(/\/$/, "")}/.well-known/jwks.json`));
+  if (!ENV.neonAuthJwksUrl) return null;
+  if (!jwks) jwks = createRemoteJWKSet(new URL(ENV.neonAuthJwksUrl));
   return jwks;
 }
 
 async function authenticateBearerToken(header: string | undefined): Promise<BearerAuthentication | null> {
   if (!header?.startsWith("Bearer ")) return null;
   const keySet = getJwks();
-  if (!keySet || !ENV.neonAuthBaseUrl) return null;
-  const issuer = new URL(ENV.neonAuthBaseUrl).origin;
+  if (!keySet || !ENV.neonAuthIssuer || !ENV.neonAuthAudience) return null;
   try {
-    const { payload } = await jwtVerify(header.slice(7), keySet, { issuer, audience: issuer });
+    const { payload } = await jwtVerify(header.slice(7), keySet, {
+      issuer: ENV.neonAuthIssuer,
+      audience: ENV.neonAuthAudience,
+    });
     const identity = normalizeNeonIdentity(payload);
     if (!identity) return null;
     await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });

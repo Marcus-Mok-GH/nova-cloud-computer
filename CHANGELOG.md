@@ -1,3 +1,16 @@
+## 2026-08-27 — Fix OTP sign-in redirect loop after session exchange
+
+**Problem:** After OTP verification, Neon Auth redirected to `/app?verifier=XXX`.
+The Workspace page rendered, `DashboardLayout` detected no auth cookie, and
+redirected to `/sign-in` — stripping the verifier from the URL. On `/sign-in`
+there was no verifier to exchange, so `exchangeNeonVerifierAndGetJwt()` failed,
+leaving the user in a redirect loop back to sign-in.
+
+**Fix:** Added a mount-time `useEffect` in `client/src/pages/Workspace.tsx` that
+detects a `verifier` query param, calls `exchangeNeonVerifierAndGetJwt()` to store
+the Neon JWT in localStorage, rewrites the URL to remove the verifier, then
+navigates to `/app` so the dashboard renders with a valid session.
+
 ## 2026-08-26 — Fix Telegram webhook and OTP sign-in session persistence
 
 - `server/app.ts`: Restored `/api/telegram/webhook/:token` POST handler that maps incoming Telegram updates to the workspace owner, creates or reuses a Nova chat for the Telegram conversation, runs `runWorkspaceAgent`, and replies via Telegram. Also handles `/start` deep links to link the Telegram chat to the workspace.

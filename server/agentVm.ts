@@ -47,14 +47,15 @@ export async function startAgentVmRun(ownerId: number, input: { task: string; co
     await persistWorkspaceToObjectStorage(ownerId);
     const sandbox = await ensurePersistentSandbox(client, computer.workspace.id, ownerId);
     await restoreWorkspaceToDaytona(ownerId, sandbox);
+    const syncedComputer = await getWorkspaceComputer(ownerId);
 
     const result = await runDaytonaTaskInPersistentSandbox(client, {
-      workspaceId: computer.workspace.id,
+      workspaceId: syncedComputer.workspace.id,
       ownerId,
       task: input.task,
       code: input.code,
-      files: computer.files,
-      folders: computer.folders,
+      files: syncedComputer.files,
+      folders: syncedComputer.folders,
     });
 
     // Anything the agent created or changed in Daytona is imported back into Neon
@@ -63,7 +64,7 @@ export async function startAgentVmRun(ownerId: number, input: { task: string; co
     const importedFileCount = await persistDaytonaWorkspace(ownerId, completedSandbox);
     await persistWorkspaceToObjectStorage(ownerId);
 
-    await updateWorkspacePersistentSandbox(computer.workspace.id, result.sandboxId);
+    await updateWorkspacePersistentSandbox(syncedComputer.workspace.id, result.sandboxId);
     const artifact = await createWorkspaceFileForUser(ownerId, {
       name: `nova-run-${run.id}.txt`,
       content: `Task: ${input.task}\n\n${result.output}\n`,

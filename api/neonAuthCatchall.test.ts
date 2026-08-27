@@ -4,6 +4,8 @@ import {
   getNeonAuthPathFromCatchall,
   getNeonAuthPathFromRequestUrl,
   getRequestHeaders,
+  isTrpcPath,
+  isTrpcPathFromRequestUrl,
   normalizeProxiedSessionCookie,
   proxyApiService,
   proxyNeonAuth,
@@ -21,6 +23,13 @@ describe("Neon Auth catch-all dispatch", () => {
       "get-session",
     );
     expect(getNeonAuthPathFromRequestUrl("/api/trpc/auth.me")).toBeNull();
+  });
+
+  it("identifies tRPC paths so authenticated account requests remain co-deployed", () => {
+    expect(isTrpcPath(["trpc", "auth.me"])).toBe(true);
+    expect(isTrpcPath("trpc/workspace.dashboard")).toBe(true);
+    expect(isTrpcPath(["neon-auth", "get-session"])).toBe(false);
+    expect(isTrpcPathFromRequestUrl("/api/trpc/auth.me?batch=1")).toBe(true);
   });
 
   it("removes an upstream cookie domain before returning the first-party session cookie", () => {

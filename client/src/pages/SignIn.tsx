@@ -66,9 +66,9 @@ export default function SignIn() {
             return;
           }
 
-          // The /app layout reads auth.me from React Query. Fetch it now, while
-          // the Neon JWT is available, so the backend can both authenticate the
-          // user and persist Nova's first-party session cookie before we route.
+          // /app uses auth.me to decide whether the user is authenticated.
+          // Fetch it before navigation so the backend sees the Neon JWT and
+          // creates Nova's first-party session cookie on the same request.
           const user = await utils.auth.me.fetch();
           if (user) {
             setLocation("/app");

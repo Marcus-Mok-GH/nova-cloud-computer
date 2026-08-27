@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -93,47 +93,6 @@ async function ensureWorkspacePersistentVm<T extends typeof workspaces.$inferSel
   const db = await requireDb();
   await db.update(workspaces).set({ persistentSandboxId: sandboxId, updatedAt: new Date() }).where(eq(workspaces.id, workspace.id));
   return { ...workspace, persistentSandboxId: sandboxId };
-}
-
-export type PersistentWorkspaceBackfillOutcome = {
-  examined: number;
-  provisioned: number;
-  failed: number;
-  skipped: number;
-};
-
-/**
- * Repairs legacy workspaces in bounded batches. Each update is guarded against
- * a competing request, while Daytona's deterministic workspace name prevents
- * duplicate personal computers on safe retries.
- */
-export async function backfillMissingWorkspacePersistentVms(limit = 3): Promise<PersistentWorkspaceBackfillOutcome> {
-  const db = await requireDb();
-  const batchSize = Math.min(Math.max(Math.floor(limit), 1), 3);
-  const missing = await db
-    .select({ id: workspaces.id, ownerId: workspaces.ownerId })
-    .from(workspaces)
-    .where(isNull(workspaces.persistentSandboxId))
-    .limit(batchSize);
-
-  const outcome: PersistentWorkspaceBackfillOutcome = { examined: missing.length, provisioned: 0, failed: 0, skipped: 0 };
-  for (const workspace of missing) {
-    const sandboxId = await initWorkspacePersistentVm(workspace.id, workspace.ownerId);
-    if (!sandboxId) {
-      outcome.failed += 1;
-      continue;
-    }
-
-    const updated = await db
-      .update(workspaces)
-      .set({ persistentSandboxId: sandboxId, updatedAt: new Date() })
-      .where(and(eq(workspaces.id, workspace.id), isNull(workspaces.persistentSandboxId)))
-      .returning({ id: workspaces.id });
-    if (updated[0]) outcome.provisioned += 1;
-    else outcome.skipped += 1;
-  }
-
-  return outcome;
 }
 
 export async function getWorkspacePersistentSandbox(ownerId: number) {

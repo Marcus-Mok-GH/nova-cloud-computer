@@ -95,10 +95,13 @@ describe("extractNeonJwt", () => {
     expect(neonAuthFetchOptions.fetchOptions.credentials).toBe("include");
   });
 
-  it("uses Nova’s same-origin dynamic auth base path on Vercel while preserving direct local development access", () => {
+  it("uses Nova’s same-origin auth proxy for every remote deployment while preserving direct local development access", () => {
     const neonUrl = "https://example.neonauth.example.com/neondb/auth";
     expect(resolveNeonAuthUrl(neonUrl, "https://nova-cloud-computer.vercel.app", "nova-cloud-computer.vercel.app")).toBe(
       "https://nova-cloud-computer.vercel.app/api/neon-auth",
+    );
+    expect(resolveNeonAuthUrl(neonUrl, "https://nova.example.com", "nova.example.com")).toBe(
+      "https://nova.example.com/api/neon-auth",
     );
     expect(resolveNeonAuthUrl(neonUrl, "http://localhost:3000", "localhost")).toBe(neonUrl);
   });

@@ -1,3 +1,5 @@
+- Addressed PR #38 review findings: `[DONE]` now streams after the auto-title update so the chat list cannot cache a stale default title, and title persistence uses an owner-scoped conditional update (`renameChatIfDefaultForUser`) that skips when the chat is no longer default-titled (race-safe, with regression test).
+
 ## 2026-08-28 — AI auto-titles chats from their first messages
 
 - Chats no longer stay stuck on default titles ("New workspace conversation", "Telegram Chat"): after the first assistant reply, the workspace LLM generates a concise 3-6 word title from the first user + assistant messages.

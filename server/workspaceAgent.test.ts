@@ -13,7 +13,7 @@ const chatMessages = vi.fn(async () => [
   { id: 1, role: "user", content: "Help me plan a sprint." },
   { id: 2, role: "assistant", content: "Here is a two-week plan." },
 ]);
-const updateChat = vi.fn(async (_owner: number, _chatId: number, title: string) => ({ id: 3, title }));
+const renameChat = vi.fn(async (_owner: number, _chatId: number, title: string, _defaults: string[]) => ({ id: 3, title }));
 const invoke = vi.fn();
 
 const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
@@ -27,7 +27,7 @@ vi.mock("./db", () => ({
   appendChatMessageForUser: append,
   getChatForUser: chat,
   listChatMessagesForUser: chatMessages,
-  updateChatForUser: updateChat,
+  renameChatIfDefaultForUser: renameChat,
   createWorkspaceFileForUser: createFile,
   createWorkspaceFolderForUser: vi.fn(),
   getWorkspaceComputer: computer,
@@ -167,14 +167,14 @@ describe("autoTitleChatForUser", () => {
     envState.nvidiaNimApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: 'Sprint planning help' } }] });
     await autoTitleChatForUser(7, 3);
-    expect(updateChat).toHaveBeenCalledWith(7, 3, "Sprint planning help");
+    expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint planning help", ["New workspace conversation", "New conversation", "Telegram Chat"]);
   });
 
   it("leaves already-titled chats alone", async () => {
     chat.mockResolvedValue({ id: 3, title: "Sprint planning help" });
     await autoTitleChatForUser(7, 3);
     expect(invoke).not.toHaveBeenCalled();
-    expect(updateChat).not.toHaveBeenCalled();
+    expect(renameChat).not.toHaveBeenCalled();
   });
 
   it("does nothing before the first assistant reply", async () => {
@@ -182,13 +182,21 @@ describe("autoTitleChatForUser", () => {
     chatMessages.mockResolvedValue([{ id: 1, role: "user", content: "Hello?" }]);
     await autoTitleChatForUser(7, 3);
     expect(invoke).not.toHaveBeenCalled();
-    expect(updateChat).not.toHaveBeenCalled();
+    expect(renameChat).not.toHaveBeenCalled();
   });
 
   it("strips wrapping quotes and newlines from the model title", async () => {
     envState.nvidiaNimApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: '""Sprint\nplanning"\n' } }] });
     await autoTitleChatForUser(7, 3);
-    expect(updateChat).toHaveBeenCalledWith(7, 3, "Sprint");
+    expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint", ["New workspace conversation", "New conversation", "Telegram Chat"]);
+  });
+
+  it("does not overwrite a concurrent rename that lands before the conditional update", async () => {
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Sprint planning help" } }] });
+    renameChat.mockResolvedValueOnce(undefined);
+    await expect(autoTitleChatForUser(7, 3)).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 });

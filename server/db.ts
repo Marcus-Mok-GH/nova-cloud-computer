@@ -788,6 +788,17 @@ export async function updateAutomationScheduleState(input: { automationId: numbe
   return updated ? toSafeAutomation(updated) : undefined;
 }
 
+export async function renameChatIfDefaultForUser(ownerId: number, chatId: number, title: string, defaultTitles: string[]) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  const [updated] = await db.update(chats)
+    .set({ title, updatedAt: new Date() })
+    .where(and(eq(chats.id, chat.id), inArray(chats.title, defaultTitles)))
+    .returning();
+  return updated;
+}
+
 export async function deleteChatForUser(ownerId: number, chatId: number) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);

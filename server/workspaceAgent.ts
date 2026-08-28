@@ -4,7 +4,7 @@ import {
   appendChatMessageForUser,
   getChatForUser,
   listChatMessagesForUser,
-  updateChatForUser,
+  renameChatIfDefaultForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
   deleteWorkspaceFileForUser,
@@ -94,7 +94,7 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
       maxTokens: 20,
     });
     const raw = String(result?.choices?.[0]?.message?.content ?? "").trim().split("\n")[0].replace(/^["']+|["']+$/g, "").trim().slice(0, 60);
-    if (raw) await updateChatForUser(ownerId, chatId, raw);
+    if (raw) await renameChatIfDefaultForUser(ownerId, chatId, raw, Array.from(DEFAULT_CHAT_TITLES));
   } catch (error) {
     console.error("[Chat title] auto-title failed", error);
   }

@@ -301,7 +301,7 @@ async function getFileForUser(ownerId: number, fileId: number) {
   )).limit(1))[0];
 }
 
-async function getChatForUser(ownerId: number, chatId: number) {
+export async function getChatForUser(ownerId: number, chatId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(chats).where(and(

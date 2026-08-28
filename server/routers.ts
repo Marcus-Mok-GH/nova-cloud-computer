@@ -38,15 +38,14 @@ import {
   listAutomationRunsForUser,
   setAutomationScheduleTaskForUser,
   updateAutomationForUser,
-  updateChatForUser,
+
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
-import { runWorkspaceAgent, getWorkspaceAgentConnection } from "./workspaceAgent";
-import { invokeLLM } from "./_core/llm";
+import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -291,33 +290,7 @@ export const appRouter = router({
       const chatId = input.chatId ?? chat?.id;
       if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." });
       const result = await runWorkspaceAgent(ctx.user.id, chatId, input.content);
-      if (!input.chatId) {
-        try {
-          const messages = await listChatMessagesForUser(ctx.user.id, chatId);
-          if (messages?.length) {
-            const firstUser = messages.find(m => m.role === "user");
-            const firstAssistant = messages.find(m => m.role === "assistant");
-            if (firstUser && firstAssistant) {
-              const connection = await getWorkspaceAgentConnection(ctx.user.id);
-              const title = await invokeLLM({
-                model: "z-ai/glm-5.2",
-                apiUrl: connection?.apiUrl,
-                apiKey: connection?.apiKey,
-                messages: [
-                  { role: "system", content: "Generate a 3-6 word title for this conversation." },
-                  { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
-                ],
-                maxTokens: 20,
-              });
-              const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
-              const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
-              await updateChatForUser(ctx.user.id, chatId, normalizedTitle);
-            }
-          }
-        } catch (titleError) {
-          console.error("Failed to generate chat title", titleError);
-        }
-      }
+      await autoTitleChatForUser(ctx.user.id, chatId);
       return { chatId, ...(await result) };
     }),
   }),

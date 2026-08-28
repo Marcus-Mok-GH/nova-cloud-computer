@@ -1,3 +1,11 @@
+## 2026-08-28 — AI auto-titles chats from their first messages
+
+- Chats no longer stay stuck on default titles ("New workspace conversation", "Telegram Chat"): after the first assistant reply, the workspace LLM generates a concise 3-6 word title from the first user + assistant messages.
+- New `autoTitleChatForUser` helper in `server/workspaceAgent.ts`; wired into the `chats.send` mutation, `/api/chat/stream`, and the Telegram webhook. Idempotent: it only acts while the title is still a default, so later turns cost nothing.
+- `Workspace.tsx` invalidates the workspace query once a stream completes, so the chat list and headers pick up the new title immediately.
+- Exported `getChatForUser` from `server/db.ts`; replaced the inline titling block in the send mutation with the shared helper (same LLM/model config via `agentInvokeOptions`).
+- Tests: 4 new cases in `server/workspaceAgent.test.ts` (rename, no-op on custom title, no-op before first reply, quote/newline stripping).
+
 ## 2026-08-28 — Fix chat deletion auth and mobile delete-icon visibility
 
 - CodeRabbit follow-up: treat a failing `getNeonAccessToken()` lookup as no token (`catch(() => null)`) so chat delete/stream requests still run with cookie authentication instead of being skipped when the token endpoint errors.

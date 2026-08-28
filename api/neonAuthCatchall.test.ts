@@ -34,12 +34,15 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isTrpcPathFromRequestUrl("/api/trpc/auth.me?batch=1")).toBe(true);
   });
 
-  it("keeps the authenticated AI chat stream co-deployed", () => {
+  it("keeps the authenticated chat namespace co-deployed", () => {
     expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
     expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
     expect(isCoDeployedApiPath("chat/stream")).toBe(true);
-    expect(isCoDeployedApiPath(["chat", "other"])).toBe(false);
+    expect(isCoDeployedApiPath(["chat", "delete"])).toBe(true);
+    expect(isCoDeployedApiPath("chat/delete")).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "other"])).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/chat/stream?request=1")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/chat/delete")).toBe(true);
   });
 
   it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {

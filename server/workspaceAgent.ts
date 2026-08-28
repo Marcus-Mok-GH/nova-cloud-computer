@@ -2,6 +2,9 @@ import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 import {
   appendChatMessageForUser,
+  getChatForUser,
+  listChatMessagesForUser,
+  renameChatIfDefaultForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
   deleteWorkspaceFileForUser,
@@ -67,6 +70,34 @@ export async function getWorkspaceAgentConnection(ownerId: number): Promise<Work
   }
 
   return undefined;
+}
+
+const DEFAULT_CHAT_TITLES = new Set(["New workspace conversation", "New conversation", "Telegram Chat"]);
+
+/** Rename a still-default chat from its first user + assistant messages using the workspace LLM. No-op once titled, so later turns cost nothing. */
+export async function autoTitleChatForUser(ownerId: number, chatId: number): Promise<void> {
+  try {
+    const chat = await getChatForUser(ownerId, chatId);
+    if (!chat || !DEFAULT_CHAT_TITLES.has(chat.title)) return;
+    const messages = await listChatMessagesForUser(ownerId, chatId);
+    const firstUser = messages?.find(m => m.role === "user");
+    const firstAssistant = messages?.find(m => m.role === "assistant");
+    if (!firstUser || !firstAssistant) return;
+    const connection = await getWorkspaceAgentConnection(ownerId);
+    if (!connection) return;
+    const result = await invokeLLM({
+      ...agentInvokeOptions(connection),
+      messages: [
+        { role: "system", content: "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation." },
+        { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}`.slice(0, 2000) },
+      ],
+      maxTokens: 20,
+    });
+    const raw = String(result?.choices?.[0]?.message?.content ?? "").trim().split("\n")[0].replace(/^["']+|["']+$/g, "").trim().slice(0, 60);
+    if (raw) await renameChatIfDefaultForUser(ownerId, chatId, raw, Array.from(DEFAULT_CHAT_TITLES));
+  } catch (error) {
+    console.error("[Chat title] auto-title failed", error);
+  }
 }
 
 function agentInvokeOptions(connection: WorkspaceAgentConnection) {

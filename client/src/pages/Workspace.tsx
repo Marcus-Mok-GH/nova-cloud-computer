@@ -93,6 +93,7 @@ export default function Workspace() {
             if (data === "[DONE]") {
               setStreamingContent("");
               await refreshMessages();
+              await utils.workspace.computer.invalidate();
               setPendingUserContent("");
               setIsStreaming(false);
               return;

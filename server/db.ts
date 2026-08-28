@@ -301,7 +301,7 @@ async function getFileForUser(ownerId: number, fileId: number) {
   )).limit(1))[0];
 }
 
-async function getChatForUser(ownerId: number, chatId: number) {
+export async function getChatForUser(ownerId: number, chatId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(chats).where(and(
@@ -786,6 +786,17 @@ export async function updateAutomationScheduleState(input: { automationId: numbe
     eq(automations.workspaceId, input.workspaceId),
   )).returning();
   return updated ? toSafeAutomation(updated) : undefined;
+}
+
+export async function renameChatIfDefaultForUser(ownerId: number, chatId: number, title: string, defaultTitles: string[]) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  const [updated] = await db.update(chats)
+    .set({ title, updatedAt: new Date() })
+    .where(and(eq(chats.id, chat.id), inArray(chats.title, defaultTitles)))
+    .returning();
+  return updated;
 }
 
 export async function deleteChatForUser(ownerId: number, chatId: number) {

@@ -11,7 +11,7 @@ import {
   updateTelegramChatForUser,
   createChatForUser,
 } from "./db";
-import { runWorkspaceAgent } from "./workspaceAgent";
+import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
 import { sendTelegramMessage } from "./telegram";
 
 // Max Telegram chats per workspace to prevent unbounded DB growth.
@@ -92,6 +92,7 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
     const result = await runWorkspaceAgent(user.id, Number(chatId), content.trim(), { onEvent: event => writeEvent(event) });
     const reply = String(result.message?.content ?? "I’m ready to help with this workspace.");
     writeEvent({ choices: [{ delta: { content: reply } }] });
+    await autoTitleChatForUser(user.id, Number(chatId));
     res.write("data: [DONE]\n\n");
     return res.end();
   } catch (error) {
@@ -132,6 +133,7 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
     const result = await runWorkspaceAgent(ownerId, chat.id, text);
     const reply = String(result.message?.content ?? "I'm ready to help with this workspace.");
     await sendTelegramMessage(token, chatId, reply);
+    await autoTitleChatForUser(ownerId, chat.id);
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error("[Telegram webhook] failed", error);

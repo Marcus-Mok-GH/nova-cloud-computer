@@ -91,4 +91,6 @@ jobs:
           STRIX_TELEMETRY: "0"
         run: |
           strix --non-interactive --target . --scan-mode quick \
+            --scope-mode diff \
+            --max-turns 100 \
             --diff-base "${{ github.event.pull_request.base.sha }}"

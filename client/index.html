@@ -13,20 +13,29 @@
       // (white screen), so reload once to fetch fresh HTML instead of staying blank.
       (function () {
         var KEY = "nova_boot_reload";
-        var armed = true;
-        try { armed = !sessionStorage.getItem(KEY); } catch (e) {}
         function recover() {
-          if (!armed) return;
-          armed = false;
-          try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+          // The nr param marks an already-attempted recovery so browsers that
+          // block storage cannot get stuck in a reload loop.
+          if (/[?&]nr=/.test(location.search)) return;
+          try {
+            if (sessionStorage.getItem(KEY)) return;
+            sessionStorage.setItem(KEY, "1");
+          } catch (e) {}
           location.reload();
         }
         window.addEventListener("error", function (event) {
           var target = event.target;
-          if (!target || (target.tagName !== "SCRIPT" && target.tagName !== "LINK")) return;
-          if (document.getElementById("root") && !document.getElementById("root").hasChildNodes()) recover();
+          // Only module scripts and stylesheets matter for boot; ignore
+          // favicon/analytics failures so they cannot trigger a reload.
+          if (!target) return;
+          var isScript = target.tagName === "SCRIPT" && target.type === "module";
+          var isSheet = target.tagName === "LINK" && target.rel === "stylesheet";
+          if (!isScript && !isSheet) return;
+          var root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) recover();
         }, true);
         setTimeout(function () {
+          if (document.readyState !== "complete") return;
           var root = document.getElementById("root");
           if (root && !root.hasChildNodes()) recover();
         }, 8000);

@@ -8,6 +8,12 @@ const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
 const telegramCredentials = vi.fn(async () => undefined);
 const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
+const chat = vi.fn(async () => ({ id: 3, title: "New workspace conversation" }));
+const chatMessages = vi.fn(async () => [
+  { id: 1, role: "user", content: "Help me plan a sprint." },
+  { id: 2, role: "assistant", content: "Here is a two-week plan." },
+]);
+const updateChat = vi.fn(async (_owner: number, _chatId: number, title: string) => ({ id: 3, title }));
 const invoke = vi.fn();
 
 const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
@@ -19,6 +25,9 @@ const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
 
 vi.mock("./db", () => ({
   appendChatMessageForUser: append,
+  getChatForUser: chat,
+  listChatMessagesForUser: chatMessages,
+  updateChatForUser: updateChat,
   createWorkspaceFileForUser: createFile,
   createWorkspaceFolderForUser: vi.fn(),
   getWorkspaceComputer: computer,
@@ -47,7 +56,7 @@ vi.mock("./_core/env", () => ({
   }
 }));
 
-const { runWorkspaceAgent } = await import("./workspaceAgent");
+const { runWorkspaceAgent, autoTitleChatForUser } = await import("./workspaceAgent");
 
 describe("Nova keyless workspace agent", () => {
   const originalBuiltIn = process.env.BUILT_IN_FORGE_API_KEY;
@@ -140,5 +149,46 @@ describe("Nova keyless workspace agent", () => {
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },
     ]);
+  });
+});
+
+describe("autoTitleChatForUser", () => {
+  afterEach(() => {
+    envState.nvidiaNimApiKey = "";
+    chat.mockImplementation(async () => ({ id: 3, title: "New workspace conversation" }));
+    chatMessages.mockImplementation(async () => [
+      { id: 1, role: "user", content: "Help me plan a sprint." },
+      { id: 2, role: "assistant", content: "Here is a two-week plan." },
+    ]);
+    vi.clearAllMocks();
+  });
+
+  it("renames a default-titled chat from its first messages", async () => {
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: 'Sprint planning help' } }] });
+    await autoTitleChatForUser(7, 3);
+    expect(updateChat).toHaveBeenCalledWith(7, 3, "Sprint planning help");
+  });
+
+  it("leaves already-titled chats alone", async () => {
+    chat.mockResolvedValue({ id: 3, title: "Sprint planning help" });
+    await autoTitleChatForUser(7, 3);
+    expect(invoke).not.toHaveBeenCalled();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it("does nothing before the first assistant reply", async () => {
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    chatMessages.mockResolvedValue([{ id: 1, role: "user", content: "Hello?" }]);
+    await autoTitleChatForUser(7, 3);
+    expect(invoke).not.toHaveBeenCalled();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it("strips wrapping quotes and newlines from the model title", async () => {
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: '""Sprint\nplanning"\n' } }] });
+    await autoTitleChatForUser(7, 3);
+    expect(updateChat).toHaveBeenCalledWith(7, 3, "Sprint");
   });
 });

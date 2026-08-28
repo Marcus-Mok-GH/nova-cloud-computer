@@ -18,13 +18,13 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Check out pull request
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@a8198c4bff370c8506180b035930dea56dbd5288 # v5.0.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -65,9 +65,10 @@ jobs:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: Check out pull request with history
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Confirm Nara Router credential is configured
         env:
@@ -81,7 +82,7 @@ jobs:
       - name: Install Strix
         run: |
           python3 --version
-          python3 -m pip install --disable-pip-version-check --no-cache-dir strix-agent
+          python3 -m pip install --disable-pip-version-check --no-cache-dir strix-agent==1.5.3
           strix --version
 
       - name: Scan changed code with Strix

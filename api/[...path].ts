@@ -37,10 +37,14 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  * Requests that depend on Nova's own session and server-only provider settings
  * must remain co-deployed; they cannot safely be handled by an optional API
  * service running with different authentication or model configuration.
+ *
+ * Every `/api/chat/*` endpoint authenticates against Nova's own session and
+ * mutates or reads Nova's own database (stream, delete, ...), so the whole
+ * chat namespace is co-deployed rather than each endpoint individually.
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || (segments[0] === "chat" && segments[1] === "stream");
+  return isTrpcPath(segments) || segments[0] === "chat";
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

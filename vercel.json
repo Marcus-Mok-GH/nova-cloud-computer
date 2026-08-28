@@ -2,10 +2,13 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm drizzle-kit migrate && pnpm run build",
   "outputDirectory": "dist/public",
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/[...path].ts" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/[...path].ts" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/assets/(.+)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/(index\\.html)?", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
   ],
   "functions": {
     "api/[...path].ts": {

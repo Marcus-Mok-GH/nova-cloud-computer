@@ -7,6 +7,10 @@ import superjson from "superjson";
 import App from "./App";
 import "./index.css";
 
+// The bundle loaded, so the boot guard's auto-reload can arm again for any
+// future load that fails (e.g. a deploy invalidating cached hashed chunks).
+try { sessionStorage.removeItem("nova_boot_reload"); } catch { /* storage unavailable */ }
+
 const queryClient = new QueryClient();
 const trpcClient = trpc.createClient({
   links: [httpBatchLink({

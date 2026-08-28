@@ -159,7 +159,9 @@ function vitePluginConditionalAnalyticsTag(): Plugin {
   return {
     name: "conditional-analytics-tag",
     transformIndexHtml(html) {
-      if (process.env.VITE_ANALYTICS_ENDPOINT) return html;
+      if (process.env.VITE_ANALYTICS_ENDPOINT && process.env.VITE_ANALYTICS_WEBSITE_ID) {
+        return html;
+      }
       return html.replace(/[ \t]*<script defer src="%VITE_ANALYTICS_ENDPOINT%\/umami"[^>]*><\/script>\n?/, "");
     },
   };

@@ -79,7 +79,10 @@ jobs:
           }
 
       - name: Install Strix
-        run: curl --fail --show-error --silent --location https://strix.ai/install | bash
+        run: |
+          python3 --version
+          python3 -m pip install --disable-pip-version-check --no-cache-dir strix-agent
+          strix --version
 
       - name: Scan changed code with Strix
         env:

@@ -1,0 +1,96 @@
+name: PR validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality-and-smoke:
+    name: Quality checks and production smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check project
+        run: pnpm run check
+
+      # The deployed-handler test imports the server bundle from dist/.
+      - name: Build production artifacts
+        run: pnpm run build
+
+      - name: Run test suite
+        run: pnpm test
+
+      - name: Verify production health endpoint
+        shell: bash
+        run: |
+          PORT=4176 node dist/index.js > /tmp/nova-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..15}; do
+            if curl --fail --silent --show-error http://127.0.0.1:4176/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/nova-server.log
+          exit 1
+
+  strix-security:
+    name: Strix security review
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # GitHub does not provide Actions secrets to pull requests from forks.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: Check out pull request with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm Nara Router credential is configured
+        env:
+          NARA_ROUTER_API_KEY: ${{ secrets.NARA_ROUTER_API_KEY }}
+        run: |
+          test -n "$NARA_ROUTER_API_KEY" || {
+            echo "NARA_ROUTER_API_KEY must be configured as an Actions secret."
+            exit 1
+          }
+
+      - name: Install Strix
+        run: curl --fail --show-error --silent --location https://strix.ai/install | bash
+
+      - name: Scan changed code with Strix
+        env:
+          # Set NARA_ROUTER_MODEL as an Actions variable to override this default.
+          STRIX_LLM: openai/${{ vars.NARA_ROUTER_MODEL || 'glm-5.3-flash-free' }}
+          LLM_API_BASE: https://router.bynara.id/v1
+          LLM_API_KEY: ${{ secrets.NARA_ROUTER_API_KEY }}
+          STRIX_LLM_MAX_RETRIES: "2"
+          STRIX_TELEMETRY: "0"
+        run: |
+          strix --non-interactive --target . --scan-mode quick \
+            --diff-base "${{ github.event.pull_request.base.sha }}"

@@ -1,5 +1,6 @@
 ## 2026-08-28 — Fix intermittent white screen on page load
 
+- Review hardening: the boot guard now only reacts to module-script/stylesheet load errors (favicon/analytics failures can no longer trigger a reload), the 8s watchdog only fires after `document.readyState` is `complete` (no false reload on slow networks), and a `?nr=1` marker prevents a reload loop in browsers that block storage; the marker is stripped from the URL on successful boot.
 - Root cause: after a deploy, a cached or in-flight index.html references a hashed bundle that no longer exists. The SPA catch-all served index.html back with 200 + `text/html` for the missing `/assets/*` chunk, module MIME checking blocked execution, React never mounted, and the page stayed white.
 - `vercel.json`: replaced legacy `routes` with `rewrites` + `headers`. Missing `/assets/*` files no longer fall through to the SPA fallback (they return a real 404), and hashed assets are served with `Cache-Control: public, max-age=31536000, immutable`.
 - `client/index.html`: added an inline boot guard — if the entry script or stylesheet fails to load, or `#root` is still empty after 8s, it reloads once (sessionStorage-guarded, so no reload loops) to fetch fresh HTML from the current deployment. `client/src/main.tsx` clears the guard flag on successful boot.

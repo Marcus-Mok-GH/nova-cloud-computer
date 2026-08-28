@@ -92,8 +92,8 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
     const result = await runWorkspaceAgent(user.id, Number(chatId), content.trim(), { onEvent: event => writeEvent(event) });
     const reply = String(result.message?.content ?? "I’m ready to help with this workspace.");
     writeEvent({ choices: [{ delta: { content: reply } }] });
-    res.write("data: [DONE]\n\n");
     await autoTitleChatForUser(user.id, Number(chatId));
+    res.write("data: [DONE]\n\n");
     return res.end();
   } catch (error) {
     console.error("Chat stream endpoint error", error);

@@ -7,6 +7,31 @@
     <meta name="description" content="Nova is your personal cloud computer — files, chats, model choices, and agent tasks in one private space that works 24/7." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Nova — Your personal cloud computer</title>
+    <script>
+      // Boot guard: after a deploy, a cached index.html can reference a hashed
+      // bundle that no longer exists. The failed module load leaves #root empty
+      // (white screen), so reload once to fetch fresh HTML instead of staying blank.
+      (function () {
+        var KEY = "nova_boot_reload";
+        var armed = true;
+        try { armed = !sessionStorage.getItem(KEY); } catch (e) {}
+        function recover() {
+          if (!armed) return;
+          armed = false;
+          try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+          location.reload();
+        }
+        window.addEventListener("error", function (event) {
+          var target = event.target;
+          if (!target || (target.tagName !== "SCRIPT" && target.tagName !== "LINK")) return;
+          if (document.getElementById("root") && !document.getElementById("root").hasChildNodes()) recover();
+        }, true);
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) recover();
+        }, 8000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

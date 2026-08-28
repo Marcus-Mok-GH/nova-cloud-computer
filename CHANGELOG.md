@@ -1,3 +1,13 @@
+## 2026-08-28 — Fix intermittent white screen on page load
+
+- Review hardening: the boot guard now only reacts to module-script/stylesheet load errors (favicon/analytics failures can no longer trigger a reload), the 8s watchdog only fires after `document.readyState` is `complete` (no false reload on slow networks), and a `?nr=1` marker prevents a reload loop in browsers that block storage; the marker is stripped from the URL on successful boot.
+- Root cause: after a deploy, a cached or in-flight index.html references a hashed bundle that no longer exists. The SPA catch-all served index.html back with 200 + `text/html` for the missing `/assets/*` chunk, module MIME checking blocked execution, React never mounted, and the page stayed white.
+- `vercel.json`: replaced legacy `routes` with `rewrites` + `headers`. Missing `/assets/*` files no longer fall through to the SPA fallback (they return a real 404), and hashed assets are served with `Cache-Control: public, max-age=31536000, immutable`.
+- `client/index.html`: added an inline boot guard — if the entry script or stylesheet fails to load, or `#root` is still empty after 8s, it reloads once (sessionStorage-guarded, so no reload loops) to fetch fresh HTML from the current deployment. `client/src/main.tsx` clears the guard flag on successful boot.
+- `vite.config.ts`: the umami analytics tag shipped a literal `%VITE_ANALYTICS_ENDPOINT%/umami` URL when the env var is unset (it is, in production), producing a 200 `text/html` script error on every load; the tag is now stripped at build time when analytics is not configured.
+- Review hardening (CodeRabbit): reload loop is also bounded by a `?nr=` marker for browsers with blocked storage; recovery only reacts to module scripts/stylesheets, not favicon/analytics; the 8s empty-root watchdog now requires `document.readyState === "complete"` to avoid slow-network false positives; the analytics tag is kept only when both `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` are set.
+- Verified: `tsc --noEmit` clean, 101 tests pass, `pnpm run build` succeeds; served the built SPA locally — normal boot unaffected, missing entry chunk triggers exactly one recovery reload with no loop.
+
 - Addressed PR #38 review findings: `[DONE]` now streams after the auto-title update so the chat list cannot cache a stale default title, and title persistence uses an owner-scoped conditional update (`renameChatIfDefaultForUser`) that skips when the chat is no longer default-titled (race-safe, with regression test).
 
 ## 2026-08-28 — AI auto-titles chats from their first messages

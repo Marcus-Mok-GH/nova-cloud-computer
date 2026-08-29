@@ -40,7 +40,7 @@ describe("Files page", () => {
     };
 
     const markup = renderFiles();
-    expect(markup).toContain("Workspace folders");
+    expect(markup).toContain("Explorer");
     expect(markup).toContain("Plans");
     expect(markup).toContain("launch-brief.md");
     expect(markup).toContain("New folder");
@@ -49,7 +49,7 @@ describe("Files page", () => {
 
   it("shows an empty state when the active Files folder has no contents", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    expect(renderFiles()).toContain("This folder is ready for your work.");
+    expect(renderFiles()).toContain("Select a file from the Explorer to open it.");
   });
 
   it("shows a recoverable error state", () => {

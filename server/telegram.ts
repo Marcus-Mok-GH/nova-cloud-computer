@@ -21,6 +21,24 @@ export async function validateTelegramBotToken(token: string, fetchImpl: typeof 
   return { id: String(bot.id), username: bot.username ?? null, displayName: bot.first_name ?? null };
 }
 
+/** Register Telegram's HTTPS callback so incoming messages reach Nova. */
+export async function configureTelegramWebhook(token: string, appUrl: string, fetchImpl: typeof fetch = fetch) {
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(appUrl);
+  } catch {
+    throw new Error("Nova could not determine its public HTTPS URL for Telegram.");
+  }
+  if (baseUrl.protocol !== "https:") {
+    throw new Error("Telegram requires Nova to have a public HTTPS URL. Configure PUBLIC_APP_URL when deploying Nova.");
+  }
+  baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/api/telegram/webhook/${encodeURIComponent(token)}`;
+  baseUrl.search = "";
+  baseUrl.hash = "";
+  await telegramRequest<boolean>(token, "setWebhook", { url: baseUrl.toString() }, fetchImpl);
+  return { webhookUrl: baseUrl.toString() };
+}
+
 export async function discoverTelegramChat(token: string, fetchImpl: typeof fetch = fetch) {
   const updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
   const chat = [...updates].reverse().map(update => update.message?.chat ?? update.channel_post?.chat).find(Boolean);

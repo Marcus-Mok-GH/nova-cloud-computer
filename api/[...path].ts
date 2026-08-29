@@ -18,6 +18,40 @@ export function getNeonAuthPathFromRequestUrl(requestUrl: string | undefined) {
   return getNeonAuthPathFromCatchall(pathname.replace(/^\/api\/?/u, ""));
 }
 
+/**
+ * Application RPC calls must be served by the co-deployed Nova API. Sending
+ * them through an optional remote API service can separate the OTP proxy from
+ * the JWT verifier and leave a successfully authenticated user unresolved.
+ */
+export function isTrpcPath(path: string | string[] | undefined) {
+  const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
+  return segments[0] === "trpc";
+}
+
+export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
+  const pathname = new URL(requestUrl ?? "/", "http://nova-proxy.local").pathname;
+  return isTrpcPath(pathname.replace(/^\/api\/?/u, ""));
+}
+
+/**
+ * Requests that depend on Nova's own session and server-only provider settings
+ * must remain co-deployed; they cannot safely be handled by an optional API
+ * service running with different authentication or model configuration.
+ *
+ * Every `/api/chat/*` endpoint authenticates against Nova's own session and
+ * mutates or reads Nova's own database (stream, delete, ...), so the whole
+ * chat namespace is co-deployed rather than each endpoint individually.
+ */
+export function isCoDeployedApiPath(path: string | string[] | undefined) {
+  const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
+  return isTrpcPath(segments) || segments[0] === "chat";
+}
+
+export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {
+  const pathname = new URL(requestUrl ?? "/", "http://nova-proxy.local").pathname;
+  return isCoDeployedApiPath(pathname.replace(/^\/api\/?/u, ""));
+}
+
 export function getRequestHeaders(headers: VercelRequest["headers"]) {
   const forwarded: Record<string, string> = {};
   for (const name of REQUEST_HEADERS) {
@@ -41,7 +75,12 @@ function getSetCookieHeaders(headers: Headers) {
 }
 
 export function normalizeProxiedSessionCookie(cookie: string) {
-  return cookie.replace(/;\s*domain=[^;]+/giu, "");
+  // The upstream auth service issues a third-party CHIPS cookie. Nova proxies
+  // it through its own origin, so retain the secure session attributes while
+  // removing upstream domain and partitioning directives for first-party use.
+  return cookie
+    .replace(/;\s*domain=[^;]+/giu, "")
+    .replace(/;\s*partitioned/giu, "");
 }
 
 export function forwardUpstreamResponse(upstream: Response, res: VercelResponse) {
@@ -68,6 +107,11 @@ export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, pat
       redirect: "manual",
     });
     forwardUpstreamResponse(upstream, res);
+    // Authentication responses must never be reused after an OTP exchange. In
+    // particular, a cached unauthenticated `get-session` response can otherwise
+    // mask the session cookie set by a successful sign-in.
+    res.setHeader("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("pragma", "no-cache");
     return res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
   } catch (error) {
     console.error("[Neon Auth proxy] Upstream request failed", error);
@@ -109,9 +153,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
+  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) return app(req, res);
+
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
-  const { app: localApp } = require("../dist/server/app.cjs") as typeof import("../server/app");
-  return localApp(req, res);
+  return app(req, res);
 }

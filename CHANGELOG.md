@@ -1,3 +1,40 @@
+## 2026-08-28 — Fix intermittent white screen on page load
+
+- Review hardening: the boot guard now only reacts to module-script/stylesheet load errors (favicon/analytics failures can no longer trigger a reload), the 8s watchdog only fires after `document.readyState` is `complete` (no false reload on slow networks), and a `?nr=1` marker prevents a reload loop in browsers that block storage; the marker is stripped from the URL on successful boot.
+- Root cause: after a deploy, a cached or in-flight index.html references a hashed bundle that no longer exists. The SPA catch-all served index.html back with 200 + `text/html` for the missing `/assets/*` chunk, module MIME checking blocked execution, React never mounted, and the page stayed white.
+- `vercel.json`: replaced legacy `routes` with `rewrites` + `headers`. Missing `/assets/*` files no longer fall through to the SPA fallback (they return a real 404), and hashed assets are served with `Cache-Control: public, max-age=31536000, immutable`.
+- `client/index.html`: added an inline boot guard — if the entry script or stylesheet fails to load, or `#root` is still empty after 8s, it reloads once (sessionStorage-guarded, so no reload loops) to fetch fresh HTML from the current deployment. `client/src/main.tsx` clears the guard flag on successful boot.
+- `vite.config.ts`: the umami analytics tag shipped a literal `%VITE_ANALYTICS_ENDPOINT%/umami` URL when the env var is unset (it is, in production), producing a 200 `text/html` script error on every load; the tag is now stripped at build time when analytics is not configured.
+- Review hardening (CodeRabbit): reload loop is also bounded by a `?nr=` marker for browsers with blocked storage; recovery only reacts to module scripts/stylesheets, not favicon/analytics; the 8s empty-root watchdog now requires `document.readyState === "complete"` to avoid slow-network false positives; the analytics tag is kept only when both `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` are set.
+- Verified: `tsc --noEmit` clean, 101 tests pass, `pnpm run build` succeeds; served the built SPA locally — normal boot unaffected, missing entry chunk triggers exactly one recovery reload with no loop.
+
+- Addressed PR #38 review findings: `[DONE]` now streams after the auto-title update so the chat list cannot cache a stale default title, and title persistence uses an owner-scoped conditional update (`renameChatIfDefaultForUser`) that skips when the chat is no longer default-titled (race-safe, with regression test).
+
+## 2026-08-28 — AI auto-titles chats from their first messages
+
+- Chats no longer stay stuck on default titles ("New workspace conversation", "Telegram Chat"): after the first assistant reply, the workspace LLM generates a concise 3-6 word title from the first user + assistant messages.
+- New `autoTitleChatForUser` helper in `server/workspaceAgent.ts`; wired into the `chats.send` mutation, `/api/chat/stream`, and the Telegram webhook. Idempotent: it only acts while the title is still a default, so later turns cost nothing.
+- `Workspace.tsx` invalidates the workspace query once a stream completes, so the chat list and headers pick up the new title immediately.
+- Exported `getChatForUser` from `server/db.ts`; replaced the inline titling block in the send mutation with the shared helper (same LLM/model config via `agentInvokeOptions`).
+- Tests: 4 new cases in `server/workspaceAgent.test.ts` (rename, no-op on custom title, no-op before first reply, quote/newline stripping).
+
+## 2026-08-28 — Fix chat deletion auth and mobile delete-icon visibility
+
+- CodeRabbit follow-up: treat a failing `getNeonAccessToken()` lookup as no token (`catch(() => null)`) so chat delete/stream requests still run with cookie authentication instead of being skipped when the token endpoint errors.
+- Chat deletion failed ("could not delete chat") when the session cookie was unavailable (Safari ITP, WebViews, iframes): the client `fetch("/api/chat/delete")` sent no `Authorization` header while the endpoint rejects cookie-less requests. The delete call now attaches the Neon access token as a Bearer header and includes credentials, matching the tRPC client.
+- Applied the same auth fix to `fetch("/api/chat/stream")`, which had the identical cookie-only auth pattern.
+- Delete icon in the Chats list is now always visible; it was `opacity-0` + `group-hover:opacity-100`, which is unusable on touch devices with no hover.
+
+## 2026-08-28 — Refactor: remove dead code and prune unused dependencies
+
+- Removed unreachable client code: `pages/ComponentShowcase.tsx` (1,437-line demo page with no route), `components/AIChatBox.tsx`, `components/ManusDialog.tsx`, `components/Map.tsx`, `hooks/useMobile.tsx`, `lib/authCallbackUrl.ts`, and `client/src/const.ts`.
+- Removed 38 unused shadcn `ui/` components (alert, badge, calendar, chart, form, sidebar, etc.) that no live page or component imports.
+- Removed unused server modules: `_core/map.ts`, `_core/voiceTranscription.ts`, `_core/imageGeneration.ts`, `_core/dataApi.ts`, `_core/storageProxy.ts`, `_core/oauth.ts`, and `neonAuthProxy.ts` (+ its test). No production code imported them.
+- Removed `shared/types.ts` (no importers); kept `shared/const.ts` and `shared/_core/errors.ts` (used by live code).
+- Pruned 34 unused dependencies from `package.json` (AWS SDK packages, form/carousel/chart libraries, 16 Radix primitives whose components were removed, framer-motion, streamdown, tailwindcss-animate, vaul, react-hook-form, etc.) and regenerated the pnpm lockfile.
+- `server/app.ts`: Replaced dynamic `import("./db")`/`import("./telegram")` calls in the Telegram webhook with static imports; identical behavior, less runtime overhead.
+- `server/routers.ts`: Consolidated 12 duplicated `TRPCError NOT_FOUND` throws behind a shared `throwIfNotFound()` helper with the same messages.
+- README updated to reflect the removed files.
 ## 2026-08-27 — Fix OTP sign-in redirect loop after session exchange
 
 **Problem:** After OTP verification, Neon Auth redirected to `/app?verifier=XXX`.

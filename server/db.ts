@@ -20,7 +20,7 @@ import {
   automationRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
-import { getDaytonaClient } from "./daytona";
+import { getDaytonaClient, initWorkspacePersistentVm } from "./daytona";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -81,26 +81,18 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
 }
 
 
-async function initWorkspacePersistentVm(workspaceId: number, ownerId: number) {
+/**
+ * Ensures that a user's durable Daytona computer exists and that Nova retains
+ * its sandbox identifier. This is deliberately idempotent: it runs for a new
+ * workspace and repairs an older workspace whose computer was never stored.
+ */
+async function ensureWorkspacePersistentVm<T extends typeof workspaces.$inferSelect>(workspace: T, ownerId: number): Promise<T> {
+  const sandboxId = await initWorkspacePersistentVm(workspace.id, ownerId, workspace.persistentSandboxId);
+  if (!sandboxId || workspace.persistentSandboxId === sandboxId) return workspace;
+
   const db = await requireDb();
-  const client = getDaytonaClient();
-  if (!client) return;
-  const existing = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
-  const current = existing[0];
-  if (!current?.persistentSandboxId) {
-    const sandbox = await client.create({
-      name: "nova-workspace-${workspaceId}",
-      language: "python",
-      labels: { "nova.owner": String(ownerId), "nova.workspace": String(workspaceId) },
-      resources: { cpu: 1, memory: 1, disk: 3 },
-      networkBlockAll: true,
-      ephemeral: false,
-      autoDeleteInterval: -1,
-      ttlMinutes: 0,
-      public: false,
-    });
-    await db.update(workspaces).set({ persistentSandboxId: sandbox.id }).where(eq(workspaces.id, workspaceId));
-  }
+  await db.update(workspaces).set({ persistentSandboxId: sandboxId, updatedAt: new Date() }).where(eq(workspaces.id, workspace.id));
+  return { ...workspace, persistentSandboxId: sandboxId };
 }
 
 export async function getWorkspacePersistentSandbox(ownerId: number) {
@@ -124,16 +116,20 @@ export async function updateWorkspacePersistentSandbox(workspaceId: number, sand
 export async function getOrCreateWorkspace(ownerId: number) {
   const db = await requireDb();
   const existing = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
-  if (existing[0]) return existing[0];
-  await db.insert(workspaces).values({ ownerId, name: "My Nova Space" }).onConflictDoNothing();
-  const created = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
-  if (!created[0]) throw new Error("Nova could not create a workspace.");
-  try {
-    await initWorkspacePersistentVm(created[0].id, ownerId);
-  } catch {
-    // Non-blocking: workspace creation succeeds even if persistent VM setup fails.
+  let workspace = existing[0];
+  if (!workspace) {
+    await db.insert(workspaces).values({ ownerId, name: "My Nova Space" }).onConflictDoNothing();
+    const created = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
+    workspace = created[0];
   }
-  return created[0];
+  if (!workspace) throw new Error("Nova could not create a workspace.");
+
+  try {
+    return await ensureWorkspacePersistentVm(workspace, ownerId);
+  } catch {
+    // Workspace access remains available if the provider is temporarily unavailable.
+    return workspace;
+  }
 }
 
 type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom" | "nvidia-nim";
@@ -305,7 +301,7 @@ async function getFileForUser(ownerId: number, fileId: number) {
   )).limit(1))[0];
 }
 
-async function getChatForUser(ownerId: number, chatId: number) {
+export async function getChatForUser(ownerId: number, chatId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(chats).where(and(
@@ -790,4 +786,23 @@ export async function updateAutomationScheduleState(input: { automationId: numbe
     eq(automations.workspaceId, input.workspaceId),
   )).returning();
   return updated ? toSafeAutomation(updated) : undefined;
+}
+
+export async function renameChatIfDefaultForUser(ownerId: number, chatId: number, title: string, defaultTitles: string[]) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  const [updated] = await db.update(chats)
+    .set({ title, updatedAt: new Date() })
+    .where(and(eq(chats.id, chat.id), inArray(chats.title, defaultTitles)))
+    .returning();
+  return updated;
+}
+
+export async function deleteChatForUser(ownerId: number, chatId: number) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return false;
+  await db.delete(chats).where(eq(chats.id, chat.id));
+  return true;
 }

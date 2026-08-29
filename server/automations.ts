@@ -25,8 +25,10 @@ export type WorkspaceBriefingInput = {
 
 type AutomationRecord = {
   id: number;
-  ownerId?: number;
-  workspaceId?: number;
+  /** The account that owns this automation. Never allow a caller to substitute another account. */
+  ownerId: number;
+  /** The durable workspace that receives every artifact from this automation. */
+  workspaceId: number;
   kind: "workspace_digest";
   enabled: boolean;
   lastRunAt: Date | null;
@@ -102,6 +104,14 @@ function emptyOutcome(): AutomationRunOutcome {
 /** Runs one verified account-owned automation. Its run and artifact are always written to the same account workspace. */
 async function runAutomationForOwner(ownerId: number, automation: AutomationRecord, now: Date, workspaceId?: number): Promise<AutomationRunOutcome> {
   const outcome = emptyOutcome();
+
+  // Defense in depth: every execution path (manual or scheduled) must preserve the
+  // account recorded on the automation. The schedule task UID is only a lookup key;
+  // it must never be able to redirect a run into another user's workspace.
+  if (automation.ownerId !== ownerId) {
+    throw new Error("Scheduled automation ownership does not match the requested account.");
+  }
+
   if (!automation.enabled || alreadyRanToday(automation.lastRunAt, now)) {
     outcome.skipped = 1;
     return outcome;
@@ -109,7 +119,7 @@ async function runAutomationForOwner(ownerId: number, automation: AutomationReco
 
   const persistedWorkspaceId = workspaceId ?? automation.workspaceId;
   const workspace = persistedWorkspaceId ? { id: persistedWorkspaceId } : await getOrCreateWorkspace(ownerId);
-  if (automation.workspaceId !== undefined && automation.workspaceId !== workspace.id) {
+  if (automation.workspaceId !== workspace.id) {
     throw new Error("Scheduled automation ownership does not match its workspace.");
   }
 

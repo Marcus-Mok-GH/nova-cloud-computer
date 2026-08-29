@@ -35,6 +35,18 @@
 - `server/app.ts`: Replaced dynamic `import("./db")`/`import("./telegram")` calls in the Telegram webhook with static imports; identical behavior, less runtime overhead.
 - `server/routers.ts`: Consolidated 12 duplicated `TRPCError NOT_FOUND` throws behind a shared `throwIfNotFound()` helper with the same messages.
 - README updated to reflect the removed files.
+## 2026-08-27 — Fix OTP sign-in redirect loop after session exchange
+
+**Problem:** After OTP verification, Neon Auth redirected to `/app?verifier=XXX`.
+The Workspace page rendered, `DashboardLayout` detected no auth cookie, and
+redirected to `/sign-in` — stripping the verifier from the URL. On `/sign-in`
+there was no verifier to exchange, so `exchangeNeonVerifierAndGetJwt()` failed,
+leaving the user in a redirect loop back to sign-in.
+
+**Fix:** Added a mount-time `useEffect` in `client/src/pages/Workspace.tsx` that
+detects a `verifier` query param, calls `exchangeNeonVerifierAndGetJwt()` to store
+the Neon JWT in localStorage, rewrites the URL to remove the verifier, then
+navigates to `/app` so the dashboard renders with a valid session.
 
 ## 2026-08-26 — Fix Telegram webhook and OTP sign-in session persistence
 

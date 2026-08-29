@@ -19,8 +19,9 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import React, { FormEvent, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 
 type ToolActivity = {
   id: string;
@@ -43,6 +44,26 @@ export default function Workspace() {
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
+
+  // Exchange Neon Auth verifier on mount when landing from OTP callback
+  useEffect(() => {
+    if (typeof window === "undefined" || !neonAuth) return;
+    const params = new URLSearchParams(window.location.search);
+    const verifier = params.get("verifier");
+    if (!verifier) return;
+    void (async () => {
+      try {
+        const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth);
+        if (jwt) {
+          params.delete("verifier");
+          window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`);
+          setLocation("/app");
+        }
+      } catch (err) {
+        console.warn("[Workspace] Failed to exchange Neon verifier", err instanceof Error ? err.message : err);
+      }
+    })();
+  }, []);
 
   const refreshMessages = async () => {
     await savedMessages.refetch();

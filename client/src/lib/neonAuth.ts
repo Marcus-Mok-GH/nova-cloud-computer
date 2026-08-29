@@ -2,12 +2,17 @@ import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthVanillaAdapter } from "@neondatabase/neon-js/auth/vanilla/adapters";
 
 const remoteAuthUrl = import.meta.env.VITE_NEON_AUTH_URL as string | undefined;
+
+function isLocalHostname(hostname: string | undefined) {
+  return !hostname || hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 export function resolveNeonAuthUrl(
   authUrl: string | undefined,
   appOrigin?: string,
   appHostname?: string,
 ) {
-  if (!authUrl || !appOrigin || !appHostname?.endsWith(".vercel.app")) return authUrl;
+  if (!authUrl || !appOrigin || isLocalHostname(appHostname)) return authUrl;
   return `${appOrigin.replace(/\/$/, "")}/api/neon-auth`;
 }
 

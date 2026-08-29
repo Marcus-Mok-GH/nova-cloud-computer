@@ -1,13 +1,15 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { updateLastActiveTimestamp, useAuth } from "@/_core/hooks/useAuth";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import NovaMark from "@/components/NovaMark";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { trpc } from "@/lib/trpc";
 
 export default function SignIn() {
   const { isAuthenticated, loading } = useAuth();
+  const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -59,8 +61,26 @@ export default function SignIn() {
         const session = await neonAuth.getSession();
         if (session.data?.session) {
           const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth);
-          if (jwt) setLocation("/app");
-          else setError("Signed in, but Nova could not load your session. Please refresh.");
+          if (!jwt) {
+            setError("Signed in, but Nova could not load your session. Please refresh.");
+            return;
+          }
+
+          // /app uses auth.me to decide whether the user is authenticated.
+          // Clear the query created before the OTP exchange; otherwise its
+          // cached unauthenticated result can mask the fresh Neon session.
+          await utils.auth.me.invalidate();
+          // Fetch it before navigation so the backend sees the Neon JWT and
+          // creates Nova's first-party session cookie on the same request.
+          const user = await utils.auth.me.fetch();
+          if (user) {
+            // A fresh OTP proves a new interactive session. Reset any prior
+            // inactivity marker before the workspace auth hook evaluates it.
+            updateLastActiveTimestamp(user.id);
+            setLocation("/app");
+          } else {
+            setError("Signed in, but Nova could not load your account session. Check your deployment auth configuration.");
+          }
         } else {
           setError("Signed in, but Nova could not load your session. Please refresh.");
         }

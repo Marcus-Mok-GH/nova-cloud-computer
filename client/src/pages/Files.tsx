@@ -1,185 +1,79 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import NovaMark from "@/components/NovaMark";
 import { Button } from "@/components/ui/button";
-import { getFolderTrail, getWorkspaceContents } from "@/lib/workspaceBrowser";
+import { detectLanguage, HighlightedCode, languageLabel } from "@/lib/syntaxHighlight";
+import { getFolderTrail } from "@/lib/workspaceBrowser";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import {
-  ChevronRight,
-  FilePlus2,
-  FileText,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  HardDrive,
-  MoveRight,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Pencil, Save, Trash2, X } from "lucide-react";
 import React, { useMemo, useState } from "react";
 
-const elapsed = (date: Date | undefined) => {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(date ?? Date.now()).getTime()) / 60000));
-  return mins < 2 ? "just now" : mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
-};
+type OpenFile = { id: number; name: string; content?: string | null; mimeType?: string | null; folderId?: number | null };
+type TreeProps = { folders: any[]; files: any[]; parentId: number | null; depth: number; activeFolderId: number | null; expanded: Set<number>; setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>; selectFolder: (id: number | null) => void; open: (file: OpenFile) => void; remove: (file: any, e?: React.MouseEvent) => void };
 
 export default function Files() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [openFile, setOpenFile] = useState<OpenFile | null>(null);
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
   const folders = computer.data?.folders ?? [];
-  const allFiles = computer.data?.files ?? [];
-  const visibleContents = useMemo(() => getWorkspaceContents(folders, allFiles, activeFolderId), [activeFolderId, allFiles, folders]);
-  const folderTrail = useMemo(() => getFolderTrail(folders, activeFolderId), [activeFolderId, folders]);
-  const currentFolder = activeFolderId === null ? undefined : folders.find(folder => folder.id === activeFolderId);
-  const itemCount = visibleContents.folders.length + visibleContents.files.length;
+  const files = computer.data?.files ?? [];
+  const trail = useMemo(() => getFolderTrail(folders, activeFolderId), [folders, activeFolderId]);
+  const language = openFile ? detectLanguage(openFile.name, openFile.mimeType) : "text";
 
-  const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
-  const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
-  const renameFolder = trpc.folders.update.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
-  const removeFolder = trpc.folders.delete.useMutation({ onSuccess: () => { setActiveFolderId(null); utils.workspace.computer.invalidate(); }, onError: error => toast.error(error.message) });
-  const renameFile = trpc.files.update.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
-  const removeFile = trpc.files.delete.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: error => toast.error(error.message) });
+  const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
+  const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
+  const deleteFile = trpc.files.delete.useMutation({
+    onSuccess: (_, vars) => { if (openFile?.id === vars.id) setOpenFile(null); utils.workspace.computer.invalidate(); toast.success("File deleted"); },
+    onError: e => toast.error(e.message),
+  });
+  const saveFile = trpc.files.update.useMutation({
+    onSuccess: async () => { if (openFile) setOpenFile({ ...openFile, content: draft }); setEditing(false); await utils.workspace.computer.invalidate(); toast.success("File saved"); },
+    onError: e => toast.error(e.message),
+  });
 
-  const make = (kind: "folder" | "file") => {
+  const make = (kind: "file" | "folder") => {
     const name = window.prompt(`Name this ${kind}`)?.trim();
     if (!name) return;
-    if (kind === "folder") createFolder.mutate({ name, parentId: activeFolderId });
-    else createFile.mutate({ name, content: "", folderId: activeFolderId });
+    kind === "folder" ? createFolder.mutate({ name, parentId: activeFolderId }) : createFile.mutate({ name, content: "", folderId: activeFolderId });
   };
+  const open = (file: OpenFile) => { setOpenFile(file); setDraft(file.content ?? ""); setEditing(false); };
+  const selectFolder = (id: number | null) => { setActiveFolderId(id); if (id !== null) setExpanded(p => new Set(p).add(id)); };
+  const remove = (file: any, e?: React.MouseEvent) => { e?.stopPropagation(); if (window.confirm(`Delete “${file.name}”? This cannot be undone.`)) deleteFile.mutate({ id: file.id }); };
 
-  const chooseFolder = (excludeId?: number) => {
-    const available = folders.filter(folder => folder.id !== excludeId);
-    const name = window.prompt(`Move to which folder? Leave blank for Home. Available: ${available.map(folder => folder.name).join(", ")}`)?.trim();
-    if (!name) return null;
-    const folder = available.find(item => item.name.toLowerCase() === name.toLowerCase());
-    if (!folder) {
-      toast.error("Choose a folder that exists in your workspace.");
-      return undefined;
-    }
-    return folder.id;
-  };
+  if (computer.isError) return <DashboardLayout><div className="grid min-h-[65vh] place-items-center"><div className="text-center"><h1 className="text-xl font-bold">Nova could not open your files.</h1><Button onClick={() => computer.refetch()} className="mt-4">Try again</Button></div></div></DashboardLayout>;
 
-  if (computer.isError) return <FilesError onRetry={() => computer.refetch()} />;
-
-  return (
-    <DashboardLayout>
-      <div className="mx-auto max-w-[1200px] p-4 md:p-6">
-        <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Workspace files</p>
-            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Files</h1>
-            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Browse and organize everything in your private workspace.</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => make("folder")} className="rounded-full border-neutral-200 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-200 dark:hover:bg-neutral-800 dark:hover:text-white"><FolderPlus className="mr-1.5 size-3.5" />New folder</Button>
-            <Button onClick={() => make("file")} className="rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]"><FilePlus2 className="mr-1.5 size-3.5" />New file</Button>
-          </div>
-        </header>
-
-        <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
-          <aside className="h-fit rounded-2xl border border-neutral-200 bg-white p-3 dark:border-white/10 dark:bg-neutral-900">
-            <div className="mb-2 flex items-center justify-between px-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Workspace folders</span>
-              <button onClick={() => make("folder")} className="grid size-7 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="New folder"><FolderPlus className="size-4" /></button>
-            </div>
-            <div className="space-y-0.5">
-              <button onClick={() => setActiveFolderId(null)} className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${activeFolderId === null ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950" : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"}`}>
-                <HardDrive className={`size-4 ${activeFolderId === null ? "text-[#fb923c]" : "text-neutral-400"}`} />
-                <span className="flex-1">Home</span>
-              </button>
-              {folders.map(folder => (
-                <button key={folder.id} onClick={() => setActiveFolderId(folder.id)} className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium transition-colors ${activeFolderId === folder.id ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950" : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white"}`}>
-                  <ChevronRight className="size-3 text-neutral-300 dark:text-neutral-600" />
-                  <Folder className="size-4 text-[#f97316]" />
-                  <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_16px_50px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-neutral-900">
-            <header className="border-b border-neutral-100 px-5 py-4 sm:px-6 dark:border-white/5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private files</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
-                    <button onClick={() => setActiveFolderId(null)} className="font-bold text-neutral-950 hover:text-[#f97316] dark:text-white">Home</button>
-                    {folderTrail.map(folder => (
-                      <span key={folder.id} className="flex items-center gap-1.5">
-                        <ChevronRight className="size-3 text-neutral-300 dark:text-neutral-600" />
-                        <button onClick={() => setActiveFolderId(folder.id)} className="font-medium text-neutral-500 hover:text-[#f97316] dark:text-neutral-400">{folder.name}</button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[11px] font-semibold text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">{itemCount} {itemCount === 1 ? "item" : "items"}</span>
-              </div>
-            </header>
-
-            <div className="p-5 sm:p-6">
-              <div className="mb-5 flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-extrabold tracking-tight text-neutral-950 dark:text-white">{currentFolder?.name ?? "Home"}</h2>
-                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{currentFolder ? "Files in this folder" : "Your root workspace"}</p>
-                </div>
-                <Button onClick={() => make("file")} className="rounded-full bg-[#f97316] text-xs font-semibold hover:bg-[#ea580c]"><Plus className="mr-1.5 size-3.5" />Add file</Button>
-              </div>
-
-              {computer.isLoading ? (
-                <div className="grid min-h-80 place-items-center text-sm text-neutral-400">Opening your private workspace…</div>
-              ) : itemCount > 0 ? (
-                <div className="space-y-7">
-                  {visibleContents.folders.length > 0 && (
-                    <div>
-                      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Folders</p>
-                      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                        {visibleContents.folders.map(folder => (
-                          <FolderCard key={folder.id} name={folder.name} onOpen={() => setActiveFolderId(folder.id)} onMove={() => { const folderId = chooseFolder(folder.id); if (folderId !== undefined) renameFolder.mutate({ id: folder.id, parentId: folderId }); }} onRename={() => { const name = window.prompt("Rename folder", folder.name)?.trim(); if (name) renameFolder.mutate({ id: folder.id, name }); }} onDelete={() => window.confirm(`Delete ${folder.name}?`) && removeFolder.mutate({ id: folder.id })} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {visibleContents.files.length > 0 && (
-                    <div>
-                      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">Files</p>
-                      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                        {visibleContents.files.map(file => (
-                          <FileCard key={file.id} name={file.name} changed={elapsed(file.updatedAt)} onMove={() => { const folderId = chooseFolder(); if (folderId !== undefined) renameFile.mutate({ id: file.id, folderId }); }} onRename={() => { const name = window.prompt("Rename file", file.name)?.trim(); if (name) renameFile.mutate({ id: file.id, name }); }} onDelete={() => window.confirm(`Delete ${file.name}?`) && removeFile.mutate({ id: file.id })} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <EmptyFolder onFolder={() => make("folder")} onFile={() => make("file")} />
-              )}
-            </div>
-          </section>
+  return <DashboardLayout>
+    <div className="flex h-[calc(100vh-3.5rem-6rem)] min-h-[560px] overflow-hidden bg-white dark:bg-[#1e1e1e]">
+      <aside className="flex w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-[#f3f3f3] dark:border-[#2b2b2b] dark:bg-[#181818]">
+        <div className="flex h-10 shrink-0 items-center justify-between px-4"><span className="text-[11px] font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-300">Explorer</span><div className="flex gap-0.5"><button onClick={() => make("file")} className="rounded p-1.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-white/10" title="New file"><FilePlus2 className="size-4" /></button><button onClick={() => make("folder")} className="rounded p-1.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-white/10" title="New folder"><FolderPlus className="size-4" /></button></div></div>
+        <div className="min-h-0 flex-1 overflow-y-auto py-1 text-[13px]">
+          <button onClick={() => selectFolder(null)} className={`flex h-7 w-full items-center gap-1.5 px-2 text-left ${activeFolderId === null ? "bg-[#dcdcdc] dark:bg-[#37373d]" : "hover:bg-[#e7e7e7] dark:hover:bg-[#2a2d2e]"}`}><HardDrive className="ml-1 size-3.5" /><span className="font-medium">NOVA WORKSPACE</span></button>
+          <Tree folders={folders} files={files} parentId={null} depth={0} activeFolderId={activeFolderId} expanded={expanded} setExpanded={setExpanded} selectFolder={selectFolder} open={open} remove={remove} />
         </div>
-      </div>
-    </DashboardLayout>
-  );
+      </aside>
+
+      <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-[#1e1e1e]">
+        {openFile ? <>
+          <div className="flex h-10 shrink-0 items-center border-b border-neutral-200 bg-[#f3f3f3] dark:border-[#2b2b2b] dark:bg-[#181818]"><div className="flex h-full items-center gap-2 border-r border-neutral-200 bg-white px-3 text-xs dark:border-[#2b2b2b] dark:bg-[#1e1e1e]"><File className="size-3.5 text-neutral-500" /><span className="max-w-[260px] truncate">{openFile.name}</span><button onClick={() => setOpenFile(null)} className="rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-white/10"><X className="size-3.5" /></button></div></div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 py-2 text-[11px] text-neutral-400 dark:border-[#2b2b2b]"><div className="flex min-w-0 items-center gap-1"><span>workspace</span>{trail.map(f => <React.Fragment key={f.id}><ChevronRight className="size-3" /><span className="truncate">{f.name}</span></React.Fragment>)}<ChevronRight className="size-3" /><span className="truncate">{openFile.name}</span></div><span>{languageLabel(language)}</span></div>
+            {editing ? <textarea value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} className="min-h-0 flex-1 resize-none border-0 bg-white p-5 font-mono text-[13px] leading-6 outline-none dark:bg-[#1e1e1e] dark:text-neutral-100" aria-label={`Edit ${openFile.name}`} /> : <div className="min-h-0 flex-1 overflow-auto bg-white dark:bg-[#1e1e1e]"><pre className="m-0 min-h-full whitespace-pre p-5 font-mono text-[13px] leading-6 text-neutral-800 dark:text-neutral-100"><HighlightedCode code={draft} language={language} /></pre></div>}
+            <div className="flex shrink-0 items-center justify-between border-t border-neutral-200 bg-[#f3f3f3] px-3 py-2 dark:border-[#2b2b2b] dark:bg-[#181818]"><span className="text-[11px] text-neutral-400">{draft.length} characters · {languageLabel(language)}</span><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setOpenFile(null)}><X className="mr-1.5 size-3.5" />Close</Button>{editing ? <Button size="sm" disabled={saveFile.isPending} onClick={() => saveFile.mutate({ id: openFile.id, content: draft })} className="bg-[#f97316] hover:bg-[#ea580c]"><Save className="mr-1.5 size-3.5" />{saveFile.isPending ? "Saving…" : "Save"}</Button> : <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="mr-1.5 size-3.5" />Edit</Button>}</div></div>
+          </div>
+        </> : <><div className="flex h-10 shrink-0 items-center border-b border-neutral-200 bg-[#f3f3f3] px-4 text-xs text-neutral-500 dark:border-[#2b2b2b] dark:bg-[#181818]">{activeFolderId === null ? "NOVA WORKSPACE" : folders.find(f => f.id === activeFolderId)?.name}</div><div className="flex flex-1 items-center justify-center text-sm text-neutral-400"><div className="text-center"><FolderOpen className="mx-auto mb-3 size-10 opacity-40" /><p>Select a file from the Explorer to open it.</p></div></div></>}
+      </main>
+    </div>
+  </DashboardLayout>;
 }
 
-function FilesError({ onRetry }: { onRetry: () => void }) {
-  return <DashboardLayout><div className="grid min-h-[65vh] place-items-center text-center"><div><NovaMark size={40} className="mx-auto" /><h1 className="mt-4 text-2xl font-extrabold tracking-tight">Nova could not open your files.</h1><p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">Your files remain private. Try reconnecting to your workspace.</p><Button className="mt-5 rounded-full bg-[#f97316] hover:bg-[#ea580c]" onClick={onRetry}>Try again</Button></div></div></DashboardLayout>;
-}
-
-function FolderCard({ name, onOpen, onMove, onRename, onDelete }: { name: string; onOpen: () => void; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="rounded-xl border border-neutral-200 bg-[#fafafa] p-4 transition hover:border-neutral-300 hover:bg-white hover:shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:hover:border-white/20"><button onClick={onOpen} className="flex w-full items-center gap-3 text-left"><span className="grid size-10 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316]"><FolderOpen className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-neutral-900 dark:text-white">{name}</span><span className="mt-0.5 block text-[11px] text-neutral-400">Folder</span></span><ChevronRight className="size-4 text-neutral-300 dark:text-neutral-600" /></button><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
-}
-
-function FileCard({ name, changed, onMove, onRename, onDelete }: { name: string; changed: string; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="rounded-xl border border-neutral-200 bg-[#fafafa] p-4 transition hover:border-neutral-300 hover:bg-white hover:shadow-sm dark:border-white/10 dark:bg-neutral-950 dark:hover:border-white/20"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300"><FileText className="size-5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-neutral-900 dark:text-white">{name}</span><span className="mt-0.5 block text-[11px] text-neutral-400">Edited {changed}</span></span></div><ItemActions label={name} onMove={onMove} onRename={onRename} onDelete={onDelete} /></div>;
-}
-
-function EmptyFolder({ onFolder, onFile }: { onFolder: () => void; onFile: () => void }) {
-  return <div className="grid min-h-80 place-items-center rounded-2xl border border-dashed border-neutral-200 bg-[#fafafa] p-8 text-center dark:border-white/10 dark:bg-neutral-950"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#f97316]/10 text-[#f97316]"><Sparkles className="size-5" /></span><h2 className="mt-4 text-lg font-bold tracking-tight">This folder is ready for your work.</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-neutral-500 dark:text-neutral-400">Create a file or folder here to begin organizing your workspace.</p><div className="mt-6 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={onFolder} className="rounded-full border-neutral-200 font-semibold text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-200 dark:hover:bg-neutral-800 dark:hover:text-white"><FolderPlus className="mr-1.5 size-4" />New folder</Button><Button onClick={onFile} className="rounded-full bg-[#f97316] font-semibold hover:bg-[#ea580c]"><Plus className="mr-1.5 size-4" />New file</Button></div></div></div>;
-}
-
-function ItemActions({ label, onMove, onRename, onDelete }: { label: string; onMove: () => void; onRename: () => void; onDelete: () => void }) {
-  return <div className="mt-4 flex justify-end gap-1 border-t border-neutral-100 pt-3 dark:border-white/5"><button aria-label={`Move ${label}`} onClick={onMove} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><MoveRight className="size-3.5" /></button><button aria-label={`Rename ${label}`} onClick={onRename} className="rounded-md p-1.5 text-neutral-300 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"><Pencil className="size-3.5" /></button><button aria-label={`Delete ${label}`} onClick={onDelete} className="rounded-md p-1.5 text-red-400/70 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-300"><Trash2 className="size-3.5" /></button></div>;
+function Tree({ folders, files, parentId, depth, activeFolderId, expanded, setExpanded, selectFolder, open, remove }: TreeProps) {
+  const childFolders = folders.filter(f => f.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+  const childFiles = files.filter(f => f.folderId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+  return <>
+    {childFolders.map(folder => { const isOpen = expanded.has(folder.id); const hasChildren = folders.some(f => f.parentId === folder.id) || files.some(f => f.folderId === folder.id); return <React.Fragment key={folder.id}><button onClick={() => { selectFolder(folder.id); setExpanded(p => { const n = new Set(p); isOpen ? n.delete(folder.id) : n.add(folder.id); return n; }); }} className={`flex h-7 w-full items-center gap-1 text-left hover:bg-[#e7e7e7] dark:hover:bg-[#2a2d2e] ${activeFolderId === folder.id ? "bg-[#dcdcdc] dark:bg-[#37373d]" : ""}`} style={{ paddingLeft: `${8 + depth * 16}px` }}>{hasChildren ? (isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />) : <span className="size-3.5" />}{isOpen ? <FolderOpen className="size-4 shrink-0 text-[#d88900]" /> : <Folder className="size-4 shrink-0 text-[#d88900]" />}<span className="min-w-0 truncate">{folder.name}</span></button>{isOpen && <Tree folders={folders} files={files} parentId={folder.id} depth={depth + 1} activeFolderId={activeFolderId} expanded={expanded} setExpanded={setExpanded} selectFolder={selectFolder} open={open} remove={remove} />}</React.Fragment>; })}
+    {childFiles.map(file => <div key={`file-${file.id}`} className="group flex h-7 w-full items-center hover:bg-[#e7e7e7] dark:hover:bg-[#2a2d2e]" style={{ paddingLeft: `${24 + depth * 16}px` }}><button onClick={() => open(file)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-neutral-700 dark:text-neutral-300"><File className="size-3.5 shrink-0 text-neutral-400" /><span className="min-w-0 truncate">{file.name}</span></button><button onClick={e => remove(file, e)} className="mr-1 hidden rounded p-1 text-neutral-400 hover:text-red-600 group-hover:block dark:hover:text-red-400" title={`Delete ${file.name}`} aria-label={`Delete ${file.name}`}><Trash2 className="size-3.5" /></button></div>)}
+  </>;
 }

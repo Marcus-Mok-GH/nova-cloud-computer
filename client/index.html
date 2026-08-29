@@ -7,6 +7,40 @@
     <meta name="description" content="Nova is your personal cloud computer — files, chats, model choices, and agent tasks in one private space that works 24/7." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Nova — Your personal cloud computer</title>
+    <script>
+      // Boot guard: after a deploy, a cached index.html can reference a hashed
+      // bundle that no longer exists. The failed module load leaves #root empty
+      // (white screen), so reload once to fetch fresh HTML instead of staying blank.
+      (function () {
+        var KEY = "nova_boot_reload";
+        function recover() {
+          // The nr param marks an already-attempted recovery so browsers that
+          // block storage cannot get stuck in a reload loop.
+          if (/[?&]nr=/.test(location.search)) return;
+          try {
+            if (sessionStorage.getItem(KEY)) return;
+            sessionStorage.setItem(KEY, "1");
+          } catch (e) {}
+          location.reload();
+        }
+        window.addEventListener("error", function (event) {
+          var target = event.target;
+          // Only module scripts and stylesheets matter for boot; ignore
+          // favicon/analytics failures so they cannot trigger a reload.
+          if (!target) return;
+          var isScript = target.tagName === "SCRIPT" && target.type === "module";
+          var isSheet = target.tagName === "LINK" && target.rel === "stylesheet";
+          if (!isScript && !isSheet) return;
+          var root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) recover();
+        }, true);
+        setTimeout(function () {
+          if (document.readyState !== "complete") return;
+          var root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) recover();
+        }, 8000);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

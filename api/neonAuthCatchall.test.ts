@@ -4,6 +4,10 @@ import {
   getNeonAuthPathFromCatchall,
   getNeonAuthPathFromRequestUrl,
   getRequestHeaders,
+  isCoDeployedApiPath,
+  isCoDeployedApiPathFromRequestUrl,
+  isTrpcPath,
+  isTrpcPathFromRequestUrl,
   normalizeProxiedSessionCookie,
   proxyApiService,
   proxyNeonAuth,
@@ -23,9 +27,27 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(getNeonAuthPathFromRequestUrl("/api/trpc/auth.me")).toBeNull();
   });
 
-  it("removes an upstream cookie domain before returning the first-party session cookie", () => {
-    expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; Secure")).toBe(
-      "session=value; Path=/; Secure",
+  it("identifies tRPC paths so authenticated account requests remain co-deployed", () => {
+    expect(isTrpcPath(["trpc", "auth.me"])).toBe(true);
+    expect(isTrpcPath("trpc/workspace.dashboard")).toBe(true);
+    expect(isTrpcPath(["neon-auth", "get-session"])).toBe(false);
+    expect(isTrpcPathFromRequestUrl("/api/trpc/auth.me?batch=1")).toBe(true);
+  });
+
+  it("keeps the authenticated chat namespace co-deployed", () => {
+    expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
+    expect(isCoDeployedApiPath("chat/stream")).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "delete"])).toBe(true);
+    expect(isCoDeployedApiPath("chat/delete")).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "other"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/chat/stream?request=1")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/chat/delete")).toBe(true);
+  });
+
+  it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
+    expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(
+      "session=value; Path=/; HttpOnly; Secure; SameSite=None",
     );
   });
 
@@ -137,7 +159,8 @@ describe("Proxy response forwarding", () => {
     await proxyNeonAuth(req, res, "magic-link/verify");
 
     expect(res.statusCode).toBe(200);
-    expect(res.getHeader("cache-control")).toBe("no-store");
+    expect(res.getHeader("cache-control")).toBe("no-store, no-cache, must-revalidate, max-age=0");
+    expect(res.getHeader("pragma")).toBe("no-cache");
     expect(res.getHeader("content-type")).toBe("application/json");
     expect(res.getHeader("set-cookie")).toBe("session=abc; Path=/; Secure");
   });

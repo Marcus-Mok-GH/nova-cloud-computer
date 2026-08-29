@@ -58,7 +58,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 ├── api/                  # Vercel serverless entry (api/[...path].ts) — mounts the Express app
 ├── client/src/           # React SPA
 │   ├── pages/            # Home, SignIn, Workspace, Files, Chats, Deployments, Settings
-│   ├── components/       # AIChatBox, DashboardLayout, Map, NovaMark, ui/ (Radix + shadcn)
+│   ├── components/       # DashboardLayout, NovaMark, ui/ (Radix + shadcn)
 │   ├── contexts/         # ThemeContext
 │   ├── hooks/            # useComposition, useMobile, usePersistFn
 │   └── lib/              # trpc client, neonAuth
@@ -74,7 +74,6 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── daytona.ts        # Daytona SDK wrapper
 │   ├── modelSecrets.ts   # Per-workspace model credentials
 │   ├── nvidiaGateway.ts  # NVIDIA NIM gateway client
-│   ├── neonAuthProxy.ts  # Neon auth proxy
 │   ├── storage.ts        # S3 object storage
 │   └── workspaceAgent.ts # Runs the agent against a workspace
 ├── shared/               # Shared types & constants (client + server)

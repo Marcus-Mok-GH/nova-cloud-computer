@@ -7,12 +7,18 @@ const db = {
   getAutomationRecordForUser: vi.fn(),
   getOrCreateWorkspace: vi.fn(),
   getWorkspaceComputer: vi.fn(),
-  listAutomationsForUser: vi.fn(),
+  listAutomationRecordsForUser: vi.fn(),
   updateAutomationRun: vi.fn(),
   updateAutomationScheduleState: vi.fn(),
 };
 
+const daytona = {
+  getDaytonaClient: vi.fn(() => ({})),
+  runDaytonaTaskInPersistentSandbox: vi.fn(),
+};
+
 vi.mock("./db", () => db);
+vi.mock("./daytona", () => daytona);
 
 const { buildWorkspaceBriefing, getAutomationRunKey, runAutomationForScheduleTask, runDueAutomationsForUser } = await import("./automations");
 
@@ -21,7 +27,17 @@ const now = new Date("2026-08-18T08:00:00.000Z");
 beforeEach(() => {
   vi.clearAllMocks();
   db.getOrCreateWorkspace.mockResolvedValue({ id: 31, ownerId: 7 });
-  db.listAutomationsForUser.mockResolvedValue([]);
+  db.listAutomationRecordsForUser.mockResolvedValue([]);
+  daytona.getDaytonaClient.mockReturnValue({});
+  daytona.runDaytonaTaskInPersistentSandbox.mockResolvedValue({
+    sandboxId: "sbx-owner-7",
+    output: JSON.stringify({
+      name: "daily-workspace-briefing-2026-08-18.md",
+      content: "# Daily workspace briefing\n\nGenerated inside the VM.\n",
+      mimeType: "text/markdown",
+    }),
+    uploadedFileCount: 0,
+  });
 });
 
 describe("account-scoped automations", () => {
@@ -46,8 +62,8 @@ describe("account-scoped automations", () => {
   });
 
   it("writes a run and artifact only to the authenticated account workspace", async () => {
-    db.listAutomationsForUser.mockResolvedValue([
-      { id: 9, kind: "workspace_digest", enabled: true, lastRunAt: null },
+    db.listAutomationRecordsForUser.mockResolvedValue([
+      { id: 9, ownerId: 7, workspaceId: 31, kind: "workspace_digest", enabled: true, lastRunAt: null },
     ]);
     db.claimAutomationRun.mockResolvedValue({ id: 12 });
     db.getWorkspaceComputer.mockResolvedValue({
@@ -61,10 +77,19 @@ describe("account-scoped automations", () => {
 
     await expect(runDueAutomationsForUser(7, now)).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0, skipped: 0 });
     expect(db.getOrCreateWorkspace).toHaveBeenCalledWith(7);
-    expect(db.listAutomationsForUser).toHaveBeenCalledWith(7);
+    expect(db.listAutomationRecordsForUser).toHaveBeenCalledWith(7);
     expect(db.claimAutomationRun).toHaveBeenCalledWith({ automationId: 9, ownerId: 7, workspaceId: 31, runKey: "workspace_digest:2026-08-18" });
     expect(db.getWorkspaceComputer).toHaveBeenCalledWith(7);
-    expect(db.createWorkspaceFileForUser).toHaveBeenCalledWith(7, expect.objectContaining({ name: "daily-workspace-briefing-2026-08-18.md", mimeType: "text/markdown" }));
+    expect(daytona.runDaytonaTaskInPersistentSandbox).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      workspaceId: 31,
+      ownerId: 7,
+      code: expect.stringContaining("artifact_path.write_text"),
+    }));
+    expect(db.createWorkspaceFileForUser).toHaveBeenCalledWith(7, {
+      name: "daily-workspace-briefing-2026-08-18.md",
+      content: "# Daily workspace briefing\n\nGenerated inside the VM.\n",
+      mimeType: "text/markdown",
+    });
     expect(db.updateAutomationRun).toHaveBeenCalledWith(expect.objectContaining({ automationId: 9, ownerId: 7, workspaceId: 31, runId: 12, artifactFileId: 44, status: "succeeded" }));
     expect(db.updateAutomationScheduleState).toHaveBeenCalledWith(expect.objectContaining({ automationId: 9, ownerId: 7, workspaceId: 31, lastError: null }));
   });
@@ -90,15 +115,15 @@ describe("account-scoped automations", () => {
 
     await expect(runAutomationForScheduleTask("task_private_owner_7", now)).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0, skipped: 0 });
     expect(db.getAutomationForScheduleTask).toHaveBeenCalledWith("task_private_owner_7");
-    expect(db.listAutomationsForUser).not.toHaveBeenCalled();
+    expect(db.listAutomationRecordsForUser).not.toHaveBeenCalled();
     expect(db.getOrCreateWorkspace).not.toHaveBeenCalled();
     expect(db.claimAutomationRun).toHaveBeenCalledWith({ automationId: 9, ownerId: 7, workspaceId: 31, runKey: "workspace_digest:2026-08-18" });
     expect(db.createWorkspaceFileForUser).toHaveBeenCalledWith(7, expect.any(Object));
   });
 
   it("does not rerun a duplicate request for the same account and day", async () => {
-    db.listAutomationsForUser.mockResolvedValue([
-      { id: 9, kind: "workspace_digest", enabled: true, lastRunAt: null },
+    db.listAutomationRecordsForUser.mockResolvedValue([
+      { id: 9, ownerId: 7, workspaceId: 31, kind: "workspace_digest", enabled: true, lastRunAt: null },
     ]);
     db.claimAutomationRun.mockResolvedValue(undefined);
 
@@ -108,8 +133,8 @@ describe("account-scoped automations", () => {
   });
 
   it("skips a disabled automation without reading or writing workspace data", async () => {
-    db.listAutomationsForUser.mockResolvedValue([
-      { id: 9, kind: "workspace_digest", enabled: false, lastRunAt: null },
+    db.listAutomationRecordsForUser.mockResolvedValue([
+      { id: 9, ownerId: 7, workspaceId: 31, kind: "workspace_digest", enabled: false, lastRunAt: null },
     ]);
 
     await expect(runDueAutomationsForUser(7, now)).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0, skipped: 1 });

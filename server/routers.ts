@@ -38,18 +38,22 @@ import {
   listAutomationRunsForUser,
   setAutomationScheduleTaskForUser,
   updateAutomationForUser,
-  updateChatForUser,
+
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
-import { runWorkspaceAgent, getWorkspaceAgentConnection } from "./workspaceAgent";
-import { invokeLLM } from "./_core/llm";
+import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
 import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+
+// Reusable helper for NOT_FOUND errors in tRPC procedures (assertion keeps return types narrowed).
+function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNullable<T> {
+  if (!result) throw new TRPCError({ code: "NOT_FOUND", message: `That ${entity} is not available in your Nova space.` });
+}
 
 const projectInput = z.object({
   name: z.string().trim().min(1, "A project needs a name.").max(160),
@@ -135,7 +139,7 @@ export const appRouter = router({
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
       const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
-      if (!settings) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
+      if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
     }),
   }),
@@ -190,7 +194,7 @@ export const appRouter = router({
     }),
     cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const run = await cancelAgentVmRun(ctx.user.id, input.id);
-      if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "That active agent VM run is not available in your Nova space." });
+      if (!run) throwIfNotFound(run, "active agent VM run");
       return run;
     }),
   }),
@@ -199,7 +203,7 @@ export const appRouter = router({
     runs: protectedProcedure.input(z.object({ automationId: z.number().int().positive() })).query(({ ctx, input }) => listAutomationRunsForUser(ctx.user.id, input.automationId)),
     update: protectedProcedure.input(z.object({ id: z.number().int().positive(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const existing = await getAutomationRecordForUser(ctx.user.id, input.id);
-      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
+      if (!existing) throwIfNotFound(existing, "automation");
 
       const sessionToken = parseCookie(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? "";
       if (!sessionToken) {
@@ -224,7 +228,7 @@ export const appRouter = router({
       }
 
       const automation = await updateAutomationForUser(ctx.user.id, input.id, { enabled: input.enabled });
-      if (!automation) throw new TRPCError({ code: "NOT_FOUND", message: "That automation is not available in your Nova space." });
+      if (!automation) throwIfNotFound(automation, "automation");
       return automation;
     }),
     runDue: protectedProcedure.mutation(async ({ ctx }) => {
@@ -239,34 +243,34 @@ export const appRouter = router({
   folders: router({
     create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => {
       const folder = await createWorkspaceFolderForUser(ctx.user.id, input);
-      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "That parent folder is not available in your Nova space." });
+      if (!folder) throwIfNotFound(folder, "parent folder");
       return folder;
     }),
     update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => {
       const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input);
-      if (!folder) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      if (!folder) throwIfNotFound(folder, "folder");
       return folder;
     }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id);
-      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      if (!deleted) throwIfNotFound(deleted, "folder");
       return { success: true } as const;
     }),
   }),
   files: router({
     create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => {
       const file = await createWorkspaceFileForUser(ctx.user.id, input);
-      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "That folder is not available in your Nova space." });
+      if (!file) throwIfNotFound(file, "folder");
       return file;
     }),
     update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => {
       const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input);
-      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "That file or destination folder is not available in your Nova space." });
+      if (!file) throwIfNotFound(file, "file or destination folder");
       return file;
     }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id);
-      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That file is not available in your Nova space." });
+      if (!deleted) throwIfNotFound(deleted, "file");
       return { success: true } as const;
     }),
   }),
@@ -278,7 +282,7 @@ export const appRouter = router({
     }),
     messages: protectedProcedure.input(z.object({ chatId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const messages = await listChatMessagesForUser(ctx.user.id, input.chatId);
-      if (!messages) throw new TRPCError({ code: "NOT_FOUND", message: "That conversation is not available in your Nova space." });
+      if (!messages) throwIfNotFound(messages, "conversation");
       return messages;
     }),
     send: protectedProcedure.input(z.object({ chatId: z.number().int().positive().nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => {
@@ -286,33 +290,7 @@ export const appRouter = router({
       const chatId = input.chatId ?? chat?.id;
       if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." });
       const result = await runWorkspaceAgent(ctx.user.id, chatId, input.content);
-      if (!input.chatId) {
-        try {
-          const messages = await listChatMessagesForUser(ctx.user.id, chatId);
-          if (messages?.length) {
-            const firstUser = messages.find(m => m.role === "user");
-            const firstAssistant = messages.find(m => m.role === "assistant");
-            if (firstUser && firstAssistant) {
-              const connection = await getWorkspaceAgentConnection(ctx.user.id);
-              const title = await invokeLLM({
-                model: "z-ai/glm-5.2",
-                apiUrl: connection?.apiUrl,
-                apiKey: connection?.apiKey,
-                messages: [
-                  { role: "system", content: "Generate a 3-6 word title for this conversation." },
-                  { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}` },
-                ],
-                maxTokens: 20,
-              });
-              const titleString = ((title?.choices?.[0]?.message?.content ?? "") as string).trim();
-              const normalizedTitle = titleString ? titleString.slice(0, 60) : "New conversation";
-              await updateChatForUser(ctx.user.id, chatId, normalizedTitle);
-            }
-          }
-        } catch (titleError) {
-          console.error("Failed to generate chat title", titleError);
-        }
-      }
+      await autoTitleChatForUser(ctx.user.id, chatId);
       return { chatId, ...(await result) };
     }),
   }),
@@ -320,7 +298,7 @@ export const appRouter = router({
     createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)),
     deleteCustom: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const deleted = await deleteCustomModelForUser(ctx.user.id, input.id);
-      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That custom model is not available in your Nova space." });
+      if (!deleted) throwIfNotFound(deleted, "custom model");
       return { success: true } as const;
     }),
   }),
@@ -328,7 +306,7 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => listProjectsForUser(ctx.user.id)),
     get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const project = await getProjectForUser(ctx.user.id, input.id);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "That project is not available in your Nova space." });
+      if (!project) throwIfNotFound(project, "project");
       return project;
     }),
     create: protectedProcedure.input(projectInput).mutation(async ({ ctx, input }) => {
@@ -338,12 +316,12 @@ export const appRouter = router({
     }),
     update: protectedProcedure.input(projectUpdateInput).mutation(async ({ ctx, input }) => {
       const project = await updateProjectForUser(ctx.user.id, input.id, input);
-      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "That project is not available in your Nova space." });
+      if (!project) throwIfNotFound(project, "project");
       return project;
     }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const deleted = await deleteProjectForUser(ctx.user.id, input.id);
-      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That project is not available in your Nova space." });
+      if (!deleted) throwIfNotFound(deleted, "project");
       return { success: true } as const;
     }),
   }),
@@ -356,17 +334,17 @@ export const appRouter = router({
       dueAt: z.date().nullable().optional(),
     })).mutation(async ({ ctx, input }) => {
       const task = await createTaskForUser(ctx.user.id, input);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "That project is not available in your Nova space." });
+      if (!task) throwIfNotFound(task, "project");
       return task;
     }),
     updateStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: taskStatus })).mutation(async ({ ctx, input }) => {
       const task = await updateTaskStatusForUser(ctx.user.id, input.id, input.status);
-      if (!task) throw new TRPCError({ code: "NOT_FOUND", message: "That task is not available in your Nova space." });
+      if (!task) throwIfNotFound(task, "task");
       return task;
     }),
     delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const deleted = await deleteTaskForUser(ctx.user.id, input.id);
-      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That task is not available in your Nova space." });
+      if (!deleted) throwIfNotFound(deleted, "task");
       return { success: true } as const;
     }),
   }),

@@ -151,7 +151,7 @@ export const appRouter = router({
       const botToken = input.botToken?.trim() || credentials?.token || "";
       if (!botToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add a Telegram bot token first." });
       const bot = await validateTelegramBotToken(botToken);
-      const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
+      const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken, chatId: input.chatId === undefined ? (credentials?.chatId ?? null) : input.chatId, botUsername: bot.username, botDisplayName: bot.displayName });
       const webhookBaseUrl = ENV.publicBaseUrl || (ctx.req?.headers?.host ? `https://${ctx.req.headers.host}` : "");
       if (webhookBaseUrl) {
         try {

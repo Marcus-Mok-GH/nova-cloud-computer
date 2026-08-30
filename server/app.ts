@@ -6,6 +6,7 @@ import { sdk } from "./_core/sdk";
 import { runAutomationForScheduleTask } from "./automations";
 import {
   findWorkspaceOwnerByTelegramToken,
+  getTelegramCredentialsForUser,
   deleteChatForUser,
   listChatsForUser,
   updateTelegramChatForUser,
@@ -114,10 +115,21 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
     if (!text) return res.status(200).json({ ok: true, skipped: "empty-text" });
     const ownerId = await findWorkspaceOwnerByTelegramToken(token);
     if (!ownerId) return res.status(404).json({ error: "bot-not-configured" });
-    // Auto-link the chatting chat (idempotent; also materializes the default bot's settings row).
-    void updateTelegramChatForUser(ownerId, chatId).catch(() => { /* background linking must not fail the reply path */ });
+    // A verified app-link always adopts this chat as the outbound destination.
+    // Other inbound messages only adopt the chat when nothing is linked yet or
+    // this chat is already linked, so a foreign chat can never replace the
+    // saved destination (CWE-862 mid-air). Linking also materializes the
+    // default bot's settings row on first use.
+    const isAppLink = text.toLowerCase().includes("nova_app_link");
+    if (isAppLink) {
+      void updateTelegramChatForUser(ownerId, chatId).catch(() => { /* background linking must not fail the reply path */ });
+    } else {
+      const current = await getTelegramCredentialsForUser(ownerId).catch(() => undefined);
+      if (!current?.chatId || current.chatId === chatId) {
+        void updateTelegramChatForUser(ownerId, chatId).catch(() => { /* background linking must not fail the reply path */ });
+      }
+    }
     if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {
-      const isAppLink = text.toLowerCase().includes("nova_app_link") || text.toLowerCase().startsWith("/start nova_app_link");
       const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started.");
       await sendTelegramMessage(token, chatId, startMessage);
       return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });

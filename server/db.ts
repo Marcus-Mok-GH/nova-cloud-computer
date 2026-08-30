@@ -489,7 +489,9 @@ async function getOrCreateTelegramSetting(ownerId: number) {
     botUsername: null,
     botDisplayName: null,
   }).onConflictDoNothing({ target: telegramBotSettings.workspaceId }).returning();
-  return inserted ?? existing;
+  if (inserted) return inserted;
+  // A concurrent first-insert wins and returns no row to the loser: reread the winner's.
+  return (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0] ?? existing;
 }
 
 export async function getTelegramSettingsForUser(ownerId: number) {
@@ -544,6 +546,12 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
 
 export async function findWorkspaceOwnerByTelegramToken(token: string) {
   const db = await requireDb();
+  // Route the server-wide default bot before scanning saved rows so a tenant's
+  // materialized default-token row can never hijack default-bot updates.
+  if (ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken) {
+    const workspace = (await db.select().from(workspaces).orderBy(asc(workspaces.createdAt)).limit(1))[0];
+    return workspace?.ownerId ?? null;
+  }
   const rows = await db.select().from(telegramBotSettings);
   for (const row of rows) {
     try {
@@ -555,11 +563,6 @@ export async function findWorkspaceOwnerByTelegramToken(token: string) {
     } catch {
       // skip corrupted encrypted value
     }
-  }
-  // The server-wide default bot owns no explicit row: route incoming messages to the first workspace's owner.
-  if (ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken) {
-    const workspace = (await db.select().from(workspaces).orderBy(asc(workspaces.createdAt)).limit(1))[0];
-    return workspace?.ownerId ?? null;
   }
   return null;
 }

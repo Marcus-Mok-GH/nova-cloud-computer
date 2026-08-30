@@ -90,4 +90,10 @@ describe("Default Telegram bot fallback", () => {
     workspaceResult = [otherWorkspace];
     await expect(findWorkspaceOwnerByTelegramToken("123456:custom-token")).resolves.toBe(8);
   });
+
+  it("does not let a materialized default-token row for another tenant hijack default-bot routing", async () => {
+    telegramRows = [{ id: 3, workspaceId: otherWorkspace.id, encryptedBotToken: "encrypted:987654:default-bot-token", chatId: "-42", botUsername: null, botDisplayName: null, createdAt: new Date(), updatedAt: new Date() }];
+    workspaceResult = [workspace, otherWorkspace];
+    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token")).resolves.toBe(7);
+  });
 });

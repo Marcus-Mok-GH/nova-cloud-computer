@@ -60,6 +60,14 @@ describe("Telegram protected router", () => {
     expect(result.webhook?.linked).toBe(true);
   });
 
+  it("preserves the saved destination chat when a token-only repair omits chatId", async () => {
+    const owner = appRouter.createCaller(context(1));
+    await owner.telegram.configure({ botToken: "123456:private-bot-token", chatId: "42" });
+    const result = await owner.telegram.configure({ botToken: "" });
+    expect(result.chatId).toBe("42");
+    expect(telegramConfigs.get(1)?.chatId).toBe("42");
+  });
+
   it("scopes discovery, test delivery, and removal to the authenticated owner", async () => {
     const owner = appRouter.createCaller(context(1));
     const stranger = appRouter.createCaller(context(2));

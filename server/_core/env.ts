@@ -39,23 +39,28 @@ const neonAuthVerification = resolveNeonAuthVerificationConfig(process.env.NEON_
   jwksUrl: process.env.NEON_AUTH_JWKS_URL,
 });
 
-function resolvePublicBaseUrl() {
+export function resolvePublicBaseUrl() {
   const candidate = (process.env.NOVA_PUBLIC_BASE_URL ?? process.env.PUBLIC_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim();
-  if (candidate) {
-    try {
-      return new URL(candidate).origin;
-    } catch {
-      return candidate.replace(/\/+$/, "");
+  if (!candidate) {
+    if (process.env.OAUTH_SERVER_URL) {
+      try {
+        return new URL(process.env.OAUTH_SERVER_URL).origin;
+      } catch {
+        return "";
+      }
     }
+    return "";
   }
-  if (process.env.OAUTH_SERVER_URL) {
-    try {
-      return new URL(process.env.OAUTH_SERVER_URL).origin;
-    } catch {
-      return "";
-    }
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return candidate.replace(/\/+$/, "");
   }
-  return "";
+  // Keep any configured path prefix so webhook routes stay under it (e.g. /nova/api/telegram/...).
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/, "");
 }
 
 export const ENV = {

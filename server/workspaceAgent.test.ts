@@ -144,7 +144,7 @@ describe("Nova keyless workspace agent", () => {
     const toolEvents: unknown[] = [];
     await expect(runWorkspaceAgent(7, 3, "Delete folder Archive", { onEvent: event => toolEvents.push(event) })).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
     expect(deleteFolder).toHaveBeenCalledWith(7, 11);
-    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "z-ai/glm-5.2" }));
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "moonshotai/kimi-k3" }));
     expect(toolEvents).toEqual([
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },

@@ -63,7 +63,7 @@ export async function getWorkspaceAgentConnection(ownerId: number): Promise<Work
   const nvidiaApiKey = workspaceAgentApiKey();
   if ((settings?.activeProvider === "nvidia-nim" || nvidiaApiKey) && nvidiaApiKey) {
     return {
-      model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.2",
+      model: process.env.NVIDIA_NIM_MODEL ?? "moonshotai/kimi-k3",
       apiUrl: ENV.nvidiaNimApiUrl,
       apiKey: nvidiaApiKey,
     };
@@ -91,7 +91,7 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
         { role: "system", content: "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation." },
         { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}`.slice(0, 2000) },
       ],
-      maxTokens: 20,
+      maxTokens: 64,
     });
     const raw = String(result?.choices?.[0]?.message?.content ?? "").trim().split("\n")[0].replace(/^["']+|["']+$/g, "").trim().slice(0, 60);
     if (raw) await renameChatIfDefaultForUser(ownerId, chatId, raw, Array.from(DEFAULT_CHAT_TITLES));

@@ -1,3 +1,9 @@
+## 2026-08-30 — Fix workspace agent LLM model default and webhook Chat-stream fallback
+
+- `server/workspaceAgent.ts`: Replaced the EOL default NVIDIA model `z-ai/glm-5.2` (410 Gone since 2026-08-21, which made the Telegram bot fall back to the canned direct-action reply) with `moonshotai/kimi-k3`. Still overridable via `NVIDIA_NIM_MODEL`. Bumped the auto-title `maxTokens` to 64 so reasoning models can emit a title instead of truncating to an empty string.
+- Deployment: the nova service now routes `NVIDIA_NIM_API_URL` to the self-hosted NVIDIA proxy (`nvidia-api-server`) which holds the real credentials server-side, and pins `NVIDIA_NIM_MODEL` to a live model.
+- `server/workspaceAgent.test.ts`: Updated the hosted-model tool-path test to expect the new default model.
+
 ## 2026-08-30 — Add Telegram webhook detection and recovery
 
 - `server/telegram.ts`: Added `getTelegramWebhookInfo` (Bot API `getWebhookInfo`), reporting whether Telegram has a registered callback for the bot and how many updates are pending.

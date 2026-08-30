@@ -47,7 +47,18 @@ export async function getTelegramWebhookInfo(token: string, fetchImpl: typeof fe
 }
 
 export async function discoverTelegramChat(token: string, fetchImpl: typeof fetch = fetch) {
-  const updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
+  let updates: Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>;
+  try {
+    updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("webhook") && msg.toLowerCase().includes("getupdates")) {
+      await telegramRequest<boolean>(token, "deleteWebhook", { drop_pending_updates: false }, fetchImpl);
+      updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
+    } else {
+      throw err;
+    }
+  }
   const chat = [...updates].reverse().map(update => update.message?.chat ?? update.channel_post?.chat).find(Boolean);
   if (!chat?.id) throw new Error("No chat has messaged this bot yet. Open Telegram, send /start to your bot, then try again.");
   return String(chat.id);

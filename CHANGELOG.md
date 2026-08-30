@@ -1,3 +1,10 @@
+## 2026-08-30 — Add bash tool to the workspace agent
+
+- `server/daytona.ts`: Added `runDaytonaBashInPersistentSandbox`, which executes an arbitrary bash command inside the network-isolated persistent Daytona sandbox and returns sanitized output plus the exit code.
+- `server/agentVm.ts`: Added `runAgentBashCommand` — restores the current workspace bundle into the sandbox before running a command, mirroring the VM flow. Unlike VM runs, bash changes are intentionally not imported back into Neon.
+- `server/workspaceAgent.ts`: Added a `run_bash` OpenAI function tool (command output is fed back to the model) and records a `bash` action; it reports "not configured" when no Daytona credential exists.
+- `server/workspaceAgent.test.ts`: Covers the hosted-model tool path — the bash output is passed to the final LLM call and the `bash` action is recorded.
+
 ## 2026-08-30 — Add web search tool to the workspace agent
 
 - `server/workspaceAgent.ts`: Added a `web_search` tool (OpenAI function-calling) the agent can invoke when the user asks about information outside the workspace. Search results are fed back to the model so it can answer with the retrieved content.

@@ -16,6 +16,7 @@ const chatMessages = vi.fn(async () => [
 const renameChat = vi.fn(async (_owner: number, _chatId: number, title: string, _defaults: string[]) => ({ id: 3, title }));
 const invoke = vi.fn();
 const webSearchMock = vi.fn(async (query: string) => `Results for "${query}": some sources.`);
+const runAgentBash = vi.fn(async (_owner: number, command: string) => ({ configured: true, output: `$ ${command}\nwelcome.md` }));
 
 const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
   activeProvider: "anthropic",
@@ -41,6 +42,7 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
 vi.mock("./webSearch", () => ({ webSearch: webSearchMock }));
+vi.mock("./agentVm", () => ({ startAgentVmRun: vi.fn(), runAgentBashCommand: runAgentBash }));
 
 const envState = { nvidiaNimApiKey: "" };
 vi.mock("./_core/env", () => ({
@@ -170,6 +172,26 @@ describe("Nova keyless workspace agent", () => {
     expect(toolEvents).toEqual([
       { type: "tool", tool: { id: "tool-2", name: "web_search", state: "running", args: { query: "Messier 87 black hole facts" } } },
       { type: "tool", tool: { id: "tool-2", name: "web_search", state: "completed", args: { query: "Messier 87 black hole facts" }, summary: "Completed search: Messier 87 black hole facts." } },
+    ]);
+  });
+
+  it("runs bash through the hosted-model tool path and feeds the command output back", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-3", function: { name: "run_bash", arguments: '{"command":"ls -la"}' } }] } }] });
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Listed the workspace files." } }] });
+    const toolEvents: unknown[] = [];
+    await expect(runWorkspaceAgent(7, 3, "Run bash to list the workspace files", { onEvent: event => toolEvents.push(event) })).resolves.toMatchObject({
+      actions: [{ kind: "bash", name: "ls -la", operation: "completed" }],
+    });
+    expect(runAgentBash).toHaveBeenCalledWith(7, "ls -la");
+    expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
+      messages: expect.arrayContaining([expect.objectContaining({ role: "tool", content: expect.stringContaining("ls -la") })]),
+    }));
+    expect(toolEvents).toEqual([
+      { type: "tool", tool: { id: "tool-3", name: "run_bash", state: "running", args: { command: "ls -la" } } },
+      { type: "tool", tool: { id: "tool-3", name: "run_bash", state: "completed", args: { command: "ls -la" }, summary: "Completed bash: ls -la." } },
     ]);
   });
 });

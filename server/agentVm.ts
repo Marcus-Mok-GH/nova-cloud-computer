@@ -6,7 +6,7 @@ import {
   updateAgentVmRunForUser,
   updateWorkspacePersistentSandbox,
 } from "./db";
-import { getDaytonaClient, isDaytonaConfigured, runDaytonaTaskInPersistentSandbox, ensurePersistentSandbox } from "./daytona";
+import { getDaytonaClient, isDaytonaConfigured, runDaytonaTaskInPersistentSandbox, runDaytonaBashInPersistentSandbox, ensurePersistentSandbox } from "./daytona";
 import { persistDaytonaWorkspace, persistWorkspaceToObjectStorage, restoreWorkspaceToDaytona } from "./workspaceSync";
 
 const ERROR_LIMIT = 1000;
@@ -86,6 +86,34 @@ export async function startAgentVmRun(ownerId: number, input: { task: string; co
   } catch (error) {
     const failed = await updateAgentVmRunForUser(ownerId, run.id, { status: "failed", errorMessage: safeError(error), completedAt: new Date() });
     return { configured: true as const, run: failed, message: safeError(error) };
+  }
+}
+
+export async function runAgentBashCommand(ownerId: number, command: string) {
+  const client = getDaytonaClient();
+  if (!client) {
+    return {
+      configured: false as const,
+      output: "Daytona is not connected yet. An administrator must add the server-only Daytona API key before Nova can run bash commands.",
+    };
+  }
+  const computer = await getWorkspaceComputer(ownerId);
+  try {
+    // Same durable restore as VM runs: the current workspace bundle is pushed
+    // into the persistent sandbox before the command executes. Changes made by
+    // bash are intentionally NOT imported back into Neon (unlike VM outputs).
+    await persistWorkspaceToObjectStorage(ownerId);
+    const sandbox = await ensurePersistentSandbox(client, computer.workspace.id, ownerId);
+    await restoreWorkspaceToDaytona(ownerId, sandbox);
+    const syncedComputer = await getWorkspaceComputer(ownerId);
+    const result = await runDaytonaBashInPersistentSandbox(client, {
+      workspaceId: syncedComputer.workspace.id,
+      ownerId,
+      command,
+    });
+    return { configured: true as const, output: result.output };
+  } catch (error) {
+    return { configured: true as const, output: safeError(error) };
   }
 }
 

@@ -289,6 +289,28 @@ export async function runDaytonaTaskInPersistentSandbox(client: DaytonaClientLik
   }
 }
 
+export async function runDaytonaBashInPersistentSandbox(client: DaytonaClientLike, input: {
+  workspaceId: number;
+  ownerId: number;
+  command: string;
+}): Promise<{ output: string; exitCode: number | null }> {
+  const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
+  try {
+    return await runBashCommandInSandbox(sandbox, input.command);
+  } catch (error) {
+    console.warn(`[Daytona] Bash command failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
+    const recoveredSandbox = await recoverPersistentSandbox(client, input.workspaceId, input.ownerId);
+    return runBashCommandInSandbox(recoveredSandbox, input.command);
+  }
+}
+
+async function runBashCommandInSandbox(sandbox: DaytonaSandboxLike, command: string): Promise<{ output: string; exitCode: number | null }> {
+  const response = await sandbox.process.executeCommand(command, "/home/daytona/workspace", undefined, RUN_TIMEOUT_SECONDS);
+  const output = sanitizeDaytonaOutput(response.result);
+  const exitCode = response.exitCode ?? null;
+  return { output: exitCode && exitCode !== 0 ? `${output}\nexit code ${exitCode}` : output, exitCode };
+}
+
 export async function initWorkspacePersistentVm(workspaceId: number, ownerId: number, knownSandboxId?: string | null): Promise<string | undefined> {
   const client = getDaytonaClient();
   if (!client) return undefined;

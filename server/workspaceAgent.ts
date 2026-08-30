@@ -16,10 +16,10 @@ import {
   updateWorkspaceFolderForUser,
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
-import { startAgentVmRun } from "./agentVm";
+import { startAgentVmRun, runAgentBashCommand } from "./agentVm";
 import { webSearch } from "./webSearch";
 
-export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm" | "search"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
+export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm" | "search" | "bash"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
 export type WorkspaceToolActivity = {
   id: string;
@@ -33,7 +33,7 @@ type WorkspaceAgentOptions = {
   onEvent?: (event: { type: "tool"; tool: WorkspaceToolActivity }) => void | Promise<void>;
 };
 
-const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "query"]);
+const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "query", "command"]);
 
 function visibleToolArguments(args: Record<string, unknown>) {
   return Object.fromEntries(
@@ -184,6 +184,7 @@ const tools = [
   { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
   { type: "function", function: { name: "web_search", description: "Search the web for information outside the workspace (news, current events, facts, guides) when the user asks a question the workspace cannot answer.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "run_bash", description: "Run a bash command inside Nova's network-isolated Daytona workspace sandbox only when the user explicitly asks to run shell commands or use a terminal. The sandbox has no network access and only receives the current workspace bundle; the command output is returned to the chat but file changes are not written back automatically.", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
   { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-isolated Daytona VM task only when the user explicitly asks to use a VM or sandbox. The optional Python code may only analyze the provided workspace bundle and must not use network or process-launching libraries.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
 ];
 
@@ -220,7 +221,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, VM requests, or web-search requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Use web_search only when the user asks about information outside this workspace (news, current events, facts, guides). Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, VM, bash, or web-search requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Run bash only when the user explicitly asks to run shell commands or use a terminal; like the VM, bash has no network access and sees only the current workspace. Send Telegram only if the user clearly asks you to send the supplied text. Use web_search only when the user asks about information outside this workspace (news, current events, facts, guides). Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
     initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
@@ -237,7 +238,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const toolContentByCall = new Map<string, string>();
 
   for (const call of toolCalls.slice(0, 3)) {
-    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; query?: string } = {};
+    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; query?: string; command?: string } = {};
     const activity = {
       id: call.id,
       name: String(call.function.name),
@@ -303,6 +304,13 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         const results = await webSearch(query);
         toolContentByCall.set(call.id, results);
         actions.push({ kind: "search", name: query.slice(0, 80), operation: "completed" });
+      }
+      if (call.function.name === "run_bash") {
+        const command = args.command?.trim();
+        if (!command) throw new Error("A bash command is required");
+        const ran = await runAgentBashCommand(ownerId, command);
+        toolContentByCall.set(call.id, ran.output);
+        actions.push({ kind: "bash", name: ran.configured ? command.slice(0, 80) : "Bash", operation: ran.configured ? "completed" : "disabled" });
       }
       if (call.function.name === "run_workspace_vm") {
         if (!args.task?.trim()) throw new Error("A VM task is required");

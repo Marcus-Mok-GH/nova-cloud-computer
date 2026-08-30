@@ -45,6 +45,14 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPathFromRequestUrl("/api/chat/delete")).toBe(true);
   });
 
+  it("keeps Telegram webhooks co-deployed with the Nova app that owns the bot", () => {
+    expect(isCoDeployedApiPath(["telegram", "webhook", "123:bot-token"])).toBe(true);
+    expect(isCoDeployedApiPath("telegram/webhook/123:bot-token")).toBe(true);
+    expect(isCoDeployedApiPath(["telegram", "settings"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/telegram/webhook/123:bot-token?update=1")).toBe(true);
+    expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
+  });
+
   it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
     expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(
       "session=value; Path=/; HttpOnly; Secure; SameSite=None",

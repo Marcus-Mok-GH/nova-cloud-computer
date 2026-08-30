@@ -41,10 +41,15 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  * Every `/api/chat/*` endpoint authenticates against Nova's own session and
  * mutates or reads Nova's own database (stream, delete, ...), so the whole
  * chat namespace is co-deployed rather than each endpoint individually.
+ *
+ * Telegram webhooks must also stay co-deployed: they resolve the bot token
+ * against Nova's own database and telegram credential settings before running
+ * the agent with Nova's configured model providers. Proxying them to an
+ * optional API service would break owner resolution and bot replies.
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat";
+  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram";
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

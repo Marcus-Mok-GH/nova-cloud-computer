@@ -1,3 +1,11 @@
+## 2026-08-30 — Add Telegram webhook detection and recovery
+
+- `server/telegram.ts`: Added `getTelegramWebhookInfo` (Bot API `getWebhookInfo`), reporting whether Telegram has a registered callback for the bot and how many updates are pending.
+- `server/_core/env.ts`: Added `publicBaseUrl` (`NOVA_PUBLIC_BASE_URL` > `PUBLIC_BASE_URL` > `PUBLIC_APP_URL`), used to register the Telegram webhook.
+- `server/db.ts`: `getTelegramSettingsForUser()` and `updateTelegramChatForUser()` now check the webhook state on every read and expose it as `webhook: { linked }` (or `webhook: null` when no bot is configured). Failures degrade to `linked: false`, never throw. The webhook URL itself is not exposed because it embeds the bot token.
+- `server/routers.ts`: `telegram.configure` now accepts an empty `botToken` and reuses the previously saved token (the recovery/repair path), and re-registers the webhook on every save; registration failures are swallowed and surfaced through `status.webhook.linked` instead of blocking the request.
+- `client/src/pages/WorkspaceSettings.tsx`: The Telegram card shows a red "Webhook not reachable" badge when Telegram has no registered callback and the validate button doubles as "Re-register webhook" when a bot is already saved but webhook delivery is broken.
+
 ## 2026-08-28 — Fix intermittent white screen on page load
 
 - Review hardening: the boot guard now only reacts to module-script/stylesheet load errors (favicon/analytics failures can no longer trigger a reload), the 8s watchdog only fires after `document.readyState` is `complete` (no false reload on slow networks), and a `?nr=1` marker prevents a reload loop in browsers that block storage; the marker is stripped from the URL on successful boot.

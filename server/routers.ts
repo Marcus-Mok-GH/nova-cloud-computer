@@ -46,7 +46,8 @@ import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
-import { discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
+import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
+import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
@@ -106,7 +107,7 @@ const fileUpdateInput = z.object({
   folderId: z.number().int().positive().nullable().optional(),
 }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide a file change." });
 const telegramConfigureInput = z.object({
-  botToken: z.string().trim().min(20, "Enter a complete BotFather token.").max(4096),
+  botToken: z.string().trim().max(4096).optional(),
   chatId: z.string().trim().min(1).max(64).nullable().optional(),
 });
 const agentVmRunInput = z.object({
@@ -146,8 +147,19 @@ export const appRouter = router({
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),
     configure: protectedProcedure.input(telegramConfigureInput).mutation(async ({ ctx, input }) => {
-      const bot = await validateTelegramBotToken(input.botToken);
-      return saveTelegramSettingsForUser(ctx.user.id, { botToken: input.botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
+      const credentials = await getTelegramCredentialsForUser(ctx.user.id);
+      const botToken = input.botToken?.trim() || credentials?.token || "";
+      if (!botToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add a Telegram bot token first." });
+      const bot = await validateTelegramBotToken(botToken);
+      const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
+      if (ENV.publicBaseUrl) {
+        try {
+          await configureTelegramWebhook(botToken, ENV.publicBaseUrl);
+        } catch {
+          // Registration failures surface via status.webhook.linked=false; the Settings UI offers a repair action.
+        }
+      }
+      return saved;
     }),
     discoverChat: protectedProcedure.mutation(async ({ ctx }) => {
       const credentials = await getTelegramCredentialsForUser(ctx.user.id);

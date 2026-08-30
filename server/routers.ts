@@ -152,9 +152,10 @@ export const appRouter = router({
       if (!botToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add a Telegram bot token first." });
       const bot = await validateTelegramBotToken(botToken);
       const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken, chatId: input.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
-      if (ENV.publicBaseUrl) {
+      const webhookBaseUrl = ENV.publicBaseUrl || (ctx.req?.headers?.host ? `https://${ctx.req.headers.host}` : "");
+      if (webhookBaseUrl) {
         try {
-          await configureTelegramWebhook(botToken, ENV.publicBaseUrl);
+          await configureTelegramWebhook(botToken, webhookBaseUrl);
         } catch {
           // Registration failures surface via status.webhook.linked=false; the Settings UI offers a repair action.
         }

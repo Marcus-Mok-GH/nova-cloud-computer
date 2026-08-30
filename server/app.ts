@@ -114,9 +114,10 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
     if (!text) return res.status(200).json({ ok: true, skipped: "empty-text" });
     const ownerId = await findWorkspaceOwnerByTelegramToken(token);
     if (!ownerId) return res.status(404).json({ error: "bot-not-configured" });
+    // Auto-link the chatting chat (idempotent; also materializes the default bot's settings row).
+    void updateTelegramChatForUser(ownerId, chatId);
     if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {
       const isAppLink = text.toLowerCase().includes("nova_app_link") || text.toLowerCase().startsWith("/start nova_app_link");
-      if (isAppLink) await updateTelegramChatForUser(ownerId, chatId);
       const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started.");
       await sendTelegramMessage(token, chatId, startMessage);
       return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });

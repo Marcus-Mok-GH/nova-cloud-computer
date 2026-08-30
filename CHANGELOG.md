@@ -1,3 +1,9 @@
+## 2026-08-30 — Add web search tool to the workspace agent
+
+- `server/workspaceAgent.ts`: Added a `web_search` tool (OpenAI function-calling) the agent can invoke when the user asks about information outside the workspace. Search results are fed back to the model so it can answer with the retrieved content.
+- `server/webSearch.ts`: New zero-credential search backend combining the DuckDuckGo Instant Answer API and Wikipedia full-text search (both keyless, HTTPS, per-source timeout); a failing source is skipped rather than failing the search.
+- `server/workspaceAgent.test.ts`: Covers the hosted-model tool path — the search result content is passed to the final LLM call and the `search` action is recorded.
+
 ## 2026-08-30 — Add Telegram webhook detection and recovery
 
 - `server/telegram.ts`: Added `getTelegramWebhookInfo` (Bot API `getWebhookInfo`), reporting whether Telegram has a registered callback for the bot and how many updates are pending.

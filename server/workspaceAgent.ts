@@ -17,8 +17,9 @@ import {
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
+import { webSearch } from "./webSearch";
 
-export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
+export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm" | "search"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
 export type WorkspaceToolActivity = {
   id: string;
@@ -32,7 +33,7 @@ type WorkspaceAgentOptions = {
   onEvent?: (event: { type: "tool"; tool: WorkspaceToolActivity }) => void | Promise<void>;
 };
 
-const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task"]);
+const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "query"]);
 
 function visibleToolArguments(args: Record<string, unknown>) {
   return Object.fromEntries(
@@ -182,6 +183,7 @@ const tools = [
   { type: "function", function: { name: "move_folder", description: "Move an existing workspace folder into a different named folder.", parameters: { type: "object", properties: { name: { type: "string" }, destinationName: { type: "string" } }, required: ["name", "destinationName"] } } },
   { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
+  { type: "function", function: { name: "web_search", description: "Search the web for information outside the workspace (news, current events, facts, guides) when the user asks a question the workspace cannot answer.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
   { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-isolated Daytona VM task only when the user explicitly asks to use a VM or sandbox. The optional Python code may only analyze the provided workspace bundle and must not use network or process-launching libraries.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
 ];
 
@@ -218,7 +220,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, VM requests, or web-search requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Use web_search only when the user asks about information outside this workspace (news, current events, facts, guides). Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
     initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
@@ -232,9 +234,10 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const toolCalls = choice?.tool_calls ?? [];
   const actions: AgentAction[] = [];
   const toolMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
+  const toolContentByCall = new Map<string, string>();
 
   for (const call of toolCalls.slice(0, 3)) {
-    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string } = {};
+    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; query?: string } = {};
     const activity = {
       id: call.id,
       name: String(call.function.name),
@@ -294,6 +297,13 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         const sent = await sendTelegramMessage(credentials.token, credentials.chatId, args.text.trim());
         actions.push({ kind: "telegram", name: `message #${sent.message_id}`, operation: "sent" });
       }
+      if (call.function.name === "web_search") {
+        const query = args.query?.trim();
+        if (!query) throw new Error("A search query is required");
+        const results = await webSearch(query);
+        toolContentByCall.set(call.id, results);
+        actions.push({ kind: "search", name: query.slice(0, 80), operation: "completed" });
+      }
       if (call.function.name === "run_workspace_vm") {
         if (!args.task?.trim()) throw new Error("A VM task is required");
         const started = await startAgentVmRun(ownerId, { task: args.task.trim(), code: args.code });
@@ -303,7 +313,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
       const action = actions[actionCount];
       const succeeded = Boolean(action) && action.operation !== "disabled";
       await emitTool({ ...activity, state: succeeded ? "completed" : "failed", summary: actionSummary(action) });
-      toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: succeeded }) });
+      toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContentByCall.get(call.id) ?? JSON.stringify({ ok: succeeded }) });
     } catch {
       await emitTool({ ...activity, state: "failed", summary: "Nova could not complete this tool call." });
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false }) });

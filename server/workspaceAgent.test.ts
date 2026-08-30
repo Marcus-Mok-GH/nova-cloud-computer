@@ -15,6 +15,7 @@ const chatMessages = vi.fn(async () => [
 ]);
 const renameChat = vi.fn(async (_owner: number, _chatId: number, title: string, _defaults: string[]) => ({ id: 3, title }));
 const invoke = vi.fn();
+const webSearchMock = vi.fn(async (query: string) => `Results for "${query}": some sources.`);
 
 const getWorkspaceModelSettingsForUser = vi.fn(async () => ({
   activeProvider: "anthropic",
@@ -39,6 +40,7 @@ vi.mock("./db", () => ({
   getWorkspaceModelSettingsForUser,
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
+vi.mock("./webSearch", () => ({ webSearch: webSearchMock }));
 
 const envState = { nvidiaNimApiKey: "" };
 vi.mock("./_core/env", () => ({
@@ -148,6 +150,26 @@ describe("Nova keyless workspace agent", () => {
     expect(toolEvents).toEqual([
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },
+    ]);
+  });
+
+  it("searches the web through the hosted-model tool path and feeds the results back", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-2", function: { name: "web_search", arguments: '{"query":"Messier 87 black hole facts"}' } }] } }] });
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "M87 is a supermassive black hole." } }] });
+    const toolEvents: unknown[] = [];
+    await expect(runWorkspaceAgent(7, 3, "Search the web for facts about the Messier 87 black hole", { onEvent: event => toolEvents.push(event) })).resolves.toMatchObject({
+      actions: [{ kind: "search", name: "Messier 87 black hole facts", operation: "completed" }],
+    });
+    expect(webSearchMock).toHaveBeenCalledWith("Messier 87 black hole facts");
+    expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
+      messages: expect.arrayContaining([expect.objectContaining({ role: "tool", content: expect.stringContaining("Results for \"Messier 87") })]),
+    }));
+    expect(toolEvents).toEqual([
+      { type: "tool", tool: { id: "tool-2", name: "web_search", state: "running", args: { query: "Messier 87 black hole facts" } } },
+      { type: "tool", tool: { id: "tool-2", name: "web_search", state: "completed", args: { query: "Messier 87 black hole facts" }, summary: "Completed search: Messier 87 black hole facts." } },
     ]);
   });
 });

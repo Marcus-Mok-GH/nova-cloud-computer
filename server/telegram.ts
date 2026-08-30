@@ -1,4 +1,5 @@
 export type TelegramBotProfile = { id: string; username: string | null; displayName: string | null };
+export type TelegramWebhookInfo = { url: string | null; linked: boolean; pendingUpdateCount: number };
 type TelegramResponse<T> = { ok: boolean; result?: T; description?: string };
 
 function telegramUrl(token: string, method: string) {
@@ -37,6 +38,12 @@ export async function configureTelegramWebhook(token: string, appUrl: string, fe
   baseUrl.hash = "";
   await telegramRequest<boolean>(token, "setWebhook", { url: baseUrl.toString() }, fetchImpl);
   return { webhookUrl: baseUrl.toString() };
+}
+
+/** Query Telegram's registered callback; linked=false signals a recovery action is needed. */
+export async function getTelegramWebhookInfo(token: string, fetchImpl: typeof fetch = fetch): Promise<TelegramWebhookInfo> {
+  const info = await telegramRequest<{ url?: string; pending_update_count?: number }>(token, "getWebhookInfo", {}, fetchImpl);
+  return { url: info.url ?? null, linked: Boolean(info.url), pendingUpdateCount: info.pending_update_count ?? 0 };
 }
 
 export async function discoverTelegramChat(token: string, fetchImpl: typeof fetch = fetch) {

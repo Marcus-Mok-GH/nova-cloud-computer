@@ -3,9 +3,21 @@ import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
 import { app } from "./app";
+import { ENV } from "./_core/env";
+import { configureTelegramWebhook } from "./telegram";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+async function registerDefaultTelegramWebhook() {
+  if (!ENV.defaultTelegramBotToken || !ENV.publicBaseUrl.startsWith("https://")) return;
+  try {
+    await configureTelegramWebhook(ENV.defaultTelegramBotToken, ENV.publicBaseUrl);
+    console.log("[Telegram] Webhook registered for the default bot.");
+  } catch (error) {
+    console.error("[Telegram] Failed to register the default bot webhook", error instanceof Error ? error.message : error);
+  }
+}
 
 async function startServer() {
   const server = createServer(app);
@@ -24,6 +36,7 @@ async function startServer() {
   const port = Number(process.env.PORT ?? 3000);
   server.listen(port, () => {
     console.log(`Nova server listening on http://localhost:${port}`);
+    void registerDefaultTelegramWebhook();
   });
 }
 

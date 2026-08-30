@@ -20,6 +20,8 @@ import {
   automationRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
+import { getTelegramWebhookInfo } from "./telegram";
+import { ENV } from "./_core/env";
 import { getDaytonaClient, initWorkspacePersistentVm } from "./daytona";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -445,21 +447,57 @@ export async function getWorkspaceComputer(ownerId: number) {
   return { workspace, folders, files, chats: chatRows, settings };
 }
 
-function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined) {
-  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null };
+type TelegramWebhookStatus = { linked: boolean };
+
+async function resolveTelegramWebhookStatus(setting: typeof telegramBotSettings.$inferSelect): Promise<TelegramWebhookStatus | null> {
+  try {
+    const token = decryptPrivateCredential(setting.encryptedBotToken);
+    const info = await getTelegramWebhookInfo(token);
+    // Never expose the webhook URL: it embeds the bot token.
+    return { linked: info.linked };
+  } catch {
+    return { linked: false };
+  }
+}
+
+function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined, webhook: TelegramWebhookStatus | null) {
+  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null, webhook: null };
   return {
     configured: true as const,
     chatId: setting.chatId,
     botUsername: setting.botUsername,
     botDisplayName: setting.botDisplayName,
+    webhook,
   };
 }
 
-export async function getTelegramSettingsForUser(ownerId: number) {
+/**
+ * Returns the workspace's Telegram bot row, materializing a record for the
+ * server-wide default bot when the owner has not configured an explicit token
+ * yet. Returns undefined only when no default bot is set and nothing is saved.
+ */
+async function getOrCreateTelegramSetting(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
-  return toSafeTelegramSettings(setting);
+  const existing = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
+  if (existing) return existing;
+  if (!ENV.defaultTelegramBotToken) return undefined;
+  const [inserted] = await db.insert(telegramBotSettings).values({
+    workspaceId: workspace.id,
+    encryptedBotToken: encryptPrivateCredential(ENV.defaultTelegramBotToken),
+    chatId: null,
+    botUsername: null,
+    botDisplayName: null,
+  }).onConflictDoNothing({ target: telegramBotSettings.workspaceId }).returning();
+  if (inserted) return inserted;
+  // A concurrent first-insert wins and returns no row to the loser: reread the winner's.
+  return (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0] ?? existing;
+}
+
+export async function getTelegramSettingsForUser(ownerId: number) {
+  const setting = await getOrCreateTelegramSetting(ownerId);
+  const webhook = setting ? await resolveTelegramWebhookStatus(setting) : null;
+  return toSafeTelegramSettings(setting, webhook);
 }
 
 export async function saveTelegramSettingsForUser(ownerId: number, input: { botToken: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) {
@@ -485,16 +523,16 @@ export async function saveTelegramSettingsForUser(ownerId: number, input: { botT
 }
 
 export async function updateTelegramChatForUser(ownerId: number, chatId: string) {
+  const setting = await getOrCreateTelegramSetting(ownerId);
+  if (!setting) return toSafeTelegramSettings(undefined, null);
   const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const [updated] = await db.update(telegramBotSettings).set({ chatId, updatedAt: new Date() }).where(eq(telegramBotSettings.workspaceId, workspace.id)).returning();
-  return toSafeTelegramSettings(updated);
+  const [updated] = await db.update(telegramBotSettings).set({ chatId, updatedAt: new Date() }).where(eq(telegramBotSettings.workspaceId, setting.workspaceId)).returning();
+  const webhook = updated ? await resolveTelegramWebhookStatus(updated) : null;
+  return toSafeTelegramSettings(updated, webhook);
 }
 
 export async function getTelegramCredentialsForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const setting = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).limit(1))[0];
+  const setting = await getOrCreateTelegramSetting(ownerId);
   if (!setting) return undefined;
   return { token: decryptPrivateCredential(setting.encryptedBotToken), chatId: setting.chatId, botUsername: setting.botUsername, botDisplayName: setting.botDisplayName };
 }
@@ -508,6 +546,12 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
 
 export async function findWorkspaceOwnerByTelegramToken(token: string) {
   const db = await requireDb();
+  // Route the server-wide default bot before scanning saved rows so a tenant's
+  // materialized default-token row can never hijack default-bot updates.
+  if (ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken) {
+    const workspace = (await db.select().from(workspaces).orderBy(asc(workspaces.createdAt)).limit(1))[0];
+    return workspace?.ownerId ?? null;
+  }
   const rows = await db.select().from(telegramBotSettings);
   for (const row of rows) {
     try {

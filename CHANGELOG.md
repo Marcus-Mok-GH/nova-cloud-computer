@@ -1,3 +1,7 @@
+## 2026-08-31 — Send /start to the Telegram bot from Settings
+
+- `client/src/pages/WorkspaceSettings.tsx`: The Telegram card now shows an "Open Telegram & send /start" button once a bot is saved. It deep-links to `https://t.me/<botUsername>?start=nova_app_link`, so Telegram opens the bot and pre-fills `/start` without any typing. The existing webhook handler recognizes the `nova_app_link` payload and links the chatting chat as the outbound destination automatically, so no "Discover chat" round-trip is needed.
+
 ## 2026-08-30 — Add Telegram webhook detection and recovery
 
 - `server/telegram.ts`: Added `getTelegramWebhookInfo` (Bot API `getWebhookInfo`), reporting whether Telegram has a registered callback for the bot and how many updates are pending.

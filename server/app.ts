@@ -172,7 +172,16 @@ app.post("/api/telegram/webhook/:token", async (req, res) => {
 // on Vercel rewrites and the colon in the numeric API token.
 app.post("/api/telegram/webhook/default", async (req, res) => {
   const token = ENV.defaultTelegramBotToken;
-  if (!token) return res.status(404).json({ error: "bot-not-configured" });
+  if (!token) {
+    return res.status(404).json({
+      error: "bot-not-configured",
+      debug: {
+        envSet: Boolean(process.env.DEFAULT_TELEGRAM_BOT_TOKEN),
+        envLen: (process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "").length,
+        nodeEnv: process.env.NODE_ENV,
+      },
+    });
+  }
   await handleTelegramUpdate(token, req, res);
 });
 

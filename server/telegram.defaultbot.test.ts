@@ -81,8 +81,14 @@ describe("Default Telegram bot fallback", () => {
     await expect(getTelegramCredentialsForUser(7)).resolves.toMatchObject({ token: "987654:default-bot-token", chatId: "-10042" });
   });
 
-  it("routes default-bot webhook updates to a workspace owner even without a saved row", async () => {
-    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token")).resolves.toBe(7);
+  it("routes default-bot webhook updates to the workspace whose settings row owns the chatId", async () => {
+    telegramRows = [{ id: 1, workspaceId: workspace.id, encryptedBotToken: "encrypted:987654:default-bot-token", chatId: "-10042", botUsername: null, botDisplayName: null, createdAt: new Date(), updatedAt: new Date() }];
+    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token", "-10042")).resolves.toBe(7);
+  });
+
+  it("returns null for an unlinked chat instead of falling back to the oldest workspace", async () => {
+    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token", "-99999")).resolves.toBeNull();
+    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token")).resolves.toBeNull();
   });
 
   it("still routes a saved custom bot to its own workspace owner", async () => {
@@ -91,9 +97,11 @@ describe("Default Telegram bot fallback", () => {
     await expect(findWorkspaceOwnerByTelegramToken("123456:custom-token")).resolves.toBe(8);
   });
 
-  it("does not let a materialized default-token row for another tenant hijack default-bot routing", async () => {
+  it("routes by chatId, never failing back to the oldest workspace for a foreign default-token row", async () => {
+    // The sender owns chatId "-42" (other workspace); routing must resolve to
+    // that settings row's workspace owner, not the oldest workspace (id 9/owner 7).
     telegramRows = [{ id: 3, workspaceId: otherWorkspace.id, encryptedBotToken: "encrypted:987654:default-bot-token", chatId: "-42", botUsername: null, botDisplayName: null, createdAt: new Date(), updatedAt: new Date() }];
-    workspaceResult = [workspace, otherWorkspace];
-    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token")).resolves.toBe(7);
+    workspaceResult = [otherWorkspace];
+    await expect(findWorkspaceOwnerByTelegramToken("987654:default-bot-token", "-42")).resolves.toBe(8);
   });
 });

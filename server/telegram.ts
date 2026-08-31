@@ -33,7 +33,12 @@ export async function configureTelegramWebhook(token: string, appUrl: string, fe
   if (baseUrl.protocol !== "https:") {
     throw new Error("Telegram requires Nova to have a public HTTPS URL. Configure PUBLIC_APP_URL when deploying Nova.");
   }
-  baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/api/telegram/webhook/${encodeURIComponent(token)}`;
+  // Default bot uses a fixed path without the token to avoid colon/routing issues on Vercel.
+  if (token === process.env.DEFAULT_TELEGRAM_BOT_TOKEN) {
+    baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/api/telegram/webhook/default`;
+  } else {
+    baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/api/telegram/webhook/${encodeURIComponent(token)}`;
+  }
   baseUrl.search = "";
   baseUrl.hash = "";
   await telegramRequest<boolean>(token, "setWebhook", { url: baseUrl.toString() }, fetchImpl);

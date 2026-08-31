@@ -162,24 +162,19 @@ async function handleTelegramUpdate(token: string, req: express.Request, res: ex
   }
 }
 
-app.post("/api/telegram/webhook/:token", async (req, res) => {
-  const token = req.params.token;
-  if (!token) return res.status(400).json({ error: "missing-token" });
+// Default (shared) bot uses a fixed path without the token to avoid breaking
+// on Vercel rewrites and the colon in the numeric API token. It MUST be
+// registered before the `/:token` route so `/webhook/default` isn't captured
+// by the token param (Express matches routes in registration order).
+app.post("/api/telegram/webhook/default", async (req, res) => {
+  const token = ENV.defaultTelegramBotToken;
+  if (!token) return res.status(404).json({ error: "bot-not-configured" });
   await handleTelegramUpdate(token, req, res);
 });
 
-// Default (shared) bot uses a fixed path without the token to avoid breaking
-// on Vercel rewrites and the colon in the numeric API token.
-app.post("/api/telegram/webhook/default", async (req, res) => {
-  const token = ENV.defaultTelegramBotToken;
-  const raw = process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "";
-  if (!token) {
-    return res.status(404).json({
-      error: "bot-not-configured-empty-token",
-      debug: { envSet: Boolean(raw), envLen: raw.length, nodeEnv: process.env.NODE_ENV },
-    });
-  }
-  res.setHeader("x-telegram-token-len", String(token.length));
+app.post("/api/telegram/webhook/:token", async (req, res) => {
+  const token = req.params.token;
+  if (!token) return res.status(400).json({ error: "missing-token" });
   await handleTelegramUpdate(token, req, res);
 });
 

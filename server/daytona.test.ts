@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildDaytonaWorkspaceBundle, ensurePersistentSandbox, persistentSandboxConfig, recoverPersistentSandbox, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
+import { buildDaytonaWorkspaceBundle, ensurePersistentSandbox, persistentSandboxConfig, recoverPersistentSandbox, runBashCommandInPersistentSandbox, runDaytonaTask, sanitizeBashOutput, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
 
 describe("Daytona sandbox service", () => {
   it("creates a bounded network-isolated sandbox, uploads a scoped bundle, records its ID, and always deletes it", async () => {
@@ -22,7 +22,6 @@ describe("Daytona sandbox service", () => {
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       ephemeral: true,
-      networkBlockAll: true,
       ttlMinutes: 20,
       labels: expect.objectContaining({ "nova.owner": "12", "nova.workspace": "4", "nova.run": "7" }),
     }));
@@ -37,11 +36,11 @@ describe("Daytona sandbox service", () => {
     expect(persistentSandboxConfig(41, 7)).toEqual(expect.objectContaining({
       name: "nova-workspace-41",
       labels: expect.objectContaining({ "nova.owner": "7", "nova.workspace": "41", "nova.persistent": "true" }),
-      networkBlockAll: true,
       ephemeral: false,
       autoDeleteInterval: -1,
       public: false,
     }));
+    expect(persistentSandboxConfig(41, 7)).not.toHaveProperty("networkBlockAll");
   });
 
   it("automatically wakes a stopped personal workspace without creating a duplicate", async () => {
@@ -103,14 +102,47 @@ describe("Daytona sandbox service", () => {
     expect(client.create).toHaveBeenCalledTimes(1);
   });
 
-  it("blocks network and process-launching code before a sandbox is created", () => {
-    expect(() => validateDaytonaCode("import requests\nrequests.get('https://example.com')")).toThrow(/blocked process or network/i);
-    expect(() => validateDaytonaCode("import subprocess\nsubprocess.run(['ls'])")).toThrow(/blocked process or network/i);
+  it("allows network and process-launching Python in the dedicated VM, but bounds code size", () => {
+    expect(() => validateDaytonaCode("import requests\nrequests.get('https://example.com')")).not.toThrow();
+    expect(() => validateDaytonaCode("import subprocess\nsubprocess.run(['ls'])")).not.toThrow();
+    expect(() => validateDaytonaCode("x".repeat(20000))).toThrow(/12 KB/i);
+    expect(() => validateDaytonaCode("   ")).not.toThrow();
   });
 
   it("keeps bundle paths safe and strips terminal escapes from bounded output", () => {
     const bundle = buildDaytonaWorkspaceBundle([{ id: 4, name: "../../secrets.txt", content: "safe", mimeType: "text/plain", folderId: null }], []);
     expect(bundle.uploads[0]?.remotePath).toBe("/home/daytona/workspace/input/4-secrets.txt");
     expect(sanitizeDaytonaOutput("\u001b[31mhello\u001b[0m\0")).toBe("hello");
+  });
+
+  it("runs a shell command in the persistent sandbox and scrubs credentials from its output", async () => {
+    const executeCommand = vi.fn(async () => ({ result: "total 0\n", exitCode: 0 }));
+    const sandbox = {
+      id: "sbx-bash",
+      state: "started" as const,
+      fs: { uploadFile: vi.fn(async () => undefined) },
+      process: { executeCommand },
+      delete: vi.fn(async () => undefined),
+    };
+    const client: DaytonaClientLike = { get: vi.fn(async () => sandbox), create: vi.fn() };
+
+    const result = await runBashCommandInPersistentSandbox(client, { workspaceId: 4, ownerId: 7, command: "ls -la /home/daytona/workspace" });
+
+    expect(executeCommand).toHaveBeenCalledWith("ls -la /home/daytona/workspace", "/home/daytona", undefined, 30);
+    expect(result).toEqual({ ok: true, exitCode: 0, output: "total 0", sandboxId: "sbx-bash" });
+    expect(client.create).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes ANSI escapes and leaked credential lines from bash output", () => {
+    expect(sanitizeBashOutput("\u001b[31mred\u001b[0m\u001b[36mcyan\u001b[0m\0\n")).toBe("redcyan");
+    expect(sanitizeBashOutput("export DAYTONA_API_KEY=abc123\n")).toBe("export [private credential]");
+    expect(sanitizeBashOutput("")).toBe("Command produced no console output.");
+  });
+
+  it("rejects an empty shell command before touching any sandbox", async () => {
+    const create = vi.fn();
+    const client: DaytonaClientLike = { create };
+    await expect(runBashCommandInPersistentSandbox(client, { workspaceId: 4, ownerId: 7, command: "   " })).rejects.toThrow(/shell command is required/i);
+    expect(create).not.toHaveBeenCalled();
   });
 });

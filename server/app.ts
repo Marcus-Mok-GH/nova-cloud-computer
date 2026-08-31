@@ -120,7 +120,7 @@ async function handleTelegramUpdate(token: string, req: express.Request, res: ex
         await sendTelegramMessage(token, chatId, `This Telegram chat is not yet linked to a Nova workspace. Open ${linkUrl} and use the Telegram link button (sends /start with nova_app_link) to link your account. Then send your message again.`);
         res.status(200).json({ ok: true, skipped: "unlinked-shared-bot" });
       } else {
-        res.status(404).json({ error: "bot-not-configured" });
+        res.status(404).json({ error: "bot-not-configured", debug: { isDefaultTok: ENV.defaultTelegramBotToken.length, tokenEq: token === ENV.defaultTelegramBotToken } });
       }
       return true;
     }
@@ -172,16 +172,14 @@ app.post("/api/telegram/webhook/:token", async (req, res) => {
 // on Vercel rewrites and the colon in the numeric API token.
 app.post("/api/telegram/webhook/default", async (req, res) => {
   const token = ENV.defaultTelegramBotToken;
+  const raw = process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "";
   if (!token) {
     return res.status(404).json({
-      error: "bot-not-configured",
-      debug: {
-        envSet: Boolean(process.env.DEFAULT_TELEGRAM_BOT_TOKEN),
-        envLen: (process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "").length,
-        nodeEnv: process.env.NODE_ENV,
-      },
+      error: "bot-not-configured-empty-token",
+      debug: { envSet: Boolean(raw), envLen: raw.length, nodeEnv: process.env.NODE_ENV },
     });
   }
+  res.setHeader("x-telegram-token-len", String(token.length));
   await handleTelegramUpdate(token, req, res);
 });
 

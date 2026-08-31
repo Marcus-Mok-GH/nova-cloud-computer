@@ -544,13 +544,21 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   return Boolean(deleted);
 }
 
-export async function findWorkspaceOwnerByTelegramToken(token: string) {
+export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: string) {
   const db = await requireDb();
-  // Route the server-wide default bot before scanning saved rows so a tenant's
-  // materialized default-token row can never hijack default-bot updates.
+  // Shared (default) bot: isolate by Telegram chatId — each Telegram user is
+  // bound to exactly one workspace via telegramBotSettings.chatId. This prevents
+  // cross-tenant message leakage when many users share the same bot.
   if (ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken) {
-    const workspace = (await db.select().from(workspaces).orderBy(asc(workspaces.createdAt)).limit(1))[0];
-    return workspace?.ownerId ?? null;
+    if (chatId) {
+      const linked = (await db.select().from(telegramBotSettings).where(eq(telegramBotSettings.chatId, chatId)).limit(1))[0];
+      if (linked) {
+        const ws = (await db.select().from(workspaces).where(eq(workspaces.id, linked.workspaceId)).limit(1))[0];
+        if (ws) return ws.ownerId;
+      }
+    }
+    // Unlinked chat: do not attribute to oldest workspace — caller must handle null (ask to link).
+    return null;
   }
   const rows = await db.select().from(telegramBotSettings);
   for (const row of rows) {

@@ -13,6 +13,7 @@ import {
   createChatForUser,
 } from "./db";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
+import { ENV } from "./_core/env";
 import { sendTelegramMessage } from "./telegram";
 
 // Max Telegram chats per workspace to prevent unbounded DB growth.
@@ -103,43 +104,48 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
   }
 });
 
-app.post("/api/telegram/webhook/:token", async (req: express.Request, res: express.Response) => {
+async function handleTelegramUpdate(token: string, req: express.Request, res: express.Response): Promise<boolean> {
   try {
-    const token = req.params.token;
-    if (!token) return res.status(400).json({ error: "missing-token" });
     const update = req.body;
     const message = update.message ?? update.channel_post;
-    if (!message?.text) return res.status(200).json({ ok: true, skipped: "no-text" });
+    if (!message?.text) { res.status(200).json({ ok: true, skipped: "no-text" }); return true; }
     const chatId = String(message.chat.id);
-    const text = message.text.trim();
-    if (!text) return res.status(200).json({ ok: true, skipped: "empty-text" });
-    const ownerId = await findWorkspaceOwnerByTelegramToken(token);
-    if (!ownerId) return res.status(404).json({ error: "bot-not-configured" });
-    // A verified app-link always adopts this chat as the outbound destination.
-    // Other inbound messages only adopt the chat when nothing is linked yet or
-    // this chat is already linked, so a foreign chat can never replace the
-    // saved destination (CWE-862 mid-air). Linking also materializes the
-    // default bot's settings row on first use.
+    const text = String(message.text).trim();
+    if (!text) { res.status(200).json({ ok: true, skipped: "empty-text" }); return true; }
+    const ownerId = await findWorkspaceOwnerByTelegramToken(token, chatId);
+    if (!ownerId) {
+      const isDefaultBot = Boolean(ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken);
+      if (isDefaultBot) {
+        const linkUrl = `https://nova-cloud-computer.vercel.app`;
+        await sendTelegramMessage(token, chatId, `This Telegram chat is not yet linked to a Nova workspace. Open ${linkUrl} and use the Telegram link button (sends /start with nova_app_link) to link your account. Then send your message again.`);
+        res.status(200).json({ ok: true, skipped: "unlinked-shared-bot" });
+      } else {
+        res.status(404).json({ error: "bot-not-configured" });
+      }
+      return true;
+    }
     const isAppLink = text.toLowerCase().includes("nova_app_link");
     if (isAppLink) {
-      void updateTelegramChatForUser(ownerId, chatId).catch(() => { /* background linking must not fail the reply path */ });
+      void updateTelegramChatForUser(ownerId, chatId).catch(() => {});
     } else {
       const current = await getTelegramCredentialsForUser(ownerId).catch(() => undefined);
       if (!current?.chatId || current.chatId === chatId) {
-        void updateTelegramChatForUser(ownerId, chatId).catch(() => { /* background linking must not fail the reply path */ });
+        void updateTelegramChatForUser(ownerId, chatId).catch(() => {});
       }
     }
     if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {
       const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started.");
       await sendTelegramMessage(token, chatId, startMessage);
-      return res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
+      res.status(200).json({ ok: true, replied: "start", linked: isAppLink });
+      return true;
     }
     if (text === "/new") {
       const chat = await createChatForUser(ownerId, "Telegram Chat");
       void pruneChatsIfNeeded(ownerId);
       const reply = `New chat created (ID: ${chat.id}). Ask me anything!`;
       await sendTelegramMessage(token, chatId, reply);
-      return res.status(200).json({ ok: true });
+      res.status(200).json({ ok: true });
+      return true;
     }
     const chat = await createChatForUser(ownerId, "Telegram Chat");
     void pruneChatsIfNeeded(ownerId);
@@ -147,11 +153,27 @@ app.post("/api/telegram/webhook/:token", async (req: express.Request, res: expre
     const reply = String(result.message?.content ?? "I'm ready to help with this workspace.");
     await sendTelegramMessage(token, chatId, reply);
     await autoTitleChatForUser(ownerId, chat.id);
-    return res.status(200).json({ ok: true });
+    res.status(200).json({ ok: true });
+    return true;
   } catch (error) {
     console.error("[Telegram webhook] failed", error);
-    return res.status(500).json({ error: "webhook-failed" });
+    res.status(500).json({ error: "webhook-failed" });
+    return true;
   }
+}
+
+app.post("/api/telegram/webhook/:token", async (req, res) => {
+  const token = req.params.token;
+  if (!token) return res.status(400).json({ error: "missing-token" });
+  await handleTelegramUpdate(token, req, res);
+});
+
+// Default (shared) bot uses a fixed path without the token to avoid breaking
+// on Vercel rewrites and the colon in the numeric API token.
+app.post("/api/telegram/webhook/default", async (req, res) => {
+  const token = ENV.defaultTelegramBotToken;
+  if (!token) return res.status(404).json({ error: "bot-not-configured" });
+  await handleTelegramUpdate(token, req, res);
 });
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));

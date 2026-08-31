@@ -146,20 +146,14 @@ export const appRouter = router({
   }),
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),
-    configure: protectedProcedure.input(telegramConfigureInput).mutation(async ({ ctx, input }) => {
-      const credentials = await getTelegramCredentialsForUser(ctx.user.id);
-      const botToken = input.botToken?.trim() || credentials?.token || "";
-      if (!botToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add a Telegram bot token first." });
-      const bot = await validateTelegramBotToken(botToken);
-      const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken, chatId: input.chatId === undefined ? (credentials?.chatId ?? null) : input.chatId, botUsername: bot.username, botDisplayName: bot.displayName });
+    configure: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(64).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      const token = ENV.defaultTelegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "";
+      if (!token) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Server bot not configured. Set DEFAULT_TELEGRAM_BOT_TOKEN." });
+      const bot = await validateTelegramBotToken(token);
+      const creds = await getTelegramCredentialsForUser(ctx.user.id);
+      const saved = await saveTelegramSettingsForUser(ctx.user.id, { botToken: token, chatId: input.chatId ?? creds?.chatId ?? null, botUsername: bot.username, botDisplayName: bot.displayName });
       const webhookBaseUrl = ENV.publicBaseUrl || (ctx.req?.headers?.host ? `https://${ctx.req.headers.host}` : "");
-      if (webhookBaseUrl) {
-        try {
-          await configureTelegramWebhook(botToken, webhookBaseUrl);
-        } catch {
-          // Registration failures surface via status.webhook.linked=false; the Settings UI offers a repair action.
-        }
-      }
+      if (webhookBaseUrl) { try { await configureTelegramWebhook(token, webhookBaseUrl); } catch {} }
       return saved;
     }),
     discoverChat: protectedProcedure.mutation(async ({ ctx }) => {

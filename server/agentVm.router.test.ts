@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
-const status = vi.fn(() => ({ configured: true, provider: "daytona" as const, policy: "configured_run_cap" as const, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" as const }, allowance: { usedRuns: 1, maxRuns: 50, remainingRuns: 49, exhausted: false } }));
+const status = vi.fn(() => ({ configured: true, provider: "daytona" as const, policy: "configured_run_cap" as const, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "allowed" as const }, allowance: { usedRuns: 1, maxRuns: 50, remainingRuns: 49, exhausted: false } }));
 const list = vi.fn(async (ownerId: number) => ownerId === 1 ? [{ id: 9, provider: "daytona", sandboxId: "sbx-owner", task: "Inspect notes", status: "succeeded", resultSummary: "Done", errorMessage: null, artifactFileId: 22, startedAt: new Date(), completedAt: new Date(), createdAt: new Date(), updatedAt: new Date() }] : []);
 const start = vi.fn(async (ownerId: number, input: { task: string; code?: string }) => ownerId === 1
   ? { configured: true as const, run: { id: 9, task: input.task, status: "succeeded" }, message: "Daytona completed the task." }

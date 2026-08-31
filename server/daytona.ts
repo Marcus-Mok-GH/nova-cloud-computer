@@ -101,8 +101,6 @@ export function sanitizeDaytonaOutput(value: string | undefined) {
 export function validateDaytonaCode(code: string | undefined) {
   if (!code?.trim()) return;
   if (Buffer.byteLength(code, "utf8") > MAX_CODE_BYTES) throw new Error("Nova limits one VM task to 12 KB of Python code.");
-  const blocked = /\b(?:subprocess|socket|requests|urllib|http\.client|ftplib|telnetlib|os\.(?:system|popen)|shutil\.rmtree)\b/i;
-  if (blocked.test(code)) throw new Error("That VM task uses a blocked process or network capability. Use the supplied workspace bundle and standard Python only.");
 }
 
 export function buildDaytonaWorkspaceBundle(files: DaytonaWorkspaceFile[], folders: DaytonaWorkspaceFolder[]) {
@@ -136,7 +134,7 @@ function buildTaskScript(code?: string) {
     "INPUT_DIR = WORKSPACE_DIR / 'input'",
     "OUTPUT_DIR = WORKSPACE_DIR / 'output'",
     "OUTPUT_DIR.mkdir(parents=True, exist_ok=True)",
-    "# The user/agent program below runs without network access and may only use this sandbox bundle.",
+    "# The VM below is a dedicated network-enabled sandbox for the requested task (not the user's computer).",
     userCode,
     "",
   ].join("\n");
@@ -153,7 +151,6 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
     },
     // Daytona's selected Python snapshot uses its default 1 vCPU, 1 GiB RAM,
     // and 3 GiB disk. The SDK rejects an explicit resources field with a snapshot.
-    networkBlockAll: true,
     ephemeral: false,
     autoDeleteInterval: -1,
     public: false,
@@ -229,7 +226,6 @@ export async function runDaytonaTask(client: DaytonaClientLike, input: DaytonaTa
       "nova.run": String(input.runId),
     },
     resources: { cpu: 1, memory: 1, disk: 3 },
-    networkBlockAll: true,
     ephemeral: true,
     autoDeleteInterval: 0,
     ttlMinutes: 20,
@@ -311,5 +307,50 @@ export async function initWorkspacePersistentVm(workspaceId: number, ownerId: nu
       console.error(`[Daytona] Persistent sandbox provisioning failed for workspace ${workspaceId}: ${safeDaytonaError(provisionError)}`);
       return undefined;
     }
+  }
+}
+
+const BASH_TIMEOUT_SECONDS = 30;
+
+export type DaytonaBashResult = {
+  ok: boolean;
+  exitCode: number | null;
+  output: string;
+  sandboxId: string;
+};
+
+/** Strip ANSI/control sequences and any leaked credentials from raw shell output. */
+export function sanitizeBashOutput(value: string | undefined) {
+  const scrubbed = (value ?? "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\0/g, "")
+    .replace(/(?:DAYTONA_API_KEY|authorization|bearer|token)\s*[=:]\s*\S+/gi, "[private credential]");
+  return truncate(scrubbed, MAX_OUTPUT_BYTES).trim() || "Command produced no console output.";
+}
+
+async function runBashInSandbox(sandbox: DaytonaSandboxLike, command: string): Promise<Omit<DaytonaBashResult, "sandboxId">> {
+  const response = await sandbox.process.executeCommand(command, "/home/daytona", undefined, BASH_TIMEOUT_SECONDS);
+  return { ok: response.exitCode === 0, exitCode: response.exitCode ?? null, output: sanitizeBashOutput(response.result) };
+}
+
+/**
+ * Run a single shell command inside the user's persistent, network-enabled workspace
+ * VM. Shell output is scrubbed of control characters and credentials. The command
+ * runs as an arbitrary shell string in the dedicated sandbox, so it may use the network.
+ */
+export async function runBashCommandInPersistentSandbox(client: DaytonaClientLike, input: {
+  workspaceId: number;
+  ownerId: number;
+  command: string;
+}): Promise<DaytonaBashResult> {
+  if (!input.command?.trim()) throw new Error("A shell command is required.");
+  if (Buffer.byteLength(input.command, "utf8") > MAX_CODE_BYTES) throw new Error("Nova limits one shell command to 12 KB.");
+  const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
+  try {
+    return { sandboxId: sandbox.id, ...(await runBashInSandbox(sandbox, input.command)) };
+  } catch (error) {
+    console.warn(`[Daytona] Bash command failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
+    const recoveredSandbox = await recoverPersistentSandbox(client, input.workspaceId, input.ownerId);
+    return { sandboxId: recoveredSandbox.id, ...(await runBashInSandbox(recoveredSandbox, input.command)) };
   }
 }

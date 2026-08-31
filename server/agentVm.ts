@@ -20,7 +20,7 @@ export async function getAgentVmStatus(ownerId: number) {
     configured: isDaytonaConfigured(),
     provider: "daytona" as const,
     policy: "persistent_workspace" as const,
-    limits: { timeoutSeconds: 30, network: "blocked" as const },
+    limits: { timeoutSeconds: 30, network: "allowed" as const },
     allowance: { usedRuns: 0, maxRuns: 0, remainingRuns: 0, exhausted: false },
     persistence: "s3_daytona_bidirectional" as const,
   };

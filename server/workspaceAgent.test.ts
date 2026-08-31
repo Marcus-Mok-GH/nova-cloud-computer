@@ -7,7 +7,7 @@ const updateFile = vi.fn(async (_owner: number, id: number, input: { folderId?: 
 const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
 const telegramCredentials = vi.fn(async () => undefined);
-const computer = vi.fn(async () => ({ folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
+const computer = vi.fn(async () => ({ workspace: { id: 41 }, folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
 const chat = vi.fn(async () => ({ id: 3, title: "New workspace conversation" }));
 const chatMessages = vi.fn(async () => [
   { id: 1, role: "user", content: "Help me plan a sprint." },
@@ -39,6 +39,13 @@ vi.mock("./db", () => ({
   getWorkspaceModelSettingsForUser,
 }));
 vi.mock("./_core/llm", () => ({ invokeLLM: invoke }));
+
+const getDaytonaClient = vi.fn();
+const runBash = vi.fn();
+vi.mock("./daytona", () => ({
+  getDaytonaClient,
+  runBashCommandInPersistentSandbox: runBash,
+}));
 
 const envState = { nvidiaNimApiKey: "" };
 vi.mock("./_core/env", () => ({
@@ -149,6 +156,24 @@ describe("Nova keyless workspace agent", () => {
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },
     ]);
+  });
+
+  it("runs a bash command when the model calls the shell tool and feeds its output back", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
+    envState.nvidiaNimApiKey = "configured-nim-key";
+    getDaytonaClient.mockReturnValue({});
+    runBash.mockResolvedValue({ ok: true, exitCode: 0, output: "2 items in /home/daytona/workspace", sandboxId: "sbx-bash" });
+    invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-bash", function: { name: "run_bash_command", arguments: '{"command":"ls /home/daytona/workspace"}' } }] } }] });
+    invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Your workspace contains 2 items." } }] });
+
+    await expect(runWorkspaceAgent(7, 3, "Use a shell to list my workspace")).resolves.toMatchObject({
+      actions: [{ kind: "vm", operation: "completed", name: "bash: ls /home/daytona/workspace" }],
+    });
+
+    expect(runBash).toHaveBeenCalledWith({}, { workspaceId: 41, ownerId: 7, command: "ls /home/daytona/workspace" });
+    const finalCall = invoke.mock.calls.at(-1)?.[0];
+    expect(finalCall.messages).toContainEqual({ role: "tool", tool_call_id: "tool-bash", content: JSON.stringify({ ok: true, output: "2 items in /home/daytona/workspace" }) });
   });
 });
 

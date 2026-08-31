@@ -17,6 +17,7 @@ import {
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
+import { getDaytonaClient, runBashCommandInPersistentSandbox } from "./daytona";
 
 export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
@@ -32,7 +33,7 @@ type WorkspaceAgentOptions = {
   onEvent?: (event: { type: "tool"; tool: WorkspaceToolActivity }) => void | Promise<void>;
 };
 
-const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task"]);
+const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "command"]);
 
 function visibleToolArguments(args: Record<string, unknown>) {
   return Object.fromEntries(
@@ -182,7 +183,8 @@ const tools = [
   { type: "function", function: { name: "move_folder", description: "Move an existing workspace folder into a different named folder.", parameters: { type: "object", properties: { name: { type: "string" }, destinationName: { type: "string" } }, required: ["name", "destinationName"] } } },
   { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
-  { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-isolated Daytona VM task only when the user explicitly asks to use a VM or sandbox. The optional Python code may only analyze the provided workspace bundle and must not use network or process-launching libraries.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
+  { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-enabled Daytona VM task when the user explicitly asks to use a VM or sandbox. The VM is a dedicated sandbox (not the user's computer) and has internet access, so the supplied Python code may install packages and reach external services.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
+  { type: "function", function: { name: "run_bash_command", description: "Run one shell command inside the user's dedicated, network-enabled workspace VM. Use for inspection, CLI, install, or network tasks when the user asks you to use a shell or run a command. Output is returned for you to read. The VM is a sandboxed machine (not the user's computer), so commands may use the internet, install packages, or hit external services.", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
 ];
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string, options: WorkspaceAgentOptions = {}) {
@@ -218,7 +220,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, or VM requests. Run a VM only when the user specifically asks to use a VM or sandbox; the VM has no network access and receives only the current workspace bundle. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, shell, or VM requests. Run a VM or a shell command only when the user specifically asks to use a VM, sandbox, or shell; the VM and shell run in a dedicated network-enabled sandbox (not the user's computer), so commands may use the internet. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
     initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
@@ -234,12 +236,14 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const toolMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
 
   for (const call of toolCalls.slice(0, 3)) {
-    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string } = {};
+    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; command?: string } = {};
     const activity = {
       id: call.id,
       name: String(call.function.name),
       args: {} as Record<string, string>,
     };
+
+    let bashOutput: string | undefined;
 
     try {
       args = JSON.parse(call.function.arguments ?? "{}") as typeof args;
@@ -299,11 +303,24 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         const started = await startAgentVmRun(ownerId, { task: args.task.trim(), code: args.code });
         actions.push({ kind: "vm", name: started.run ? `run #${started.run.id}` : "Daytona", operation: started.configured ? "completed" : "disabled" });
       }
+      if (call.function.name === "run_bash_command") {
+        if (!args.command?.trim()) throw new Error("A shell command is required");
+        const client = getDaytonaClient();
+        if (!client) {
+          actions.push({ kind: "vm", name: "Daytona", operation: "disabled" });
+        } else {
+          const computer = await getWorkspaceComputer(ownerId);
+          const result = await runBashCommandInPersistentSandbox(client, { workspaceId: computer.workspace.id, ownerId, command: args.command.trim() });
+          bashOutput = result.output;
+          actions.push({ kind: "vm", name: `bash: ${args.command.trim().slice(0, 120)}`, operation: "completed" });
+        }
+      }
 
       const action = actions[actionCount];
       const succeeded = Boolean(action) && action.operation !== "disabled";
       await emitTool({ ...activity, state: succeeded ? "completed" : "failed", summary: actionSummary(action) });
-      toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: succeeded }) });
+      const toolContent = bashOutput !== undefined ? JSON.stringify({ ok: succeeded, output: bashOutput }) : JSON.stringify({ ok: succeeded });
+      toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     } catch {
       await emitTool({ ...activity, state: "failed", summary: "Nova could not complete this tool call." });
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false }) });

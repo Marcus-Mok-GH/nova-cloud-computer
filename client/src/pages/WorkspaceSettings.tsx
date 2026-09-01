@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Check, Loader2, LogOut, MessageCircle, Send, ShieldCheck, Sparkles, Trash2, UserX, Zap } from "lucide-react";
+import { AlertTriangle, Check, Clipboard, Eye, EyeOff, KeyRound, Loader2, LogOut, MessageCircle, Send, ShieldCheck, Sparkles, Trash2, UserCircle, UserX, Zap } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -29,7 +29,6 @@ export default function WorkspaceSettings() {
   return <DashboardLayout><div className="mx-auto max-w-5xl space-y-7 pb-12 pt-3">
     <section className="relative overflow-hidden rounded-3xl border border-stone-200 bg-[#f2f2ea] px-6 py-8 shadow-sm dark:border-white/10 dark:bg-[#1d292a] sm:px-9 sm:py-10"><div className="absolute -right-12 -top-20 h-64 w-64 rounded-full bg-[#b6d7d0]/60 blur-3xl dark:bg-[#3d807a]/35" /><div className="relative"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-stone-500 dark:text-stone-300">Your personal cloud</p><h1 className="mt-3 font-[DM_Serif_Display] text-4xl tracking-tight text-stone-800 dark:text-stone-100 sm:text-5xl">Preferences with a memory.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-300">Give Nova the standing rules that make your workspace feel like yours. Preferences are saved privately to your workspace.</p></div></section>
 
-
     <section className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences. Keep important approval boundaries and working style here.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={saveRules} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section>
     <TelegramBotCard />
     <AutomationCard />
@@ -41,6 +40,7 @@ function AccountManagementCard() {
   const { user, logout } = useAuth();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation({
     onSuccess: async () => {
@@ -57,22 +57,92 @@ function AccountManagementCard() {
     deleteAccountMutation.mutate();
   };
 
+  const accountName = user?.name || "Nova user";
+  const accountEmail = user?.email || "No email available";
+  const loginMethod = user?.loginMethod || "Neon Auth";
+  const memberSince = user?.createdAt ? new Date(user.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "Not available";
+
+  const copyEmail = async () => {
+    if (!user?.email || typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(user.email);
+      toast.success("Email copied.");
+    } catch {
+      toast.error("Could not copy your email.");
+    }
+  };
+
   return (
-    <section className="rounded-3xl border border-red-500/20 bg-card p-5 text-card-foreground shadow-sm sm:p-7">
+    <section className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-red-500/80 dark:text-red-400/80">Account & Session</p>
-          <h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Account settings</h2>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Profile & Account</p>
+          <h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Your account</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Manage your session or permanently delete your user account and all personal workspace data.
+            Your profile details, authentication information, session controls, and account deletion are all in one place.
           </p>
+        </div>
+        <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#e4f0eb] text-[#42665d] dark:bg-[#28473f] dark:text-[#c5e1d6]">
+          <UserCircle size={24} />
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border bg-muted/20 p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-background text-sm font-bold uppercase shadow-sm">
+              {accountName.slice(0, 1)}
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-bold truncate">{accountName}</p>
+              <p className="text-xs text-muted-foreground">Member since {memberSince}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="profile-email">Email address</Label>
+              <div className="flex gap-2">
+                <Input id="profile-email" value={accountEmail} readOnly className="bg-background" />
+                {user?.email && <Button variant="outline" size="icon" onClick={copyEmail} aria-label="Copy email address"><Clipboard size={15} /></Button>}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-login-method">Sign-in method</Label>
+              <Input id="profile-login-method" value={loginMethod} readOnly className="bg-background" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-muted/20 p-5">
+          <div className="flex items-center gap-2">
+            <KeyRound className="size-4 text-[#638f84]" />
+            <p className="text-sm font-bold">Password</p>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            Your password is hidden by default. Nova intentionally cannot retrieve the original password from Neon Auth.
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <Input
+              id="profile-password"
+              type="text"
+              value={showPassword ? "Password cannot be displayed" : "••••••••••••"}
+              readOnly
+              aria-label="Password status"
+              className={`bg-background ${showPassword ? "text-muted-foreground" : "font-mono tracking-widest"}`}
+            />
+            <Button variant="outline" size="icon" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? "Hide password information" : "Reveal password information"}>
+              {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+            </Button>
+          </div>
+          {showPassword && <p className="mt-2 text-xs leading-5 text-muted-foreground">Passwords are never returned to Nova in readable form, so there is no password value available to reveal.</p>}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
         <div className="space-y-1">
           <p className="text-sm font-bold text-foreground">Sign out of Nova</p>
-          <p className="text-xs text-muted-foreground">Logged in as {user?.email || "User"}</p>
+          <p className="text-xs text-muted-foreground">Logged in as {accountEmail}</p>
         </div>
         <Button variant="outline" onClick={() => logout()} className="gap-2">
           <LogOut size={16} /> Log out

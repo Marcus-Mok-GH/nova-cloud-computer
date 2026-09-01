@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
+process.env.DEFAULT_TELEGRAM_BOT_TOKEN = "123456:private-bot-token";
+process.env.NOVA_PUBLIC_BASE_URL = "https://nova.example.com";
+
 type TelegramConfig = { token: string; chatId: string | null; botUsername: string | null; botDisplayName: string | null };
 const telegramConfigs = new Map<number, TelegramConfig>();
 const validate = vi.fn(async () => ({ id: "1", username: "nova_test_bot", displayName: "Nova Test" }));

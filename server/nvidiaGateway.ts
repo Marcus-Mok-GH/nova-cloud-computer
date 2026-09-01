@@ -184,8 +184,9 @@ export async function listNvidiaModels(forceRefresh = false) {
     const message = payload && "error" in payload ? payload.error?.message : undefined;
     throw new NvidiaGatewayClientError(message ?? "NVIDIA model discovery is temporarily unavailable.", response.status === 429 ? "rate_limit" : "unavailable");
   }
-  const models = Array.isArray((payload as NvidiaModelsResponse | undefined)?.data)
-    ? (payload as NvidiaModelsResponse).data
+  const rawData = (payload as NvidiaModelsResponse | undefined)?.data;
+  const models = Array.isArray(rawData)
+    ? rawData
       .filter((model): model is NvidiaModel => typeof model?.id === "string" && model.id.trim().length > 0)
       .map(model => ({ ...model, id: model.id.trim() }))
       .filter(isChatCapableNvidiaModel)

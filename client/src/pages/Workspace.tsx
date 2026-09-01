@@ -44,6 +44,11 @@ export default function Workspace() {
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
+  const modelSettings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });
+  const liveModels = trpc.nvidia.models.useQuery(undefined, { retry: false, refetchInterval: 300000 });
+  const updateModel = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await modelSettings.refetch(); toast.success("Model updated."); }, onError: error => toast.error(error.message) });
+  const [selectedModel, setSelectedModel] = useState("");
+  useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);
 
   // Exchange Neon Auth verifier on mount when landing from OTP callback
   useEffect(() => {
@@ -206,7 +211,7 @@ export default function Workspace() {
           </div>
           <form onSubmit={submit} className="shrink-0 border-t border-neutral-100 bg-white p-3 dark:border-white/5 dark:bg-neutral-900">
             <div className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-full border border-neutral-200 bg-[#fafafa] px-4 py-2 transition focus-within:border-[#f97316] focus-within:ring-4 focus-within:ring-[#f97316]/10 dark:border-white/10 dark:bg-neutral-950">
-              <FileText className="size-4 shrink-0 text-neutral-400" />
+              <FileText className="size-4 shrink-0 text-neutral-400" /><select aria-label="AI model" value={selectedModel} onChange={event => { const value = event.target.value; setSelectedModel(value); if (value) updateModel.mutate({ activeProvider: "nvidia-nim", activeModelId: value }); }} disabled={liveModels.isLoading || updateModel.isPending} className="max-w-40 shrink-0 rounded-lg border-0 bg-transparent px-1 text-xs text-neutral-500 outline-none dark:text-neutral-400"><option value="">Model</option>{liveModels.data?.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}</select>
               <Textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask Nova..." className="min-h-9 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 text-sm placeholder:text-neutral-400 focus-visible:ring-0" />
               <button type="submit" disabled={!draft.trim() || isStreaming} className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f97316] text-white transition hover:bg-[#ea580c] disabled:opacity-40" aria-label="Go"><ArrowUp className="size-4" /></button>
             </div>

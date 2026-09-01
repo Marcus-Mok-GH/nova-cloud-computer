@@ -15,8 +15,8 @@ export async function getTelegramModelSettingsForUser(ownerId: number) {
   const provider = (row?.modelProvider ?? "nvidia-nim") as Provider;
   const modelId = row?.modelId ?? "";
   const customModelId = row?.customModelId ? Number(row.customModelId) : null;
-  const models = provider === "nvidia-nim" ? await listNvidiaModels() : [];
-  return { provider, modelId, customModelId, options: models };
+  const options = provider === "nvidia-nim" ? await listNvidiaModels() : [];
+  return { provider, modelId, customModelId, options };
 }
 
 export async function updateTelegramModelSettingsForUser(ownerId: number, input: { provider: Provider; modelId: string; customModelId?: number | null }) {

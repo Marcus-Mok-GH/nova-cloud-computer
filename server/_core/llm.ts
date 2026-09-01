@@ -72,6 +72,7 @@ export type InvokeParams = {
   apiKey?: string;
   thinking?: Record<string, unknown>;
   reasoning?: Record<string, unknown>;
+  onChunk?: (chunk: string) => void | Promise<void>;
 };
 
 export type ToolCall = {
@@ -419,6 +420,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
+  if (params.onChunk) {
+    payload.stream = true;
+  }
+
   const response = await fetchWithBackoff(requestApiUrl, {
     method: "POST",
     headers: {
@@ -435,7 +440,118 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
+  if (params.onChunk) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("LLM response body is null");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let accumulatedContent = "";
+    const accumulatedToolCalls: ToolCall[] = [];
+    let finishReason: string | null = null;
+    let responseId = "chatcmpl-stream";
+
+    let isDone = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const dataStr = trimmed.slice(5).trim();
+        if (dataStr === "[DONE]") {
+          isDone = true;
+          break;
+        }
+
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.id) responseId = parsed.id;
+          const choice = parsed.choices?.[0];
+          if (choice) {
+            if (choice.finish_reason) finishReason = choice.finish_reason;
+            const delta = choice.delta;
+            if (delta) {
+              if (delta.content) {
+                accumulatedContent += delta.content;
+                await params.onChunk(delta.content);
+              }
+              if (Array.isArray(delta.tool_calls)) {
+                for (const tc of delta.tool_calls) {
+                  const index = tc.index ?? 0;
+                  if (!accumulatedToolCalls[index]) {
+                    accumulatedToolCalls[index] = {
+                      id: tc.id ?? "",
+                      type: "function",
+                      function: {
+                        name: tc.function?.name ?? "",
+                        arguments: tc.function?.arguments ?? "",
+                      },
+                    };
+                  } else {
+                    if (tc.id) accumulatedToolCalls[index].id = tc.id;
+                    if (tc.function?.name) accumulatedToolCalls[index].function.name += tc.function.name;
+                    if (tc.function?.arguments) accumulatedToolCalls[index].function.arguments += tc.function.arguments;
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // Ignore invalid SSE line JSON
+        }
+      }
+      if (isDone) break;
+    }
+
+    if (!isDone && buffer.trim().startsWith("data:")) {
+      const dataStr = buffer.trim().slice(5).trim();
+      if (dataStr !== "[DONE]") {
+        try {
+          const parsed = JSON.parse(dataStr);
+          const choice = parsed.choices?.[0];
+          if (choice?.delta?.content) {
+            accumulatedContent += choice.delta.content;
+            await params.onChunk(choice.delta.content);
+          }
+        } catch {}
+      }
+    }
+
+    try {
+      await reader.cancel();
+    } catch {
+      // Body already closed or cancelled.
+    }
+
+    return {
+      id: responseId,
+      created: Math.floor(Date.now() / 1000),
+      model: model ?? "unknown",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: accumulatedContent,
+            ...(accumulatedToolCalls.length > 0 ? { tool_calls: accumulatedToolCalls } : {}),
+          },
+          finish_reason: finishReason,
+        },
+      ],
+    };
+  }
+
   return (await response.json()) as InvokeResult;
+}
+
+export async function invokeLLMStream(
+  params: InvokeParams & { onChunk: (chunk: string) => void | Promise<void> }
+): Promise<InvokeResult> {
+  return invokeLLM(params);
 }
 
 export type ModelInfo = {
@@ -449,4 +565,3 @@ export type ModelsResponse = {
   object: string;
   data: ModelInfo[];
 };
-

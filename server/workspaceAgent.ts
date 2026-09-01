@@ -31,6 +31,7 @@ export type WorkspaceToolActivity = {
 
 type WorkspaceAgentOptions = {
   onEvent?: (event: { type: "tool"; tool: WorkspaceToolActivity }) => void | Promise<void>;
+  onChunk?: (chunk: string) => void | Promise<void>;
 };
 
 const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "command"]);
@@ -216,6 +217,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
       ? direct.reply
       : "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
     await emitDirectActions(direct.actions);
+    await options.onChunk?.(reply);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
     return { message, actions: direct.actions };
   }
@@ -223,10 +225,11 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, shell, or VM requests. Run a VM or a shell command only when the user specifically asks to use a VM, sandbox, or shell; the VM and shell run in a dedicated network-enabled sandbox (not the user's computer), so commands may use the internet. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
   let initial;
   try {
-    initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto" });
+    initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto", onChunk: options.onChunk });
   } catch {
     const direct = await runDirectWorkspaceAction(ownerId, content);
     await emitDirectActions(direct.actions);
+    await options.onChunk?.(direct.reply);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
     return { message, actions: direct.actions };
   }
@@ -327,7 +330,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     }
   }
   const final = toolCalls.length
-    ? await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }, choice, ...toolMessages] })
+    ? await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }, choice, ...toolMessages], onChunk: options.onChunk })
     : initial;
   const reply = String(final.choices[0]?.message?.content ?? "I’m ready to help with this workspace.");
   const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });

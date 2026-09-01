@@ -34,6 +34,8 @@ type WorkspaceAgentOptions = {
   onChunk?: (chunk: string) => void | Promise<void>;
 };
 
+export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+
 const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "command"]);
 
 function visibleToolArguments(args: Record<string, unknown>) {
@@ -51,7 +53,6 @@ function actionSummary(action?: AgentAction) {
   return `${operation[0].toUpperCase()}${operation.slice(1)} ${action.kind}: ${action.name}.`;
 }
 
-const DEFAULT_WORKSPACE_AGENT_MODEL = "gpt-5-mini";
 const workspaceAgentApiKey = () => process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
 
 type WorkspaceAgentConnection = {
@@ -83,7 +84,7 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
     if (!chat || !DEFAULT_CHAT_TITLES.has(chat.title)) return;
     const messages = await listChatMessagesForUser(ownerId, chatId);
     const firstUser = messages?.find(m => m.role === "user");
-    const firstAssistant = messages?.find(m => m.role === "assistant");
+    const firstAssistant = messages?.find(m => m.role === "assistant" && !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
     if (!firstUser || !firstAssistant) return;
     const connection = await getWorkspaceAgentConnection(ownerId);
     if (!connection) return;
@@ -194,6 +195,19 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
       await options.onEvent?.({ type: "tool", tool });
     } catch {
       // Tool activity must never interrupt the workspace action itself.
+    }
+
+    if (tool.state === "completed" || tool.state === "failed") {
+      try {
+        await appendChatMessageForUser(ownerId, {
+          chatId,
+          role: "assistant",
+          content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
+        });
+      } catch (error) {
+        // Persistence is durable when available, but a database write failure must not break the tool call itself.
+        console.error("[Tool activity] failed to persist", error);
+      }
     }
   };
   const emitDirectActions = async (actions: AgentAction[]) => {

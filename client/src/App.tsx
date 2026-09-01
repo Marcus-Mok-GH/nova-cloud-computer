@@ -11,6 +11,7 @@ import Chats from "./pages/Chats";
 import Deployments from "./pages/Deployments";
 import Files from "./pages/Files";
 import More from "./pages/More";
+import Profile from "./pages/Profile";
 import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
 
@@ -23,6 +24,7 @@ function Router() {
       <Route path={"/app/files"} component={Files} />
       <Route path={"/app/chats"} component={Chats} />
       <Route path={"/app/deployments"} component={Deployments} />
+      <Route path={"/app/profile"} component={Profile} />
       <Route path={"/app/settings"} component={WorkspaceSettings} />
       <Route path={"/app/more"} component={More} />
       <Route path={"/404"} component={NotFound} />

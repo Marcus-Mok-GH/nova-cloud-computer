@@ -50,7 +50,6 @@ export default function Workspace() {
   const [selectedModel, setSelectedModel] = useState("");
   useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);
 
-  // Exchange Neon Auth verifier on mount when landing from OTP callback
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
     const params = new URLSearchParams(window.location.search);
@@ -165,7 +164,7 @@ export default function Workspace() {
   if (chatId) {
     return (
       <DashboardLayout>
-        <section className="flex h-[calc(100vh-6.5rem)] w-full flex-col overflow-hidden border-0 bg-white shadow-none lg:h-[calc(100vh-3.5rem)] dark:bg-neutral-900">
+        <section className="flex h-[calc(100vh-6.5rem)] w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none lg:h-[calc(100vh-3.5rem)] dark:bg-neutral-900">
           <header className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-5 py-3.5 dark:border-white/5">
             <div className="flex items-center gap-3">
               <button onClick={() => setLocation("/app/chats")} className="grid size-8 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>
@@ -177,39 +176,50 @@ export default function Workspace() {
             </div>
             <MoreHorizontal className="size-4 text-neutral-400" />
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6">
+            <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col space-y-4">
               {savedMessages.isLoading ? (
                 <p className="text-sm text-neutral-400">Loading conversation...</p>
               ) : (
                 savedMessages.data?.map(message => (
                   message.role === "user" ? (
-                    <div key={message.id} className="flex w-full justify-end">
-                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
+                    <div key={message.id} className="flex w-full shrink-0 justify-end">
+                      <div className="max-w-[85%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
                     </div>
                   ) : (
-                    <div key={message.id} className="flex w-full items-start gap-2.5">
+                    <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2.5">
                       <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
-                      <div className="max-w-[85%]">
+                      <div className="min-w-0 max-w-[85%]">
                         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
-                        <div className="rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div>
+                        <div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div>
                       </div>
                     </div>
                   )
                 ))
               )}
+
               {pendingUserContent && (
-                <div className="flex w-full justify-end">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{pendingUserContent}</div>
+                <div className="flex w-full shrink-0 justify-end">
+                  <div className="max-w-[85%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{pendingUserContent}</div>
                 </div>
               )}
-              {(isStreaming || toolActivities.length > 0) && (
-                <div className="flex w-full items-start gap-2.5">
+
+              {toolActivities.map(activity => (
+                <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2.5">
                   <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
-                  <div className="max-w-[85%] space-y-2">
+                  <div className="min-w-0 w-full max-w-[85%]">
                     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
-                    {toolActivities.length > 0 && <ToolActivityPanel activities={toolActivities} />}
-                    {isStreaming && <div className="rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent || "Nova is working..."}</div>}
+                    <ToolActivityPanel activities={[activity]} />
+                  </div>
+                </div>
+              ))}
+
+              {isStreaming && (
+                <div className="flex w-full shrink-0 min-w-0 items-start gap-2.5">
+                  <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
+                  <div className="min-w-0 max-w-[85%]">
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
+                    <div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent || "Nova is working..."}</div>
                   </div>
                 </div>
               )}
@@ -257,18 +267,18 @@ export default function Workspace() {
 
 function ToolActivityPanel({ activities }: { activities: ToolActivity[] }) {
   return (
-    <details open className="rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
-      <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-neutral-800 marker:hidden dark:text-neutral-100"><Wrench className="size-3.5 text-[#f97316]" />Tool activity<span className="ml-auto text-xs font-medium text-neutral-400">{activities.length}</span></summary>
+    <details open className="w-full min-w-0 rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+      <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-neutral-800 marker:hidden dark:text-neutral-100"><Wrench className="size-3.5 shrink-0 text-[#f97316]" />Tool activity<span className="ml-auto text-xs font-medium text-neutral-400">{activities.length}</span></summary>
       <div className="mt-2 space-y-2 border-t border-neutral-100 pt-2 dark:border-white/10">
         {activities.map(activity => {
           const StatusIcon = activity.state === "completed" ? CheckCircle2 : activity.state === "failed" ? XCircle : CircleDashed;
           const stateLabel = activity.state === "completed" ? "Completed" : activity.state === "failed" ? "Failed" : "Running";
           const stateClass = activity.state === "completed" ? "text-emerald-600 dark:text-emerald-400" : activity.state === "failed" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
           return (
-            <div key={activity.id} className="rounded-lg bg-neutral-50 px-3 py-2 dark:bg-white/5">
-              <div className="flex items-center gap-2"><StatusIcon className={`size-3.5 ${stateClass}`} /><code className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">{activity.name}</code><span className={`ml-auto text-[11px] font-semibold ${stateClass}`}>{stateLabel}</span></div>
-              {Object.keys(activity.args).length > 0 && <p className="mt-1 break-words font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{Object.entries(activity.args).map(([key, value]) => `${key}: ${value}`).join(" · ")}</p>}
-              {activity.summary && <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{activity.summary}</p>}
+            <div key={activity.id} className="min-w-0 rounded-lg bg-neutral-50 px-3 py-2 dark:bg-white/5">
+              <div className="flex min-w-0 items-center gap-2"><StatusIcon className={`size-3.5 shrink-0 ${stateClass}`} /><code className="min-w-0 break-all text-xs font-semibold text-neutral-700 dark:text-neutral-200">{activity.name}</code><span className={`ml-auto shrink-0 text-[11px] font-semibold ${stateClass}`}>{stateLabel}</span></div>
+              {Object.keys(activity.args).length > 0 && <p className="mt-1 break-all font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{Object.entries(activity.args).map(([key, value]) => `${key}: ${value}`).join(" · ")}</p>}
+              {activity.summary && <p className="mt-1 break-words text-xs text-neutral-500 dark:text-neutral-400">{activity.summary}</p>}
             </div>
           );
         })}

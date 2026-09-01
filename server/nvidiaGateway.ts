@@ -28,6 +28,10 @@ type NvidiaModel = {
   created?: number;
   owned_by?: string;
   root?: string;
+  task?: string;
+  capabilities?: string[] | Record<string, unknown>;
+  supported_modalities?: string[];
+  modalities?: string[];
 };
 
 type NvidiaModelsResponse = {
@@ -152,10 +156,25 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   }
 }
 
+function isChatCapableNvidiaModel(model: NvidiaModel) {
+  const explicitTask = model.task?.toLowerCase().trim();
+  if (explicitTask && /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding/i.test(explicitTask)) return false;
+  const explicitModalities = [...(model.modalities ?? []), ...(model.supported_modalities ?? [])].map(value => value.toLowerCase());
+  if (explicitModalities.length > 0 && explicitModalities.some(value => /text|image/i.test(value))) return true;
+  if (model.capabilities && typeof model.capabilities === "object" && !Array.isArray(model.capabilities)) {
+    const keys = Object.keys(model.capabilities).map(key => key.toLowerCase());
+    if (keys.some(key => /chat|completion|text|vision|multimodal/i.test(key))) return true;
+    if (keys.some(key => /embedding|rerank/i.test(key))) return false;
+  }
+  // NVIDIA's /v1/models response is not guaranteed to expose task metadata.
+  // Keep text/VLM chat models while excluding common embedding/reranking-only IDs.
+  return !/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriever)([\/_-]|$)/i.test(model.id);
+}
+
 /**
- * Discovers the models currently exposed by the NVIDIA gateway's OpenAI-compatible
- * /v1/models endpoint. Results are cached briefly so model pickers do not hit the
- * upstream provider on every render/message.
+ * Discovers chat-capable NVIDIA text/VLM models from the gateway's OpenAI-compatible
+ * /v1/models endpoint. Vision-language models remain eligible because they accept text
+ * chat as well as image input. Results are cached briefly for model pickers.
  */
 export async function listNvidiaModels(forceRefresh = false) {
   if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
@@ -169,9 +188,10 @@ export async function listNvidiaModels(forceRefresh = false) {
     ? (payload as NvidiaModelsResponse).data
       .filter((model): model is NvidiaModel => typeof model?.id === "string" && model.id.trim().length > 0)
       .map(model => ({ ...model, id: model.id.trim() }))
+      .filter(isChatCapableNvidiaModel)
     : [];
   if (models.length === 0) {
-    throw new NvidiaGatewayClientError("NVIDIA returned no available models.", "invalid_response");
+    throw new NvidiaGatewayClientError("NVIDIA returned no available text or vision-language models.", "invalid_response");
   }
   const deduplicated = Array.from(new Map(models.map(model => [model.id, model])).values())
     .sort((a, b) => a.id.localeCompare(b.id));

@@ -50,6 +50,30 @@ export default function Workspace() {
   const [selectedModel, setSelectedModel] = useState("");
   useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);
 
+  const toolStorageKey = chatId ? `nova-chat-tool-activities:${chatId}` : "";
+
+  useEffect(() => {
+    if (!toolStorageKey || typeof window === "undefined") {
+      setToolActivities([]);
+      return;
+    }
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(toolStorageKey) || "[]");
+      setToolActivities(Array.isArray(stored) ? stored : []);
+    } catch {
+      setToolActivities([]);
+    }
+  }, [toolStorageKey]);
+
+  useEffect(() => {
+    if (!toolStorageKey || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(toolStorageKey, JSON.stringify(toolActivities));
+    } catch {
+      // Tool history is an enhancement; storage failures must never interrupt chat.
+    }
+  }, [toolStorageKey, toolActivities]);
+
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
     const params = new URLSearchParams(window.location.search);
@@ -81,7 +105,6 @@ export default function Workspace() {
     setDraft("");
     setPendingUserContent(content);
     setStreamingContent("");
-    setToolActivities([]);
     setIsStreaming(true);
 
     try {

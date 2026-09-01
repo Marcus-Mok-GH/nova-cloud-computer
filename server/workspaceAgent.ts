@@ -77,7 +77,6 @@ export async function getWorkspaceAgentConnection(ownerId: number): Promise<Work
 
 const DEFAULT_CHAT_TITLES = new Set(["New workspace conversation", "New conversation", "Telegram Chat"]);
 
-/** Rename a still-default chat from its first user + assistant messages using the workspace LLM. No-op once titled, so later turns cost nothing. */
 export async function autoTitleChatForUser(ownerId: number, chatId: number): Promise<void> {
   try {
     const chat = await getChatForUser(ownerId, chatId);
@@ -186,15 +185,29 @@ const tools = [
   { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
   { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
   { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-enabled Daytona VM task when the user explicitly asks to use a VM or sandbox. The VM is a dedicated sandbox (not the user's computer) and has internet access, so the supplied Python code may install packages and reach external services.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
-  { type: "function", function: { name: "run_bash_command", description: "Run one shell command inside the user's dedicated, network-enabled workspace VM. Use for inspection, CLI, install, or network tasks when the user asks you to use a shell or run a command. Output is returned for you to read. The VM is a sandboxed machine (not the user's computer), so commands may use the internet, install packages, or hit external services.", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
+  { type: "function", function: { name: "run_bash_command", description: "Run one shell command inside the user's dedicated, network-enabled workspace VM. Use for inspection, CLI, install, or network tasks when the user asks you to use a shell or run a command. The complete stdout/stderr result is returned to you as tool output; never infer or invent command output.", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
 ];
+
+const OPENCODE_STYLE_WORKSPACE_PROMPT = `You are Nova, an interactive software-engineering agent operating inside a private computer workspace.
+
+Be concise, direct, and action-oriented. When the user asks you to perform work, use the available tools instead of merely describing what should be done. Do not claim that an action happened unless the corresponding tool succeeded.
+
+Inspect before changing when the task requires understanding existing files or state. Prefer the smallest correct change and follow the existing codebase's conventions. Never expose secrets, tokens, credentials, or private data in responses. Do not invent tool results, file contents, command output, paths, or completion states.
+
+Tool results are authoritative data from the workspace. For shell commands, treat the returned output field as the actual stdout/stderr result of the command. A tool activity/status message such as “Completed vm: bash: <command>” is only UI metadata and is never the command's output. If a command returns output, read and use that output. If it returns an error or non-zero exit code, acknowledge the failure and recover when possible.
+
+Use shell commands for inspection, diagnostics, file operations, development commands, and other tasks when appropriate. The shell runs in Nova's dedicated sandbox, not on the user's local device. Do not run shell or VM tools merely to narrate progress. Do not send Telegram messages unless the user explicitly asks you to send the supplied message.
+
+Continue working through tool calls when additional inspection or actions are necessary. If a task is complete, give the user the concise result. Match the user's language when practical.
+
+Current folders: {{folders}}
+Current files: {{files}}`;
 
 export async function runWorkspaceAgent(ownerId: number, chatId: number, content: string, options: WorkspaceAgentOptions = {}) {
   const emitTool = async (tool: WorkspaceToolActivity) => {
     try {
       await options.onEvent?.({ type: "tool", tool });
     } catch {
-      // Tool activity must never interrupt the workspace action itself.
     }
 
     if (tool.state === "completed" || tool.state === "failed") {
@@ -205,7 +218,6 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
           content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
         });
       } catch (error) {
-        // Persistence is durable when available, but a database write failure must not break the tool call itself.
         console.error("[Tool activity] failed to persist", error);
       }
     }
@@ -236,7 +248,9 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     return { message, actions: direct.actions };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const context = `You are Nova, a concise helpful agent inside a private computer workspace. Use tools only for explicit create, rename, move, delete, Telegram-send, shell, or VM requests. Run a VM or a shell command only when the user specifically asks to use a VM, sandbox, or shell; the VM and shell run in a dedicated network-enabled sandbox (not the user's computer), so commands may use the internet. Send Telegram only if the user clearly asks you to send the supplied text. Current folders: ${computer.folders.map(folder => folder.name).join(", ") || "none"}. Current files: ${computer.files.map(file => file.name).join(", ") || "none"}. Explain completed actions briefly.`;
+  const context = OPENCODE_STYLE_WORKSPACE_PROMPT
+    .replace("{{folders}}", computer.folders.map(folder => folder.name).join(", ") || "none")
+    .replace("{{files}}", computer.files.map(file => file.name).join(", ") || "none");
   let initial;
   try {
     initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto", onChunk: options.onChunk });
@@ -254,12 +268,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
 
   for (const call of toolCalls.slice(0, 3)) {
     let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; command?: string } = {};
-    const activity = {
-      id: call.id,
-      name: String(call.function.name),
-      args: {} as Record<string, string>,
-    };
-
+    const activity = { id: call.id, name: String(call.function.name), args: {} as Record<string, string> };
     let bashOutput: string | undefined;
 
     try {
@@ -276,37 +285,37 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         if (file) actions.push({ kind: "file", name: file.name });
       }
       if (call.function.name === "rename_file") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const file = computer.files.find(item => item.name === args.currentName);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const file = currentComputer.files.find(item => item.name === args.currentName);
         const updated = file && args.newName ? await updateWorkspaceFileForUser(ownerId, file.id, { name: args.newName }) : undefined;
         if (updated) actions.push({ kind: "file", name: updated.name, operation: "renamed" });
       }
       if (call.function.name === "delete_file") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const file = computer.files.find(item => item.name === args.name);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const file = currentComputer.files.find(item => item.name === args.name);
         if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) actions.push({ kind: "file", name: file.name, operation: "deleted" });
       }
       if (call.function.name === "move_file") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const file = computer.files.find(item => item.name === args.name);
-        const folder = computer.folders.find(item => item.name === args.folderName);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const file = currentComputer.files.find(item => item.name === args.name);
+        const folder = currentComputer.folders.find(item => item.name === args.folderName);
         if (file && folder && await updateWorkspaceFileForUser(ownerId, file.id, { folderId: folder.id })) actions.push({ kind: "file", name: file.name, operation: "moved" });
       }
       if (call.function.name === "rename_folder") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const folder = computer.folders.find(item => item.name === args.currentName);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const folder = currentComputer.folders.find(item => item.name === args.currentName);
         const updated = folder && args.newName ? await updateWorkspaceFolderForUser(ownerId, folder.id, { name: args.newName }) : undefined;
         if (updated) actions.push({ kind: "folder", name: updated.name, operation: "renamed" });
       }
       if (call.function.name === "move_folder") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const folder = computer.folders.find(item => item.name === args.name);
-        const destination = computer.folders.find(item => item.name === args.destinationName);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const folder = currentComputer.folders.find(item => item.name === args.name);
+        const destination = currentComputer.folders.find(item => item.name === args.destinationName);
         if (folder && destination && folder.id !== destination.id && await updateWorkspaceFolderForUser(ownerId, folder.id, { parentId: destination.id })) actions.push({ kind: "folder", name: folder.name, operation: "moved" });
       }
       if (call.function.name === "delete_folder") {
-        const computer = await getWorkspaceComputer(ownerId);
-        const folder = computer.folders.find(item => item.name === args.name);
+        const currentComputer = await getWorkspaceComputer(ownerId);
+        const folder = currentComputer.folders.find(item => item.name === args.name);
         if (folder && await deleteWorkspaceFolderForUser(ownerId, folder.id)) actions.push({ kind: "folder", name: folder.name, operation: "deleted" });
       }
       if (call.function.name === "send_telegram_message") {
@@ -326,8 +335,8 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
         if (!client) {
           actions.push({ kind: "vm", name: "Daytona", operation: "disabled" });
         } else {
-          const computer = await getWorkspaceComputer(ownerId);
-          const result = await runBashCommandInPersistentSandbox(client, { workspaceId: computer.workspace.id, ownerId, command: args.command.trim() });
+          const currentComputer = await getWorkspaceComputer(ownerId);
+          const result = await runBashCommandInPersistentSandbox(client, { workspaceId: currentComputer.workspace.id, ownerId, command: args.command.trim() });
           bashOutput = result.output;
           actions.push({ kind: "vm", name: `bash: ${args.command.trim().slice(0, 120)}`, operation: "completed" });
         }

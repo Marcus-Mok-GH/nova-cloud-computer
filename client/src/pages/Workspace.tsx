@@ -31,6 +31,26 @@ type ToolActivity = {
   summary?: string;
 };
 
+const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+
+function parsePersistedToolActivity(content: string): ToolActivity | null {
+  if (!content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length));
+    if (!parsed || typeof parsed.id !== "string" || typeof parsed.name !== "string") return null;
+    if (parsed.state !== "running" && parsed.state !== "completed" && parsed.state !== "failed") return null;
+    return {
+      id: parsed.id,
+      name: parsed.name,
+      state: parsed.state,
+      args: parsed.args && typeof parsed.args === "object" ? parsed.args : {},
+      summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
@@ -49,30 +69,6 @@ export default function Workspace() {
   const updateModel = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await modelSettings.refetch(); toast.success("Model updated."); }, onError: error => toast.error(error.message) });
   const [selectedModel, setSelectedModel] = useState("");
   useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);
-
-  const toolStorageKey = chatId ? `nova-chat-tool-activities:${chatId}` : "";
-
-  useEffect(() => {
-    if (!toolStorageKey || typeof window === "undefined") {
-      setToolActivities([]);
-      return;
-    }
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(toolStorageKey) || "[]");
-      setToolActivities(Array.isArray(stored) ? stored : []);
-    } catch {
-      setToolActivities([]);
-    }
-  }, [toolStorageKey]);
-
-  useEffect(() => {
-    if (!toolStorageKey || typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(toolStorageKey, JSON.stringify(toolActivities));
-    } catch {
-      // Tool history is an enhancement; storage failures must never interrupt chat.
-    }
-  }, [toolStorageKey, toolActivities]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
@@ -105,6 +101,7 @@ export default function Workspace() {
     setDraft("");
     setPendingUserContent(content);
     setStreamingContent("");
+    setToolActivities([]);
     setIsStreaming(true);
 
     try {
@@ -143,6 +140,7 @@ export default function Workspace() {
               await refreshMessages();
               await utils.workspace.computer.invalidate();
               setPendingUserContent("");
+              setToolActivities([]);
               setIsStreaming(false);
               return;
             }
@@ -172,11 +170,13 @@ export default function Workspace() {
       setStreamingContent("");
       await refreshMessages();
       setPendingUserContent("");
+      setToolActivities([]);
     } catch (error) {
       console.error("Stream error:", error);
       setStreamingContent("");
       await refreshMessages();
       setPendingUserContent("");
+      setToolActivities([]);
       setIsStreaming(false);
       toast.error(error instanceof Error ? error.message : "Failed to send message");
     }
@@ -204,8 +204,20 @@ export default function Workspace() {
               {savedMessages.isLoading ? (
                 <p className="text-sm text-neutral-400">Loading conversation...</p>
               ) : (
-                savedMessages.data?.map(message => (
-                  message.role === "user" ? (
+                savedMessages.data?.map(message => {
+                  const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
+                  if (persistedTool) {
+                    return (
+                      <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2.5">
+                        <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
+                        <div className="min-w-0 w-full max-w-[85%]">
+                          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
+                          <ToolActivityPanel activities={[persistedTool]} />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return message.role === "user" ? (
                     <div key={message.id} className="flex w-full shrink-0 justify-end">
                       <div className="max-w-[85%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
                     </div>
@@ -217,8 +229,8 @@ export default function Workspace() {
                         <div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm leading-6 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div>
                       </div>
                     </div>
-                  )
-                ))
+                  );
+                })
               )}
 
               {pendingUserContent && (

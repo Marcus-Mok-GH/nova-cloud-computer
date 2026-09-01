@@ -15,9 +15,9 @@ const invalidate = vi.fn();
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main data-testid="workspace-shell">{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { computer: { useQuery: () => state.computer } },
+    workspace: { computer: { useQuery: () => state.computer }, modelSettings: { useQuery: () => ({ data: null }) }, updateSettings: { useMutation: () => mutation } },
     agentVm: { status: { useQuery: () => state.agentVmStatus } },
-    nvidia: { status: { useQuery: () => state.nvidiaStatus } },
+    nvidia: { status: { useQuery: () => state.nvidiaStatus }, models: { useQuery: () => ({ data: [] }) } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: [], isLoading: false }) }, send: { useMutation: () => mutation } },

@@ -4,6 +4,7 @@ const DEFAULT_MAX_REQUESTS = 50;
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 20_000;
 const ERROR_MESSAGE_LIMIT = 600;
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type GatewayHealth = {
   status?: string;
@@ -20,6 +21,20 @@ type GatewayCompletion = {
     total_tokens?: number;
   };
 };
+
+type NvidiaModel = {
+  id: string;
+  object?: string;
+  created?: number;
+  owned_by?: string;
+  root?: string;
+};
+
+type NvidiaModelsResponse = {
+  data?: NvidiaModel[];
+};
+
+let modelCache: { models: NvidiaModel[]; expiresAt: number } | undefined;
 
 export class NvidiaGatewayClientError extends Error {
   constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
@@ -137,7 +152,34 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   }
 }
 
-export async function completeWithNvidiaGateway(ownerId: number, prompt: string) {
+/**
+ * Discovers the models currently exposed by the NVIDIA gateway's OpenAI-compatible
+ * /v1/models endpoint. Results are cached briefly so model pickers do not hit the
+ * upstream provider on every render/message.
+ */
+export async function listNvidiaModels(forceRefresh = false) {
+  if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
+  const response = await gatewayFetch("/v1/models");
+  const payload = await response.json().catch(() => undefined) as NvidiaModelsResponse | { error?: { message?: string } } | undefined;
+  if (!response.ok) {
+    const message = payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(message ?? "NVIDIA model discovery is temporarily unavailable.", response.status === 429 ? "rate_limit" : "unavailable");
+  }
+  const models = Array.isArray((payload as NvidiaModelsResponse | undefined)?.data)
+    ? (payload as NvidiaModelsResponse).data
+      .filter((model): model is NvidiaModel => typeof model?.id === "string" && model.id.trim().length > 0)
+      .map(model => ({ ...model, id: model.id.trim() }))
+    : [];
+  if (models.length === 0) {
+    throw new NvidiaGatewayClientError("NVIDIA returned no available models.", "invalid_response");
+  }
+  const deduplicated = Array.from(new Map(models.map(model => [model.id, model])).values())
+    .sort((a, b) => a.id.localeCompare(b.id));
+  modelCache = { models: deduplicated, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+  return deduplicated;
+}
+
+export async function completeWithNvidiaGateway(ownerId: number, prompt: string, modelId?: string) {
   const status = await getNvidiaGatewayStatus(ownerId);
   if (!status.configured || !status.reachable || (status.providerConfigurationKnown && !status.providerConfigured)) {
     throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.", "configuration");
@@ -148,7 +190,7 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string)
   }
   const response = await gatewayFetch("/api/nvidia/chat", {
     method: "POST",
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...(modelId?.trim() ? { model: modelId.trim() } : {}) }),
   });
   const payload = await response.json().catch(() => undefined) as GatewayCompletion | { error?: { message?: string } } | undefined;
   if (!response.ok) {
@@ -161,7 +203,7 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string)
   }
   return {
     text: completion.text,
-    model: completion.model ?? status.model,
+    model: completion.model ?? modelId ?? status.model,
     usage: completion.usage ?? null,
     allowance: {
       usedRequests: claim.usedRequests,

@@ -4,7 +4,7 @@ import { sdk } from "./_core/sdk";
 import { COOKIE_NAME } from "@shared/const";
 import { planAutomation } from "./automationPlanner";
 import { createHeartbeatJob } from "./_core/heartbeat";
-import { createUserAutomation, deleteUserAutomation, setUserAutomationScheduleTask } from "./userAutomations";
+import { createUserAutomation, deleteUserAutomation, setUserAutomationScheduleTask, updateUserAutomation } from "./userAutomations";
 
 export const automationPlannerRouter = express.Router();
 function sessionToken(req: express.Request) { return parseCookie(req.headers.cookie ?? "")[COOKIE_NAME] ?? ""; }
@@ -24,7 +24,8 @@ automationPlannerRouter.post("/api/user-automations/plan", async (req, res) => {
     try {
       const scheduled = await createHeartbeatJob({ name: `nova-user-automation-${created.id}`, cron: plan.scheduleCron, path: "/api/scheduled/user-automation", method: "POST", description: `AI-created automation: ${plan.name}` }, token);
       const linked = await setUserAutomationScheduleTask(user.id, created.id, scheduled.taskUid);
-      return res.status(201).json({ created: true, automation: linked ?? created, plan });
+      const enabled = await updateUserAutomation(user.id, created.id, { enabled: true });
+      return res.status(201).json({ created: true, automation: enabled ?? linked ?? created, plan });
     } catch (scheduleError) { await deleteUserAutomation(user.id, created.id).catch(() => {}); throw scheduleError; }
   } catch (error) { console.error("Automation planning failed", error); return res.status(422).json({ error: error instanceof Error ? error.message : "Nova could not understand that automation request." }); }
 });

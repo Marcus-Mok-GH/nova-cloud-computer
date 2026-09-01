@@ -33,7 +33,6 @@ export async function configureTelegramWebhook(token: string, appUrl: string, fe
   if (baseUrl.protocol !== "https:") {
     throw new Error("Telegram requires Nova to have a public HTTPS URL. Configure PUBLIC_APP_URL when deploying Nova.");
   }
-  // Default bot uses a fixed path without the token to avoid colon/routing issues on Vercel.
   if (token === process.env.DEFAULT_TELEGRAM_BOT_TOKEN) {
     baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/api/telegram/webhook/default`;
   } else {
@@ -69,6 +68,18 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
   return String(chat.id);
 }
 
-export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch) {
-  return telegramRequest<{ message_id: number }>(token, "sendMessage", { chat_id: chatId, text, disable_web_page_preview: true }, fetchImpl);
+export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data: string }>> }) {
+  return telegramRequest<{ message_id: number }>(token, "sendMessage", {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: true,
+    ...(options?.inlineKeyboard ? { reply_markup: { inline_keyboard: options.inlineKeyboard } } : {}),
+  }, fetchImpl);
+}
+
+export async function answerTelegramCallbackQuery(token: string, callbackQueryId: string, text?: string, fetchImpl: typeof fetch = fetch) {
+  return telegramRequest<boolean>(token, "answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text } : {}),
+  }, fetchImpl);
 }

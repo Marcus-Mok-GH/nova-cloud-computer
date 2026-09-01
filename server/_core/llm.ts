@@ -449,8 +449,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     const accumulatedToolCalls: ToolCall[] = [];
     let finishReason: string | null = null;
     let responseId = "chatcmpl-stream";
+    let receivedDone = false;
 
-    while (true) {
+    readLoop: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -461,7 +462,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data:")) continue;
         const dataStr = trimmed.slice(5).trim();
-        if (dataStr === "[DONE]") break;
+        if (dataStr === "[DONE]") {
+          receivedDone = true;
+          await reader.cancel();
+          break readLoop;
+        }
 
         try {
           const parsed = JSON.parse(dataStr);
@@ -502,7 +507,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       }
     }
 
-    if (buffer.trim().startsWith("data:")) {
+    if (!receivedDone && buffer.trim().startsWith("data:")) {
       const dataStr = buffer.trim().slice(5).trim();
       if (dataStr !== "[DONE]") {
         try {
@@ -554,4 +559,3 @@ export type ModelsResponse = {
   object: string;
   data: ModelInfo[];
 };
-

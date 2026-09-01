@@ -2,12 +2,7 @@ import { sql } from "drizzle-orm";
 import { decryptModelApiKey } from "./modelSecrets";
 import { getDb, getOrCreateWorkspace } from "./db";
 import { ENV } from "./_core/env";
-
-export const TELEGRAM_MODEL_OPTIONS = [
-  { provider: "nvidia-nim", modelId: "z-ai/glm-5.2", name: "GLM 5.2" },
-  { provider: "nvidia-nim", modelId: "moonshotai/kimi-k2.5", name: "Kimi K2.5" },
-  { provider: "nvidia-nim", modelId: "minimaxai/minimax-m2.1", name: "MiniMax M2.1" },
-] as const;
+import { listNvidiaModels } from "./nvidiaGateway";
 
 type Provider = "nvidia-nim" | "custom";
 
@@ -17,20 +12,22 @@ export async function getTelegramModelSettingsForUser(ownerId: number) {
   if (!db) throw new Error("The Nova database is unavailable.");
   const result = await db.execute(sql`SELECT "modelProvider", "modelId", "customModelId" FROM "telegram_bot_settings" WHERE "workspaceId" = ${workspace.id} LIMIT 1`);
   const row = (result as any).rows?.[0] ?? (result as any)[0];
-  return {
-    provider: (row?.modelProvider ?? "nvidia-nim") as Provider,
-    modelId: row?.modelId ?? "z-ai/glm-5.2",
-    customModelId: row?.customModelId ? Number(row.customModelId) : null,
-    options: TELEGRAM_MODEL_OPTIONS,
-  };
+  const provider = (row?.modelProvider ?? "nvidia-nim") as Provider;
+  const modelId = row?.modelId ?? "";
+  const customModelId = row?.customModelId ? Number(row.customModelId) : null;
+  const models = provider === "nvidia-nim" ? await listNvidiaModels() : [];
+  return { provider, modelId, customModelId, options: models };
 }
 
 export async function updateTelegramModelSettingsForUser(ownerId: number, input: { provider: Provider; modelId: string; customModelId?: number | null }) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const db = await getDb();
   if (!db) throw new Error("The Nova database is unavailable.");
-  if (input.provider === "nvidia-nim" && !TELEGRAM_MODEL_OPTIONS.some(option => option.modelId === input.modelId)) throw new Error("That Telegram model is not available.");
   let customModelId = input.customModelId ?? null;
+  if (input.provider === "nvidia-nim") {
+    const models = await listNvidiaModels(true);
+    if (!models.some(option => option.id === input.modelId)) throw new Error("That NVIDIA model is not currently available.");
+  }
   if (input.provider === "custom") {
     if (!customModelId) throw new Error("Choose a custom model.");
     const check = await db.execute(sql`SELECT id, "modelId" FROM "custom_models" WHERE id = ${customModelId} AND "workspaceId" = ${workspace.id} LIMIT 1`);
@@ -46,7 +43,7 @@ export async function getTelegramModelConnectionForUser(ownerId: number) {
   const settings = await getTelegramModelSettingsForUser(ownerId);
   const apiKey = process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
   if (settings.provider === "nvidia-nim") {
-    if (!apiKey) return undefined;
+    if (!apiKey || !settings.modelId) return undefined;
     return { model: settings.modelId, apiUrl: ENV.nvidiaNimApiUrl, apiKey };
   }
   if (!settings.customModelId) return undefined;

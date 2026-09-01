@@ -2,82 +2,17 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1786679597916,
-      "tag": "0000_violet_morbius",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1786716427012,
-      "tag": "0001_productive_wrecker",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1786771743271,
-      "tag": "0002_optimal_mysterio",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1786775460047,
-      "tag": "0003_loud_multiple_man",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1786779941910,
-      "tag": "0004_codebuff_planner",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1786804569731,
-      "tag": "0005_many_punisher",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1786809000000,
-      "tag": "0006_drop_codebuff_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1787028035124,
-      "tag": "0007_melodic_mister_sinister",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1787033018053,
-      "tag": "0008_account_owned_automations",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1787122641000,
-      "tag": "0009_add_nvidia_nim_to_model_provider",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1787207841000,
-      "tag": "0010_add_persistent_sandbox_id",
-      "breakpoints": true
-    }
+    {"idx":0,"version":"7","when":1786679597916,"tag":"0000_violet_morbius","breakpoints":true},
+    {"idx":1,"version":"7","when":1786716427012,"tag":"0001_productive_wrecker","breakpoints":true},
+    {"idx":2,"version":"7","when":1786771743271,"tag":"0002_optimal_mysterio","breakpoints":true},
+    {"idx":3,"version":"7","when":1786775460047,"tag":"0003_loud_multiple_man","breakpoints":true},
+    {"idx":4,"version":"7","when":1786779941910,"tag":"0004_codebuff_planner","breakpoints":true},
+    {"idx":5,"version":"7","when":1786804569731,"tag":"0005_many_punisher","breakpoints":true},
+    {"idx":6,"version":"7","when":1786809000000,"tag":"0006_drop_codebuff_settings","breakpoints":true},
+    {"idx":7,"version":"7","when":1787028035124,"tag":"0007_melodic_mister_sinister","breakpoints":true},
+    {"idx":8,"version":"7","when":1787033018053,"tag":"0008_account_owned_automations","breakpoints":true},
+    {"idx":9,"version":"7","when":1787122641000,"tag":"0009_add_nvidia_nim_to_model_provider","breakpoints":true},
+    {"idx":10,"version":"7","when":1787207841000,"tag":"0010_add_persistent_sandbox_id","breakpoints":true},
+    {"idx":11,"version":"7","when":1788300000000,"tag":"0011_user_created_automations","breakpoints":true}
   ]
 }

@@ -449,9 +449,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     const accumulatedToolCalls: ToolCall[] = [];
     let finishReason: string | null = null;
     let responseId = "chatcmpl-stream";
-    let receivedDone = false;
 
-    readLoop: while (true) {
+    let isDone = false;
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -463,9 +463,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         if (!trimmed.startsWith("data:")) continue;
         const dataStr = trimmed.slice(5).trim();
         if (dataStr === "[DONE]") {
-          receivedDone = true;
-          await reader.cancel();
-          break readLoop;
+          isDone = true;
+          break;
         }
 
         try {
@@ -505,9 +504,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
           // Ignore invalid SSE line JSON
         }
       }
+      if (isDone) break;
     }
 
-    if (!receivedDone && buffer.trim().startsWith("data:")) {
+    if (!isDone && buffer.trim().startsWith("data:")) {
       const dataStr = buffer.trim().slice(5).trim();
       if (dataStr !== "[DONE]") {
         try {
@@ -519,6 +519,12 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
           }
         } catch {}
       }
+    }
+
+    try {
+      await reader.cancel();
+    } catch {
+      // Body already closed or cancelled.
     }
 
     return {

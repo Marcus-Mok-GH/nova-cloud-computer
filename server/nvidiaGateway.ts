@@ -101,7 +101,7 @@ async function gatewayFetch(path: string, init: RequestInit = {}) {
 }
 
 export function isNvidiaGatewayConfigured() {
-  return Boolean(configuredGatewayUrl() && configuredGatewayToken());
+  return !!(configuredGatewayUrl() && configuredGatewayToken());
 }
 
 export async function getNvidiaGatewayStatus(ownerId: number) {

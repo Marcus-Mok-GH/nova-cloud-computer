@@ -385,7 +385,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.model = model;
   }
 
-  if (tools && tools.length > 0) {
+  if (tools?.length) {
     payload.tools = tools;
   }
 

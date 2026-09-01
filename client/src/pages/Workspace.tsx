@@ -177,16 +177,18 @@ export default function Workspace() {
             </div>
             <MoreHorizontal className="size-4 text-neutral-400" />
           </header>
-          <div className="flex flex-1 flex-col overflow-y-auto px-5 py-6">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 self-end">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
               {savedMessages.isLoading ? (
                 <p className="text-sm text-neutral-400">Loading conversation...</p>
               ) : (
                 savedMessages.data?.map(message => (
                   message.role === "user" ? (
-                    <div key={message.id} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
+                    <div key={message.id} className="flex w-full justify-end">
+                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{message.content}</div>
+                    </div>
                   ) : (
-                    <div key={message.id} className="flex items-start gap-2.5">
+                    <div key={message.id} className="flex w-full items-start gap-2.5">
                       <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
                       <div className="max-w-[85%]">
                         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>
@@ -196,9 +198,13 @@ export default function Workspace() {
                   )
                 ))
               )}
-              {pendingUserContent && <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{pendingUserContent}</div>}
+              {pendingUserContent && (
+                <div className="flex w-full justify-end">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-neutral-950 px-4 py-2.5 text-sm leading-6 text-white dark:bg-white dark:text-neutral-950">{pendingUserContent}</div>
+                </div>
+              )}
               {(isStreaming || toolActivities.length > 0) && (
-                <div className="flex items-start gap-2.5">
+                <div className="flex w-full items-start gap-2.5">
                   <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#f97316]/10 text-[#f97316]"><NovaMark size={12} /></span>
                   <div className="max-w-[85%] space-y-2">
                     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>

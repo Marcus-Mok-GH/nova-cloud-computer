@@ -1,0 +1,64 @@
+name: Apply dynamic model selection
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply patches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('server/workspaceAgent.ts')
+          s = p.read_text()
+          s = s.replace('model: process.env.NVIDIA_NIM_MODEL ?? "z-ai/glm-5.2",', 'model: settings?.activeModelId?.trim() || process.env.NVIDIA_NIM_MODEL || "z-ai/glm-5.2",', 1)
+          p.write_text(s)
+
+          p = Path('server/routers.ts')
+          s = p.read_text()
+          s = s.replace('import { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } from "./nvidiaGateway";', 'import { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } from "./nvidiaGateway";', 1)
+          needle = 'nvidia: router({ status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete:'
+          replacement = 'nvidia: router({ models: protectedProcedure.query(async () => { try { return await listNvidiaModels(); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete:'
+          s = s.replace(needle, replacement, 1)
+          p.write_text(s)
+
+          p = Path('server/app.ts')
+          s = p.read_text()
+          if 'getTelegramModelSettingsForUser' not in s:
+              s = s.replace('import { sendTelegramMessage } from "./telegram";\n', 'import { sendTelegramMessage } from "./telegram";\nimport { getTelegramModelSettingsForUser, updateTelegramModelSettingsForUser } from "./telegramModelSettings";\n', 1)
+          marker = 'if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) {'
+          menu = '''if (text === "/models" || text === "/model") { const settings = await getTelegramModelSettingsForUser(ownerId); const options = settings.options as Array<{ id: string }>; if (!options.length) { await sendTelegramMessage(token, chatId, "No NVIDIA models are currently available. Please try again shortly."); } else { const lines = options.map((model, index) => `${index + 1}. ${model.id}${model.id === settings.modelId ? " ✓" : ""}`); await sendTelegramMessage(token, chatId, `Available models:\\n\\n${lines.join("\\n")}\\n\\nUse /model <number> or /model <model-id> to select one.`); } res.status(200).json({ ok: true, replied: "models" }); return true; } const modelCommand = text.match(/^\\/model\\s+(.+)$/i); if (modelCommand) { const settings = await getTelegramModelSettingsForUser(ownerId); const options = settings.options as Array<{ id: string }>; const requested = modelCommand[1].trim(); const index = Number(requested); const selected = Number.isInteger(index) && index >= 1 && index <= options.length ? options[index - 1] : options.find(model => model.id === requested); if (!selected) { await sendTelegramMessage(token, chatId, "I couldn't find that model. Send /models to see the current list."); } else { await updateTelegramModelSettingsForUser(ownerId, { provider: "nvidia-nim", modelId: selected.id }); await sendTelegramMessage(token, chatId, `Model selected: ${selected.id}`); } res.status(200).json({ ok: true, replied: "model" }); return true; } '''
+          if 'replied: "models"' not in s:
+              s = s.replace(marker, menu + marker, 1)
+          p.write_text(s)
+
+          p = Path('client/src/pages/Workspace.tsx')
+          s = p.read_text()
+          anchor = '  const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });\n'
+          additions = '''  const modelSettings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });\n  const liveModels = trpc.nvidia.models.useQuery(undefined, { retry: false, refetchInterval: 300000 });\n  const updateModel = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await modelSettings.refetch(); toast.success("Model updated."); }, onError: error => toast.error(error.message) });\n  const [selectedModel, setSelectedModel] = useState("");\n  useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);\n'''
+          if 'const liveModels = trpc.nvidia.models.useQuery' not in s:
+              s = s.replace(anchor, anchor + additions, 1)
+          picker = '''<select aria-label="AI model" value={selectedModel} onChange={event => { const value = event.target.value; setSelectedModel(value); if (value) updateModel.mutate({ activeProvider: "nvidia-nim", activeModelId: value }); }} disabled={liveModels.isLoading || updateModel.isPending} className="max-w-40 shrink-0 rounded-lg border-0 bg-transparent px-1 text-xs text-neutral-500 outline-none dark:text-neutral-400"><option value="">Model</option>{liveModels.data?.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}</select>'''
+          if 'aria-label="AI model"' not in s:
+              s = s.replace('<FileText className="size-4 shrink-0 text-neutral-400" />', '<FileText className="size-4 shrink-0 text-neutral-400" />' + picker, 1)
+          p.write_text(s)
+          PY
+      - name: Commit changes to PR branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add server/workspaceAgent.ts server/routers.ts server/app.ts client/src/pages/Workspace.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'feat: wire dynamic model selection for web and Telegram'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

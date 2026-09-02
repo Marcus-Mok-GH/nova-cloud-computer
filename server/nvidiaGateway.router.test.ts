@@ -15,6 +15,7 @@ const complete = vi.fn(async (ownerId: number, prompt: string) => ({
   usage: null,
   allowance: { usedRequests: 3, maxRequests: 50, remainingRequests: 47, exhausted: false },
 }));
+const listModels = vi.fn(async () => [{ id: "meta/llama-3.1-8b-instruct", kind: "text" as const }]);
 
 class MockNvidiaGatewayClientError extends Error {
   constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
@@ -33,6 +34,7 @@ vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegr
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 vi.mock("./nvidiaGateway", () => ({
   getNvidiaGatewayStatus: status,
+  listNvidiaModels: listModels,
   completeWithNvidiaGateway: complete,
   NvidiaGatewayClientError: MockNvidiaGatewayClientError,
 }));
@@ -63,5 +65,11 @@ describe("NVIDIA protected router", () => {
     await expect(owner.nvidia.complete({ prompt: "x".repeat(12001) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     complete.mockRejectedValueOnce(new MockNvidiaGatewayClientError("Workspace allowance reached.", "rate_limit"));
     await expect(owner.nvidia.complete({ prompt: "Draft a compact release plan" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: "Workspace allowance reached." });
+  });
+
+  it("bypasses the server model cache when a refresh is requested", async () => {
+    const owner = appRouter.createCaller(context(1));
+    await expect(owner.nvidia.models({ forceRefresh: true })).resolves.toHaveLength(1);
+    expect(listModels).toHaveBeenCalledWith(true);
   });
 });

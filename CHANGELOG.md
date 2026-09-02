@@ -1,3 +1,9 @@
+## 2026-09-02 — Merge main into refactor/codebase-optimization
+
+- Merged `origin/main` (which advanced with mobile-layout optimizations, the branding rename to "Nova", and the NVIDIA model-discovery change) into this branch to make PR #54 mergeable after it went DIRTY.
+- Resolved the `DashboardLayout.tsx` and `Workspace.tsx` conflicts by taking `main`'s version, which already carries the sleek minimal styling (orange `#f97316` accent, neutral surfaces, softened shadows) plus the newer responsive nav and "Nova" branding.
+- Verified merged tree: `tsc --noEmit` clean and 124 render/integration tests pass.
+
 ## 2026-09-02 — Fix drizzle migration numbering
 
 - `drizzle/neon/`: The migration added by “Migrate automations to structured definitions” was committed as `0011_structured_user_automations.sql`, but the journal (`_journal.json`) registered it at idx 12 as `0012_structured_user_automations`. Concurrently, `0012_independent_telegram_model.sql` existed on disk without a journal entry. Because `drizzle-kit migrate` walks the journal and looks up each tag’s matching file, every deploy/CI build failed with “applying migrations” aborting on the missing `0012_structured_user_automations.sql`, so neither the structured-automation columns nor the Telegram model columns ever reached the database.

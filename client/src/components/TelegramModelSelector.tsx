@@ -18,11 +18,11 @@ export default function TelegramModelSelector() {
   const selected = settings.data?.modelId ?? "";
 
   return (
-    <section className="rounded-3xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7">
+    <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Telegram AI</p>
-          <h2 className="mt-1 font-[DM_Serif_Display] text-3xl tracking-tight">Telegram model</h2>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">Telegram model</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
             Choose which NVIDIA text or vision-language model powers your Telegram bot. The list is fetched dynamically from the configured NVIDIA gateway.
           </p>
@@ -32,7 +32,7 @@ export default function TelegramModelSelector() {
         </Button>
       </div>
       <div className="mt-6 rounded-2xl border bg-muted/20 p-4">
-        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-[#638f84]" /> Available NVIDIA models</div>
+        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-[#f97316]" /> Available NVIDIA models</div>
         {settings.isLoading ? (
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading models...</div>
         ) : settings.isError ? (

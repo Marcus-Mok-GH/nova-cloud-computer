@@ -32,7 +32,7 @@ export default function More() {
             <button
               key={item.path}
               onClick={() => setLocation(item.path)}
-              className="group flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_12px_35px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-neutral-900 dark:hover:border-white/20"
+              className="group flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-neutral-900 dark:hover:border-white/20"
             >
               <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700 transition group-hover:bg-[#f97316]/10 group-hover:text-[#f97316] dark:bg-neutral-800 dark:text-neutral-200">
                 <item.icon className="size-5" />

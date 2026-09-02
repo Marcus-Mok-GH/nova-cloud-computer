@@ -6,7 +6,7 @@ export default function Deployments() {
   return (
     <DashboardLayout>
       <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#f97316]">Release room</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#c2410c] dark:text-[#fb923c]">Release room</p>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Deployments</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A calm place to keep track of what Nova is ready to publish.</p>
         <article className="mt-8 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-white/10 dark:bg-neutral-900">

@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { Folder, HardDrive, LogOut, MessageSquareText, Moon, MoreHorizontal, Plus, Rocket, Search, Settings2, Sun } from "lucide-react";
+import { Folder, HardDrive, LogOut, MessageSquareText, Moon, MoreHorizontal, Plus, Rocket, Search, Settings2, Sparkles, Sun } from "lucide-react";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -13,6 +13,7 @@ const nav = [
   { icon: HardDrive, label: "Home", path: "/app" },
   { icon: Folder, label: "Files", path: "/app/files" },
   { icon: MessageSquareText, label: "Chats", path: "/app/chats" },
+  { icon: Sparkles, label: "Models", path: "/app/models" },
   { icon: Rocket, label: "Deployments", path: "/app/deployments" },
   { icon: Settings2, label: "Settings", path: "/app/settings" },
 ];

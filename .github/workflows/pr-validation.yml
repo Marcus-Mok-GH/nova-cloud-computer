@@ -85,10 +85,36 @@ jobs:
           python3 -m pip install --disable-pip-version-check --no-cache-dir strix-agent==1.5.3
           strix --version
 
+      - name: Select Nara router model
+        id: select-model
+        env:
+          NARA_ROUTER_API_KEY: ${{ secrets.NARA_ROUTER_API_KEY }}
+          NARA_ROUTER_MODEL: ${{ vars.NARA_ROUTER_MODEL }}
+        run: |
+          # Prefer an explicit Actions-variable override, otherwise pick the
+          # first stable Strix-recommended model the router actually serves, so
+          # a single deprecated/gated model cannot break every PR.
+          if [[ -n "$NARA_ROUTER_MODEL" ]]; then
+            echo "model=$NARA_ROUTER_MODEL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          candidates="deepseek-v4-flash glm-5.3-flash qwen3.7-flash kimi-k2.7-code glm-5.3-flash-free"
+          available="$(curl -fsSL https://router.bynara.id/v1/models \
+            -H "Authorization: Bearer $NARA_ROUTER_API_KEY" \
+            | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//' || true)"
+          for model in $candidates; do
+            if printf '%s\n' "$available" | grep -qx "$model"; then
+              echo "model=$model" >> "$GITHUB_OUTPUT"
+              echo "Selected Nara router model: $model"
+              exit 0
+            fi
+          done
+          echo "model=glm-5.3-flash" >> "$GITHUB_OUTPUT"
+          echo "No candidate model found in router list; falling back to glm-5.3-flash"
+
       - name: Scan changed code with Strix
         env:
-          # Set NARA_ROUTER_MODEL as an Actions variable to override this default.
-          STRIX_LLM: openai/${{ vars.NARA_ROUTER_MODEL || 'glm-5.3-flash-free' }}
+          STRIX_LLM: openai/${{ steps.select-model.outputs.model }}
           LLM_API_BASE: https://router.bynara.id/v1
           LLM_API_KEY: ${{ secrets.NARA_ROUTER_API_KEY }}
           STRIX_LLM_MAX_RETRIES: "2"

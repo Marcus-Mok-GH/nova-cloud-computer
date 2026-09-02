@@ -171,7 +171,10 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const created = await createWorkspaceFileForUser(ownerId, { name: file[1].trim(), content: exact });
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
-  throw new Error("No direct workspace action could be matched");
+  return {
+    reply: "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.",
+    actions: [] as AgentAction[],
+  };
 }
 
 const tools = [

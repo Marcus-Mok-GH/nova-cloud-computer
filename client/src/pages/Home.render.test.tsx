@@ -20,6 +20,10 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain("mock-window");
     expect(markup).toContain("mock-phone");
     expect(markup).toContain("Everything your cloud computer can do.");
+    expect(markup).toContain("© 2026 Nova");
+    expect(markup).not.toContain("Nova Computer");
+    expect(markup).not.toContain("Nova Space");
+    expect(markup).not.toContain("Nova App");
   });
 
   it("renders the Zo-style sign-in page", () => {

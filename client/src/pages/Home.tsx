@@ -68,7 +68,7 @@ function SpaceMockup() {
       </div>
       <div className="mock-space">
         <aside className="mock-sidebar">
-          <div className="mock-brand"><NovaMark size={16} /> Nova Space</div>
+          <div className="mock-brand"><NovaMark size={16} /> Nova</div>
           <p className="mock-nav-label">Space</p>
           <button className="mock-nav-item active" type="button"><HardDrive size={12} /> Home</button>
           <button className="mock-nav-item" type="button"><Folder size={12} /> Files</button>
@@ -284,7 +284,7 @@ export default function Home() {
               <div className="flex items-start gap-2.5">
                 <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[#c2410c]/10 text-[#c2410c] dark:bg-[#fb923c]/15 dark:text-[#fb923c]"><Bot size={13} /></span>
                 <div>
-                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Nova App</p>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Nova</p>
                   <div className="max-w-full rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-[13px] leading-relaxed text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">Three edits since Monday — pricing, timeline, and the Q3 goal. I dropped a summary into the project folder.</div>
                 </div>
               </div>
@@ -374,7 +374,7 @@ export default function Home() {
         </div>
         <div className="border-t border-white/10">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-5 py-6 text-xs text-neutral-500">
-            <span>© 2026 Nova Computer</span>
+            <span>© 2026 Nova</span>
             <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-[#fb923c]" /> Your computer is always on</span>
           </div>
         </div>

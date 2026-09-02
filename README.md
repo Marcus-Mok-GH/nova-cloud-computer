@@ -1,4 +1,4 @@
-# Nova Cloud Computer
+# Nova
 
 A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent personal workspace with an AI agent that can chat, run tasks, manage files, and spin up sandboxed execution environments.
 

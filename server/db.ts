@@ -120,7 +120,7 @@ export async function getOrCreateWorkspace(ownerId: number) {
   const existing = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
   let workspace = existing[0];
   if (!workspace) {
-    await db.insert(workspaces).values({ ownerId, name: "My Nova Space" }).onConflictDoNothing();
+    await db.insert(workspaces).values({ ownerId, name: "My Nova" }).onConflictDoNothing();
     const created = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
     workspace = created[0];
   }

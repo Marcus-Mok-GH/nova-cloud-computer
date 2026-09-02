@@ -1,3 +1,7 @@
+## 2026-09-02 — Fix CI: Strix security review model selection
+
+- `.github/workflows/pr-validation.yml`: The Strix PR security review hardcoded the `glm-5.3-flash-free` fallback when `NARA_ROUTER_MODEL` was unset, and the Nara router began returning 400 “The requested model is not available” for that free-tier model, failing every pull request’s validation. Added a “Select Nara router model” step that queries the router’s `/v1/models` with the Actions secret and picks the first available Strix-recommended model (deepseek-v4-flash → glm-5.3-flash → qwen3.7-flash → kimi-k2.7-code → glm-5.3-flash-free), so a single deprecated/gated model cannot take down all PR validation.
+
 ## 2026-09-02 — Sleek, minimal UI pass across the app
 
 - All pages now share one clean design system. The stone/serif `DM_Serif_Display` and sage-green palette (`#e4f0eb` / `#42665d` / `#638f84` / `#75a79a` / `#3d807a`) that had drifted into the account settings surface is gone. Profile, Settings, Automations, and Telegram-selector screens now use the app's orange accent (`#f97316` / `#c2410c`), neutral white/ink surfaces, and Inter headings instead.

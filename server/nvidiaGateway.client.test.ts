@@ -8,7 +8,7 @@ vi.mock("./db", () => ({
   claimNvidiaInferenceRequestForUser: claim,
 }));
 
-const { completeWithNvidiaGateway, getNvidiaGatewayStatus, NvidiaGatewayClientError } = await import("./nvidiaGateway");
+const { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } = await import("./nvidiaGateway");
 
 describe("NVIDIA gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -56,5 +56,25 @@ describe("NVIDIA gateway client", () => {
       providerConfigured: false,
       providerConfigurationKnown: false,
     });
+  });
+  it("discovers only text and vision-language models from NVIDIA", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },
+      { id: "nvidia/neva-22b", modalities: ["text", "image"] },
+      // NVIDIA's OpenAI-compatible endpoint commonly returns only these core
+      // fields, without task or modality metadata.
+      { id: "meta/llama-3.1-70b-instruct", object: "model", owned_by: "nvidia" },
+      { id: "nvidia/nv-embed-v2" },
+      { id: "image-only-model", modalities: ["image"] },
+      { id: "nvidia/canary-asr", modalities: ["audio"] },
+      { id: "black-forest-labs/flux.1-dev", task: "image-generation" },
+      { id: "nvidia/nv-rerankqa-mistral-4b-v3", task: "rerank" },
+    ] }), { status: 200 }));
+
+    await expect(listNvidiaModels(true)).resolves.toEqual([
+      expect.objectContaining({ id: "meta/llama-3.1-70b-instruct", kind: "text" }),
+      expect.objectContaining({ id: "meta/llama-3.1-8b-instruct", kind: "text" }),
+      expect.objectContaining({ id: "nvidia/neva-22b", kind: "vision" }),
+    ]);
   });
 });

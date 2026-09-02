@@ -81,7 +81,26 @@ export const appRouter = router({
     computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
-    updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => { const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input); if (!settings) throwIfNotFound(settings, "custom model"); return settings; }),
+    updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
+      if (input.activeProvider !== undefined || input.activeModelId !== undefined) {
+        try {
+          const current = await getWorkspaceModelSettingsForUser(ctx.user.id);
+          const provider = input.activeProvider ?? current.activeProvider;
+          const modelId = input.activeModelId ?? current.activeModelId;
+          if (provider === "nvidia-nim") {
+            const models = await listNvidiaModels(true);
+            if (!models.some(model => model.id === modelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That NVIDIA text or vision model is not currently available." });
+          }
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          throw error;
+        }
+      }
+      const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
+      if (!settings) throwIfNotFound(settings, "custom model");
+      return settings;
+    }),
   }),
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),
@@ -92,7 +111,7 @@ export const appRouter = router({
     sendTest: protectedProcedure.input(z.object({ text: z.string().trim().min(1).max(4096).default("Nova is connected to your Telegram bot.") })).mutation(async ({ ctx, input }) => { const credentials = await getTelegramCredentialsForUser(ctx.user.id); if (!credentials?.chatId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Send /start to your bot in Telegram, then discover its chat before sending a message." }); const sent = await sendTelegramMessage(credentials.token, credentials.chatId, input.text); return { success: true as const, messageId: sent.message_id }; }),
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
-  nvidia: router({ models: protectedProcedure.query(async () => { try { return await listNvidiaModels(); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithNvidiaGateway(ctx.user.id, input.prompt); } catch (error) { if (error instanceof NvidiaGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." }); } }) }),
+  nvidia: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listNvidiaModels(input?.forceRefresh); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithNvidiaGateway(ctx.user.id, input.prompt); } catch (error) { if (error instanceof NvidiaGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." }); } }) }),
   agentVm: router({
     status: protectedProcedure.query(({ ctx }) => getAgentVmStatus(ctx.user.id)), list: protectedProcedure.query(({ ctx }) => listAgentVmRuns(ctx.user.id)),
     start: protectedProcedure.input(agentVmRunInput).mutation(async ({ ctx, input }) => { try { return await startAgentVmRun(ctx.user.id, input); } catch (error) { const message = error instanceof Error ? error.message : "Nova could not start that agent VM run."; const code = /active agent VM run/i.test(message) ? "PRECONDITION_FAILED" : /blocked|limits/i.test(message) ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message }); } }),

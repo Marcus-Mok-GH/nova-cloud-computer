@@ -179,9 +179,13 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
     if (!supportsChat) return undefined;
     return keys.some(key => /vision|multimodal|image/i.test(key)) ? "vision" : "text";
   }
-  // Do not infer chat support from an ID. NVIDIA may expose non-chat models with
-  // opaque IDs, so models without explicit positive capability metadata stay hidden.
-  return undefined;
+  // NVIDIA's OpenAI-compatible /v1/models response normally only includes the
+  // model ID and ownership fields. Treat metadata-poor models as text chat models
+  // unless their ID identifies a known non-chat model family; otherwise the picker
+  // is empty even though the gateway successfully returned available models.
+  return /(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id)
+    ? undefined
+    : "text";
 }
 
 /**

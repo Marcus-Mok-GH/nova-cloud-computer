@@ -99,7 +99,7 @@ export default function SignIn() {
         <ArrowLeft size={15} /> Back to site
       </Link>
 
-      <section className="relative w-full max-w-md rounded-3xl border border-neutral-200 bg-white p-8 shadow-[0_24px_80px_rgba(10,10,10,0.08)] sm:p-10 dark:border-white/10 dark:bg-neutral-900">
+      <section className="relative w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-[0_8px_30px_rgba(10,10,10,0.06)] sm:p-10 dark:border-white/10 dark:bg-neutral-900">
         <div className="flex items-center gap-2.5">
           <NovaMark size={26} ariaHidden={false} />
           <span className="text-lg font-extrabold tracking-tight text-neutral-950 dark:text-white">Nova</span>

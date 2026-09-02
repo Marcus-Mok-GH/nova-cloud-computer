@@ -327,5 +327,5 @@ function WorkspaceError({ onRetry }: { onRetry: () => void }) {
 }
 
 function Metric({ value, label, icon: Icon }: { value: React.ReactNode; label: string; icon: React.ComponentType<{ className?: string }> }) {
-  return <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-neutral-900"><Icon className="size-4 text-[#f97316]" /><p className="mt-7 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">{value}</p><p className="mt-1 text-xs text-neutral-400">{label}</p></div>;
+  return <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-neutral-900"><Icon className="size-4 text-[#f97316]" /><p className="mt-7 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">{value}</p><p className="mt-1 text-xs text-neutral-400">{label}</p></div>;
 }

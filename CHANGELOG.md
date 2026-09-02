@@ -1,3 +1,14 @@
+## 2026-09-02 — Sleek, minimal UI pass across the app
+
+- All pages now share one clean design system. The stone/serif `DM_Serif_Display` and sage-green palette (`#e4f0eb` / `#42665d` / `#638f84` / `#75a79a` / `#3d807a`) that had drifted into the account settings surface is gone. Profile, Settings, Automations, and Telegram-selector screens now use the app's orange accent (`#f97316` / `#c2410c`), neutral white/ink surfaces, and Inter headings instead.
+- `client/src/pages/Profile.tsx`: Rewritten as a sleek minimal profile card — orange icon chips, clean neutral surfaces, Inter headings, consistent with the rest of the app. All behavior (email copy, password reveal, sign-in links, sign-out, account deletion) is unchanged.
+- `client/src/pages/Files.tsx`: Rewritten as a minimal light explorer and editor. The heavy dark IDE chrome (`#1e1e1e` / `#2b2b2b` / `#3f3f3f`) is replaced with a neutral sidebar + clean editor surface. All behavior (create/rename/save/delete, nested folders, editing, breadcrumbs) is unchanged.
+- `client/src/pages/WorkspaceSettings.tsx`: Hero section converted from stone-on-serif to a clean white surface with orange eyebrow; card headings switched from `DM_Serif_Display` to bold Inter; account and Telegram icons use the theme's orange chips; the "Telegram connected" pill uses the standard emerald success treatment (matching Deployments). Cards unified to `rounded-2xl`.
+- `client/src/components/UserAutomationsCard.tsx` and `client/src/components/TelegramModelSelector.tsx`: Same treatment — serif headings replaced with bold Inter, sage-green accents replaced with orange, and the "Automation created" notice uses the standard emerald success treatment.
+- `client/src/components/DashboardLayout.tsx`: Removed the header drop shadow for a flat, blurred border-only bar; the unauthenticated "Sign in to continue" card uses a lighter shadow and tighter radius. `client/src/pages/SignIn.tsx` and `client/src/pages/NotFound.tsx` use the same softened shadow.
+- `client/src/pages/Workspace.tsx`: Metric cards lightened from a large soft shadow to `shadow-sm`. `client/src/pages/Chats.tsx` and `client/src/pages/Deployments.tsx` eyebrows unified to the brand-orange tone. `client/src/pages/More.tsx` hover shadow lightened to `shadow-sm`.
+- Verified: `tsc --noEmit` clean, render tests pass, `pnpm run build` succeeds.
+
 ## 2026-08-31 — Send /start to the Telegram bot from Settings
 
 - `client/src/pages/WorkspaceSettings.tsx`: The Telegram card now shows an "Open Telegram & send /start" button once a bot is saved. It deep-links to `https://t.me/<botUsername>?start=nova_app_link`, so Telegram opens the bot and pre-fills `/start` without any typing. The existing webhook handler recognizes the `nova_app_link` payload and links the chatting chat as the outbound destination automatically, so no "Discover chat" round-trip is needed.

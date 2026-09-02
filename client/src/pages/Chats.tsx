@@ -35,7 +35,7 @@ export default function Chats() {
       <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#f97316]">Conversation archive</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#c2410c] dark:text-[#fb923c]">Conversation archive</p>
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">Every conversation stays with the private computer it helps you shape.</p>
           </div>

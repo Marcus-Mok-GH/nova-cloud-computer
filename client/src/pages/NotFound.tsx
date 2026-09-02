@@ -14,7 +14,7 @@ export default function NotFound() {
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-neutral-950">
-      <Card className="mx-4 w-full max-w-lg border-neutral-200 bg-white shadow-[0_24px_80px_rgba(10,10,10,0.08)] dark:border-white/10 dark:bg-neutral-900">
+      <Card className="mx-4 w-full max-w-lg border-neutral-200 bg-white shadow-[0_8px_30px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-neutral-900">
         <CardContent className="pb-8 pt-10 text-center">
           <NovaMark size={44} className="mx-auto" />
 

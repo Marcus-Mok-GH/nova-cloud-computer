@@ -61,7 +61,10 @@ describe("NVIDIA gateway client", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },
       { id: "nvidia/neva-22b", modalities: ["text", "image"] },
-      { id: "metadata-poor-model" },
+      // NVIDIA's OpenAI-compatible endpoint commonly returns only these core
+      // fields, without task or modality metadata.
+      { id: "meta/llama-3.1-70b-instruct", object: "model", owned_by: "nvidia" },
+      { id: "nvidia/nv-embed-v2" },
       { id: "image-only-model", modalities: ["image"] },
       { id: "nvidia/canary-asr", modalities: ["audio"] },
       { id: "black-forest-labs/flux.1-dev", task: "image-generation" },
@@ -69,6 +72,7 @@ describe("NVIDIA gateway client", () => {
     ] }), { status: 200 }));
 
     await expect(listNvidiaModels(true)).resolves.toEqual([
+      expect.objectContaining({ id: "meta/llama-3.1-70b-instruct", kind: "text" }),
       expect.objectContaining({ id: "meta/llama-3.1-8b-instruct", kind: "text" }),
       expect.objectContaining({ id: "nvidia/neva-22b", kind: "vision" }),
     ]);

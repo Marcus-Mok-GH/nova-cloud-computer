@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import Models from "./Models";
 
 const mutation = { mutate: vi.fn(), isPending: false };
+const state = vi.hoisted(() => ({ settingsError: false }));
 vi.mock("@/components/DashboardLayout", () => ({
   default: ({ children }: { children: React.ReactNode }) => (
     <main>{children}</main>
@@ -27,13 +28,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     workspace: {
       modelSettings: {
-        useQuery: () => ({
-          data: {
-            activeProvider: "nvidia-nim",
-            activeModelId: "meta/llama-3.1-8b-instruct",
-          },
-          isLoading: false,
-        }),
+        useQuery: () => ({ data: state.settingsError ? undefined : { activeProvider: "nvidia-nim", activeModelId: "meta/llama-3.1-8b-instruct" }, isLoading: false, isError: state.settingsError }),
       },
       updateSettings: { useMutation: () => mutation },
     },
@@ -54,5 +49,13 @@ describe("Model home", () => {
     expect(markup).toContain("Vision-language");
     expect(markup).toContain("Currently selected");
     expect(markup).not.toContain("image generation");
+  });
+
+  it("shows the failure state when workspace settings cannot be loaded", () => {
+    state.settingsError = true;
+    const markup = renderToStaticMarkup(<Models />);
+    expect(markup).toContain("Model settings are unavailable");
+    expect(markup).toContain("workspace model settings");
+    state.settingsError = false;
   });
 });

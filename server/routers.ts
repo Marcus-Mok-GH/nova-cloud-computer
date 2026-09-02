@@ -82,10 +82,15 @@ export const appRouter = router({
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
-      if (input.activeProvider === "nvidia-nim" && input.activeModelId) {
+      if (input.activeProvider !== undefined || input.activeModelId !== undefined) {
         try {
-          const models = await listNvidiaModels(true);
-          if (!models.some(model => model.id === input.activeModelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That NVIDIA text or vision model is not currently available." });
+          const current = await getWorkspaceModelSettingsForUser(ctx.user.id);
+          const provider = input.activeProvider ?? current.activeProvider;
+          const modelId = input.activeModelId ?? current.activeModelId;
+          if (provider === "nvidia-nim") {
+            const models = await listNvidiaModels(true);
+            if (!models.some(model => model.id === modelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That NVIDIA text or vision model is not currently available." });
+          }
         } catch (error) {
           if (error instanceof TRPCError) throw error;
           if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });

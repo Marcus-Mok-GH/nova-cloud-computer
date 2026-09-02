@@ -65,14 +65,14 @@ export default function Models() {
             <Loader2 className="size-4 animate-spin" /> Loading available
             models…
           </div>
-        ) : models.isError ? (
+        ) : models.isError || settings.isError ? (
           <section className="mt-8 rounded-3xl border border-dashed p-8 text-center">
             <h2 className="text-lg font-bold">
-              Model discovery is unavailable
+              Model settings are unavailable
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Nova could not reach the configured NVIDIA gateway. Refresh after
-              it is connected.
+              Nova could not load the available NVIDIA models or your workspace
+              model settings. Refresh and try again.
             </p>
           </section>
         ) : (

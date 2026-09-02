@@ -167,19 +167,21 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
   const explicitModalities = [...(model.modalities ?? []), ...(model.supported_modalities ?? [])].map(value => value.toLowerCase());
   if (explicitModalities.some(value => /audio|video|image_generation|image-generation|text-to-image/i.test(value))) return undefined;
   if (explicitModalities.length > 0) {
-    if (!explicitModalities.some(value => /text|image/i.test(value))) return undefined;
+    if (!explicitModalities.some(value => /text/i.test(value))) return undefined;
     return explicitModalities.some(value => /image|vision/i.test(value)) ? "vision" : "text";
   }
+  if (explicitTask && /vision|multimodal|visual-language/i.test(explicitTask)) return "vision";
+  if (explicitTask && /chat|completion|text|language/i.test(explicitTask)) return "text";
   if (model.capabilities && typeof model.capabilities === "object" && !Array.isArray(model.capabilities)) {
     const keys = Object.keys(model.capabilities).map(key => key.toLowerCase());
     if (keys.some(key => /audio|video|image-generation|text-to-image|embedding|rerank/i.test(key))) return undefined;
-    if (keys.some(key => /vision|multimodal|image/i.test(key))) return "vision";
-    if (keys.some(key => /chat|completion|text/i.test(key))) return "text";
+    const supportsChat = keys.some(key => /chat|completion|text|language/i.test(key));
+    if (!supportsChat) return undefined;
+    return keys.some(key => /vision|multimodal|image/i.test(key)) ? "vision" : "text";
   }
-  // NVIDIA's /v1/models response is not guaranteed to expose task metadata.
-  // Keep text/VLM chat models while excluding non-chat model families by ID.
-  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriever|audio|asr|tts|speech|video|imagegen|stable-diffusion|flux)([\/_-]|$)/i.test(model.id)) return undefined;
-  return /(?:vision|vlm|llava|qwen-vl|multimodal)/i.test(model.id) ? "vision" : "text";
+  // Do not infer chat support from an ID. NVIDIA may expose non-chat models with
+  // opaque IDs, so models without explicit positive capability metadata stay hidden.
+  return undefined;
 }
 
 /**

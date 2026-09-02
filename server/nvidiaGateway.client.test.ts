@@ -61,6 +61,8 @@ describe("NVIDIA gateway client", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },
       { id: "nvidia/neva-22b", modalities: ["text", "image"] },
+      { id: "metadata-poor-model" },
+      { id: "image-only-model", modalities: ["image"] },
       { id: "nvidia/canary-asr", modalities: ["audio"] },
       { id: "black-forest-labs/flux.1-dev", task: "image-generation" },
       { id: "nvidia/nv-rerankqa-mistral-4b-v3", task: "rerank" },

@@ -1,3 +1,7 @@
+## 2026-09-02 — Remove Strix security review from PR validation
+
+- `.github/workflows/pr-validation.yml`: Removed the `strix-security` job (Strix security scan) from the `PR validation` workflow. It depended on the Nara router (`NARA_ROUTER_API_KEY`) which was returning HTTP 402 payment_required (account out of credits), failing every PR's validation. PR validation now runs only `quality-and-smoke` (typecheck, build, tests, production health check).
+
 ## 2026-09-02 — Merge main into refactor/codebase-optimization
 
 - Merged `origin/main` (which advanced with mobile-layout optimizations, the branding rename to "Nova", and the NVIDIA model-discovery change) into this branch to make PR #54 mergeable after it went DIRTY.

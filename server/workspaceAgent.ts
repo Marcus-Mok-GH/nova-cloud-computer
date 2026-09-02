@@ -171,7 +171,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const created = await createWorkspaceFileForUser(ownerId, { name: file[1].trim(), content: exact });
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
-  return { reply: "I can create, rename, move, and delete folders or plain-text files. You can also explicitly ask me to use a VM, for example: “Use a Daytona VM to inspect my workspace.”", actions: [] as AgentAction[] };
+  throw new Error("No direct workspace action could be matched");
 }
 
 const tools = [
@@ -197,7 +197,6 @@ Inspect before changing when the task requires understanding existing files or s
 Tool results are authoritative data from the workspace. For shell commands, treat the returned output field as the actual stdout/stderr result of the command. A tool activity/status message such as “Completed vm: bash: <command>” is only UI metadata and is never the command's output. If a command returns output, read and use that output. If it returns an error or non-zero exit code, acknowledge the failure and recover when possible.
 
 Use shell commands for inspection, diagnostics, file operations, development commands, and other tasks when appropriate. The shell runs in Nova's dedicated sandbox, not on the user's local device. Do not run shell or VM tools merely to narrate progress. Do not send Telegram messages unless the user explicitly asks you to send the supplied message.
-
 Continue working through tool calls when additional inspection or actions are necessary. If a task is complete, give the user the concise result. Match the user's language when practical.
 
 Current folders: {{folders}}

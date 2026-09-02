@@ -3,15 +3,20 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { Check, Eye, Loader2, RefreshCw, Sparkles, Type } from "lucide-react";
 import { toast } from "sonner";
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 /** A dedicated home for the chat-capable NVIDIA NIM models available to this workspace. */
 export default function Models() {
   const utils = trpc.useUtils();
-  const models = trpc.nvidia.models.useQuery(undefined, {
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const refreshStartedAt = useRef(0);
+  const models = trpc.nvidia.models.useQuery({ forceRefresh }, {
     retry: false,
     refetchInterval: 300000,
   });
+  useEffect(() => {
+    if (forceRefresh && models.dataUpdatedAt > refreshStartedAt.current) setForceRefresh(false);
+  }, [forceRefresh, models.dataUpdatedAt]);
   const settings = trpc.workspace.modelSettings.useQuery(undefined, {
     retry: false,
   });
@@ -50,11 +55,11 @@ export default function Models() {
           <Button
             variant="outline"
             className="shrink-0"
-            onClick={() => models.refetch()}
-            disabled={models.isFetching}
+            onClick={() => { refreshStartedAt.current = models.dataUpdatedAt; setForceRefresh(true); }}
+            disabled={models.isFetching || forceRefresh}
           >
             <RefreshCw
-              className={models.isFetching ? "size-4 animate-spin" : "size-4"}
+              className={models.isFetching || forceRefresh ? "size-4 animate-spin" : "size-4"}
             />{" "}
             Refresh models
           </Button>

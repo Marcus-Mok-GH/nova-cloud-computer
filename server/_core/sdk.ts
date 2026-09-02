@@ -94,7 +94,7 @@ class SDKServer {
     platforms: unknown,
     fallback: string | null | undefined
   ): string | null {
-    if (fallback && fallback.length > 0) return fallback;
+    if (fallback?.length) return fallback;
     if (!Array.isArray(platforms) || platforms.length === 0) return null;
     const set = new Set<string>(
       platforms.filter((p): p is string => typeof p === "string")

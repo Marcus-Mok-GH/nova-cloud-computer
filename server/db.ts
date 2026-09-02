@@ -79,7 +79,7 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
   // should contact Neon support or use the Neon Console to manually delete the auth user.
   // Reference: https://neon.com/docs/auth/guides/plugins/admin (Admin plugin methods)
   const [deleted] = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
-  return Boolean(deleted);
+  return !!deleted;
 }
 
 
@@ -239,7 +239,7 @@ export async function deleteProjectForUser(ownerId: number, projectId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [deleted] = await db.delete(projects).where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspace.id))).returning({ id: projects.id });
-  return Boolean(deleted);
+  return !!deleted;
 }
 
 export async function updateProjectForUser(ownerId: number, projectId: number, input: { name?: string; description?: string | null; status?: "active" | "archived" }) {
@@ -276,7 +276,7 @@ export async function deleteTaskForUser(ownerId: number, taskId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [deleted] = await db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspace.id))).returning({ id: tasks.id });
-  return Boolean(deleted);
+  return !!deleted;
 }
 
 export async function getWorkspaceDashboard(ownerId: number) {
@@ -541,7 +541,7 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [deleted] = await db.delete(telegramBotSettings).where(eq(telegramBotSettings.workspaceId, workspace.id)).returning({ id: telegramBotSettings.id });
-  return Boolean(deleted);
+  return !!deleted;
 }
 
 export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: string) {

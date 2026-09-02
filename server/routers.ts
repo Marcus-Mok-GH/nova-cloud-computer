@@ -81,7 +81,21 @@ export const appRouter = router({
     computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
-    updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => { const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input); if (!settings) throwIfNotFound(settings, "custom model"); return settings; }),
+    updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
+      if (input.activeProvider === "nvidia-nim" && input.activeModelId) {
+        try {
+          const models = await listNvidiaModels(true);
+          if (!models.some(model => model.id === input.activeModelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That NVIDIA text or vision model is not currently available." });
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          throw error;
+        }
+      }
+      const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
+      if (!settings) throwIfNotFound(settings, "custom model");
+      return settings;
+    }),
   }),
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),

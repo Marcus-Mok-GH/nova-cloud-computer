@@ -38,7 +38,12 @@ type NvidiaModelsResponse = {
   data?: NvidiaModel[];
 };
 
-let modelCache: { models: NvidiaModel[]; expiresAt: number } | undefined;
+export type AvailableNvidiaModel = NvidiaModel & {
+  /** Models in the picker always support chat; vision models also accept image input. */
+  kind: "text" | "vision";
+};
+
+let modelCache: { models: AvailableNvidiaModel[]; expiresAt: number } | undefined;
 
 export class NvidiaGatewayClientError extends Error {
   constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
@@ -156,19 +161,25 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   }
 }
 
-function isChatCapableNvidiaModel(model: NvidiaModel) {
+function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
   const explicitTask = model.task?.toLowerCase().trim();
-  if (explicitTask && /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding/i.test(explicitTask)) return false;
+  if (explicitTask && /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding|video/i.test(explicitTask)) return undefined;
   const explicitModalities = [...(model.modalities ?? []), ...(model.supported_modalities ?? [])].map(value => value.toLowerCase());
-  if (explicitModalities.length > 0 && explicitModalities.some(value => /text|image/i.test(value))) return true;
+  if (explicitModalities.some(value => /audio|video|image_generation|image-generation|text-to-image/i.test(value))) return undefined;
+  if (explicitModalities.length > 0) {
+    if (!explicitModalities.some(value => /text|image/i.test(value))) return undefined;
+    return explicitModalities.some(value => /image|vision/i.test(value)) ? "vision" : "text";
+  }
   if (model.capabilities && typeof model.capabilities === "object" && !Array.isArray(model.capabilities)) {
     const keys = Object.keys(model.capabilities).map(key => key.toLowerCase());
-    if (keys.some(key => /chat|completion|text|vision|multimodal/i.test(key))) return true;
-    if (keys.some(key => /embedding|rerank/i.test(key))) return false;
+    if (keys.some(key => /audio|video|image-generation|text-to-image|embedding|rerank/i.test(key))) return undefined;
+    if (keys.some(key => /vision|multimodal|image/i.test(key))) return "vision";
+    if (keys.some(key => /chat|completion|text/i.test(key))) return "text";
   }
   // NVIDIA's /v1/models response is not guaranteed to expose task metadata.
-  // Keep text/VLM chat models while excluding common embedding/reranking-only IDs.
-  return !/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriever)([\/_-]|$)/i.test(model.id);
+  // Keep text/VLM chat models while excluding non-chat model families by ID.
+  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriever|audio|asr|tts|speech|video|imagegen|stable-diffusion|flux)([\/_-]|$)/i.test(model.id)) return undefined;
+  return /(?:vision|vlm|llava|qwen-vl|multimodal)/i.test(model.id) ? "vision" : "text";
 }
 
 /**
@@ -189,7 +200,8 @@ export async function listNvidiaModels(forceRefresh = false) {
     ? rawData
       .filter((model): model is NvidiaModel => typeof model?.id === "string" && model.id.trim().length > 0)
       .map(model => ({ ...model, id: model.id.trim() }))
-      .filter(isChatCapableNvidiaModel)
+      .map(model => ({ ...model, kind: modelKind(model) }))
+      .filter((model): model is AvailableNvidiaModel => model.kind !== undefined)
     : [];
   if (models.length === 0) {
     throw new NvidiaGatewayClientError("NVIDIA returned no available text or vision-language models.", "invalid_response");

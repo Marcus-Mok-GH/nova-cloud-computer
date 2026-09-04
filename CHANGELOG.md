@@ -1,3 +1,13 @@
+## 2026-09-04 — Redesign UI to a sleek Manus-im-inspired dark aesthetic
+
+- `client/src/index.css`: Replaced the orange accent (`#c2410c`/`#f97316`) with a muted gray-blue (`oklch(0.60 0.02 250)`), darkened the base palette to `#0a0a0a`, and tightened hero typography (`letter-spacing: -0.04em`). Removed decorative CSS (mock windows, phone mockup, ribbon-track, floating animations).
+- `client/src/pages/Home.tsx`: Rewrote the hero as a dark, spacious section with a tight white headline; removed `SpaceMockup`/`PhoneMockup` and the ribbon; streamlined feature cards. All routing, auth, and theme logic unchanged.
+- `client/src/pages/SignIn.tsx`, `client/src/components/DashboardLayout.tsx`: Sleeker dark-first auth form and app shell with subtle `white/8` borders and the new accent for the bottom nav.
+- `client/src/pages/Workspace.tsx`, `Chats.tsx`, `Models.tsx`, `Files.tsx`: All pages converted to the new accent and consistent dark surfaces; zero logic changes.
+- Consistency pass: `Profile.tsx`, `NotFound.tsx`, `Deployments.tsx`, `More.tsx`, `WorkspaceSettings.tsx`, `TelegramModelSelector.tsx`, `UserAutomationsCard.tsx`, `NovaMark.tsx`, and `public/favicon.svg` — removed all remaining orange.
+- Post-review fixes (AI reviewer): scoped `.section-title`/`.feature-card` landing styles to `.dark` with light-mode defaults (readable in both themes); replaced spaces with underscores in `oklch(0.72_0.015_250)` arbitrary utilities across Deployments/More/NotFound/Profile/WorkspaceSettings/TelegramModelSelector/UserAutomationsCard (Tailwind v4 whitespace breaks utilities).
+- Verified: `tsc --noEmit` clean, all 124 tests pass, Biome clean.
+
 ## 2026-09-02 — Remove Strix security review from PR validation
 
 - `.github/workflows/pr-validation.yml`: Removed the `strix-security` job (Strix security scan) from the `PR validation` workflow. It depended on the Nara router (`NARA_ROUTER_API_KEY`) which was returning HTTP 402 payment_required (account out of credits), failing every PR's validation. PR validation now runs only `quality-and-smoke` (typecheck, build, tests, production health check).

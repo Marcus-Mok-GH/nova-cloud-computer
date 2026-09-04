@@ -103,8 +103,8 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
 }
 
 function agentInvokeOptions(connection: WorkspaceAgentConnection) {
-  return connection.apiUrl && connection.apiKey
-    ? { model: connection.model, apiUrl: connection.apiUrl, apiKey: connection.apiKey }
+  return connection.apiUrl
+    ? { model: connection.model, apiUrl: connection.apiUrl, apiKey: connection.apiKey || "" }
     : { model: connection.model };
 }
 

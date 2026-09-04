@@ -1,4 +1,5 @@
 import { Daytona } from "@daytona/sdk";
+import { ENV } from "./_core/env";
 
 const MAX_WORKSPACE_FILES = 24;
 const MAX_FILE_BYTES = 60_000;
@@ -159,6 +160,33 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
 
 const persistentSandboxInFlight = new Map<string, Promise<DaytonaSandboxLike>>();
 
+// Idempotently prepare the user's persistent VM so the opencode CLI is installed,
+// configured to stream the "big-pickle" model through the OpenCode Zen provider
+// (mirroring the Zo Computer setup), and authenticated with the Nova Zen key.
+// Best-effort: a provisioning failure never blocks the VM for normal use.
+async function provisionOpencodeOnSandbox(sandbox: DaytonaSandboxLike) {
+  const zenApiKey = process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
+  if (!zenApiKey) return;
+  const config = JSON.stringify({ $schema: "https://opencode.ai/config.json", model: "opencode/big-pickle" });
+  const script = [
+    "set -e",
+    'if ! command -v opencode >/dev/null 2>&1 && [ ! -x "$HOME/.opencode/bin/opencode" ]; then',
+    "  curl -fsSL https://opencode.ai/install | bash",
+    "fi",
+    "grep -q 'opencode/bin' \"$HOME/.bashrc\" 2>/dev/null || printf '\\nexport PATH=\"$HOME/.opencode/bin:$PATH\"\\n' >> \"$HOME/.bashrc\"",
+    'mkdir -p "$HOME/.config/opencode"',
+    `printf '%s' ${JSON.stringify(config)} > "$HOME/.config/opencode/opencode.json"`,
+    "if ! grep -q 'OPENCODE_ZEN_API_KEY' \"$HOME/.bashrc\" 2>/dev/null; then",
+    `  printf '\\nexport OPENCODE_ZEN_API_KEY="%s"\\n' ${JSON.stringify(zenApiKey)} >> \"$HOME/.bashrc\"`,
+    "fi",
+  ].join("\n");
+  try {
+    await sandbox.process.executeCommand(script, "/home/daytona", undefined, 180);
+  } catch (error) {
+    console.warn(`[Daytona] opencode provisioning skipped for sandbox ${sandbox.id}: ${safeDaytonaError(error)}`);
+  }
+}
+
 async function wakePersistentSandbox(sandbox: DaytonaSandboxLike): Promise<DaytonaSandboxLike> {
   if (sandbox.state === "error" && sandbox.recoverable && sandbox.recover) {
     await sandbox.recover(30);
@@ -173,8 +201,11 @@ async function createOrGetPersistentSandbox(client: DaytonaClientLike, workspace
   try {
     return await wakePersistentSandbox(await client.get(config.name));
   } catch {
-    // The deterministic workspace name is not present yet, so create it once.
-    return await wakePersistentSandbox(await client.create(config));
+    // The deterministic workspace name is not present yet, so create it once
+    // and prepare the user's VM with the opencode CLI + big-pickle config.
+    const sandbox = await wakePersistentSandbox(await client.create(config));
+    await provisionOpencodeOnSandbox(sandbox);
+    return sandbox;
   }
 }
 

@@ -32,7 +32,7 @@ export default function TelegramModelSelector() {
         </Button>
       </div>
       <div className="mt-6 rounded-2xl border bg-muted/20 p-4">
-        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-[#f97316]" /> Available NVIDIA models</div>
+        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-[oklch(0.72_0.015_250)]" /> Available NVIDIA models</div>
         {settings.isLoading ? (
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading models...</div>
         ) : settings.isError ? (
@@ -43,7 +43,7 @@ export default function TelegramModelSelector() {
             value={selected}
             onChange={event => update.mutate({ provider: "nvidia-nim", modelId: event.target.value })}
             disabled={!options.length || update.isPending}
-            className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#f97316]/30"
+            className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.015_250)]/30"
           >
             {!selected && <option value="">Select a model</option>}
             {options.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}

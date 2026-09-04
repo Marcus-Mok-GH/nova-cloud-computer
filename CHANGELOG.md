@@ -1,3 +1,15 @@
+# Changelog
+
+## 2026-09-04 — Switch workspace AI provider from NVIDIA NIM to OpenCode Zen (big-pickle)
+
+- `server/_core/env.ts`: Replaced the `NVIDIA_NIM_API_URL`/`NVIDIA_NIM_API_KEY` config with OpenCode Zen (`OPENCODE_ZEN_API_URL` defaulting to `https://opencode.ai/zen/v1`, `OPENCODE_ZEN_API_KEY`, and `OPENCODE_ZEN_MODEL` defaulting to `big-pickle`).
+- `server/workspaceAgent.ts`: The workspace agent now connects to OpenCode Zen instead of NVIDIA NIM. The model falls back to `big-pickle`, and the "not connected" copy now references an OpenCode Zen credential.
+- `server/telegramModelSettings.ts`: The Telegram model connection now uses the OpenCode Zen endpoint and key.
+- `server/automationPlanner.ts`: Updated the structured-output fallback comment to be provider-neutral.
+- `server/workspaceAgent.test.ts`: Mock and assertions updated for the OpenCode Zen env and `https://opencode.ai/zen/v1`.
+- Verified: `tsc --noEmit` clean, `workspaceAgent` (13) and `automations` (5) tests pass, Biome clean.
+- Note: `OPENCODE_ZEN_API_KEY` must be set as a production secret for the agent connection to go live (not set here — secret change requires explicit approval).
+
 ## 2026-09-04 — Redesign UI to a sleek Manus-im-inspired dark aesthetic
 
 - `client/src/index.css`: Replaced the orange accent (`#c2410c`/`#f97316`) with a muted gray-blue (`oklch(0.60 0.02 250)`), darkened the base palette to `#0a0a0a`, and tightened hero typography (`letter-spacing: -0.04em`). Removed decorative CSS (mock windows, phone mockup, ribbon-track, floating animations).

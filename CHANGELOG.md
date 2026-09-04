@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-04 — Auto-install opencode CLI + stream big-pickle on the user's VM
+
+- `server/daytona.ts`: When a user's persistent workspace VM is first created, Nova now provisions it with the opencode CLI, writes `~/.config/opencode/opencode.json` targeting the OpenCode Zen provider with the `big-pickle` model (mirroring Zo Computer), and exports `OPENCODE_ZEN_API_KEY` in the shell profile so opencode can authenticate.
+- Best-effort and idempotent: skipped if opencode is already present; a provisioning failure never blocks normal VM usage.
+- Verified: `tsc --noEmit` clean, all 124 tests pass, Biome clean.
+
 ## 2026-09-04 — Switch workspace AI provider from NVIDIA NIM to OpenCode Zen (big-pickle)
 
 - `server/_core/env.ts`: Replaced the `NVIDIA_NIM_API_URL`/`NVIDIA_NIM_API_KEY` config with OpenCode Zen (`OPENCODE_ZEN_API_URL` defaulting to `https://opencode.ai/zen/v1`, `OPENCODE_ZEN_API_KEY`, and `OPENCODE_ZEN_MODEL` defaulting to `big-pickle`).

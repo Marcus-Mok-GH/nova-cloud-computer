@@ -47,15 +47,16 @@ vi.mock("./daytona", () => ({
   runBashCommandInPersistentSandbox: runBash,
 }));
 
-const envState = { nvidiaNimApiKey: "" };
+const envState = { opencodeZenApiKey: "" };
 vi.mock("./_core/env", () => ({
   ENV: {
     appId: "",
     cookieSecret: "",
     oAuthServerUrl: "",
     ownerOpenId: "",
-    nvidiaNimApiUrl: "https://integrate.api.nvidia.com/v1",
-    get nvidiaNimApiKey() { return envState.nvidiaNimApiKey; },
+    opencodeZenApiUrl: "https://opencode.ai/zen/v1",
+    get opencodeZenApiKey() { return envState.opencodeZenApiKey; },
+    opencodeZenModel: "big-pickle",
     databaseUrl: "",
     neonAuthBaseUrl: "",
     modelCredentialSecret: "",
@@ -68,16 +69,16 @@ const { runWorkspaceAgent, autoTitleChatForUser } = await import("./workspaceAge
 describe("Nova keyless workspace agent", () => {
   const originalBuiltIn = process.env.BUILT_IN_FORGE_API_KEY;
   const originalOpenAi = process.env.OPENAI_API_KEY;
-  const originalNim = process.env.NVIDIA_NIM_API_KEY;
+  const originalNim = process.env.OPENCODE_ZEN_API_KEY;
   afterEach(() => {
     process.env.BUILT_IN_FORGE_API_KEY = originalBuiltIn;
     process.env.OPENAI_API_KEY = originalOpenAi;
     if (originalNim === undefined) {
-      delete process.env.NVIDIA_NIM_API_KEY;
+      delete process.env.OPENCODE_ZEN_API_KEY;
     } else {
-      process.env.NVIDIA_NIM_API_KEY = originalNim;
+      process.env.OPENCODE_ZEN_API_KEY = originalNim;
     }
-    envState.nvidiaNimApiKey = "";
+    envState.opencodeZenApiKey = "";
     
     vi.clearAllMocks();
   });
@@ -85,7 +86,7 @@ describe("Nova keyless workspace agent", () => {
   it("creates a requested plain-text file without a hosted model key", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    delete process.env.NVIDIA_NIM_API_KEY;
+    delete process.env.OPENCODE_ZEN_API_KEY;
     const result = await runWorkspaceAgent(7, 3, "Create a plain text file named welcome.md containing exactly: Hello from Nova.");
     expect(createFile).toHaveBeenCalledWith(7, { name: "welcome.md", content: "Hello from Nova." });
     expect(result.actions).toEqual([{ kind: "file", name: "welcome.md" }]);
@@ -95,7 +96,7 @@ describe("Nova keyless workspace agent", () => {
   it("renames and moves folders through explicit keyless workspace requests", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    delete process.env.NVIDIA_NIM_API_KEY;
+    delete process.env.OPENCODE_ZEN_API_KEY;
     await expect(runWorkspaceAgent(7, 3, "Rename folder Notes to Research")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "renamed", name: "Research" }] });
     await expect(runWorkspaceAgent(7, 3, "Move folder Notes into folder Archive")).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "moved", name: "Notes" }] });
     expect(updateFolder).toHaveBeenCalledWith(7, 10, { parentId: 11 });
@@ -104,7 +105,7 @@ describe("Nova keyless workspace agent", () => {
   it("moves a file with the keyless agent path", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    delete process.env.NVIDIA_NIM_API_KEY;
+    delete process.env.OPENCODE_ZEN_API_KEY;
     await expect(runWorkspaceAgent(7, 3, "Move file welcome.md into folder Archive")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "moved", name: "welcome.md" }] });
     expect(updateFile).toHaveBeenCalledWith(7, 15, { folderId: 11 });
   });
@@ -112,14 +113,14 @@ describe("Nova keyless workspace agent", () => {
   it("deletes a requested file even when the sentence ends with punctuation", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    delete process.env.NVIDIA_NIM_API_KEY;
+    delete process.env.OPENCODE_ZEN_API_KEY;
     await expect(runWorkspaceAgent(7, 3, "Delete file welcome.md.")).resolves.toMatchObject({ actions: [{ kind: "file", operation: "deleted", name: "welcome.md" }] });
     expect(deleteFile).toHaveBeenCalledWith(7, 15);
   });
 
   it("reports an unavailable model connection instead of a canned AI reply", async () => {
-    delete process.env.NVIDIA_NIM_API_KEY;
-    envState.nvidiaNimApiKey = "";
+    delete process.env.OPENCODE_ZEN_API_KEY;
+    envState.opencodeZenApiKey = "";
     
 
     await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
@@ -131,8 +132,8 @@ describe("Nova keyless workspace agent", () => {
   });
 
   it("reports an unavailable model connection when no provider is configured", async () => {
-    delete process.env.NVIDIA_NIM_API_KEY;
-    envState.nvidiaNimApiKey = "";
+    delete process.env.OPENCODE_ZEN_API_KEY;
+    envState.opencodeZenApiKey = "";
 
     await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
       actions: [],
@@ -144,14 +145,14 @@ describe("Nova keyless workspace agent", () => {
 
   it("executes folder deletion from the hosted-model tool path", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
-    process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    process.env.OPENCODE_ZEN_API_KEY = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-1", function: { name: "delete_folder", arguments: '{"name":"Archive"}' } }] } }] });
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Deleted Archive." } }] });
     const toolEvents: unknown[] = [];
     await expect(runWorkspaceAgent(7, 3, "Delete folder Archive", { onEvent: event => toolEvents.push(event) })).resolves.toMatchObject({ actions: [{ kind: "folder", operation: "deleted", name: "Archive" }] });
     expect(deleteFolder).toHaveBeenCalledWith(7, 11);
-    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://integrate.api.nvidia.com/v1", model: "claude-sonnet" }));
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "configured-nim-key", apiUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet" }));
     expect(toolEvents).toEqual([
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "running", args: { name: "Archive" } } },
       { type: "tool", tool: { id: "tool-1", name: "delete_folder", state: "completed", args: { name: "Archive" }, summary: "Deleted folder: Archive." } },
@@ -160,8 +161,8 @@ describe("Nova keyless workspace agent", () => {
 
   it("runs a bash command when the model calls the shell tool and feeds its output back", async () => {
     delete process.env.BUILT_IN_FORGE_API_KEY;
-    process.env.NVIDIA_NIM_API_KEY = "configured-nim-key";
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    process.env.OPENCODE_ZEN_API_KEY = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     getDaytonaClient.mockReturnValue({});
     runBash.mockResolvedValue({ ok: true, exitCode: 0, output: "2 items in /home/daytona/workspace", sandboxId: "sbx-bash" });
     invoke.mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ id: "tool-bash", function: { name: "run_bash_command", arguments: '{"command":"ls /home/daytona/workspace"}' } }] } }] });
@@ -179,7 +180,7 @@ describe("Nova keyless workspace agent", () => {
 
 describe("autoTitleChatForUser", () => {
   afterEach(() => {
-    envState.nvidiaNimApiKey = "";
+    envState.opencodeZenApiKey = "";
     chat.mockImplementation(async () => ({ id: 3, title: "New workspace conversation" }));
     chatMessages.mockImplementation(async () => [
       { id: 1, role: "user", content: "Help me plan a sprint." },
@@ -189,7 +190,7 @@ describe("autoTitleChatForUser", () => {
   });
 
   it("renames a default-titled chat from its first messages", async () => {
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: 'Sprint planning help' } }] });
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint planning help", ["New workspace conversation", "New conversation", "Telegram Chat"]);
@@ -203,7 +204,7 @@ describe("autoTitleChatForUser", () => {
   });
 
   it("does nothing before the first assistant reply", async () => {
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     chatMessages.mockResolvedValue([{ id: 1, role: "user", content: "Hello?" }]);
     await autoTitleChatForUser(7, 3);
     expect(invoke).not.toHaveBeenCalled();
@@ -211,14 +212,14 @@ describe("autoTitleChatForUser", () => {
   });
 
   it("strips wrapping quotes and newlines from the model title", async () => {
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: '""Sprint\nplanning"\n' } }] });
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint", ["New workspace conversation", "New conversation", "Telegram Chat"]);
   });
 
   it("does not overwrite a concurrent rename that lands before the conditional update", async () => {
-    envState.nvidiaNimApiKey = "configured-nim-key";
+    envState.opencodeZenApiKey = "configured-nim-key";
     invoke.mockResolvedValueOnce({ choices: [{ message: { content: "Sprint planning help" } }] });
     renameChat.mockResolvedValueOnce(undefined);
     await expect(autoTitleChatForUser(7, 3)).resolves.toBeUndefined();

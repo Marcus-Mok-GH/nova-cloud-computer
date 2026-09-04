@@ -51,10 +51,10 @@ export async function updateTelegramModelSettingsForUser(ownerId: number, input:
 
 export async function getTelegramModelConnectionForUser(ownerId: number) {
   const settings = await getTelegramModelSettingsForUser(ownerId);
-  const apiKey = process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
+  const apiKey = process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
   if (settings.provider === "nvidia-nim") {
     if (!apiKey || !settings.modelId) return undefined;
-    return { model: settings.modelId, apiUrl: ENV.nvidiaNimApiUrl, apiKey };
+    return { model: settings.modelId, apiUrl: ENV.opencodeZenApiUrl, apiKey };
   }
   if (!settings.customModelId) return undefined;
   const db = await getDb();

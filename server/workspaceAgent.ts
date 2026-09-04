@@ -53,7 +53,7 @@ function actionSummary(action?: AgentAction) {
   return `${operation[0].toUpperCase()}${operation.slice(1)} ${action.kind}: ${action.name}.`;
 }
 
-const workspaceAgentApiKey = () => process.env.NVIDIA_NIM_API_KEY || ENV.nvidiaNimApiKey;
+const workspaceAgentApiKey = () => process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
 
 type WorkspaceAgentConnection = {
   model: string;
@@ -63,12 +63,12 @@ type WorkspaceAgentConnection = {
 
 export async function getWorkspaceAgentConnection(ownerId: number): Promise<WorkspaceAgentConnection | undefined> {
   const settings = await getWorkspaceModelSettingsForUser(ownerId);
-  const nvidiaApiKey = workspaceAgentApiKey();
-  if ((settings?.activeProvider === "nvidia-nim" || nvidiaApiKey) && nvidiaApiKey) {
+  const zenApiKey = workspaceAgentApiKey();
+  if (zenApiKey) {
     return {
-      model: settings?.activeModelId?.trim() || process.env.NVIDIA_NIM_MODEL || "z-ai/glm-5.2",
-      apiUrl: ENV.nvidiaNimApiUrl,
-      apiKey: nvidiaApiKey,
+      model: settings?.activeModelId?.trim() || ENV.opencodeZenModel,
+      apiUrl: ENV.opencodeZenApiUrl,
+      apiKey: zenApiKey,
     };
   }
 
@@ -172,7 +172,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
   return {
-    reply: "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.",
+    reply: "Nova’s AI model is not connected yet. Configure a server-side OpenCode Zen credential, then try again. Explicit workspace actions remain available while the model connection is offline.",
     actions: [] as AgentAction[],
   };
 }
@@ -243,7 +243,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
     const direct = await runDirectWorkspaceAction(ownerId, content);
     const reply = direct.actions.length > 0
       ? direct.reply
-      : "Nova’s AI model is not connected yet. Configure a server-side NVIDIA or managed model credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
+      : "Nova’s AI model is not connected yet. Configure a server-side OpenCode Zen credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
     await emitDirectActions(direct.actions);
     await options.onChunk?.(reply);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });

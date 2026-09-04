@@ -102,7 +102,7 @@ export async function planAutomation(ownerId: number, request: string, userTimez
   ];
 
   let lastError: unknown;
-  // NVIDIA models vary in structured-output support. Fall back from strict JSON schema
+  // Model providers vary in structured-output support. Fall back from strict JSON schema
   // to JSON-object mode and finally plain-text JSON so model selection cannot break
   // automation creation.
   for (const mode of ["schema", "json_object", "plain"] as const) {

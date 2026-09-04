@@ -1,5 +1,4 @@
 import { ENV } from "./_core/env";
-import { invokeLLM } from "./_core/llm";
 import {
   appendChatMessageForUser,
   getChatForUser,
@@ -11,13 +10,12 @@ import {
   deleteWorkspaceFolderForUser,
   getWorkspaceComputer,
   getTelegramCredentialsForUser,
-  getWorkspaceModelSettingsForUser,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
-import { getDaytonaClient, runBashCommandInPersistentSandbox } from "./daytona";
+import { getDaytonaClient, runOpencodeChatInPersistentSandbox } from "./daytona";
 
 export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
@@ -36,43 +34,11 @@ type WorkspaceAgentOptions = {
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 
-const VISIBLE_TOOL_ARGUMENTS = new Set(["name", "currentName", "newName", "folderName", "destinationName", "task", "command"]);
-
-function visibleToolArguments(args: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(args)
-      .filter(([key]) => VISIBLE_TOOL_ARGUMENTS.has(key))
-      .map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 160) : String(value).slice(0, 160)]),
-  );
-}
-
 function actionSummary(action?: AgentAction) {
   if (!action) return "Nova could not complete this tool call.";
   if (action.operation === "disabled") return `${action.name} is not configured.`;
   const operation = action.operation ?? "created";
   return `${operation[0].toUpperCase()}${operation.slice(1)} ${action.kind}: ${action.name}.`;
-}
-
-const workspaceAgentApiKey = () => process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
-
-type WorkspaceAgentConnection = {
-  model: string;
-  apiUrl?: string;
-  apiKey?: string;
-};
-
-export async function getWorkspaceAgentConnection(ownerId: number): Promise<WorkspaceAgentConnection | undefined> {
-  const settings = await getWorkspaceModelSettingsForUser(ownerId);
-  const zenApiKey = workspaceAgentApiKey();
-  if (zenApiKey) {
-    return {
-      model: settings?.activeModelId?.trim() || ENV.opencodeZenModel,
-      apiUrl: ENV.opencodeZenApiUrl,
-      apiKey: zenApiKey,
-    };
-  }
-
-  return undefined;
 }
 
 const DEFAULT_CHAT_TITLES = new Set(["New workspace conversation", "New conversation", "Telegram Chat"]);
@@ -85,27 +51,25 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
     const firstUser = messages?.find(m => m.role === "user");
     const firstAssistant = messages?.find(m => m.role === "assistant" && !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
     if (!firstUser || !firstAssistant) return;
-    const connection = await getWorkspaceAgentConnection(ownerId);
-    if (!connection) return;
-    const result = await invokeLLM({
-      ...agentInvokeOptions(connection),
-      messages: [
-        { role: "system", content: "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation." },
-        { role: "user", content: `${firstUser.content}\n\n${firstAssistant.content}`.slice(0, 2000) },
-      ],
-      maxTokens: 20,
+    const computer = await getWorkspaceComputer(ownerId);
+    const client = getDaytonaClient();
+    if (!client) return;
+    const prompt = [
+      "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
+      firstUser.content,
+      firstAssistant.content,
+    ].join("\n");
+    const result = await runOpencodeChatInPersistentSandbox(client, {
+      workspaceId: computer.workspace.id,
+      ownerId,
+      model: ENV.opencodeZenModel,
+      prompt: prompt.slice(0, 2000),
     });
-    const raw = String(result?.choices?.[0]?.message?.content ?? "").trim().split("\n")[0].replace(/^["']+|["']+$/g, "").trim().slice(0, 60);
+    const raw = String(result.reply ?? "").trim().split("\n")[0].replace(/^["']+|["']+$/g, "").trim().slice(0, 60);
     if (raw) await renameChatIfDefaultForUser(ownerId, chatId, raw, Array.from(DEFAULT_CHAT_TITLES));
   } catch (error) {
     console.error("[Chat title] auto-title failed", error);
   }
-}
-
-function agentInvokeOptions(connection: WorkspaceAgentConnection) {
-  return connection.apiUrl
-    ? { model: connection.model, apiUrl: connection.apiUrl, apiKey: connection.apiKey || "" }
-    : { model: connection.model };
 }
 
 async function runDirectWorkspaceAction(ownerId: number, content: string) {
@@ -172,24 +136,10 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     if (created) return { reply: `Created **${created.name}** in your private workspace.`, actions: [{ kind: "file" as const, name: created.name }] };
   }
   return {
-    reply: "Nova’s AI model is not connected yet. Configure a server-side OpenCode Zen credential, then try again. Explicit workspace actions remain available while the model connection is offline.",
+    reply: "",
     actions: [] as AgentAction[],
   };
 }
-
-const tools = [
-  { type: "function", function: { name: "create_folder", description: "Create a private folder in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
-  { type: "function", function: { name: "create_file", description: "Create a plain-text file in the user's Nova workspace when requested.", parameters: { type: "object", properties: { name: { type: "string" }, content: { type: "string" } }, required: ["name", "content"] } } },
-  { type: "function", function: { name: "rename_file", description: "Rename an existing workspace file by exact current name.", parameters: { type: "object", properties: { currentName: { type: "string" }, newName: { type: "string" } }, required: ["currentName", "newName"] } } },
-  { type: "function", function: { name: "delete_file", description: "Delete an existing workspace file by exact name when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
-  { type: "function", function: { name: "move_file", description: "Move an existing workspace file into a named folder.", parameters: { type: "object", properties: { name: { type: "string" }, folderName: { type: "string" } }, required: ["name", "folderName"] } } },
-  { type: "function", function: { name: "rename_folder", description: "Rename an existing workspace folder by exact current name.", parameters: { type: "object", properties: { currentName: { type: "string" }, newName: { type: "string" } }, required: ["currentName", "newName"] } } },
-  { type: "function", function: { name: "move_folder", description: "Move an existing workspace folder into a different named folder.", parameters: { type: "object", properties: { name: { type: "string" }, destinationName: { type: "string" } }, required: ["name", "destinationName"] } } },
-  { type: "function", function: { name: "delete_folder", description: "Delete an existing workspace folder and its contents when explicitly asked.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
-  { type: "function", function: { name: "send_telegram_message", description: "Send a Telegram message only when the user explicitly asks to send one.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
-  { type: "function", function: { name: "run_workspace_vm", description: "Run a short, network-enabled Daytona VM task when the user explicitly asks to use a VM or sandbox. The VM is a dedicated sandbox (not the user's computer) and has internet access, so the supplied Python code may install packages and reach external services.", parameters: { type: "object", properties: { task: { type: "string" }, code: { type: "string" } }, required: ["task"] } } },
-  { type: "function", function: { name: "run_bash_command", description: "Run one shell command inside the user's dedicated, network-enabled workspace VM. Use for inspection, CLI, install, or network tasks when the user asks you to use a shell or run a command. The complete stdout/stderr result is returned to you as tool output; never infer or invent command output.", parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } } },
-];
 
 const OPENCODE_STYLE_WORKSPACE_PROMPT = `You are Nova, an interactive software-engineering agent operating inside a private computer workspace.
 
@@ -238,126 +188,46 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   };
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
-  const connection = await getWorkspaceAgentConnection(ownerId);
-  if (!connection) {
-    const direct = await runDirectWorkspaceAction(ownerId, content);
-    const reply = direct.actions.length > 0
-      ? direct.reply
-      : "Nova’s AI model is not connected yet. Configure a server-side OpenCode Zen credential, then try again. Explicit workspace actions remain available while the model connection is offline.";
-    await emitDirectActions(direct.actions);
-    await options.onChunk?.(reply);
-    const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
-    return { message, actions: direct.actions };
-  }
   const computer = await getWorkspaceComputer(ownerId);
   const context = OPENCODE_STYLE_WORKSPACE_PROMPT
     .replace("{{folders}}", computer.folders.map(folder => folder.name).join(", ") || "none")
     .replace("{{files}}", computer.files.map(file => file.name).join(", ") || "none");
-  let initial;
-  try {
-    initial = await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }], tools: tools as any, toolChoice: "auto", onChunk: options.onChunk });
-  } catch {
-    const direct = await runDirectWorkspaceAction(ownerId, content);
+
+  // Explicit workspace actions (file/folder create-rename-move-delete, Telegram,
+  // VM run) are resolved directly and need no model. Try them first so these
+  // operations stay immediate and deterministic.
+  const direct = await runDirectWorkspaceAction(ownerId, content);
+  if (direct.actions.length > 0) {
     await emitDirectActions(direct.actions);
     await options.onChunk?.(direct.reply);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });
     return { message, actions: direct.actions };
   }
-  const choice = initial.choices[0]?.message as any;
-  const toolCalls = choice?.tool_calls ?? [];
-  const actions: AgentAction[] = [];
-  const toolMessages: Array<{ role: "tool"; content: string; tool_call_id: string }> = [];
 
-  for (const call of toolCalls.slice(0, 3)) {
-    let args: { name?: string; content?: string; text?: string; currentName?: string; newName?: string; folderName?: string; destinationName?: string; task?: string; code?: string; command?: string } = {};
-    const activity = { id: call.id, name: String(call.function.name), args: {} as Record<string, string> };
-    let bashOutput: string | undefined;
-
+  // Conversational chat: run the full opencode agent inside the user's persistent
+  // VM (big-pickle, anonymous OpenCode Zen provider), mirroring the Zo Computer
+  // setup. The VM's opencode handles its own tools (bash, file edit, etc.). There
+  // is no server-side model key — the VM is the model.
+  const client = getDaytonaClient();
+  if (client) {
     try {
-      args = JSON.parse(call.function.arguments ?? "{}") as typeof args;
-      activity.args = visibleToolArguments(args);
-      await emitTool({ ...activity, state: "running" });
-      const actionCount = actions.length;
-      if (call.function.name === "create_folder") {
-        const folder = args.name?.trim() ? await createWorkspaceFolderForUser(ownerId, { name: args.name.trim() }) : undefined;
-        if (folder) actions.push({ kind: "folder", name: folder.name });
-      }
-      if (call.function.name === "create_file") {
-        const file = args.name?.trim() ? await createWorkspaceFileForUser(ownerId, { name: args.name.trim(), content: args.content ?? "" }) : undefined;
-        if (file) actions.push({ kind: "file", name: file.name });
-      }
-      if (call.function.name === "rename_file") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const file = currentComputer.files.find(item => item.name === args.currentName);
-        const updated = file && args.newName ? await updateWorkspaceFileForUser(ownerId, file.id, { name: args.newName }) : undefined;
-        if (updated) actions.push({ kind: "file", name: updated.name, operation: "renamed" });
-      }
-      if (call.function.name === "delete_file") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const file = currentComputer.files.find(item => item.name === args.name);
-        if (file && await deleteWorkspaceFileForUser(ownerId, file.id)) actions.push({ kind: "file", name: file.name, operation: "deleted" });
-      }
-      if (call.function.name === "move_file") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const file = currentComputer.files.find(item => item.name === args.name);
-        const folder = currentComputer.folders.find(item => item.name === args.folderName);
-        if (file && folder && await updateWorkspaceFileForUser(ownerId, file.id, { folderId: folder.id })) actions.push({ kind: "file", name: file.name, operation: "moved" });
-      }
-      if (call.function.name === "rename_folder") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const folder = currentComputer.folders.find(item => item.name === args.currentName);
-        const updated = folder && args.newName ? await updateWorkspaceFolderForUser(ownerId, folder.id, { name: args.newName }) : undefined;
-        if (updated) actions.push({ kind: "folder", name: updated.name, operation: "renamed" });
-      }
-      if (call.function.name === "move_folder") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const folder = currentComputer.folders.find(item => item.name === args.name);
-        const destination = currentComputer.folders.find(item => item.name === args.destinationName);
-        if (folder && destination && folder.id !== destination.id && await updateWorkspaceFolderForUser(ownerId, folder.id, { parentId: destination.id })) actions.push({ kind: "folder", name: folder.name, operation: "moved" });
-      }
-      if (call.function.name === "delete_folder") {
-        const currentComputer = await getWorkspaceComputer(ownerId);
-        const folder = currentComputer.folders.find(item => item.name === args.name);
-        if (folder && await deleteWorkspaceFolderForUser(ownerId, folder.id)) actions.push({ kind: "folder", name: folder.name, operation: "deleted" });
-      }
-      if (call.function.name === "send_telegram_message") {
-        const credentials = await getTelegramCredentialsForUser(ownerId);
-        if (!credentials?.chatId || !args.text?.trim()) throw new Error("Telegram is not ready");
-        const sent = await sendTelegramMessage(credentials.token, credentials.chatId, args.text.trim());
-        actions.push({ kind: "telegram", name: `message #${sent.message_id}`, operation: "sent" });
-      }
-      if (call.function.name === "run_workspace_vm") {
-        if (!args.task?.trim()) throw new Error("A VM task is required");
-        const started = await startAgentVmRun(ownerId, { task: args.task.trim(), code: args.code });
-        actions.push({ kind: "vm", name: started.run ? `run #${started.run.id}` : "Daytona", operation: started.configured ? "completed" : "disabled" });
-      }
-      if (call.function.name === "run_bash_command") {
-        if (!args.command?.trim()) throw new Error("A shell command is required");
-        const client = getDaytonaClient();
-        if (!client) {
-          actions.push({ kind: "vm", name: "Daytona", operation: "disabled" });
-        } else {
-          const currentComputer = await getWorkspaceComputer(ownerId);
-          const result = await runBashCommandInPersistentSandbox(client, { workspaceId: currentComputer.workspace.id, ownerId, command: args.command.trim() });
-          bashOutput = result.output;
-          actions.push({ kind: "vm", name: `bash: ${args.command.trim().slice(0, 120)}`, operation: "completed" });
-        }
-      }
-
-      const action = actions[actionCount];
-      const succeeded = Boolean(action) && action.operation !== "disabled";
-      await emitTool({ ...activity, state: succeeded ? "completed" : "failed", summary: actionSummary(action) });
-      const toolContent = bashOutput !== undefined ? JSON.stringify({ ok: succeeded, output: bashOutput }) : JSON.stringify({ ok: succeeded });
-      toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
-    } catch {
-      await emitTool({ ...activity, state: "failed", summary: "Nova could not complete this tool call." });
-      toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: false }) });
+      const result = await runOpencodeChatInPersistentSandbox(client, {
+        workspaceId: computer.workspace.id,
+        ownerId,
+        model: ENV.opencodeZenModel,
+        prompt: `${context}\n\n${content}`,
+        onChunk: options.onChunk,
+      });
+      const reply = String(result.reply || "I’m ready to help with this workspace.").trim();
+      const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
+      return { message, actions: [] };
+    } catch (error) {
+      console.error("[Chat] VM opencode chat failed", error);
     }
   }
-  const final = toolCalls.length
-    ? await invokeLLM({ ...agentInvokeOptions(connection), messages: [{ role: "system", content: context }, { role: "user", content }, choice, ...toolMessages], onChunk: options.onChunk })
-    : initial;
-  const reply = String(final.choices[0]?.message?.content ?? "I’m ready to help with this workspace.");
+
+  const reply = "Nova’s VM (openCode) isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
+  await options.onChunk?.(reply);
   const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
-  return { message, actions };
+  return { message, actions: [] };
 }

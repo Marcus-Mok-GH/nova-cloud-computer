@@ -160,13 +160,12 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
 
 const persistentSandboxInFlight = new Map<string, Promise<DaytonaSandboxLike>>();
 
-// Idempotently prepare the user's persistent VM so the opencode CLI is installed,
-// configured to stream the "big-pickle" model through the OpenCode Zen provider
-// (mirroring the Zo Computer setup), and authenticated with the Nova Zen key.
-// Best-effort: a provisioning failure never blocks the VM for normal use.
+// Idempotently prepare the user's persistent VM so the opencode CLI is installed
+// and configured to stream the "big-pickle" model through the anonymous OpenCode
+// Zen provider (mirroring the Zo Computer setup). The CLI supports anonymous
+// access, so no API key is needed. Best-effort: a provisioning failure never
+// blocks the VM for normal use.
 async function provisionOpencodeOnSandbox(sandbox: DaytonaSandboxLike) {
-  const zenApiKey = process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
-  if (!zenApiKey) return;
   const config = JSON.stringify({ $schema: "https://opencode.ai/config.json", model: "opencode/big-pickle" });
   const script = [
     "set -e",
@@ -176,9 +175,6 @@ async function provisionOpencodeOnSandbox(sandbox: DaytonaSandboxLike) {
     "grep -q 'opencode/bin' \"$HOME/.bashrc\" 2>/dev/null || printf '\\nexport PATH=\"$HOME/.opencode/bin:$PATH\"\\n' >> \"$HOME/.bashrc\"",
     'mkdir -p "$HOME/.config/opencode"',
     `printf '%s' ${JSON.stringify(config)} > "$HOME/.config/opencode/opencode.json"`,
-    "if ! grep -q 'OPENCODE_ZEN_API_KEY' \"$HOME/.bashrc\" 2>/dev/null; then",
-    `  printf '\\nexport OPENCODE_ZEN_API_KEY="%s"\\n' ${JSON.stringify(zenApiKey)} >> \"$HOME/.bashrc\"`,
-    "fi",
   ].join("\n");
   try {
     await sandbox.process.executeCommand(script, "/home/daytona", undefined, 180);
@@ -341,47 +337,64 @@ export async function initWorkspacePersistentVm(workspaceId: number, ownerId: nu
   }
 }
 
-const BASH_TIMEOUT_SECONDS = 30;
-
-export type DaytonaBashResult = {
-  ok: boolean;
-  exitCode: number | null;
-  output: string;
+export type OpencodeChatResult = {
+  reply: string;
   sandboxId: string;
 };
 
-/** Strip ANSI/control sequences and any leaked credentials from raw shell output. */
-export function sanitizeBashOutput(value: string | undefined) {
-  const scrubbed = (value ?? "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\0/g, "")
-    .replace(/(?:DAYTONA_API_KEY|authorization|bearer|token)\s*[=:]\s*\S+/gi, "[private credential]");
-  return truncate(scrubbed, MAX_OUTPUT_BYTES).trim() || "Command produced no console output.";
-}
+const OPENCODE_CHAT_TIMEOUT_SECONDS = 180;
 
-async function runBashInSandbox(sandbox: DaytonaSandboxLike, command: string): Promise<Omit<DaytonaBashResult, "sandboxId">> {
-  const response = await sandbox.process.executeCommand(command, "/home/daytona", undefined, BASH_TIMEOUT_SECONDS);
-  return { ok: response.exitCode === 0, exitCode: response.exitCode ?? null, output: sanitizeBashOutput(response.result) };
-}
-
-/**
- * Run a single shell command inside the user's persistent, network-enabled workspace
- * VM. Shell output is scrubbed of control characters and credentials. The command
- * runs as an arbitrary shell string in the dedicated sandbox, so it may use the network.
- */
-export async function runBashCommandInPersistentSandbox(client: DaytonaClientLike, input: {
+// Run the opencode CLI agent inside the user's persistent VM, streaming the
+// "big-pickle" model through the anonymous OpenCode Zen provider (mirroring the
+// Zo Computer setup). This powers keyless conversational chat: the full opencode
+// agent runs on the VM with its own tools (bash, file edit, etc.) inside the
+// dedicated sandbox, and its `text` events are streamed back to the caller.
+export async function runOpencodeChatInPersistentSandbox(client: DaytonaClientLike, input: {
   workspaceId: number;
   ownerId: number;
-  command: string;
-}): Promise<DaytonaBashResult> {
-  if (!input.command?.trim()) throw new Error("A shell command is required.");
-  if (Buffer.byteLength(input.command, "utf8") > MAX_CODE_BYTES) throw new Error("Nova limits one shell command to 12 KB.");
+  model: string;
+  prompt: string;
+  onChunk?: (chunk: string) => void | Promise<void>;
+}): Promise<OpencodeChatResult> {
   const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
+  const runOpencode = async (target: DaytonaSandboxLike) => {
+    await provisionOpencodeOnSandbox(target);
+    const script = [
+      "set -e",
+      'export PATH="$HOME/.opencode/bin:$PATH"',
+      'mkdir -p "$HOME/.opencode-chat"',
+      `printf '%s' ${JSON.stringify(input.prompt)} > "$HOME/.opencode-chat/prompt.txt"`,
+      `opencode run -m ${JSON.stringify(input.model)} --format json < "$HOME/.opencode-chat/prompt.txt"`,
+    ].join("\n");
+    const response = await target.process.executeCommand(script, "/home/daytona", undefined, OPENCODE_CHAT_TIMEOUT_SECONDS);
+    const lines = (response.result ?? "").split("\n");
+    const reply: string[] = [];
+    for (const line of lines) {
+      let event: { type?: string; part?: { type?: string; text?: string } };
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (event.type === "text" && typeof event.part?.text === "string") {
+        reply.push(event.part.text);
+      }
+    }
+    const text = reply.join("");
+    return text;
+  };
+
   try {
-    return { sandboxId: sandbox.id, ...(await runBashInSandbox(sandbox, input.command)) };
+    const reply = await runOpencode(sandbox);
+    const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
+    for (const chunk of chunks) await input.onChunk?.(chunk);
+    return { reply, sandboxId: sandbox.id };
   } catch (error) {
-    console.warn(`[Daytona] Bash command failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
+    console.warn(`[Daytona] Opencode chat failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
     const recoveredSandbox = await recoverPersistentSandbox(client, input.workspaceId, input.ownerId);
-    return { sandboxId: recoveredSandbox.id, ...(await runBashInSandbox(recoveredSandbox, input.command)) };
+    const reply = await runOpencode(recoveredSandbox);
+    const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
+    for (const chunk of chunks) await input.onChunk?.(chunk);
+    return { reply, sandboxId: recoveredSandbox.id };
   }
 }

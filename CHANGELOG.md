@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-04 — Fix optional API key passthrough and update NVIDIA references
+
+- `server/workspaceAgent.ts`: Fixed `agentInvokeOptions` to pass `apiUrl` even when `apiKey` is empty, enabling anonymous opencode CLI access.
+- `server/_core/llm.ts`: Made API key optional (defaults to empty string) for providers that allow anonymous access.
+- `client/src/pages/Home.tsx`: Renamed "NVIDIA gateway" feature card to "AI gateway".
+- `client/src/components/TelegramModelSelector.tsx`: Updated description to remove NVIDIA-specific branding.
+
 ## 2026-09-04 — Auto-install opencode CLI + stream big-pickle on the user's VM
 
 - `server/daytona.ts`: When a user's persistent workspace VM is first created, Nova now provisions it with the opencode CLI, writes `~/.config/opencode/opencode.json` targeting the OpenCode Zen provider with the `big-pickle` model (mirroring Zo Computer), and exports `OPENCODE_ZEN_API_KEY` in the shell profile so opencode can authenticate.

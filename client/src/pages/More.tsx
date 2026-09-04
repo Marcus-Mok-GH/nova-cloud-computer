@@ -18,7 +18,7 @@ export default function More() {
     <DashboardLayout>
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
         <div className="mb-8 flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-2xl bg-[#f97316]/10 text-[#f97316]">
+          <div className="grid size-11 place-items-center rounded-2xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]">
             <Sparkles className="size-5" />
           </div>
           <div>
@@ -34,7 +34,7 @@ export default function More() {
               onClick={() => setLocation(item.path)}
               className="group flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-neutral-900 dark:hover:border-white/20"
             >
-              <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700 transition group-hover:bg-[#f97316]/10 group-hover:text-[#f97316] dark:bg-neutral-800 dark:text-neutral-200">
+              <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700 transition group-hover:bg-[oklch(0.72_0.015_250)]/10 group-hover:text-[oklch(0.72_0.015_250)] dark:bg-neutral-800 dark:text-neutral-200">
                 <item.icon className="size-5" />
               </div>
               <div className="min-w-0">

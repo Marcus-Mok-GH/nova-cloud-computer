@@ -24,11 +24,11 @@ export default function Profile() {
       <div className="mx-auto max-w-3xl space-y-7 px-4 pb-12 pt-5 sm:px-6">
         <header>
           <div className="flex items-center gap-4">
-            <div className="grid size-12 place-items-center rounded-2xl bg-[#f97316]/10 text-[#f97316]">
+            <div className="grid size-12 place-items-center rounded-2xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]">
               <UserRound size={22} />
             </div>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#c2410c]">Account</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72_0.015_250)]">Account</p>
               <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Your profile</h1>
             </div>
           </div>
@@ -42,7 +42,7 @@ export default function Profile() {
           <div className="mt-6 space-y-4">
             <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-5 sm:flex-row sm:items-center sm:justify-between dark:border-white/10 dark:bg-white/5">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316]"><Mail size={18} /></span>
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]"><Mail size={18} /></span>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-neutral-900 dark:text-white">Email address</p>
                   <p className="truncate text-sm text-neutral-500 dark:text-neutral-400">{email}</p>
@@ -54,7 +54,7 @@ export default function Profile() {
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-5 dark:border-white/10 dark:bg-white/5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316]"><KeyRound size={18} /></span>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]"><KeyRound size={18} /></span>
                   <div>
                     <p className="text-sm font-bold text-neutral-900 dark:text-white">Password</p>
                     <p className="text-sm text-neutral-500 dark:text-neutral-400">Your account uses passwordless sign-in, so Nova does not store a password that can be displayed.</p>

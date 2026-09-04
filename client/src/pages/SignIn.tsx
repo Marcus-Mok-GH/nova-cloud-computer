@@ -93,31 +93,31 @@ export default function SignIn() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-white p-6 dark:bg-neutral-950">
-      <div className="absolute -top-32 left-1/2 size-96 -translate-x-1/2 rounded-full bg-[#f97316]/8 blur-3xl" aria-hidden="true" />
-      <Link href="/" className="absolute left-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0a0a0a] p-6">
+      <div className="absolute -top-32 left-1/2 size-96 -translate-x-1/2 rounded-full bg-[oklch(0.60_0.02_250/0.06)] blur-3xl" aria-hidden="true" />
+      <Link href="/" className="absolute left-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-neutral-400 transition-colors hover:text-white">
         <ArrowLeft size={15} /> Back to site
       </Link>
 
-      <section className="relative w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-[0_8px_30px_rgba(10,10,10,0.06)] sm:p-10 dark:border-white/10 dark:bg-neutral-900">
+      <section className="relative w-full max-w-md rounded-2xl border border-white/8 bg-[#141414] p-8 shadow-[0_8px_30px_rgba(0,0,0,0.3)] sm:p-10">
         <div className="flex items-center gap-2.5">
           <NovaMark size={26} ariaHidden={false} />
-          <span className="text-lg font-extrabold tracking-tight text-neutral-950 dark:text-white">Nova</span>
+          <span className="text-lg font-extrabold tracking-tight text-white">Nova</span>
         </div>
-        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Sign in to Nova.</h1>
-        <p className="mt-3 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-white">Sign in to Nova.</h1>
+        <p className="mt-3 text-sm leading-relaxed text-neutral-400">
           Run your projects, files, and AI in a space that works 24/7.
         </p>
 
         {sent ? (
-          <div className="mt-7 rounded-2xl border border-[#f97316]/30 bg-[#f97316]/8 p-5">
-            <Mail className="mb-3 text-[#f97316]" size={18} />
-            <strong className="block text-sm text-neutral-900 dark:text-white">Check your email.</strong>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
+          <div className="mt-7 rounded-2xl border border-[oklch(0.60_0.02_250/0.25)] bg-[oklch(0.60_0.02_250/0.06)] p-5">
+            <Mail className="mb-3 text-[oklch(0.60_0.02_250)]" size={18} />
+            <strong className="block text-sm text-white">Check your email.</strong>
+            <p className="mt-2 text-sm leading-relaxed text-neutral-300">
               We sent a 6-digit code to <span className="font-semibold">{email}</span>. Enter it below to sign in.
             </p>
             <form onSubmit={verifyOTP} className="mt-5 space-y-4">
-              <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+              <label className="block text-sm font-semibold text-neutral-200">
                 Verification code
                 <div className="mt-3 flex justify-center">
                   <InputOTP
@@ -137,7 +137,7 @@ export default function SignIn() {
                   </InputOTP>
                 </div>
               </label>
-              {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+              {error ? <p className="text-sm text-red-400">{error}</p> : null}
               <button
                 className="pill-btn pill-btn-primary w-full"
                 disabled={pending || otp.length !== 6}
@@ -147,7 +147,7 @@ export default function SignIn() {
               </button>
               <button
                 type="button"
-                className="w-full text-center text-sm text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
+                className="w-full text-center text-sm text-neutral-400 hover:text-white"
                 onClick={() => {
                   setSent(false);
                   setOtp("");
@@ -161,10 +161,10 @@ export default function SignIn() {
           </div>
         ) : (
           <form onSubmit={requestOTP} className="mt-7 space-y-4">
-            <label className="block text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+            <label className="block text-sm font-semibold text-neutral-200">
               Email address
               <input
-                className="mt-2 h-12 w-full rounded-xl border border-neutral-200 bg-white px-4 text-base text-neutral-950 sm:text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#f97316] focus:ring-4 focus:ring-[#f97316]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-white"
+                className="mt-2 h-12 w-full rounded-xl border border-white/10 bg-[#0a0a0a] px-4 text-base text-white sm:text-sm outline-none transition placeholder:text-neutral-500 focus:border-[oklch(0.60_0.02_250)] focus:ring-4 focus:ring-[oklch(0.60_0.02_250/0.15)]"
                 value={email}
                 onChange={event => setEmail(event.target.value)}
                 type="email"
@@ -173,7 +173,7 @@ export default function SignIn() {
                 placeholder="you@example.com"
               />
             </label>
-            {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+            {error ? <p className="text-sm text-red-400">{error}</p> : null}
             <button
               className="pill-btn pill-btn-primary w-full"
               disabled={pending}
@@ -184,7 +184,7 @@ export default function SignIn() {
           </form>
         )}
 
-        <p className="mt-6 text-xs leading-relaxed text-neutral-400 dark:text-neutral-500">
+        <p className="mt-6 text-xs leading-relaxed text-neutral-500">
           Nova uses a passwordless, time-limited OTP code. We do not store a password for this sign-in method.
         </p>
       </section>

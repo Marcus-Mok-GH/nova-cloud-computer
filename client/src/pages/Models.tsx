@@ -83,7 +83,7 @@ export default function Models() {
         ) : (
           <section className="mt-8" aria-label="Available NVIDIA models">
             <div className="mb-4 flex items-center gap-2">
-              <Sparkles className="size-4 text-[#f97316]" />
+              <Sparkles className="size-4 text-[oklch(0.72_0.015_250)]" />
               <h2 className="font-bold">Available chat models</h2>
               <span className="text-sm text-muted-foreground">
                 {models.data?.length ?? 0}
@@ -96,11 +96,11 @@ export default function Models() {
                 return (
                   <article
                     key={model.id}
-                    className={`flex min-h-52 flex-col rounded-3xl border p-5 shadow-sm transition ${selected ? "border-[#f97316] bg-[#fff7ed] ring-1 ring-[#f97316]/30 dark:bg-[#f97316]/10" : "bg-white dark:bg-neutral-900"}`}
+                    className={`flex min-h-52 flex-col rounded-3xl border p-5 shadow-sm transition ${selected ? "border-[oklch(0.60_0.02_250)] bg-[oklch(0.60_0.02_250/0.08)] ring-1 ring-[oklch(0.60_0.02_250/0.25)]" : "bg-white dark:bg-[#141414]"}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <span
-                        className={`grid size-10 place-items-center rounded-xl ${vision ? "bg-sky-500/10 text-sky-600" : "bg-[#f97316]/10 text-[#f97316]"}`}
+                        className={`grid size-10 place-items-center rounded-xl ${vision ? "bg-sky-500/10 text-sky-600" : "bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"}`}
                       >
                         {vision ? (
                           <Eye className="size-5" />
@@ -109,7 +109,7 @@ export default function Models() {
                         )}
                       </span>
                       {selected && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#f97316] px-2.5 py-1 text-[11px] font-bold text-white">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[oklch(0.60_0.02_250)] px-2.5 py-1 text-[11px] font-bold text-white">
                           <Check className="size-3" /> Selected
                         </span>
                       )}

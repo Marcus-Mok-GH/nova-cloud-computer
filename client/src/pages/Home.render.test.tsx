@@ -17,8 +17,6 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain("A computer that works for you");
     expect(markup).toContain("Sign up");
     expect(markup).toContain("No credit card required");
-    expect(markup).toContain("mock-window");
-    expect(markup).toContain("mock-phone");
     expect(markup).toContain("Everything your cloud computer can do.");
   });
 

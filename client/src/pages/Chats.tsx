@@ -35,24 +35,24 @@ export default function Chats() {
       <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#c2410c] dark:text-[#fb923c]">Conversation archive</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72_0.015_250)]">Conversation archive</p>
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">Every conversation stays with the private computer it helps you shape.</p>
           </div>
-          <Button onClick={() => create.mutate({ title: "New workspace conversation" })} disabled={create.isPending} className="rounded-full bg-[#f97316] hover:bg-[#ea580c]"><Plus className="mr-1.5 size-4" />{create.isPending ? "Creating…" : "New chat"}</Button>
+          <Button onClick={() => create.mutate({ title: "New workspace conversation" })} disabled={create.isPending} className="rounded-full bg-[oklch(0.60_0.02_250)] hover:bg-[oklch(0.54_0.025_250)]"><Plus className="mr-1.5 size-4" />{create.isPending ? "Creating…" : "New chat"}</Button>
         </div>
         <div className="mt-8 space-y-2">
           {computer.data?.chats.length ? computer.data.chats.map(chat => (
             <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-4 transition hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-neutral-900 dark:hover:border-white/20">
               <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f97316]/10 text-[#f97316]"><MessageSquareText className="size-4" /></span>
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><MessageSquareText className="size-4" /></span>
                 <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-bold text-neutral-900 dark:text-white">{chat.title}</h2><p className="mt-1 text-xs text-neutral-400">Open saved conversation</p></div>
                 <ChevronRight className="size-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-500 dark:text-neutral-600" />
               </button>
               <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-neutral-400 opacity-100 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>
             </div>
           )) : (
-            <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-neutral-200 bg-white text-center dark:border-white/10 dark:bg-neutral-900"><div><Sparkles className="mx-auto size-5 text-[#f97316]" /><p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Begin a conversation with Nova from your workspace.</p></div></div>
+            <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-white/10 bg-white text-center dark:bg-[#141414]"><div><Sparkles className="mx-auto size-5 text-[oklch(0.72_0.015_250)]" /><p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">Begin a conversation with Nova from your workspace.</p></div></div>
           )}
         </div>
       </section>

@@ -230,11 +230,7 @@ const normalizeToolChoice = (
 };
 
 
-const assertApiKey = (apiKey: string) => {
-  if (!apiKey) {
-    throw new Error("LLM API key is not configured");
-  }
-};
+
 
 const normalizeResponseFormat = ({
   responseFormat,
@@ -353,13 +349,12 @@ const fetchWithBackoff = async (
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  if (!params.apiUrl || !params.apiKey) {
-    throw new Error("apiUrl and apiKey are required");
+  if (!params.apiUrl) {
+    throw new Error("apiUrl is required");
   }
 
-  const requestApiKey = params.apiKey;
+  const requestApiKey = params.apiKey ?? "";
   const requestApiUrl = `${params.apiUrl.replace(/\/$/, "")}/chat/completions`;
-  assertApiKey(requestApiKey);
 
   const {
     messages,

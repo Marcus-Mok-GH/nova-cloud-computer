@@ -176,14 +176,17 @@ a { color: inherit; text-decoration: none; }
 }
 
 .section-title {
-  font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; color: oklch(0.955 0 0);
+  font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; color: oklch(0.145 0 0);
 }
+.dark .section-title { color: oklch(0.955 0 0); }
 
 .feature-card {
-  border: 1px solid oklch(1 0 0 / 0.08); border-radius: 1rem; background: oklch(0.145 0 0);
+  border: 1px solid oklch(0.91 0 0); border-radius: 1rem; background: oklch(1 0 0);
   padding: 24px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
-.feature-card:hover { border-color: oklch(1 0 0 / 0.15); box-shadow: 0 12px 40px oklch(0 0 0 / 0.35); transform: translateY(-2px); }
+.dark .feature-card { border-color: oklch(1 0 0 / 0.08); background: oklch(0.145 0 0); }
+.feature-card:hover { border-color: oklch(0.60 0.02 250 / 0.35); box-shadow: 0 12px 40px oklch(0 0 0 / 0.10); transform: translateY(-2px); }
+.dark .feature-card:hover { border-color: oklch(1 0 0 / 0.15); box-shadow: 0 12px 40px oklch(0 0 0 / 0.35); }
 
 /* Remove ribbon-track animation */
 /* Remove floating animations */

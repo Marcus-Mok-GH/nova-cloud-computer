@@ -35,10 +35,10 @@ export default function UserAutomationsCard() {
   return <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7">
     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
       <div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Automations</p><h2 className="mt-1 text-xl font-bold tracking-tight">Tell Nova what to automate</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Describe the job naturally. Nova will turn it into a structured automation with a schedule, reusable arguments, an execution prompt, safety constraints, and a recurring background job.</p></div>
-      <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[oklch(0.72 0.015 250)]/10 text-[oklch(0.72 0.015 250)]"><Zap size={22} /></div>
+      <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]"><Zap size={22} /></div>
     </div>
     <div className="mt-6 rounded-2xl border bg-muted/20 p-5">
-      <div className="flex items-center gap-2"><Sparkles className="size-4 text-[oklch(0.72 0.015 250)]" /><p className="text-sm font-bold">What should Nova do?</p></div>
+      <div className="flex items-center gap-2"><Sparkles className="size-4 text-[oklch(0.72_0.015_250)]" /><p className="text-sm font-bold">What should Nova do?</p></div>
       <Textarea value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void submit(); } }} disabled={running} className="mt-4 min-h-36 resize-y" maxLength={8000} placeholder="For example: Every weekday at 9 AM, review my workspace files, find anything that looks unfinished, and create a concise report with suggested next steps." />
       <div className="mt-3 flex items-center justify-between gap-3"><p className="text-[11px] text-muted-foreground">Include when it should run, what it should do, and any limits or preferences. Ctrl/Cmd + Enter also submits.</p><Button onClick={() => void submit()} disabled={running || prompt.trim().length < 3} className="shrink-0 gap-2">{running ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Enter</Button></div>
     </div>

@@ -6,13 +6,13 @@ export default function Deployments() {
   return (
     <DashboardLayout>
       <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72 0.015 250)] dark:text-[oklch(0.72 0.015 250)]">Release room</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72_0.015_250)] dark:text-[oklch(0.72_0.015_250)]">Release room</p>
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Deployments</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A calm place to keep track of what Nova is ready to publish.</p>
         <article className="mt-8 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-white/10 dark:bg-neutral-900">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-100 p-5 dark:border-white/5">
             <div className="flex items-center gap-3">
-              <span className="grid size-10 place-items-center rounded-xl bg-[oklch(0.72 0.015 250)]/10 text-[oklch(0.72 0.015 250)]"><Rocket className="size-5" /></span>
+              <span className="grid size-10 place-items-center rounded-xl bg-[oklch(0.72_0.015_250)]/10 text-[oklch(0.72_0.015_250)]"><Rocket className="size-5" /></span>
               <div>
                 <h2 className="text-sm font-bold">Nova production</h2>
                 <p className="mt-1 text-xs text-neutral-400">nova-cloud-computer.vercel.app</p>

@@ -24,7 +24,7 @@ export default function TelegramModelSelector() {
           <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Telegram AI</p>
           <h2 className="mt-1 text-xl font-bold tracking-tight">Telegram model</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Choose which NVIDIA text or vision-language model powers your Telegram bot. The list is fetched dynamically from the configured NVIDIA gateway.
+            Choose which text or vision-language model powers your Telegram bot. The list is fetched dynamically from the configured AI provider.
           </p>
         </div>
         <Button variant="outline" size="icon" aria-label="Refresh NVIDIA models" onClick={() => settings.refetch()} disabled={settings.isFetching}>

@@ -34,7 +34,7 @@ const features = [
   { icon: MessageSquareText, title: "Chats", copy: "Every conversation with Nova is saved and searchable. Pick up where you left off, or revisit past work with full context." },
   { icon: ListChecks, title: "Rules", copy: "Teach Nova your preferences. Standing workspace rules shape how future assistant experiences behave." },
   { icon: TerminalSquare, title: "Agent VM", copy: "Run explicit tasks in a short-lived private sandbox. Workspace files are bundled for the run; network access stays blocked." },
-  { icon: Zap, title: "NVIDIA gateway", copy: "A protected server-to-server inference gateway for quick private responses, with a clear request allowance." },
+  { icon: Zap, title: "AI gateway", copy: "A protected server-to-server inference gateway for quick private responses, with a clear request allowance." },
   { icon: Send, title: "Telegram", copy: "Send messages and test notifications from your workspace through your own validated Telegram bot." },
   { icon: Rocket, title: "Deployments", copy: "A calm release room for what Nova is ready to publish — deployment notes and status in one place." },
 ];

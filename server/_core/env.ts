@@ -70,8 +70,6 @@ export const ENV = {
   cookieSecret: process.env.NOVA_SESSION_SECRET ?? process.env.JWT_SECRET ?? process.env.MODEL_CREDENTIAL_SECRET ?? process.env.POSTGRES_PASSWORD ?? process.env.DATABASE_URL ?? "",
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  opencodeZenApiUrl: (process.env.OPENCODE_ZEN_API_URL && process.env.OPENCODE_ZEN_API_URL.trim().length > 0) ? process.env.OPENCODE_ZEN_API_URL : "https://opencode.ai/zen/v1",
-  opencodeZenApiKey: process.env.OPENCODE_ZEN_API_KEY ?? "",
   opencodeZenModel: (process.env.OPENCODE_ZEN_MODEL && process.env.OPENCODE_ZEN_MODEL.trim().length > 0) ? process.env.OPENCODE_ZEN_MODEL : "big-pickle",
   databaseUrl: process.env.DATABASE_URL ?? "",
   neonAuthBaseUrl: neonAuthVerification.baseUrl,

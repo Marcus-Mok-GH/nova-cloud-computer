@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-04 — Make the VM opencode CLI the workspace AI path (drop the Zen API key)
+
+- `server/workspaceAgent.ts`: Removed the server-side `OPENCODE_ZEN_API_KEY` requirement and the hosted-model (`invokeLLM` + tool loop) chat path. Conversational chat now always runs the full opencode agent on the user's persistent VM (`runOpencodeChatInPersistentSandbox`, big-pickle, anonymous OpenCode Zen), mirroring Zo Computer. Explicit workspace actions (file/folder create-rename-move-delete, Telegram, VM run) are still resolved directly without a model. `autoTitleChatForUser` now asks the VM agent for a title instead of `invokeLLM`.
+- `server/automationPlanner.ts`: Automation planning now runs on the VM's opencode agent (`runOpencodeChatInPersistentSandbox`), asking for the JSON plan and retrying up to three times, instead of the hosted-model structured-output call.
+- `server/daytona.ts`: `provisionOpencodeOnSandbox` no longer reads or exports `OPENCODE_ZEN_API_KEY`; the CLI uses anonymous OpenCode Zen access. Removed the now-unused `runBashCommandInPersistentSandbox`/`sanitizeBashOutput` (only served the removed hosted-model bash tool).
+- `server/telegramModelSettings.ts`: Removed the unused `getTelegramModelConnectionForUser`, which was the last user of the Zen key.
+- `server/_core/env.ts`: Removed `opencodeZenApiKey` and `opencodeZenApiUrl`; kept `opencodeZenModel` (used by the VM path).
+- `server/workspaceAgent.test.ts` / `server/daytona.test.ts`: Updated for the VM-only flow (no key gating, VM-unavailable copy, auto-title + automation via VM).
+- Verified: `tsc --noEmit` clean, `workspaceAgent` and `daytona` tests pass, all 122 tests pass, Biome clean.
+
+
 ## 2026-09-04 — Fix optional API key passthrough and update NVIDIA references
 
 - `server/workspaceAgent.ts`: Fixed `agentInvokeOptions` to pass `apiUrl` even when `apiKey` is empty, enabling anonymous opencode CLI access.

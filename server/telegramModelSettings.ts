@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
-import { decryptModelApiKey } from "./modelSecrets";
 import { getDb, getOrCreateWorkspace, updateWorkspaceModelSettingsForUser } from "./db";
-import { ENV } from "./_core/env";
 import { listNvidiaModels } from "./nvidiaGateway";
 
 type Provider = "nvidia-nim" | "custom";
@@ -47,20 +45,4 @@ export async function updateTelegramModelSettingsForUser(ownerId: number, input:
   });
 
   return getTelegramModelSettingsForUser(ownerId);
-}
-
-export async function getTelegramModelConnectionForUser(ownerId: number) {
-  const settings = await getTelegramModelSettingsForUser(ownerId);
-  const apiKey = process.env.OPENCODE_ZEN_API_KEY || ENV.opencodeZenApiKey;
-  if (settings.provider === "nvidia-nim") {
-    if (!apiKey || !settings.modelId) return undefined;
-    return { model: settings.modelId, apiUrl: ENV.opencodeZenApiUrl, apiKey };
-  }
-  if (!settings.customModelId) return undefined;
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.execute(sql`SELECT "modelId", "baseUrl", "compatibility", "encryptedApiKey" FROM "custom_models" WHERE id = ${settings.customModelId} AND "workspaceId" = (SELECT "id" FROM "workspaces" WHERE "ownerId" = ${ownerId} LIMIT 1) LIMIT 1`);
-  const row = (result as any).rows?.[0] ?? (result as any)[0];
-  if (!row) return undefined;
-  return { model: row.modelId, apiUrl: row.baseUrl, apiKey: decryptModelApiKey(row.encryptedApiKey) };
 }

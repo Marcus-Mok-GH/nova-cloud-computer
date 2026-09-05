@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { buildE2BWorkspaceBundle, E2B_WORKSPACE_DIR, ensurePersistentSandbox, persistentSandboxConfig, runE2BTask, runE2BTaskInPersistentSandbox, sanitizeE2BOutput, validateE2BCode, type E2BClientLike, type E2BSandboxLike } from "./e2b";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildE2BWorkspaceBundle, E2B_WORKSPACE_DIR, ensurePersistentSandbox, persistentSandboxConfig, resetSandboxCreationCount, reserveSandboxCreation, runE2BTask, runE2BTaskInPersistentSandbox, sanitizeE2BOutput, validateE2BCode, type E2BClientLike, type E2BSandboxLike } from "./e2b";
 
 describe("E2B sandbox service", () => {
+  beforeEach(() => {
+    delete process.env.E2B_MAX_SANDBOX_CREATIONS;
+    resetSandboxCreationCount();
+  });
+
   function sandboxWith(run: E2BSandboxLike["commands"]["run"] = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }))) {
     return {
       sandboxId: "sbx-test",
@@ -42,6 +47,23 @@ describe("E2B sandbox service", () => {
     expect(run).toHaveBeenCalledWith("python3 .nova-task.py", expect.objectContaining({ cwd: E2B_WORKSPACE_DIR, timeoutMs: 30_000 }));
     expect(sandbox.kill).toHaveBeenCalledOnce();
     expect(result).toMatchObject({ sandboxId: "sbx-private", output: "analysis complete", uploadedFileCount: 1 });
+  });
+  it("blocks sandbox creation at the configured no-card safety cap", async () => {
+    process.env.E2B_MAX_SANDBOX_CREATIONS = "0";
+    const create = vi.fn();
+    const client: E2BClientLike = { create, connect: vi.fn() };
+
+    expect(() => reserveSandboxCreation()).toThrow(/no-card safety limit/i);
+    await expect(runE2BTask(client, {
+      runId: 7,
+      workspaceId: 4,
+      ownerId: 12,
+      task: "Blocked task",
+      files: [],
+      folders: [],
+    })).rejects.toThrow(/no-card safety limit/i);
+    await expect(ensurePersistentSandbox(client, 4, 12)).rejects.toThrow(/no-card safety limit/i);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("defines a private persistent sandbox with pause-and-resume lifecycle", () => {

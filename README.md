@@ -122,6 +122,7 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `NVIDIA_NIM_API_KEY` | NVIDIA NIM credential for the agent LLM |
 | `NVIDIA_NIM_API_URL` | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`) |
 | `E2B_API_KEY` | Server-only E2B Sandbox API key; never expose it to the browser |
+| `E2B_MAX_SANDBOX_CREATIONS` | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
 | `OAUTH_SERVER_URL` | Neon auth / OAuth server URL |
 | `NEON_AUTH_BASE_URL` | Neon auth base URL |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks |

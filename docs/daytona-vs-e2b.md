@@ -33,7 +33,7 @@ The E2B key must remain server-only. Persistent sandboxes use a one-hour timeout
 
 ## Cost and product boundary
 
-E2B’s Hobby credit and one-hour sandbox limit are not a free permanent VM. In keeping with the user’s no-card requirement, Nova must block new sandbox creation when it reaches the selected safety threshold below the credit limit, explain that execution is paused, and leave files unchanged. Do not request a card, switch plans, or retry work through a paid path without a future explicit product decision.
+E2B’s Hobby credit and one-hour sandbox limit are not a free permanent VM. To honor the user’s no-card requirement, Nova blocks new sandbox creation at the configured `E2B_MAX_SANDBOX_CREATIONS` threshold (50 creations by default), before any workspace upload or task execution. It explains that execution is paused and leaves files unchanged. Nova must not request a card, switch plans, or retry work through a paid path without a future explicit product decision.
 
 ## When E2B would win instead
 

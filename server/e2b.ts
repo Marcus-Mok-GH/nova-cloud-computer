@@ -8,6 +8,9 @@ const MAX_OUTPUT_BYTES = 12_000;
 const RUN_TIMEOUT_MS = 30_000;
 const OPENCODE_CHAT_TIMEOUT_MS = 180_000;
 const PERSISTENT_SANDBOX_TIMEOUT_MS = 3_600_000;
+const DEFAULT_MAX_SANDBOX_CREATIONS = 50;
+
+let sandboxCreationCount = 0;
 
 export type E2BWorkspaceFile = {
   id: number;
@@ -79,6 +82,25 @@ export type E2BTaskResult = {
 
 export function isE2BConfigured() {
   return Boolean(process.env.E2B_API_KEY?.trim());
+}
+
+function maxSandboxCreations() {
+  const configured = Number.parseInt(process.env.E2B_MAX_SANDBOX_CREATIONS ?? "", 10);
+  return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_MAX_SANDBOX_CREATIONS;
+}
+
+/** Reserve one sandbox creation before contacting E2B, enforcing Nova's zero-spend safety cap. */
+export function reserveSandboxCreation() {
+  const limit = maxSandboxCreations();
+  if (sandboxCreationCount >= limit) {
+    throw new Error("Nova has paused new sandbox work to stay within its no-card safety limit.");
+  }
+  sandboxCreationCount += 1;
+}
+
+/** Reset the process-local creation counter for isolated tests and controlled worker restarts. */
+export function resetSandboxCreationCount() {
+  sandboxCreationCount = 0;
 }
 
 function safeE2BError(error: unknown) {
@@ -219,6 +241,7 @@ async function createOrGetPersistentSandbox(client: E2BClientLike, workspaceId: 
     return sandbox;
   }
 
+  reserveSandboxCreation();
   const sandbox = await client.create(persistentSandboxConfig(workspaceId, ownerId));
   await provisionOpencodeOnSandbox(sandbox);
   return sandbox;
@@ -261,6 +284,7 @@ function commandOutput(result: E2BCommandResult) {
 
 export async function runE2BTask(client: E2BClientLike, input: E2BTaskInput): Promise<E2BTaskResult> {
   validateE2BCode(input.code);
+  reserveSandboxCreation();
   const sandbox = await client.create({
     ...persistentSandboxConfig(input.workspaceId, input.ownerId),
     metadata: {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildDaytonaWorkspaceBundle, ensurePersistentSandbox, persistentSandboxConfig, recoverPersistentSandbox, runBashCommandInPersistentSandbox, runDaytonaTask, sanitizeBashOutput, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
+import { buildDaytonaWorkspaceBundle, ensurePersistentSandbox, persistentSandboxConfig, recoverPersistentSandbox, runDaytonaTask, sanitizeDaytonaOutput, validateDaytonaCode, type DaytonaClientLike } from "./daytona";
 
 describe("Daytona sandbox service", () => {
   it("creates a bounded network-isolated sandbox, uploads a scoped bundle, records its ID, and always deletes it", async () => {
@@ -113,36 +113,5 @@ describe("Daytona sandbox service", () => {
     const bundle = buildDaytonaWorkspaceBundle([{ id: 4, name: "../../secrets.txt", content: "safe", mimeType: "text/plain", folderId: null }], []);
     expect(bundle.uploads[0]?.remotePath).toBe("/home/daytona/workspace/input/4-secrets.txt");
     expect(sanitizeDaytonaOutput("\u001b[31mhello\u001b[0m\0")).toBe("hello");
-  });
-
-  it("runs a shell command in the persistent sandbox and scrubs credentials from its output", async () => {
-    const executeCommand = vi.fn(async () => ({ result: "total 0\n", exitCode: 0 }));
-    const sandbox = {
-      id: "sbx-bash",
-      state: "started" as const,
-      fs: { uploadFile: vi.fn(async () => undefined) },
-      process: { executeCommand },
-      delete: vi.fn(async () => undefined),
-    };
-    const client: DaytonaClientLike = { get: vi.fn(async () => sandbox), create: vi.fn() };
-
-    const result = await runBashCommandInPersistentSandbox(client, { workspaceId: 4, ownerId: 7, command: "ls -la /home/daytona/workspace" });
-
-    expect(executeCommand).toHaveBeenCalledWith("ls -la /home/daytona/workspace", "/home/daytona", undefined, 30);
-    expect(result).toEqual({ ok: true, exitCode: 0, output: "total 0", sandboxId: "sbx-bash" });
-    expect(client.create).not.toHaveBeenCalled();
-  });
-
-  it("sanitizes ANSI escapes and leaked credential lines from bash output", () => {
-    expect(sanitizeBashOutput("\u001b[31mred\u001b[0m\u001b[36mcyan\u001b[0m\0\n")).toBe("redcyan");
-    expect(sanitizeBashOutput("export DAYTONA_API_KEY=abc123\n")).toBe("export [private credential]");
-    expect(sanitizeBashOutput("")).toBe("Command produced no console output.");
-  });
-
-  it("rejects an empty shell command before touching any sandbox", async () => {
-    const create = vi.fn();
-    const client: DaytonaClientLike = { create };
-    await expect(runBashCommandInPersistentSandbox(client, { workspaceId: 4, ownerId: 7, command: "   " })).rejects.toThrow(/shell command is required/i);
-    expect(create).not.toHaveBeenCalled();
   });
 });

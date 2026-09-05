@@ -1,5 +1,7 @@
-import { invokeLLM } from "./_core/llm";
-import { getWorkspaceAgentConnection } from "./workspaceAgent";
+import { ENV } from "./_core/env";
+import { z } from "zod";
+import { getDaytonaClient, runOpencodeChatInPersistentSandbox } from "./daytona";
+import { getOrCreateWorkspace } from "./db";
 
 export type PlannedAutomation = {
   name: string;
@@ -13,29 +15,6 @@ export type PlannedAutomation = {
   confidence: number;
   needsClarification: boolean;
   clarificationQuestion: string | null;
-};
-
-const schema = {
-  name: "automation_plan",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      name: { type: "string", minLength: 1, maxLength: 120 },
-      frequency: { type: "string", enum: ["hourly", "daily", "weekdays", "weekly", "custom"] },
-      scheduleCron: { type: "string", minLength: 11, maxLength: 64 },
-      scheduleTimezone: { type: "string", minLength: 1, maxLength: 80 },
-      scheduleHuman: { type: "string", minLength: 1, maxLength: 200 },
-      executionPrompt: { type: "string", minLength: 3, maxLength: 8000 },
-      args: { type: "object", additionalProperties: true },
-      definition: { type: "object", additionalProperties: true },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      needsClarification: { type: "boolean" },
-      clarificationQuestion: { type: ["string", "null"], maxLength: 500 },
-    },
-    required: ["name", "frequency", "scheduleCron", "scheduleTimezone", "scheduleHuman", "executionPrompt", "args", "definition", "confidence", "needsClarification", "clarificationQuestion"],
-  },
 };
 
 function validCron(cron: string): boolean {
@@ -82,45 +61,61 @@ function extractTextContent(content: unknown): string | undefined {
   return undefined;
 }
 
+const plannedAutomationSchema = z.object({
+  name: z.string(),
+  frequency: z.enum(["hourly", "daily", "weekdays", "weekly", "custom"]),
+  scheduleCron: z.string(),
+  scheduleTimezone: z.string(),
+  scheduleHuman: z.string(),
+  executionPrompt: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  definition: z.record(z.string(), z.unknown()),
+  confidence: z.number().finite().min(0).max(1),
+  needsClarification: z.boolean(),
+  clarificationQuestion: z.string().nullable(),
+}).strict();
+
 function parsePlan(raw: string): PlannedAutomation {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  try { return JSON.parse(cleaned) as PlannedAutomation; }
-  catch { throw new Error("Nova returned an invalid automation plan. Please try again."); }
+  try {
+    return plannedAutomationSchema.parse(JSON.parse(cleaned));
+  } catch {
+    throw new Error("Nova returned an invalid automation plan. Please try again.");
+  }
 }
 
 export async function planAutomation(ownerId: number, request: string, userTimezone = "UTC") {
   const cleaned = request.trim();
   if (cleaned.length < 3) throw new Error("Tell Nova what you want the automation to do.");
   if (cleaned.length > 8000) throw new Error("That automation request is too long. Keep it under 8,000 characters.");
-  const connection = await getWorkspaceAgentConnection(ownerId);
-  if (!connection?.apiUrl || !connection.apiKey) throw new Error("Nova needs a configured workspace AI model before it can create automations.");
+  const client = getDaytonaClient();
+  if (!client) throw new Error("Nova’s VM (openCode) isn’t available, so it can’t create automations right now. Please try again shortly.");
+  const workspace = await getOrCreateWorkspace(ownerId);
 
   const now = new Date().toISOString();
-  const messages = [
-    { role: "system" as const, content: automationSystemPrompt(userTimezone, now) },
-    { role: "user" as const, content: cleaned },
-  ];
+  const prompt = [
+    automationSystemPrompt(userTimezone, now),
+    `Convert this automation request into the requested JSON object.\n${cleaned}`,
+  ].join("\n");
 
+  // The VM's opencode agent returns free-form text. Instruct it to emit the plan
+  // as a single JSON object and retry a few times if parsing fails, so model
+  // output quirks cannot break automation creation.
   let lastError: unknown;
-  // Model providers vary in structured-output support. Fall back from strict JSON schema
-  // to JSON-object mode and finally plain-text JSON so model selection cannot break
-  // automation creation.
-  for (const mode of ["schema", "json_object", "plain"] as const) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const result = await invokeLLM({
-        model: connection.model,
-        apiUrl: connection.apiUrl,
-        apiKey: connection.apiKey,
-        messages,
-        ...(mode === "schema" ? { outputSchema: schema } : mode === "json_object" ? { responseFormat: { type: "json_object" as const } } : {}),
-        maxTokens: 2500,
+      const result = await runOpencodeChatInPersistentSandbox(client, {
+        workspaceId: workspace.id,
+        ownerId,
+        model: ENV.opencodeZenModel,
+        prompt: `${prompt}\n\nReply with ONLY the JSON object.`,
       });
-      const raw = extractTextContent(result.choices?.[0]?.message?.content);
+      const raw = extractTextContent(result.reply);
       if (!raw) throw new Error("Nova did not return an automation plan.");
       return sanitizePlan(parsePlan(raw), userTimezone);
     } catch (error) {
       lastError = error;
-      console.warn(`Automation planning ${mode} mode failed for model ${connection.model}:`, error);
+      console.warn(`Automation planning attempt ${attempt + 1} failed:`, error);
     }
   }
 

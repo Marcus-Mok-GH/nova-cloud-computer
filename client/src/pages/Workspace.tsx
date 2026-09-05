@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
-import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, MoreHorizontal, Sparkles, Wrench, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Sparkles, Wrench, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
@@ -36,11 +36,6 @@ export default function Workspace() {
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
-  const modelSettings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });
-  const liveModels = trpc.nvidia.models.useQuery(undefined, { retry: false, refetchInterval: 300000 });
-  const updateModel = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await modelSettings.refetch(); toast.success("Model updated."); }, onError: error => toast.error(error.message) });
-  const [selectedModel, setSelectedModel] = useState("");
-  useEffect(() => { if (modelSettings.data?.activeProvider === "nvidia-nim" && modelSettings.data.activeModelId) setSelectedModel(modelSettings.data.activeModelId); }, [modelSettings.data?.activeProvider, modelSettings.data?.activeModelId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
@@ -88,7 +83,6 @@ export default function Workspace() {
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)] sm:size-9"><MessageSquareText className="size-4" /></span>
             <div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p><p className="hidden text-xs text-neutral-400 sm:block">Private workspace context</p></div>
           </div>
-          <MoreHorizontal className="size-4 shrink-0 text-neutral-400" />
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col space-y-4">
@@ -105,7 +99,6 @@ export default function Workspace() {
         <form onSubmit={submit} className="shrink-0 border-t border-neutral-100 bg-white p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:p-3 dark:border-white/5 dark:bg-neutral-900">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 items-end gap-1.5 rounded-2xl border border-neutral-200 bg-[#fafafa] px-2.5 py-2 transition focus-within:border-[oklch(0.60_0.02_250)] focus-within:ring-4 focus-within:ring-[oklch(0.60_0.02_250/0.10)] sm:items-center sm:gap-2 sm:rounded-full sm:px-4 sm:py-2 dark:border-white/10 dark:bg-neutral-950">
             <FileText className="mb-1 size-4 shrink-0 text-neutral-400 sm:mb-0" />
-            <select aria-label="AI model" value={selectedModel} onChange={event => { const value = event.target.value; setSelectedModel(value); if (value) updateModel.mutate({ activeProvider: "nvidia-nim", activeModelId: value }); }} disabled={liveModels.isLoading || updateModel.isPending} className="w-[5.5rem] shrink-0 truncate rounded-lg border-0 bg-transparent px-0 text-[11px] text-neutral-500 outline-none sm:w-auto sm:max-w-40 sm:px-1 sm:text-xs dark:text-neutral-400"><option value="">Model</option>{liveModels.data?.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}</select>
             <Textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask Nova..." rows={1} className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-sm leading-5 placeholder:text-neutral-400 focus-visible:ring-0" />
             <button type="submit" disabled={!draft.trim() || isStreaming} className="grid size-9 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250)] text-white transition hover:bg-[oklch(0.54_0.025_250)] disabled:opacity-40" aria-label="Go"><ArrowUp className="size-4" /></button>
           </div>

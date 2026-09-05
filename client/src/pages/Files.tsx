@@ -46,8 +46,8 @@ export default function Files() {
   if (computer.isError) return <DashboardLayout><div className="grid min-h-[65vh] place-items-center"><div className="text-center"><h1 className="text-xl font-bold">Nova could not open your files.</h1><Button onClick={() => computer.refetch()} className="mt-4">Try again</Button></div></div></DashboardLayout>;
 
   return <DashboardLayout>
-    <div className="mx-auto flex h-[calc(100vh-3.5rem-6rem)] min-h-[560px] max-w-none overflow-hidden border-0 sm:mx-4 sm:my-1 sm:rounded-2xl sm:border sm:border-neutral-200 sm:shadow-[0_1px_2px_rgba(10,10,10,0.03)] lg:mx-6 dark:sm:border-white/10">
-      <aside className="flex w-[248px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-50/70 dark:border-white/10 dark:bg-neutral-900/40">
+    <div className="mx-auto flex h-full min-h-0 max-w-none flex-col overflow-hidden border-0 sm:mx-4 sm:my-1 sm:rounded-2xl sm:border sm:border-neutral-200 sm:shadow-[0_1px_2px_rgba(10,10,10,0.03)] lg:mx-6 lg:flex-row dark:sm:border-white/10">
+      <aside className="flex h-56 w-full shrink-0 flex-col border-b border-neutral-200 bg-neutral-50/70 lg:h-auto lg:w-[248px] lg:border-b-0 lg:border-r dark:border-white/10 dark:bg-neutral-900/40">
         <div className="flex h-12 shrink-0 items-center justify-between px-3"><span className="text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">Explorer</span><div className="flex gap-1"><button onClick={() => make("file")} title="New file" aria-label="New file" className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-200/70 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-white"><FilePlus2 className="size-4" /></button><button onClick={() => make("folder")} title="New folder" aria-label="New folder" className="rounded-lg p-1.5 text-neutral-500 transition hover:bg-neutral-200/70 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-white"><FolderPlus className="size-4" /></button></div></div>
         <div className="min-h-0 flex-1 overflow-y-auto py-1 text-[13px]">
           <button onClick={() => selectFolder(null)} className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition ${activeFolderId === null ? "bg-neutral-200/80 text-neutral-900 dark:bg-white/10 dark:text-white" : "text-neutral-600 hover:bg-neutral-200/50 dark:text-neutral-300 dark:hover:bg-white/5"}`}><HardDrive className="ml-0.5 size-3.5" /><span className="font-semibold">NOVA WORKSPACE</span></button>
@@ -55,7 +55,7 @@ export default function Files() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-neutral-950">
         {openFile ? <>
           <div className="flex h-12 shrink-0 items-center border-b border-neutral-200 bg-white px-3 dark:border-white/10 dark:bg-neutral-900"><div className="flex h-full items-center gap-2 text-sm"><span className="grid size-8 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><File className="size-4" /></span><div className="flex min-w-0 items-center gap-1 text-xs text-neutral-400"><span className="hover:text-neutral-900 dark:hover:text-white">workspace</span>{trail.map(f => <React.Fragment key={f.id}><ChevronRight className="size-3" /><span className="truncate">{f.name}</span></React.Fragment>)}<ChevronRight className="size-3" /><span className="max-w-[280px] truncate font-semibold text-neutral-700 dark:text-neutral-200">{openFile.name}</span></div></div><button onClick={() => setOpenFile(null)} aria-label="Close file" className="ml-auto grid size-8 place-items-center rounded-lg text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-white"><X className="size-4" /></button></div>
           <div className="flex min-h-0 flex-1 flex-col">

@@ -5,7 +5,7 @@ export function DashboardLayoutSkeleton() {
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile top bar skeleton */}
-      <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-neutral-200 bg-white/90 px-4 backdrop-blur-md lg:hidden dark:border-white/10 dark:bg-neutral-950/90">
+      <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur-md lg:hidden">
         <div className="flex items-center gap-2">
           <Skeleton className="h-5 w-5 rounded-md" />
           <Skeleton className="h-4 w-20" />
@@ -15,20 +15,15 @@ export function DashboardLayoutSkeleton() {
 
       {/* Desktop sidebar skeleton */}
       <div className="relative hidden w-[264px] border-r border-border bg-background p-4 pb-24 lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:flex-col lg:gap-6">
-        {/* Logo area */}
         <div className="flex items-center gap-3 px-2">
           <Skeleton className="h-8 w-8 rounded-md" />
           <Skeleton className="h-4 w-24" />
         </div>
-
-        {/* Menu items */}
         <div className="space-y-2 px-2">
           <Skeleton className="h-10 w-full rounded-lg" />
           <Skeleton className="h-10 w-full rounded-lg" />
           <Skeleton className="h-10 w-full rounded-lg" />
         </div>
-
-        {/* User profile area at bottom */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="flex items-center gap-3 px-1">
             <Skeleton className="h-9 w-9 rounded-full" />
@@ -40,7 +35,6 @@ export function DashboardLayoutSkeleton() {
         </div>
       </div>
 
-      {/* Main content skeleton */}
       <div className="min-h-screen p-4 pb-24 lg:pb-10 lg:pl-[264px]">
         <div className="space-y-4">
           <Skeleton className="h-12 w-48 rounded-lg" />
@@ -53,7 +47,6 @@ export function DashboardLayoutSkeleton() {
         </div>
       </div>
 
-      {/* Mobile bottom tab bar skeleton */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md lg:hidden">
         <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
           {Array.from({ length: 5 }).map((_, index) => (

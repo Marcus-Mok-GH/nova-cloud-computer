@@ -359,15 +359,23 @@ export async function runOpencodeChatInPersistentSandbox(client: DaytonaClientLi
   const sandbox = await ensurePersistentSandbox(client, input.workspaceId, input.ownerId);
   const runOpencode = async (target: DaytonaSandboxLike) => {
     await provisionOpencodeOnSandbox(target);
+    if (!/^[\w./:-]+$/.test(input.model)) throw new Error("Unsupported opencode model identifier.");
+    const encodedPrompt = Buffer.from(input.prompt, "utf8").toString("base64");
     const script = [
       "set -e",
       'export PATH="$HOME/.opencode/bin:$PATH"',
       'mkdir -p "$HOME/.opencode-chat"',
-      `printf '%s' ${JSON.stringify(input.prompt)} > "$HOME/.opencode-chat/prompt.txt"`,
-      `opencode run -m ${JSON.stringify(input.model)} --format json < "$HOME/.opencode-chat/prompt.txt"`,
+      'PROMPT_FILE="$(mktemp "$HOME/.opencode-chat/prompt.XXXXXXXX")"',
+      `trap 'rm -f "$PROMPT_FILE"' EXIT`,
+      `printf '%s' '${encodedPrompt}' | base64 -d > "$PROMPT_FILE"`,
+      `opencode run -m ${JSON.stringify(input.model)} --format json < "$PROMPT_FILE"`,
     ].join("\n");
     const response = await target.process.executeCommand(script, "/home/daytona", undefined, OPENCODE_CHAT_TIMEOUT_SECONDS);
-    const lines = (response.result ?? "").split("\n");
+    const output = response.result ?? "";
+    if (response.exitCode != null && response.exitCode !== 0) {
+      throw new Error(`opencode exited with code ${response.exitCode}: ${safeDaytonaError(output)}`);
+    }
+    const lines = output.split("\n");
     const reply: string[] = [];
     for (const line of lines) {
       let event: { type?: string; part?: { type?: string; text?: string } };
@@ -384,17 +392,19 @@ export async function runOpencodeChatInPersistentSandbox(client: DaytonaClientLi
     return text;
   };
 
+  let reply: string;
+  let sandboxId: string;
   try {
-    const reply = await runOpencode(sandbox);
-    const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
-    for (const chunk of chunks) await input.onChunk?.(chunk);
-    return { reply, sandboxId: sandbox.id };
+    reply = await runOpencode(sandbox);
+    sandboxId = sandbox.id;
   } catch (error) {
     console.warn(`[Daytona] Opencode chat failed for workspace ${input.workspaceId}; retrying once with automatic recovery: ${safeDaytonaError(error)}`);
     const recoveredSandbox = await recoverPersistentSandbox(client, input.workspaceId, input.ownerId);
-    const reply = await runOpencode(recoveredSandbox);
-    const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
-    for (const chunk of chunks) await input.onChunk?.(chunk);
-    return { reply, sandboxId: recoveredSandbox.id };
+    reply = await runOpencode(recoveredSandbox);
+    sandboxId = recoveredSandbox.id;
   }
+
+  const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
+  for (const chunk of chunks) await input.onChunk?.(chunk);
+  return { reply, sandboxId };
 }

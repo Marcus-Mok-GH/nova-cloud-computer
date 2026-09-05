@@ -1,6 +1,7 @@
 import { ENV } from "./_core/env";
+import { z } from "zod";
 import { getDaytonaClient, runOpencodeChatInPersistentSandbox } from "./daytona";
-import { getWorkspaceComputer } from "./db";
+import { getOrCreateWorkspace } from "./db";
 
 export type PlannedAutomation = {
   name: string;
@@ -60,10 +61,27 @@ function extractTextContent(content: unknown): string | undefined {
   return undefined;
 }
 
+const plannedAutomationSchema = z.object({
+  name: z.string(),
+  frequency: z.enum(["hourly", "daily", "weekdays", "weekly", "custom"]),
+  scheduleCron: z.string(),
+  scheduleTimezone: z.string(),
+  scheduleHuman: z.string(),
+  executionPrompt: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  definition: z.record(z.string(), z.unknown()),
+  confidence: z.number().finite().min(0).max(1),
+  needsClarification: z.boolean(),
+  clarificationQuestion: z.string().nullable(),
+}).strict();
+
 function parsePlan(raw: string): PlannedAutomation {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  try { return JSON.parse(cleaned) as PlannedAutomation; }
-  catch { throw new Error("Nova returned an invalid automation plan. Please try again."); }
+  try {
+    return plannedAutomationSchema.parse(JSON.parse(cleaned));
+  } catch {
+    throw new Error("Nova returned an invalid automation plan. Please try again.");
+  }
 }
 
 export async function planAutomation(ownerId: number, request: string, userTimezone = "UTC") {
@@ -72,7 +90,7 @@ export async function planAutomation(ownerId: number, request: string, userTimez
   if (cleaned.length > 8000) throw new Error("That automation request is too long. Keep it under 8,000 characters.");
   const client = getDaytonaClient();
   if (!client) throw new Error("Nova’s VM (openCode) isn’t available, so it can’t create automations right now. Please try again shortly.");
-  const computer = await getWorkspaceComputer(ownerId);
+  const workspace = await getOrCreateWorkspace(ownerId);
 
   const now = new Date().toISOString();
   const prompt = [
@@ -87,7 +105,7 @@ export async function planAutomation(ownerId: number, request: string, userTimez
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const result = await runOpencodeChatInPersistentSandbox(client, {
-        workspaceId: computer.workspace.id,
+        workspaceId: workspace.id,
         ownerId,
         model: ENV.opencodeZenModel,
         prompt: `${prompt}\n\nReply with ONLY the JSON object.`,

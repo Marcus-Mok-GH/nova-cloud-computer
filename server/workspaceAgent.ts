@@ -197,7 +197,7 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   // VM run) are resolved directly and need no model. Try them first so these
   // operations stay immediate and deterministic.
   const direct = await runDirectWorkspaceAction(ownerId, content);
-  if (direct.actions.length > 0) {
+  if (direct.actions.length > 0 || direct.reply.trim()) {
     await emitDirectActions(direct.actions);
     await options.onChunk?.(direct.reply);
     const message = await appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: direct.reply });

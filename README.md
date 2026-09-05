@@ -8,7 +8,7 @@ A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent
 
 ## Overview
 
-Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated sandboxed VMs (via Daytona) or GitHub-hosted runners.
+Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated sandboxed VMs (via E2B Sandbox) or GitHub-hosted runners.
 
 The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an OpenAI-compatible NVIDIA NIM LLM backend.
 
@@ -33,7 +33,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 ┌───────▼──────────┐          ┌────────▼─────────────────────┐
 │  Neon Postgres    │          │  LLM / agent backends       │
 │  (Drizzle ORM)    │          │  • NVIDIA NIM (OpenAI-compat)│
-│  workspaces,      │          │  • Daytona sandbox VMs       │
+│  workspaces,      │          │  • E2B Sandbox VMs           │
 │  chats, files,    │          │  • GitHub Actions runners    │
 │  automations,     │          └────────────────────────────┘
 │  projects, tasks   │
@@ -47,7 +47,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 - **Server** — Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
 - **Database** — Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
 - **LLM** — OpenAI-compatible chat completions against NVIDIA NIM (`nvidia/nemotron-3-nano-30b-a3b`), configured per workspace.
-- **Agent VMs** — Daytona sandboxes for server-side agent execution; per-workspace persistent sandbox support.
+- **Agent VMs** — E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
 
 ---
 
@@ -69,9 +69,9 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── routers.ts        # tRPC router (auth, workspace, telegram, nvidia, agentVm, automations, files, chats, models, projects, tasks)
 │   ├── db.ts             # Data-access layer
 │   ├── telegram.ts       # Telegram bot helpers
-│   ├── agentVm.ts        # Daytona agent VM orchestration
+│   ├── agentVm.ts        # E2B agent VM orchestration
 │   ├── automations.ts    # Scheduled automation runner
-│   ├── daytona.ts        # Daytona SDK wrapper
+│   ├── e2b.ts            # E2B SDK wrapper
 │   ├── modelSecrets.ts   # Per-workspace model credentials
 │   ├── nvidiaGateway.ts  # NVIDIA NIM gateway client
 │   ├── storage.ts        # S3 object storage
@@ -87,21 +87,22 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 
 ## Tech stack
 
-| Layer | Technology |
-| --- | --- |
-| Frontend | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
-| Backend | Node/Express, tRPC v11, superjson |
-| Database | Neon (Postgres), Drizzle ORM |
-| LLM | NVIDIA NIM (OpenAI-compatible chat completions) |
-| Agent VMs | Daytona SDK |
-| Object storage | AWS S3 (presigned URLs) |
-| Deployment | Vercel |
+| Layer          | Technology                                                                      |
+| -------------- | ------------------------------------------------------------------------------- |
+| Frontend       | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
+| Backend        | Node/Express, tRPC v11, superjson                                               |
+| Database       | Neon (Postgres), Drizzle ORM                                                    |
+| LLM            | NVIDIA NIM (OpenAI-compatible chat completions)                                 |
+| Agent VMs      | E2B Sandbox SDK                                                                 |
+| Object storage | AWS S3 (presigned URLs)                                                         |
+| Deployment     | Vercel                                                                          |
 
 ---
 
 ## Data model
 
 Core Drizzle tables (see `drizzle/schema.ts`):
+
 - **workspaces** — one per user; holds model settings, persistent sandbox ID, Telegram settings.
 - **users / sessions** — authentication.
 - **chats / chat_messages** — conversations with the AI agent.
@@ -116,16 +117,18 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 
 Key configuration (see `server/_core/env.ts`). Set these as Vercel Production variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Neon Postgres connection string |
-| `NVIDIA_NIM_API_KEY` | NVIDIA NIM credential for the agent LLM |
-| `NVIDIA_NIM_API_URL` | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`) |
-| `OAUTH_SERVER_URL` | Neon auth / OAuth server URL |
-| `NEON_AUTH_BASE_URL` | Neon auth base URL |
-| `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks |
-| `POSTGRES_PASSWORD` | Postgres password |
-| AWS S3 vars | Object storage access keys |
+| Variable                     | Purpose                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| `DATABASE_URL`               | Neon Postgres connection string                                                 |
+| `NVIDIA_NIM_API_KEY`         | NVIDIA NIM credential for the agent LLM                                         |
+| `NVIDIA_NIM_API_URL`         | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`)     |
+| `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
+| `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
+| `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
+| `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
+| `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
+| `POSTGRES_PASSWORD`          | Postgres password                                                               |
+| AWS S3 vars                  | Object storage access keys                                                      |
 
 ---
 

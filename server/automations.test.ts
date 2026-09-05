@@ -12,13 +12,13 @@ const db = {
   updateAutomationScheduleState: vi.fn(),
 };
 
-const daytona = {
-  getDaytonaClient: vi.fn(() => ({})),
-  runDaytonaTaskInPersistentSandbox: vi.fn(),
+const e2b = {
+  getE2BClient: vi.fn(() => ({})),
+  runE2BTaskInPersistentSandbox: vi.fn(),
 };
 
 vi.mock("./db", () => db);
-vi.mock("./daytona", () => daytona);
+vi.mock("./e2b", () => e2b);
 
 const { buildWorkspaceBriefing, getAutomationRunKey, runAutomationForScheduleTask, runDueAutomationsForUser } = await import("./automations");
 
@@ -28,12 +28,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.getOrCreateWorkspace.mockResolvedValue({ id: 31, ownerId: 7 });
   db.listAutomationRecordsForUser.mockResolvedValue([]);
-  daytona.getDaytonaClient.mockReturnValue({});
-  daytona.runDaytonaTaskInPersistentSandbox.mockResolvedValue({
+  e2b.getE2BClient.mockReturnValue({});
+  e2b.runE2BTaskInPersistentSandbox.mockResolvedValue({
     sandboxId: "sbx-owner-7",
     output: JSON.stringify({
       name: "daily-workspace-briefing-2026-08-18.md",
-      content: "# Daily workspace briefing\n\nGenerated inside the VM.\n",
+      content: "# Daily workspace briefing\n\nGenerated inside the E2B sandbox.\n",
       mimeType: "text/markdown",
     }),
     uploadedFileCount: 0,
@@ -67,7 +67,7 @@ describe("account-scoped automations", () => {
     ]);
     db.claimAutomationRun.mockResolvedValue({ id: 12 });
     db.getWorkspaceComputer.mockResolvedValue({
-      workspace: { name: "Owner space" },
+      workspace: { name: "Owner space", persistentSandboxId: "sbx-owner-7" },
       folders: [],
       files: [],
       chats: [],
@@ -80,14 +80,14 @@ describe("account-scoped automations", () => {
     expect(db.listAutomationRecordsForUser).toHaveBeenCalledWith(7);
     expect(db.claimAutomationRun).toHaveBeenCalledWith({ automationId: 9, ownerId: 7, workspaceId: 31, runKey: "workspace_digest:2026-08-18" });
     expect(db.getWorkspaceComputer).toHaveBeenCalledWith(7);
-    expect(daytona.runDaytonaTaskInPersistentSandbox).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(e2b.runE2BTaskInPersistentSandbox).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       workspaceId: 31,
       ownerId: 7,
       code: expect.stringContaining("artifact_path.write_text"),
     }));
     expect(db.createWorkspaceFileForUser).toHaveBeenCalledWith(7, {
       name: "daily-workspace-briefing-2026-08-18.md",
-      content: "# Daily workspace briefing\n\nGenerated inside the VM.\n",
+      content: "# Daily workspace briefing\n\nGenerated inside the E2B sandbox.\n",
       mimeType: "text/markdown",
     });
     expect(db.updateAutomationRun).toHaveBeenCalledWith(expect.objectContaining({ automationId: 9, ownerId: 7, workspaceId: 31, runId: 12, artifactFileId: 44, status: "succeeded" }));
@@ -105,7 +105,7 @@ describe("account-scoped automations", () => {
     });
     db.claimAutomationRun.mockResolvedValue({ id: 12 });
     db.getWorkspaceComputer.mockResolvedValue({
-      workspace: { name: "Owner space" },
+      workspace: { name: "Owner space", persistentSandboxId: "sbx-owner-7" },
       folders: [],
       files: [],
       chats: [],

@@ -1,6 +1,7 @@
 /**
- * Nova Cloud Computer — refined dark-mode-first design system.
- * Clean surfaces, monochrome palette, subtle cool accent.
+ * Nova Cloud Computer — refined, theme-aware design system.
+ * Light mode uses warm neutral surfaces with strong readable contrast;
+ * dark mode preserves the existing monochrome aesthetic.
  */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
@@ -38,25 +39,25 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.975 0.006 250);
+  --foreground: oklch(0.20 0.012 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.20 0.012 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.45 0.02 250);
+  --popover-foreground: oklch(0.20 0.012 250);
+  --primary: oklch(0.43 0.08 255);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.96 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.96 0 0);
-  --muted-foreground: oklch(0.50 0 0);
-  --accent: oklch(0.96 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0 0);
-  --input: oklch(0.91 0 0);
-  --ring: oklch(0.45 0.02 250);
-  --surface: oklch(0.985 0 0);
+  --secondary: oklch(0.94 0.008 250);
+  --secondary-foreground: oklch(0.25 0.012 250);
+  --muted: oklch(0.94 0.008 250);
+  --muted-foreground: oklch(0.48 0.018 250);
+  --accent: oklch(0.93 0.018 255);
+  --accent-foreground: oklch(0.24 0.035 255);
+  --destructive: oklch(0.55 0.21 27);
+  --border: oklch(0.88 0.01 250);
+  --input: oklch(0.88 0.01 250);
+  --ring: oklch(0.43 0.08 255);
+  --surface: oklch(0.965 0.006 250);
 }
 
 .dark {
@@ -95,16 +96,15 @@ body {
 button, a { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
-::selection { background: oklch(0.60 0.02 250 / 0.20); }
+::selection { background: oklch(0.43 0.08 255 / 0.18); }
 
 /* ---------------- Landing ---------------- */
-
 .site-shell { background: #fff; overflow: hidden; }
 .dark .site-shell { background: oklch(0.10 0 0); }
 
 .nav-shell {
   position: sticky; top: 0; z-index: 40;
-  border-bottom: 1px solid oklch(0.91 0 0);
+  border-bottom: 1px solid oklch(0.88 0.01 250);
   background: oklch(1 0 0 / 0.88);
   backdrop-filter: blur(16px);
 }
@@ -114,25 +114,16 @@ a { color: inherit; text-decoration: none; }
   position: relative; isolation: isolate; overflow: hidden;
   background:
     linear-gradient(180deg, oklch(0.10 0 0) 0%, oklch(0.13 0 0) 100%);
+  border-bottom: 1px solid oklch(1 0 0 / 0.06);
 }
 .hero-section::before {
   content: "";
   position: absolute; inset: 0;
-  background:
-    radial-gradient(900px 400px at 50% 0%, oklch(0.60 0.02 250 / 0.06), transparent 70%);
+  background: radial-gradient(900px 400px at 50% 0%, oklch(0.60 0.02 250 / 0.06), transparent 70%);
   pointer-events: none;
 }
-.dark .hero-section::before { opacity: 1; }
-.hero-section {
-  border-bottom: 1px solid oklch(1 0 0 / 0.06);
-}
-
-.hero-title {
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 1.02;
-  color: oklch(0.955 0 0);
-}
+.hero-section { color: oklch(0.955 0 0); }
+.hero-title { font-weight: 800; letter-spacing: -0.04em; line-height: 1.02; color: oklch(0.955 0 0); }
 .hero-title .hero-accent { color: oklch(0.60 0.02 250); }
 
 .pill-btn {
@@ -143,8 +134,8 @@ a { color: inherit; text-decoration: none; }
   transition: transform .16s cubic-bezier(0,0,.2,1), box-shadow .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
 }
 .pill-btn:active { transform: scale(.97); }
-.pill-btn-primary { background: oklch(0.60 0.02 250); color: #fff; box-shadow: 0 1px 2px oklch(0.10 0 0 / 0.15), 0 8px 20px oklch(0.10 0 0 / 0.20); }
-.pill-btn-primary:hover { background: oklch(0.54 0.025 250); box-shadow: 0 2px 4px oklch(0.10 0 0 / 0.18), 0 10px 28px oklch(0.10 0 0 / 0.25); transform: translateY(-1px); }
+.pill-btn-primary { background: oklch(0.43 0.08 255); color: #fff; box-shadow: 0 1px 2px oklch(0.10 0 0 / 0.15), 0 8px 20px oklch(0.10 0 0 / 0.20); }
+.pill-btn-primary:hover { background: oklch(0.38 0.09 255); box-shadow: 0 2px 4px oklch(0.10 0 0 / 0.18), 0 10px 28px oklch(0.10 0 0 / 0.25); transform: translateY(-1px); }
 .pill-btn-dark { background: oklch(0.145 0 0); color: #fff; }
 .pill-btn-dark:hover { background: oklch(0.28 0 0); transform: translateY(-1px); }
 .pill-btn-ghost { background: oklch(0.145 0 0); color: oklch(0.955 0 0); border-color: oklch(1 0 0 / 0.12); box-shadow: 0 1px 2px oklch(0 0 0 / 0.08); }
@@ -152,44 +143,24 @@ a { color: inherit; text-decoration: none; }
 .dark .pill-btn-ghost { background: oklch(0.145 0 0); color: oklch(0.955 0 0); border-color: oklch(1 0 0 / 0.12); }
 .dark .pill-btn-ghost:hover { border-color: oklch(1 0 0 / 0.22); background: oklch(0.20 0 0); }
 
-.topbar-link {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-size: 13px; font-weight: 500; color: oklch(0.63 0 0);
-  background: none; border: 0; padding: 6px 8px;
-  transition: color .16s ease;
-}
-.topbar-link:hover { color: oklch(0.955 0 0); }
+.topbar-link { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 500; color: oklch(0.49 0.018 250); background: none; border: 0; padding: 6px 8px; transition: color .16s ease; }
+.topbar-link:hover { color: oklch(0.25 0.03 250); }
 .dark .topbar-link { color: oklch(0.63 0 0); }
 .dark .topbar-link:hover { color: oklch(0.955 0 0); }
 
-.theme-toggle {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; padding: 0; border-radius: 999px;
-  border: 1px solid oklch(1 0 0 / 0.10); background: oklch(0.145 0 0); color: oklch(0.63 0 0);
-  transition: transform .16s cubic-bezier(0,0,.2,1), background .16s ease, border-color .16s ease;
-}
-.theme-toggle:hover { border-color: oklch(1 0 0 / 0.20); transform: translateY(-1px); }
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; border-radius: 999px; border: 1px solid oklch(0.86 0.01 250); background: oklch(0.965 0.006 250); color: oklch(0.40 0.015 250); transition: transform .16s cubic-bezier(0,0,.2,1), background .16s ease, border-color .16s ease; }
+.theme-toggle:hover { border-color: oklch(0.78 0.015 250); background: oklch(0.94 0.008 250); transform: translateY(-1px); }
+.dark .theme-toggle { border-color: oklch(1 0 0 / 0.10); background: oklch(0.145 0 0); color: oklch(0.63 0 0); }
+.dark .theme-toggle:hover { border-color: oklch(1 0 0 / 0.20); }
 
-.section-eyebrow {
-  text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700;
-  color: oklch(0.60 0.02 250);
-}
-
-.section-title {
-  font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; color: oklch(0.145 0 0);
-}
+.section-eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: 11px; font-weight: 700; color: oklch(0.43 0.08 255); }
+.section-title { font-weight: 800; letter-spacing: -0.035em; line-height: 1.08; color: oklch(0.20 0.012 250); }
 .dark .section-title { color: oklch(0.955 0 0); }
 
-.feature-card {
-  border: 1px solid oklch(0.91 0 0); border-radius: 1rem; background: oklch(1 0 0);
-  padding: 24px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
-}
+.feature-card { border: 1px solid oklch(0.88 0.01 250); border-radius: 1rem; background: #fff; padding: 24px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.feature-card:hover { border-color: oklch(0.43 0.08 255 / 0.35); box-shadow: 0 12px 40px oklch(0.20 0.012 250 / 0.10); transform: translateY(-2px); }
 .dark .feature-card { border-color: oklch(1 0 0 / 0.08); background: oklch(0.145 0 0); }
-.feature-card:hover { border-color: oklch(0.60 0.02 250 / 0.35); box-shadow: 0 12px 40px oklch(0 0 0 / 0.10); transform: translateY(-2px); }
 .dark .feature-card:hover { border-color: oklch(1 0 0 / 0.15); box-shadow: 0 12px 40px oklch(0 0 0 / 0.35); }
-
-/* Remove ribbon-track animation */
-/* Remove floating animations */
 
 @keyframes rise-in { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {

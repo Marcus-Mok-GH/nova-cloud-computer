@@ -76,8 +76,16 @@ vi.mock("./db", () => ({
 
 const getE2BClient = vi.fn();
 const runOpencodeChat = vi.fn();
+const withE2BWorkspaceLock = vi.fn(
+  async (
+    _ownerId: number,
+    _workspaceId: number,
+    operation: () => Promise<unknown>
+  ) => operation()
+);
 vi.mock("./e2b", () => ({
   getE2BClient,
+  withE2BWorkspaceLock,
   ensurePersistentSandbox: vi.fn(
     async (
       _client: unknown,

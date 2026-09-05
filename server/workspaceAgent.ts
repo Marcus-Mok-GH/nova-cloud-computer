@@ -20,6 +20,7 @@ import {
   ensurePersistentSandbox,
   getE2BClient,
   runOpencodeChatInPersistentSandbox,
+  withE2BWorkspaceLock,
 } from "./e2b";
 import {
   persistE2BWorkspace,
@@ -430,28 +431,35 @@ export async function runWorkspaceAgent(
   const client = getE2BClient();
   if (client) {
     try {
-      await persistWorkspaceToObjectStorage(ownerId);
-      const sandbox = await ensurePersistentSandbox(
-        client,
-        computer.workspace.id,
+      const result = await withE2BWorkspaceLock(
         ownerId,
-        computer.workspace.persistentSandboxId
-      );
-      await restoreWorkspaceToE2B(ownerId, sandbox);
-      const result = await runOpencodeChatInPersistentSandbox(client, {
-        workspaceId: computer.workspace.id,
-        sandboxId: computer.workspace.persistentSandboxId,
-        ownerId,
-        model: ENV.opencodeZenModel,
-        prompt: `${context}\n\n${content}`,
-        onChunk: options.onChunk,
-      });
-      const completedSandbox = await client.connect(result.sandboxId);
-      await persistE2BWorkspace(ownerId, completedSandbox);
-      await persistWorkspaceToObjectStorage(ownerId);
-      await updateWorkspacePersistentSandbox(
         computer.workspace.id,
-        result.sandboxId
+        async () => {
+          await persistWorkspaceToObjectStorage(ownerId);
+          const sandbox = await ensurePersistentSandbox(
+            client,
+            computer.workspace.id,
+            ownerId,
+            computer.workspace.persistentSandboxId
+          );
+          await restoreWorkspaceToE2B(ownerId, sandbox);
+          const result = await runOpencodeChatInPersistentSandbox(client, {
+            workspaceId: computer.workspace.id,
+            sandboxId: computer.workspace.persistentSandboxId,
+            ownerId,
+            model: ENV.opencodeZenModel,
+            prompt: `${context}\n\n${content}`,
+            onChunk: options.onChunk,
+          });
+          const completedSandbox = await client.connect(result.sandboxId);
+          await persistE2BWorkspace(ownerId, completedSandbox);
+          await persistWorkspaceToObjectStorage(ownerId);
+          await updateWorkspacePersistentSandbox(
+            computer.workspace.id,
+            result.sandboxId
+          );
+          return result;
+        }
       );
       const reply = String(
         result.reply || "I’m ready to help with this workspace."

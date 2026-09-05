@@ -12,6 +12,31 @@ const DEFAULT_MAX_SANDBOX_CREATIONS = 50;
 
 let sandboxCreationCount = 0;
 const sandboxExecutionLocks = new Map<string, Promise<void>>();
+const workspaceLifecycleLocks = new Map<string, Promise<void>>();
+
+/** Serialize the full restore/execute/persist lifecycle for one workspace. */
+export async function withE2BWorkspaceLock<T>(
+  ownerId: number,
+  workspaceId: number,
+  operation: () => Promise<T>
+): Promise<T> {
+  const key = `${ownerId}:${workspaceId}`;
+  const previous = workspaceLifecycleLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  workspaceLifecycleLocks.set(key, queued);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (workspaceLifecycleLocks.get(key) === queued)
+      workspaceLifecycleLocks.delete(key);
+  }
+}
 
 export type E2BWorkspaceFile = {
   id: number;

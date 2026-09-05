@@ -66,7 +66,7 @@ function workspaceRelativePath(value: string) {
     return raw.slice(relativePrefix.length + 1);
   if (raw.startsWith(`${E2B_WORKSPACE_DIR}/`))
     return raw.slice(E2B_WORKSPACE_DIR.length + 1);
-  return raw;
+  return null;
 }
 
 async function createE2BFolders(sandbox: E2BSandboxLike, destination: string) {
@@ -199,9 +199,15 @@ export async function persistE2BWorkspace(
   const entries = await sandbox.files.list(E2B_WORKSPACE_DIR, { depth: 50 });
   const files = entries
     .filter(
-      (entry: any) => entry.type !== "dir" && !entry.isDir && !entry.isDirectory
+      (entry: any) =>
+        entry.type !== "dir" &&
+        !entry.isDir &&
+        !entry.isDirectory &&
+        entry.type !== "symlink" &&
+        entry.type !== "link" &&
+        !entry.isSymlink &&
+        !entry.symlink
     )
-    .filter((entry: any) => entry.type !== "symlink" && entry.type !== "link")
     .filter((entry: any) => {
       const relative = workspaceRelativePath(
         String(entry.path ?? entry.name ?? "")
@@ -218,6 +224,7 @@ export async function persistE2BWorkspace(
     const relative = workspaceRelativePath(
       String(entry.path ?? entry.name ?? "")
     );
+    if (!relative) continue;
     const safe = safeRelativePath(relative);
     if (!safe) continue;
     const parts = safe.split("/");

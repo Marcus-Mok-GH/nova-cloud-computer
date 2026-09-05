@@ -4,7 +4,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { neonAuth } from "@/lib/neonAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import UserAutomationsCard from "@/components/UserAutomationsCard";
-import TelegramModelSelector from "@/components/TelegramModelSelector";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +25,6 @@ export default function WorkspaceSettings() {
   return <DashboardLayout><div className="mx-auto max-w-5xl space-y-7 pb-12 pt-3">
     <section className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white px-6 py-8 shadow-sm dark:border-white/10 dark:bg-neutral-900 sm:px-9 sm:py-10"><div className="relative"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72_0.015_250)]">Your personal cloud</p><h1 className="mt-3 text-2xl font-extrabold tracking-tight text-neutral-950 dark:text-white sm:text-3xl">Preferences with a memory.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">Give Nova the standing rules and recurring jobs that make your workspace feel like yours.</p></div></section>
     <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 text-xl font-bold tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section>
-    <TelegramModelSelector />
     <TelegramBotCard />
     <UserAutomationsCard />
     <AccountManagementCard />

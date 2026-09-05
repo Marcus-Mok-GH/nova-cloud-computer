@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -93,8 +93,23 @@ async function ensureWorkspacePersistentVm<T extends typeof workspaces.$inferSel
   if (!sandboxId || workspace.persistentSandboxId === sandboxId) return workspace;
 
   const db = await requireDb();
-  await db.update(workspaces).set({ persistentSandboxId: sandboxId, updatedAt: new Date() }).where(eq(workspaces.id, workspace.id));
-  return { ...workspace, persistentSandboxId: sandboxId };
+  const [claimed] = await db
+    .update(workspaces)
+    .set({ persistentSandboxId: sandboxId, updatedAt: new Date() })
+    .where(and(eq(workspaces.id, workspace.id), isNull(workspaces.persistentSandboxId)))
+    .returning({ persistentSandboxId: workspaces.persistentSandboxId });
+
+  if (claimed) {
+    return { ...workspace, persistentSandboxId: sandboxId };
+  }
+  // Another process won the race — re-read the winner's sandbox ID
+  const db2 = await requireDb();
+  const [winner] = await db2
+    .select({ persistentSandboxId: workspaces.persistentSandboxId })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspace.id))
+    .limit(1);
+  return { ...workspace, persistentSandboxId: winner?.persistentSandboxId ?? sandboxId };
 }
 
 export async function getWorkspacePersistentSandbox(ownerId: number) {
@@ -108,6 +123,23 @@ export async function getWorkspacePersistentSandbox(ownerId: number) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Backfills the durable container for an existing account without replacing
+ * its workspace or any already-recorded sandbox identifier.
+ */
+export async function ensureUserWorkspaceProvisioned(ownerId: number): Promise<void> {
+  const db = await requireDb();
+  const [workspace] = await db
+    .select({ id: workspaces.id, persistentSandboxId: workspaces.persistentSandboxId })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, ownerId))
+    .limit(1);
+
+  if (workspace?.persistentSandboxId) return;
+
+  await getOrCreateWorkspace(ownerId);
 }
 
 export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {

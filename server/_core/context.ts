@@ -3,7 +3,7 @@ import { COOKIE_NAME, SEVEN_DAYS_MS } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { User } from "../../drizzle/schema";
-import { getUserByOpenId, upsertUser } from "../db";
+import { ensureUserWorkspaceProvisioned, getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import { sdk } from "./sdk";
@@ -50,6 +50,7 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
     if (!identity) return null;
     await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
     const user = await getUserByOpenId(identity.openId);
+    if (user) void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
     return user ? { user, identity } : null;
   } catch (error) {
     console.warn("[Auth] Neon token validation failed", error instanceof Error ? error.message : error);
@@ -65,6 +66,7 @@ async function authenticateFirstPartySession(cookieHeader: string | undefined): 
   if (!session) return null;
   const user = await getUserByOpenId(session.openId);
   if (!user) return null;
+  void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
   return {
     user,
     identity: {

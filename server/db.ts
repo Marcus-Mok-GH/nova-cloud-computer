@@ -110,6 +110,23 @@ export async function getWorkspacePersistentSandbox(ownerId: number) {
   }
 }
 
+/**
+ * Backfills the durable container for an existing account without replacing
+ * its workspace or any already-recorded sandbox identifier.
+ */
+export async function ensureUserWorkspaceProvisioned(ownerId: number): Promise<void> {
+  const db = await requireDb();
+  const [workspace] = await db
+    .select({ id: workspaces.id, persistentSandboxId: workspaces.persistentSandboxId })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, ownerId))
+    .limit(1);
+
+  if (workspace?.persistentSandboxId) return;
+
+  await getOrCreateWorkspace(ownerId);
+}
+
 export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {
   const db = await requireDb();
   await db.update(workspaces).set({ persistentSandboxId: sandboxId }).where(eq(workspaces.id, workspaceId));

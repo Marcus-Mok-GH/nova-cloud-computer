@@ -97,12 +97,19 @@ export type E2BSandboxLike = {
   setTimeout?: (timeoutMs: number) => Promise<void>;
 };
 
+export type E2BSandboxInfo = {
+  sandboxId: string;
+  state: "running" | "paused";
+  metadata?: Record<string, string>;
+};
+
 export type E2BClientLike = {
   create: (options?: Record<string, unknown>) => Promise<E2BSandboxLike>;
   connect: (
     sandboxId: string,
     options?: Record<string, unknown>
   ) => Promise<E2BSandboxLike>;
+  list?: (options?: Record<string, unknown>) => Promise<E2BSandboxInfo[]>;
 };
 
 export type E2BTaskInput = {
@@ -176,7 +183,30 @@ export function getE2BClient(): E2BClientLike | undefined {
         ...(options ?? {}),
         apiKey,
       }) as unknown as Promise<E2BSandboxLike>,
+    list: async options => {
+      const paginator = Sandbox.list({
+        ...(options ?? {}),
+        apiKey,
+      } as never);
+      return (await paginator.nextItems()) as E2BSandboxInfo[];
+    },
   };
+}
+
+export async function getE2BSandboxStatus(
+  client: E2BClientLike,
+  sandboxId: string
+): Promise<"active" | "sleeping" | "unavailable"> {
+  if (!client.list) return "unavailable";
+  try {
+    const sandbox = (await client.list()).find(
+      item => item.sandboxId === sandboxId
+    );
+    if (!sandbox) return "unavailable";
+    return sandbox.state === "paused" ? "sleeping" : "active";
+  } catch {
+    return "unavailable";
+  }
 }
 
 function safePathSegment(value: string, fallback: string) {

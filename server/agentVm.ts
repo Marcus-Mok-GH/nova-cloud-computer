@@ -2,6 +2,7 @@ import {
   createAgentVmRunForUser,
   createWorkspaceFileForUser,
   getWorkspaceComputer,
+  getStoredWorkspaceSandboxId,
   listAgentVmRunsForUser,
   updateAgentVmRunForUser,
   updateWorkspacePersistentSandbox,
@@ -11,6 +12,7 @@ import {
   isE2BConfigured,
   runE2BTaskInPersistentSandbox,
   ensurePersistentSandbox,
+  getE2BSandboxStatus,
   withE2BWorkspaceLock,
 } from "./e2b";
 import {
@@ -31,6 +33,22 @@ function safeError(error: unknown) {
     .slice(0, ERROR_LIMIT);
 }
 export async function getAgentVmStatus(ownerId: number) {
+  const client = getE2BClient();
+  let sandbox: {
+    id: string | null;
+    status: "active" | "sleeping" | "unavailable" | "not_configured";
+  } = { id: null, status: "not_configured" };
+  if (client) {
+    const stored = await getStoredWorkspaceSandboxId(ownerId);
+    if (stored?.persistentSandboxId) {
+      sandbox = {
+        id: stored.persistentSandboxId,
+        status: await getE2BSandboxStatus(client, stored.persistentSandboxId),
+      };
+    } else {
+      sandbox = { id: null, status: "unavailable" };
+    }
+  }
   return {
     configured: isE2BConfigured(),
     provider: "e2b" as const,
@@ -38,6 +56,7 @@ export async function getAgentVmStatus(ownerId: number) {
     limits: { timeoutSeconds: 30, network: "allowed" as const },
     allowance: { usedRuns: 0, maxRuns: 0, remainingRuns: 0, exhausted: false },
     persistence: "s3_e2b_bidirectional" as const,
+    sandbox,
   };
 }
 

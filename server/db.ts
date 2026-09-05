@@ -447,6 +447,13 @@ export async function getWorkspaceComputer(ownerId: number) {
   return { workspace, folders, files, chats: chatRows, settings };
 }
 
+/** Read the stored sandbox identifier without provisioning or resuming a sandbox. */
+export async function getStoredWorkspaceSandboxId(ownerId: number) {
+  const db = await requireDb();
+  const [workspace] = await db.select({ id: workspaces.id, persistentSandboxId: workspaces.persistentSandboxId }).from(workspaces).where(eq(workspaces.ownerId, ownerId)).limit(1);
+  return workspace ?? null;
+}
+
 type TelegramWebhookStatus = { linked: boolean };
 
 async function resolveTelegramWebhookStatus(setting: typeof telegramBotSettings.$inferSelect): Promise<TelegramWebhookStatus | null> {

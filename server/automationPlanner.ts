@@ -1,6 +1,6 @@
 import { ENV } from "./_core/env";
 import { z } from "zod";
-import { getDaytonaClient, runOpencodeChatInPersistentSandbox } from "./daytona";
+import { getE2BClient, runOpencodeChatInPersistentSandbox } from "./e2b";
 import { getOrCreateWorkspace } from "./db";
 
 export type PlannedAutomation = {
@@ -88,7 +88,7 @@ export async function planAutomation(ownerId: number, request: string, userTimez
   const cleaned = request.trim();
   if (cleaned.length < 3) throw new Error("Tell Nova what you want the automation to do.");
   if (cleaned.length > 8000) throw new Error("That automation request is too long. Keep it under 8,000 characters.");
-  const client = getDaytonaClient();
+  const client = getE2BClient();
   if (!client) throw new Error("Nova’s VM (openCode) isn’t available, so it can’t create automations right now. Please try again shortly.");
   const workspace = await getOrCreateWorkspace(ownerId);
 
@@ -106,6 +106,7 @@ export async function planAutomation(ownerId: number, request: string, userTimez
     try {
       const result = await runOpencodeChatInPersistentSandbox(client, {
         workspaceId: workspace.id,
+        sandboxId: workspace.persistentSandboxId,
         ownerId,
         model: ENV.opencodeZenModel,
         prompt: `${prompt}\n\nReply with ONLY the JSON object.`,

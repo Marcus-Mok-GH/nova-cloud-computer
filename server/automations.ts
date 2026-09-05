@@ -9,7 +9,7 @@ import {
   updateAutomationRun,
   updateAutomationScheduleState,
 } from "./db";
-import { getDaytonaClient, runDaytonaTaskInPersistentSandbox } from "./daytona";
+import { getE2BClient, runE2BTaskInPersistentSandbox } from "./e2b";
 
 const ERROR_LIMIT = 1000;
 
@@ -142,13 +142,14 @@ async function runAutomationForOwner(ownerId: number, automation: AutomationReco
 
   try {
     const computer = await getWorkspaceComputer(ownerId);
-    const client = getDaytonaClient();
-    if (!client) throw new Error("Daytona is not configured, so Nova cannot run this automation in the workspace VM.");
+    const client = getE2BClient();
+    if (!client) throw new Error("E2B is not configured, so Nova cannot run this automation in the workspace sandbox.");
 
     const artifactName = `daily-workspace-briefing-${utcDateKey(now)}.md`;
-    const vmResult = await runDaytonaTaskInPersistentSandbox(client, {
+    const vmResult = await runE2BTaskInPersistentSandbox(client, {
       workspaceId: workspace.id,
       ownerId,
+      sandboxId: computer.workspace.persistentSandboxId,
       task: "Generate the Nova daily workspace briefing and create its artifact inside this persistent workspace VM.",
       code: buildWorkspaceBriefingVmCode(computer, now),
       files: computer.files,
@@ -159,7 +160,7 @@ async function runAutomationForOwner(ownerId: number, automation: AutomationReco
     const artifact = await createWorkspaceFileForUser(ownerId, artifactMetadata);
     if (!artifact) throw new Error("Nova could not save the daily workspace briefing.");
 
-    await updateAutomationRun({ automationId: automation.id, ownerId, workspaceId: workspace.id, runId: run.id, status: "succeeded", summary: `Executed in workspace VM ${vmResult.sandboxId} and saved a private daily workspace briefing.`, artifactFileId: artifact.id, completedAt: now });
+    await updateAutomationRun({ automationId: automation.id, ownerId, workspaceId: workspace.id, runId: run.id, status: "succeeded", summary: `Executed in E2B workspace sandbox ${vmResult.sandboxId} and saved a private daily workspace briefing.`, artifactFileId: artifact.id, completedAt: now });
     await updateAutomationScheduleState({ automationId: automation.id, ownerId, workspaceId: workspace.id, lastRunAt: now, lastError: null });
     outcome.succeeded = 1;
   } catch (error) {

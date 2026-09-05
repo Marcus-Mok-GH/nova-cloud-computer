@@ -15,7 +15,7 @@ import {
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
-import { getDaytonaClient, runOpencodeChatInPersistentSandbox } from "./daytona";
+import { getE2BClient, runOpencodeChatInPersistentSandbox } from "./e2b";
 
 export type AgentAction = { kind: "folder" | "file" | "telegram" | "vm"; name: string; operation?: "created" | "renamed" | "moved" | "deleted" | "sent" | "completed" | "disabled" };
 
@@ -52,7 +52,7 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
     const firstAssistant = messages?.find(m => m.role === "assistant" && !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
     if (!firstUser || !firstAssistant) return;
     const computer = await getWorkspaceComputer(ownerId);
-    const client = getDaytonaClient();
+    const client = getE2BClient();
     if (!client) return;
     const prompt = [
       "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
@@ -61,6 +61,7 @@ export async function autoTitleChatForUser(ownerId: number, chatId: number): Pro
     ].join("\n");
     const result = await runOpencodeChatInPersistentSandbox(client, {
       workspaceId: computer.workspace.id,
+      sandboxId: computer.workspace.persistentSandboxId,
       ownerId,
       model: ENV.opencodeZenModel,
       prompt: prompt.slice(0, 2000),
@@ -82,10 +83,10 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
     const sent = await sendTelegramMessage(credentials.token, credentials.chatId, text);
     return { reply: `Sent your Telegram message (message #${sent.message_id}).`, actions: [{ kind: "telegram" as const, name: text, operation: "sent" as const }] };
   }
-  const vmTask = content.match(/(?:use|run|start|launch)\s+(?:a\s+)?(?:daytona\s+)?(?:vm|sandbox)\s+(?:to|for)\s+(.+)/i);
+  const vmTask = content.match(/(?:use|run|start|launch)\s+(?:a\s+)?(?:e2b\s+)?(?:vm|sandbox)\s+(?:to|for)\s+(.+)/i);
   if (vmTask?.[1]?.trim()) {
     const started = await startAgentVmRun(ownerId, { task: vmTask[1].trim() });
-    if (!started.configured) return { reply: started.message, actions: [{ kind: "vm" as const, name: "Daytona", operation: "disabled" as const }] };
+    if (!started.configured) return { reply: started.message, actions: [{ kind: "vm" as const, name: "E2B", operation: "disabled" as const }] };
     return { reply: started.message, actions: [{ kind: "vm" as const, name: `run #${started.run?.id ?? ""}`, operation: "completed" as const }] };
   }
   const renameFolder = content.match(/rename\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+to\s+['"]?([^'".\n]+)['"]?/i);
@@ -208,11 +209,12 @@ export async function runWorkspaceAgent(ownerId: number, chatId: number, content
   // VM (big-pickle, anonymous OpenCode Zen provider), mirroring the Zo Computer
   // setup. The VM's opencode handles its own tools (bash, file edit, etc.). There
   // is no server-side model key — the VM is the model.
-  const client = getDaytonaClient();
+  const client = getE2BClient();
   if (client) {
     try {
       const result = await runOpencodeChatInPersistentSandbox(client, {
         workspaceId: computer.workspace.id,
+        sandboxId: computer.workspace.persistentSandboxId,
         ownerId,
         model: ENV.opencodeZenModel,
         prompt: `${context}\n\n${content}`,

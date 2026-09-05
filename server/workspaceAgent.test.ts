@@ -8,7 +8,7 @@ const updateFile = vi.fn(async (_owner: number, id: number, input: { folderId?: 
 const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
 const telegramCredentials = vi.fn(async () => undefined);
-const computer = vi.fn(async () => ({ workspace: { id: 41 }, folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
+const computer = vi.fn(async () => ({ workspace: { id: 41, persistentSandboxId: "sbx-vm" }, folders: [{ id: 10, name: "Notes" }, { id: 11, name: "Archive" }], files: [{ id: 15, name: "welcome.md" }] }));
 const chat = vi.fn(async () => ({ id: 3, title: "New workspace conversation" }));
 const chatMessages = vi.fn(async () => [
   { id: 1, role: "user", content: "Help me plan a sprint." },
@@ -31,10 +31,10 @@ vi.mock("./db", () => ({
   getTelegramCredentialsForUser: telegramCredentials,
 }));
 
-const getDaytonaClient = vi.fn();
+const getE2BClient = vi.fn();
 const runOpencodeChat = vi.fn();
-vi.mock("./daytona", () => ({
-  getDaytonaClient,
+vi.mock("./e2b", () => ({
+  getE2BClient,
   runOpencodeChatInPersistentSandbox: runOpencodeChat,
 }));
 
@@ -97,7 +97,7 @@ describe("Nova VM-agent workspace", () => {
   });
 
   it("streams a conversational reply via the VM's opencode CLI", async () => {
-    getDaytonaClient.mockReturnValue({});
+    getE2BClient.mockReturnValue({});
     runOpencodeChat.mockResolvedValue({ reply: "Hello from the VM.", sandboxId: "sbx-vm" });
 
     await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
@@ -113,8 +113,8 @@ describe("Nova VM-agent workspace", () => {
     }));
   });
 
-  it("reports the VM is unavailable when no Daytona client is configured", async () => {
-    getDaytonaClient.mockReturnValue(undefined);
+  it("reports the VM is unavailable when no E2B client is configured", async () => {
+    getE2BClient.mockReturnValue(undefined);
     await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
       actions: [],
       message: expect.objectContaining({ role: "assistant", content: expect.stringContaining("VM") }),
@@ -123,7 +123,7 @@ describe("Nova VM-agent workspace", () => {
   });
 
   it("reports the VM is unavailable when the opencode chat throws", async () => {
-    getDaytonaClient.mockReturnValue({});
+    getE2BClient.mockReturnValue({});
     runOpencodeChat.mockRejectedValue(new Error("sandbox down"));
     await expect(runWorkspaceAgent(7, 3, "Please reply with exactly this one word: PINEAPPLE.")).resolves.toMatchObject({
       actions: [],
@@ -143,7 +143,7 @@ describe("autoTitleChatForUser", () => {
   });
 
   it("renames a default-titled chat from its first messages via the VM", async () => {
-    getDaytonaClient.mockReturnValue({});
+    getE2BClient.mockReturnValue({});
     runOpencodeChat.mockResolvedValue({ reply: "Sprint planning help", sandboxId: "sbx-vm" });
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint planning help", ["New workspace conversation", "New conversation", "Telegram Chat"]);
@@ -164,14 +164,14 @@ describe("autoTitleChatForUser", () => {
   });
 
   it("strips wrapping quotes and newlines from the model title", async () => {
-    getDaytonaClient.mockReturnValue({});
+    getE2BClient.mockReturnValue({});
     runOpencodeChat.mockResolvedValue({ reply: '""Sprint\nplanning"\n', sandboxId: "sbx-vm" });
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint", ["New workspace conversation", "New conversation", "Telegram Chat"]);
   });
 
   it("does not rename when the VM title is missing", async () => {
-    getDaytonaClient.mockReturnValue({});
+    getE2BClient.mockReturnValue({});
     runOpencodeChat.mockResolvedValue({ reply: "", sandboxId: "sbx-vm" });
     await autoTitleChatForUser(7, 3);
     expect(renameChat).not.toHaveBeenCalled();

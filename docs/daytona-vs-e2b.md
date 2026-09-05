@@ -2,9 +2,11 @@
 
 Research date: 2026-08-15. The decision criteria are Nova’s actual needs: a server-controlled Linux agent computer, strong per-user isolation, durable workspace state, safe secrets, cost controls, and an initial no-credit-card / zero-spend policy.
 
+> **Implementation status (2026-09-05):** Nova now uses E2B Sandbox. The provider comparison below is retained as historical research; the live integration follows the E2B lifecycle, command, and filesystem APIs documented in the repository’s `server/e2b.ts` adapter.
+
 ## Executive decision
 
-**Choose Daytona Cloud for Nova’s first agent-VM integration.** It is the stronger overall fit for a multi-user workspace product because its documented organization isolation, scoped/managed API keys, volume subpaths, outbound-network controls, and secret proxy give Nova more first-class tenant and credential boundaries. Daytona also offers a $200 no-card trial, versus E2B’s $100 Hobby credit. Both become usage-based after their credits; Nova must retain the existing feature-disablement policy at credit exhaustion.
+**Historical decision: choose Daytona Cloud for Nova’s first agent-VM integration.** It was the stronger overall fit for a multi-user workspace product because its documented organization isolation, scoped/managed API keys, volume subpaths, outbound-network controls, and secret proxy give Nova more first-class tenant and credential boundaries. Daytona also offers a $200 no-card trial, versus E2B’s $100 Hobby credit. Both become usage-based after their credits; Nova must retain the existing feature-disablement policy at credit exhaustion.
 
 E2B is an excellent alternative and has two material strengths: a simpler JavaScript integration surface and an actively maintained Apache-2.0 open-source infrastructure project with a documented self-hosting route. It should remain Nova’s contingency option if self-hosting becomes a required strategic capability.
 
@@ -23,19 +25,19 @@ E2B is an excellent alternative and has two material strengths: a simpler JavaSc
 | After credit | Pay-as-you-go | Account blocked until a payment method is added | Nova’s zero-spend policy should proactively disable new work before either provider can bill |
 | Self-hosting option | Public repository is no longer maintained; do not treat it as Nova’s supported self-hosting route | Active Apache-2.0 project with documented Terraform-based self-hosting | E2B is stronger if Nova later chooses a paid, user-owned, or self-managed compute plane |
 
-## Recommended Daytona design
+## Current E2B design
 
-Nova should create an **ephemeral default container sandbox** for routine transforms, file analysis, and code execution; it should select a **Linux VM sandbox** only for explicit VM-only tasks. Tag every sandbox with the Nova user ID and run ID. Transfer only a task-scoped workspace bundle or mount an owner-specific Daytona volume subpath. Return only declared outputs and an operation manifest to Nova’s own storage before auto-deleting the sandbox.
+Nova creates a short-lived E2B Sandbox for bounded tasks and a per-workspace persistent E2B Sandbox for chat and scheduled automation. Each sandbox is tagged with Nova owner/workspace/run metadata. The adapter transfers only a scoped workspace bundle, persists file changes back to Nova’s database and S3, and keeps the E2B API key server-side.
 
-The Daytona key must remain server-only. Use a scoped child key per run where available, default-deny outbound network access, attach only host-allowlisted secrets, and never give the sandbox a Neon database connection string or long-lived provider credentials. Limit the first release to one active sandbox per user, five minutes idle time before stop/pause, a 20-minute wall-clock TTL, and explicit approval for destructive operations or external egress.
+The E2B key must remain server-only. Persistent sandboxes use a one-hour timeout with pause/automatic resume, while bounded task sandboxes use a 20-minute timeout and are killed after completion. Nova must never give a sandbox a Neon database connection string or long-lived provider credentials; workspace files are explicitly scoped and synchronized through the adapter.
 
 ## Cost and product boundary
 
-Daytona’s $200 credit is a **trial**, not a free permanent VM. In keeping with the user’s no-card requirement, Nova must block new sandbox creation when it reaches the selected safety threshold below the credit limit, explain that execution is paused, and leave files unchanged. Do not request a card, switch plans, or retry work through a paid path without a future explicit product decision.
+E2B’s Hobby credit and one-hour sandbox limit are not a free permanent VM. In keeping with the user’s no-card requirement, Nova must block new sandbox creation when it reaches the selected safety threshold below the credit limit, explain that execution is paused, and leave files unchanged. Do not request a card, switch plans, or retry work through a paid path without a future explicit product decision.
 
 ## When E2B would win instead
 
-Choose E2B if Nova’s priority changes to a provider-agnostic, self-hostable infrastructure path; if preserving paused full-memory workspace state indefinitely is the dominant feature; or if the team prefers its smaller JavaScript surface and accepts building additional tenant-level secret and network controls itself. Under Nova’s current multi-user and zero-spend constraints, Daytona remains the more complete managed offering.
+E2B is now the selected provider because its current JavaScript SDK supplies the required sandbox lifecycle, command, filesystem, and pause/resume primitives with a small server-side adapter. The comparison’s remaining Daytona preference is historical and does not describe the live deployment.
 
 ## References
 

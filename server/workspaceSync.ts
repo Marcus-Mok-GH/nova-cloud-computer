@@ -6,6 +6,7 @@ import {
 } from "./db";
 import { storageGetSignedUrl, storagePutStable } from "./storage";
 import { requireWorkspaceOwner, requireWorkspaceStorageKey } from "./workspaceSecurity";
+import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
@@ -45,14 +46,22 @@ function safeRelativePath(value: string) {
   return parts.join("/");
 }
 
-async function createDaytonaFolders(sandbox: { fs: any }, destination: string) {
+function workspaceRelativePath(value: string) {
+  const raw = cleanPath(value);
+  const relativePrefix = E2B_WORKSPACE_DIR.slice(1);
+  if (raw.startsWith(`${relativePrefix}/`)) return raw.slice(relativePrefix.length + 1);
+  if (raw.startsWith(`${E2B_WORKSPACE_DIR}/`)) return raw.slice(E2B_WORKSPACE_DIR.length + 1);
+  return raw;
+}
+
+async function createE2BFolders(sandbox: E2BSandboxLike, destination: string) {
   const parent = destination.slice(0, destination.lastIndexOf("/"));
   if (!parent) return;
   const parts = parent.split("/").filter(Boolean);
   let current = "";
   for (const part of parts) {
     current += `/${part}`;
-    await sandbox.fs.createFolder(current, "755").catch(() => undefined);
+    if (sandbox.files.makeDir) await sandbox.files.makeDir(current).catch(() => undefined);
   }
 }
 
@@ -94,8 +103,8 @@ export async function restoreWorkspaceFromObjectStorage(ownerId: number) {
   return restored;
 }
 
-/** Push persistent workspace files from S3/DB into the live Daytona filesystem. */
-export async function restoreWorkspaceToDaytona(ownerId: number, sandbox: { fs: any }) {
+/** Push persistent workspace files from S3/DB into the live E2B filesystem. */
+export async function restoreWorkspaceToE2B(ownerId: number, sandbox: E2BSandboxLike) {
   await restoreWorkspaceFromObjectStorage(ownerId);
   const computer = await getWorkspaceComputer(ownerId);
   await requireWorkspaceOwner(ownerId, computer.workspace.id);
@@ -114,9 +123,9 @@ export async function restoreWorkspaceToDaytona(ownerId: number, sandbox: { fs: 
     }
     const relative = safeRelativePath(workspaceFilePath(file, computer.folders));
     if (!relative) continue;
-    const destination = `/home/daytona/workspace/${relative}`;
-    await createDaytonaFolders(sandbox, destination);
-    await sandbox.fs.uploadFile(content, destination);
+    const destination = `${E2B_WORKSPACE_DIR}/${relative}`;
+    await createE2BFolders(sandbox, destination);
+    await sandbox.files.write(destination, content);
     uploaded += 1;
   }
   return uploaded;
@@ -138,15 +147,15 @@ async function ensureFolderPath(ownerId: number, path: string, computer: Awaited
   return parentId;
 }
 
-/** Import files created/changed inside Daytona back into Neon and private S3. */
-export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: any }) {
+/** Import files created/changed inside E2B back into Neon and private S3. */
+export async function persistE2BWorkspace(ownerId: number, sandbox: E2BSandboxLike) {
   const computer = await getWorkspaceComputer(ownerId);
   await requireWorkspaceOwner(ownerId, computer.workspace.id);
-  const entries = await sandbox.fs.listFiles("/home/daytona/workspace", { depth: 50 });
+  const entries = await sandbox.files.list(E2B_WORKSPACE_DIR, { depth: 50 });
   const files = entries
-    .filter((entry: any) => !entry.isDir && !entry.isDirectory)
+    .filter((entry: any) => entry.type !== "dir" && !entry.isDir && !entry.isDirectory)
     .filter((entry: any) => {
-      const relative = cleanPath(String(entry.path ?? entry.name ?? ""));
+      const relative = workspaceRelativePath(String(entry.path ?? entry.name ?? ""));
       if (!relative) return false;
       if (relative.startsWith("input/")) return false;
       if (relative.startsWith("output/")) return false;
@@ -156,12 +165,7 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
 
   let imported = 0;
   for (const entry of files) {
-    const rawPath = cleanPath(String(entry.path ?? entry.name ?? ""));
-    const relative = rawPath.startsWith("home/daytona/workspace/")
-      ? rawPath.slice("home/daytona/workspace/".length)
-      : rawPath.startsWith("/home/daytona/workspace/")
-        ? rawPath.slice("/home/daytona/workspace/".length)
-        : rawPath;
+    const relative = workspaceRelativePath(String(entry.path ?? entry.name ?? ""));
     const safe = safeRelativePath(relative);
     if (!safe) continue;
     const parts = safe.split("/");
@@ -171,8 +175,8 @@ export async function persistDaytonaWorkspace(ownerId: number, sandbox: { fs: an
     const folderId = await ensureFolderPath(ownerId, folderName, computer);
     if (folderName && folderId === null) continue;
     const existing = computer.files.find(file => file.name === name && (file.folderId ?? null) === (folderId ?? null));
-    const bytes = await sandbox.fs.downloadFile(entry.path);
-    if (!Buffer.isBuffer(bytes) || bytes.byteLength > MAX_SYNC_FILE_BYTES) continue;
+    const bytes = await sandbox.files.read(entry.path, { format: "bytes" });
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > MAX_SYNC_FILE_BYTES) continue;
     const content = Buffer.from(bytes).toString("utf8");
     const mimeType = typeof entry.mimeType === "string" ? entry.mimeType : "text/plain";
     let saved = existing;

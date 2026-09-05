@@ -87,21 +87,22 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 
 ## Tech stack
 
-| Layer | Technology |
-| --- | --- |
-| Frontend | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
-| Backend | Node/Express, tRPC v11, superjson |
-| Database | Neon (Postgres), Drizzle ORM |
-| LLM | NVIDIA NIM (OpenAI-compatible chat completions) |
-| Agent VMs | E2B Sandbox SDK |
-| Object storage | AWS S3 (presigned URLs) |
-| Deployment | Vercel |
+| Layer          | Technology                                                                      |
+| -------------- | ------------------------------------------------------------------------------- |
+| Frontend       | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
+| Backend        | Node/Express, tRPC v11, superjson                                               |
+| Database       | Neon (Postgres), Drizzle ORM                                                    |
+| LLM            | NVIDIA NIM (OpenAI-compatible chat completions)                                 |
+| Agent VMs      | E2B Sandbox SDK                                                                 |
+| Object storage | AWS S3 (presigned URLs)                                                         |
+| Deployment     | Vercel                                                                          |
 
 ---
 
 ## Data model
 
 Core Drizzle tables (see `drizzle/schema.ts`):
+
 - **workspaces** — one per user; holds model settings, persistent sandbox ID, Telegram settings.
 - **users / sessions** — authentication.
 - **chats / chat_messages** — conversations with the AI agent.
@@ -116,18 +117,18 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 
 Key configuration (see `server/_core/env.ts`). Set these as Vercel Production variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Neon Postgres connection string |
-| `NVIDIA_NIM_API_KEY` | NVIDIA NIM credential for the agent LLM |
-| `NVIDIA_NIM_API_URL` | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`) |
-| `E2B_API_KEY` | Server-only E2B Sandbox API key; never expose it to the browser |
-| `E2B_MAX_SANDBOX_CREATIONS` | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `OAUTH_SERVER_URL` | Neon auth / OAuth server URL |
-| `NEON_AUTH_BASE_URL` | Neon auth base URL |
-| `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks |
-| `POSTGRES_PASSWORD` | Postgres password |
-| AWS S3 vars | Object storage access keys |
+| Variable                     | Purpose                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| `DATABASE_URL`               | Neon Postgres connection string                                                 |
+| `NVIDIA_NIM_API_KEY`         | NVIDIA NIM credential for the agent LLM                                         |
+| `NVIDIA_NIM_API_URL`         | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`)     |
+| `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
+| `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
+| `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
+| `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
+| `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
+| `POSTGRES_PASSWORD`          | Postgres password                                                               |
+| AWS S3 vars                  | Object storage access keys                                                      |
 
 ---
 

@@ -24,7 +24,7 @@ const fakeDb = {
     values: (values: Record<string, unknown>) => ({
       returning: async () => {
         if (table !== agentVmRuns) return [];
-        const run: StoredRun = { id: nextRunId++, workspaceId: values.workspaceId as number, provider: (values.provider as string) ?? "daytona", sandboxId: null, task: values.task as string, status: (values.status as StoredRun["status"]) ?? "queued", resultSummary: null, errorMessage: null, artifactFileId: null, startedAt: null, completedAt: null, createdAt: new Date(), updatedAt: new Date() };
+        const run: StoredRun = { id: nextRunId++, workspaceId: values.workspaceId as number, provider: (values.provider as string) ?? "e2b", sandboxId: null, task: values.task as string, status: (values.status as StoredRun["status"]) ?? "queued", resultSummary: null, errorMessage: null, artifactFileId: null, startedAt: null, completedAt: null, createdAt: new Date(), updatedAt: new Date() };
         runs.push(run);
         return [run];
       },
@@ -52,12 +52,12 @@ vi.mock("./modelSecrets", () => ({ encryptModelApiKey: vi.fn(), decryptModelApiK
 
 const { countAgentVmRunsForUser, createAgentVmRunForUser, getActiveAgentVmRunForUser, listAgentVmRunsForUser, updateAgentVmRunForUser } = await import("./db");
 
-describe("Daytona run persistence", () => {
+describe("E2B run persistence", () => {
   beforeEach(() => { process.env.DATABASE_URL = "postgres://test"; activeWorkspace = ownerWorkspace; runs = []; nextRunId = 1; vi.clearAllMocks(); });
 
   it("tracks lifecycle and artifact state only inside the owning workspace", async () => {
     const queued = await createAgentVmRunForUser(7, { task: "Inspect private notes" });
-    expect(queued).toMatchObject({ id: 1, status: "queued", provider: "daytona" });
+    expect(queued).toMatchObject({ id: 1, status: "queued", provider: "e2b" });
     const running = await updateAgentVmRunForUser(7, queued.id, { status: "running", sandboxId: "sbx-owner", startedAt: new Date() });
     expect(running).toMatchObject({ status: "running", sandboxId: "sbx-owner" });
     expect(await getActiveAgentVmRunForUser(7)).toMatchObject({ id: queued.id, status: "running" });

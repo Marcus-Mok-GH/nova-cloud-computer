@@ -1,12 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { workspaces } from "../drizzle/schema";
 import { getDb } from "../server/db";
-import { initWorkspacePersistentVm } from "../server/daytona";
+import { initWorkspacePersistentVm } from "../server/e2b";
 
 /**
- * One-time repair utility for workspaces created before universal Daytona
+ * One-time repair utility for workspaces created before universal E2B
  * provisioning. It is safe to rerun: only rows without a recorded sandbox ID
- * are selected, and Daytona lookup uses a deterministic workspace name.
+ * are selected, and E2B reconnects through the stored sandbox ID.
  */
 async function main() {
   const db = await getDb();

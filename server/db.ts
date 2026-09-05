@@ -22,7 +22,7 @@ import {
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
-import { getDaytonaClient, initWorkspacePersistentVm } from "./daytona";
+import { getE2BClient, initWorkspacePersistentVm } from "./e2b";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -84,7 +84,7 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
 
 
 /**
- * Ensures that a user's durable Daytona computer exists and that Nova retains
+ * Ensures that a user's durable E2B sandbox exists and that Nova retains
  * its sandbox identifier. This is deliberately idempotent: it runs for a new
  * workspace and repairs an older workspace whose computer was never stored.
  */
@@ -101,10 +101,10 @@ export async function getWorkspacePersistentSandbox(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   if (!workspace.persistentSandboxId) return null;
-  const client = getDaytonaClient();
+  const client = getE2BClient();
   if (!client) return null;
   try {
-    return await client.get(workspace.persistentSandboxId);
+    return await client.connect(workspace.persistentSandboxId);
   } catch {
     return null;
   }
@@ -636,10 +636,10 @@ export async function listAgentVmRunsForUser(ownerId: number) {
   return runs.map(toSafeAgentVmRun);
 }
 
-export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "daytona" }) {
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "e2b" }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "daytona", task: input.task, status: "queued" }).returning();
+  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "e2b", task: input.task, status: "queued" }).returning();
   if (!created) throw new Error("Nova could not queue the agent VM run.");
   return toSafeAgentVmRun(created);
 }
@@ -670,7 +670,7 @@ export async function getActiveAgentVmRunForUser(ownerId: number) {
 export async function countAgentVmRunsForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [result] = await db.select({ total: count() }).from(agentVmRuns).where(and(eq(agentVmRuns.workspaceId, workspace.id), eq(agentVmRuns.provider, "daytona")));
+  const [result] = await db.select({ total: count() }).from(agentVmRuns).where(eq(agentVmRuns.workspaceId, workspace.id));
   return Number(result?.total ?? 0);
 }
 

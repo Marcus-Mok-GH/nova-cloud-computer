@@ -81,7 +81,7 @@ export default function Workspace() {
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) return (
     <DashboardLayout>
-      <section className="flex h-[calc(100dvh-7.25rem)] w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none lg:h-[calc(100dvh-3.5rem)] dark:bg-neutral-900">
+      <section className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none dark:bg-neutral-900">
         <header className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-3 py-2.5 sm:px-5 sm:py-3.5 dark:border-white/5">
           <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
             <button onClick={() => setLocation("/app/chats")} className="grid size-8 shrink-0 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>

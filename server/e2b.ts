@@ -646,9 +646,25 @@ export async function runOpencodeChatInPersistentSandbox(
       `printf '%s' '${encodedPrompt}' | base64 -d > "$PROMPT_FILE"`,
       `opencode run -m ${JSON.stringify(model)} --format json < "$PROMPT_FILE"`,
     ].join("\n");
+    let stdoutBuffer = "";
     const response = await runCommand(target, script, {
       cwd: E2B_WORKSPACE_DIR,
       timeoutMs: OPENCODE_CHAT_TIMEOUT_MS,
+      onStdout: async (data: string) => {
+        stdoutBuffer += data;
+        const lines = stdoutBuffer.split("\n");
+        stdoutBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          let event: { type?: string; part?: { type?: string; text?: string } };
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (event.type === "text" && typeof event.part?.text === "string")
+            await input.onChunk?.(event.part.text);
+        }
+      },
     });
     const output = response.stdout ?? "";
     if (response.exitCode !== 0)
@@ -681,7 +697,5 @@ export async function runOpencodeChatInPersistentSandbox(
     );
   }
 
-  const chunks = reply.match(/[\s\S]{1,64}/g) ?? [];
-  for (const chunk of chunks) await input.onChunk?.(chunk);
   return { reply, sandboxId };
 }

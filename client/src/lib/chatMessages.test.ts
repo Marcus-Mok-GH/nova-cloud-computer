@@ -23,7 +23,7 @@ describe("reconcileChatMessages", () => {
       { id: 2, role: "assistant", content: "answer" },
     ];
     expect(
-      reconcileChatMessages(before, "what is 2+2", "", []).userCommitted
+      reconcileChatMessages(before, 2, "what is 2+2", "", []).userCommitted
     ).toBe(false);
 
     const after: PersistedChatMessage[] = [
@@ -31,7 +31,7 @@ describe("reconcileChatMessages", () => {
       { id: 3, role: "user", content: "what is 2+2" },
     ];
     expect(
-      reconcileChatMessages(after, "what is 2+2", "", []).userCommitted
+      reconcileChatMessages(after, 2, "what is 2+2", "", []).userCommitted
     ).toBe(true);
   });
 
@@ -40,7 +40,7 @@ describe("reconcileChatMessages", () => {
       { id: 1, role: "user", content: "hello" },
     ];
     expect(
-      reconcileChatMessages(persisted, "hello", "Nova is", []).replyCommitted
+      reconcileChatMessages(persisted, 1, "hello", "Nova is", []).replyCommitted
     ).toBe(false);
 
     const after: PersistedChatMessage[] = [
@@ -48,11 +48,53 @@ describe("reconcileChatMessages", () => {
       { id: 2, role: "assistant", content: "Nova is here." },
     ];
     expect(
-      reconcileChatMessages(after, "hello", "Nova is here.", []).replyCommitted
+      reconcileChatMessages(after, 1, "hello", "Nova is here.", []).replyCommitted
     ).toBe(true);
   });
 
-  it("never renders a tool activity that is already persisted", () => {
+  it("does not treat a repeated prompt as committed by an earlier message", () => {
+    const persisted: PersistedChatMessage[] = [
+      { id: 1, role: "user", content: "hello" },
+      { id: 2, role: "assistant", content: "hi" },
+    ];
+    // Baseline is the last persisted id; sending "hello" again must not match
+    // the earlier id-1 message.
+    expect(
+      reconcileChatMessages(persisted, 2, "hello", "", []).userCommitted
+    ).toBe(false);
+
+    const after: PersistedChatMessage[] = [
+      ...persisted,
+      { id: 3, role: "user", content: "hello" },
+    ];
+    expect(
+      reconcileChatMessages(after, 2, "hello", "", []).userCommitted
+    ).toBe(true);
+  });
+
+  it("hides a live tool activity once it is persisted in this submission", () => {
+    const before: PersistedChatMessage[] = [
+      { id: 1, role: "user", content: "read it" },
+    ];
+    const after: PersistedChatMessage[] = [
+      ...before,
+      { id: 2, role: "assistant", content: persistedToolMessage },
+    ];
+    const live: ToolActivity[] = [
+      toolActivity,
+      { ...toolActivity, id: "tool-2", state: "running" },
+    ];
+    const { liveActivities } = reconcileChatMessages(
+      after,
+      1,
+      "read it",
+      "",
+      live
+    );
+    expect(liveActivities.map(a => a.id)).toEqual(["tool-2"]);
+  });
+
+  it("keeps a fresh tool activity that reuses a prior turn's id", () => {
     const persisted: PersistedChatMessage[] = [
       { id: 1, role: "assistant", content: persistedToolMessage },
       { id: 2, role: "user", content: "read it" },
@@ -63,11 +105,12 @@ describe("reconcileChatMessages", () => {
     ];
     const { liveActivities } = reconcileChatMessages(
       persisted,
+      2,
       "read it",
       "",
       live
     );
-    expect(liveActivities.map(a => a.id)).toEqual(["tool-2"]);
+    expect(liveActivities.map(a => a.id)).toEqual(["tool-1", "tool-2"]);
   });
 
   it("parses only well-formed persisted tool activity rows", () => {
@@ -81,5 +124,27 @@ describe("reconcileChatMessages", () => {
     expect(
       parsePersistedToolActivity(`${TOOL_ACTIVITY_MESSAGE_PREFIX}{"name":1}`)
     ).toBeNull();
+  });
+
+  it("rejects non-string or nested args", () => {
+    const nested = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "t",
+        name: "n",
+        state: "completed",
+        args: { a: { nested: true } },
+      })}`
+    );
+    expect(nested?.args).toEqual({});
+
+    const arrayArgs = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "t",
+        name: "n",
+        state: "completed",
+        args: ["a", "b"],
+      })}`
+    );
+    expect(arrayArgs?.args).toEqual({});
   });
 });

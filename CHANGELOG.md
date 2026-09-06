@@ -1,4 +1,10 @@
 # Changelog
+## 2026-09-06 — Fix bare opencode model ID breaking the VM agent
+
+- `server/_core/env.ts`: Changed the `opencodeZenModel` default from `big-pickle` to `opencode/big-pickle`. A bare model name fails on OpenCode Zen with an opaque "Unexpected server error" (`UnknownError`), which made the VM opencode chat report "Nova's VM isn't available" and blocked agent runs.
+- `server/e2b.ts`: `runOpencodeChatInPersistentSandbox` now qualifies bare model names with the `opencode/` provider prefix before building the `opencode run -m …` invocation, so both the new default and a bare `OPENCODE_ZEN_MODEL` override work.
+- Verified: `tsc --noEmit` clean; `e2b` and `workspaceAgent` tests pass (22 tests).
+
 
 ## 2026-09-04 — Make the VM opencode CLI the workspace AI path (drop the Zen API key)
 

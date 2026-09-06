@@ -1,4 +1,17 @@
 # Changelog
+## 2026-09-06 — Fix chat message flicker, duplicates, and missing replies in the workspace chat
+
+- `client/src/lib/chatMessages.ts` (new): Extracted `parsePersistedToolActivity` and `reconcileChatMessages`, a pure helper that decides whether the optimistic user bubble, streaming reply bubble, and live tool rows are still needed on top of the persisted conversation.
+- `client/src/pages/Workspace.tsx`: The chat view now reconciles optimistic state against persisted messages. The user bubble is hidden once the server's copy loads, a tool row is never rendered twice (persisted + live), and the streaming reply stays on screen until the persisted reply is fetched. Optimistic state is now cleared only after `refreshMessages()` completes, so the reply never flashes to "Nova is working..." or disappears between the end of the stream and the refetch. The messages query also disables `refetchOnWindowFocus` and refetch failures keep the last known list.
+- `client/src/lib/chatMessages.test.ts` (new): Covers user-bubble dedup, reply-bubble dedup, tool-activity dedup, and malformed persisted tool rows.
+
+Addressed CodeRabbit review findings:
+- Commit identity is now the persisted record id, not message content. `reconcileChatMessages` takes a `baselineMessageId` (the highest persisted id at submit time) and only treats records with a higher id as part of the current submission, so typing the same prompt or receiving the same reply twice is never mistaken for the earlier copy, and a tool id reused across turns is not wrongly suppressed.
+- `parsePersistedToolActivity` now validates `args` as a flat string record (`parseStringRecord`), rejecting arrays, null, nested objects, and non-string values with the same empty-object fallback.
+- `refreshMessages` returns an explicit success flag; `finalizeStream` retries the final refetch (up to 3 times with backoff) and only clears optimistic state on success, so a failed final refetch can no longer drop the reply or leave the UI stuck mid-submit.
+- Verified: `tsc --noEmit` clean, all tests pass.
+
+
 ## 2026-09-06 — Fix bare opencode model ID breaking the VM agent
 
 - `server/_core/env.ts`: Changed the `opencodeZenModel` default from `big-pickle` to `opencode/big-pickle`. A bare model name fails on OpenCode Zen with an opaque "Unexpected server error" (`UnknownError`), which made the VM opencode chat report "Nova's VM isn't available" and blocked agent runs.

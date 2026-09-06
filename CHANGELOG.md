@@ -1,4 +1,9 @@
 # Changelog
+
+## 2026-09-06 — Stream the AI's chat responses as they are generated
+
+- `server/e2b.ts`: `runOpencodeChatInPersistentSandbox` now wires an `onStdout` callback into the E2B `opencode run --format json` command and forwards each `text` part to `onChunk` as soon as opencode emits it, instead of buffering the full reply and re-emitting it as fixed 64-character chunks after the run finished. The authoritative reply is still reconstructed from the full stdout for persistence. Nova's workspace replies now appear progressively rather than all at once.
+
 ## 2026-09-06 — Fix chat message flicker, duplicates, and missing replies in the workspace chat
 
 - `client/src/lib/chatMessages.ts` (new): Extracted `parsePersistedToolActivity` and `reconcileChatMessages`, a pure helper that decides whether the optimistic user bubble, streaming reply bubble, and live tool rows are still needed on top of the persisted conversation.

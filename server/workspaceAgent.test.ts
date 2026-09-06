@@ -103,10 +103,6 @@ vi.mock("./e2b", () => ({
 
 vi.mock("./workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),
-  persistWorkspaceToObjectStorage: vi.fn(async () => ({
-    workspaceId: 41,
-    uploaded: 0,
-  })),
   restoreWorkspaceToE2B: vi.fn(async () => 0),
 }));
 

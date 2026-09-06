@@ -11,13 +11,3 @@ export async function requireWorkspaceOwner(ownerId: number, workspaceId: number
   }
   return workspace;
 }
-
-/** Storage keys are never allowed to escape the owning workspace namespace. */
-export function requireWorkspaceStorageKey(workspaceId: number, key: string) {
-  const normalized = key.replace(/^\/+/, "");
-  const prefix = `nova-workspaces/${workspaceId}/`;
-  if (!normalized.startsWith(prefix) || normalized.includes("..") || normalized.includes("\\")) {
-    throw new Error("Private storage access denied.");
-  }
-  return normalized;
-}

@@ -4,23 +4,12 @@ import {
   getWorkspaceComputer,
   updateWorkspaceFileForUser,
 } from "./db";
-import { storageGetSignedUrl, storagePutStable } from "./storage";
-import {
-  requireWorkspaceOwner,
-  requireWorkspaceStorageKey,
-} from "./workspaceSecurity";
+import { requireWorkspaceOwner } from "./workspaceSecurity";
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
 const INTERNAL_PATHS = new Set([".nova-task.py", "nova-manifest.json"]);
-
-function storageKey(workspaceId: number, fileId: number) {
-  return requireWorkspaceStorageKey(
-    workspaceId,
-    `nova-workspaces/${workspaceId}/files/${fileId}`
-  );
-}
 
 function cleanPath(value: string) {
   return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
@@ -81,56 +70,11 @@ async function createE2BFolders(sandbox: E2BSandboxLike, destination: string) {
   }
 }
 
-/** Persist the current Neon workspace contents into deterministic, private S3 objects. */
-export async function persistWorkspaceToObjectStorage(ownerId: number) {
-  const computer = await getWorkspaceComputer(ownerId);
-  await requireWorkspaceOwner(ownerId, computer.workspace.id);
-  let uploaded = 0;
-  for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
-    const body = Buffer.from(file.content ?? "", "utf8");
-    if (body.byteLength > MAX_SYNC_FILE_BYTES) continue;
-    await storagePutStable(
-      storageKey(computer.workspace.id, file.id),
-      body,
-      file.mimeType || "text/plain"
-    );
-    uploaded += 1;
-  }
-  return { workspaceId: computer.workspace.id, uploaded };
-}
-
-/** Restore S3-backed file contents into the workspace records, falling back to DB for older files. */
-export async function restoreWorkspaceFromObjectStorage(ownerId: number) {
-  const computer = await getWorkspaceComputer(ownerId);
-  await requireWorkspaceOwner(ownerId, computer.workspace.id);
-  let restored = 0;
-  for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
-    try {
-      const signedUrl = await storageGetSignedUrl(
-        storageKey(computer.workspace.id, file.id)
-      );
-      const response = await fetch(signedUrl);
-      if (!response.ok) continue;
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.byteLength > MAX_SYNC_FILE_BYTES) continue;
-      const content = bytes.toString("utf8");
-      if (content !== file.content) {
-        await updateWorkspaceFileForUser(ownerId, file.id, { content });
-        restored += 1;
-      }
-    } catch {
-      // Older workspace files may not have an S3 object yet. The DB copy remains valid.
-    }
-  }
-  return restored;
-}
-
-/** Push persistent workspace files from S3/DB into the live E2B filesystem. */
+/** Push the Neon Postgres workspace contents into the live E2B filesystem. */
 export async function restoreWorkspaceToE2B(
   ownerId: number,
   sandbox: E2BSandboxLike
 ) {
-  await restoreWorkspaceFromObjectStorage(ownerId);
   const computer = await getWorkspaceComputer(ownerId);
   await requireWorkspaceOwner(ownerId, computer.workspace.id);
   await sandbox.commands.run(
@@ -139,19 +83,7 @@ export async function restoreWorkspaceToE2B(
   );
   let uploaded = 0;
   for (const file of computer.files.slice(0, MAX_SYNC_FILES)) {
-    let content = Buffer.from(file.content ?? "", "utf8");
-    try {
-      const signedUrl = await storageGetSignedUrl(
-        storageKey(computer.workspace.id, file.id)
-      );
-      const response = await fetch(signedUrl);
-      if (response.ok) {
-        const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.byteLength <= MAX_SYNC_FILE_BYTES) content = bytes;
-      }
-    } catch {
-      // Use the DB cache if the object is not available.
-    }
+    const content = Buffer.from(file.content ?? "", "utf8");
     const relative = safeRelativePath(
       workspaceFilePath(file, computer.folders)
     );
@@ -189,7 +121,7 @@ async function ensureFolderPath(
   return parentId;
 }
 
-/** Import files created/changed inside E2B back into Neon and private S3. */
+/** Import files created/changed inside E2B back into Neon Postgres (the durable object store). */
 export async function persistE2BWorkspace(
   ownerId: number,
   sandbox: E2BSandboxLike
@@ -265,11 +197,6 @@ export async function persistE2BWorkspace(
         })) ?? undefined;
     }
     if (!saved) continue;
-    await storagePutStable(
-      storageKey(computer.workspace.id, saved.id),
-      Buffer.from(content, "utf8"),
-      mimeType
-    );
     imported += 1;
   }
 

@@ -15,11 +15,7 @@ import {
   getE2BSandboxStatus,
   withE2BWorkspaceLock,
 } from "./e2b";
-import {
-  persistE2BWorkspace,
-  persistWorkspaceToObjectStorage,
-  restoreWorkspaceToE2B,
-} from "./workspaceSync";
+import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
 
 const ERROR_LIMIT = 1000;
 
@@ -84,9 +80,8 @@ export async function startAgentVmRun(
       ownerId,
       computer.workspace.id,
       async () => {
-        // Files created from the Files tab are first persisted to S3. The same durable
-        // objects are then restored into the persistent E2B workspace before the task runs.
-        await persistWorkspaceToObjectStorage(ownerId);
+        // Workspace files stored in Neon Postgres are restored into the persistent
+        // E2B workspace before the task runs.
         const sandbox = await ensurePersistentSandbox(
           client,
           computer.workspace.id,
@@ -107,13 +102,12 @@ export async function startAgentVmRun(
         });
 
         // Anything the agent created or changed in E2B is imported back into Neon
-        // and mirrored to S3 before the run is considered complete.
+        // Postgres before the run is considered complete.
         const completedSandbox = await client.connect(result.sandboxId);
         const importedFileCount = await persistE2BWorkspace(
           ownerId,
           completedSandbox
         );
-        await persistWorkspaceToObjectStorage(ownerId);
 
         await updateWorkspacePersistentSandbox(
           syncedComputer.workspace.id,
@@ -124,7 +118,6 @@ export async function startAgentVmRun(
           content: `Task: ${input.task}\n\n${result.output}\n`,
           mimeType: "text/plain",
         });
-        await persistWorkspaceToObjectStorage(ownerId);
         const completed = await updateAgentVmRunForUser(ownerId, run.id, {
           status: "succeeded",
           resultSummary: result.output,

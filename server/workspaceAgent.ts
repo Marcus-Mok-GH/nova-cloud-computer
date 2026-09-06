@@ -22,11 +22,7 @@ import {
   runOpencodeChatInPersistentSandbox,
   withE2BWorkspaceLock,
 } from "./e2b";
-import {
-  persistE2BWorkspace,
-  persistWorkspaceToObjectStorage,
-  restoreWorkspaceToE2B,
-} from "./workspaceSync";
+import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm";
@@ -435,7 +431,6 @@ export async function runWorkspaceAgent(
         ownerId,
         computer.workspace.id,
         async () => {
-          await persistWorkspaceToObjectStorage(ownerId);
           const sandbox = await ensurePersistentSandbox(
             client,
             computer.workspace.id,
@@ -453,7 +448,6 @@ export async function runWorkspaceAgent(
           });
           const completedSandbox = await client.connect(result.sandboxId);
           await persistE2BWorkspace(ownerId, completedSandbox);
-          await persistWorkspaceToObjectStorage(ownerId);
           await updateWorkspacePersistentSandbox(
             computer.workspace.id,
             result.sandboxId

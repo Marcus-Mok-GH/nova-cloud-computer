@@ -38,12 +38,22 @@ export function parsePersistedToolActivity(
       id: parsed.id,
       name: parsed.name,
       state: parsed.state,
-      args: parsed.args && typeof parsed.args === "object" ? parsed.args : {},
+      args: parseStringRecord(parsed.args),
       summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
     };
   } catch {
     return null;
   }
+}
+
+function parseStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const record: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") return {};
+    record[key] = entry;
+  }
+  return record;
 }
 
 export type ChatReconciliation = {
@@ -58,30 +68,33 @@ export type ChatReconciliation = {
  * the assistant reply while the same content is streamed optimistically, the
  * UI must not render both copies (duplicates) nor drop a reply before its
  * persisted copy exists (flicker / missing messages).
+ *
+ * `baselineMessageId` is the highest persisted id at submit time. Only records
+ * with a higher id belong to the current submission, so an identical prompt or
+ * reply sent twice is never mistaken for the earlier one (commit identity is
+ * the record id, not its content).
  */
 export function reconcileChatMessages(
   persisted: PersistedChatMessage[],
+  baselineMessageId: number,
   pendingUserContent: string,
   streamingContent: string,
   toolActivities: ToolActivity[]
 ): ChatReconciliation {
-  const latest = [...persisted].reverse();
-  const latestUserMessage = latest.find(message => message.role === "user");
-  const latestAssistantMessage = latest.find(
-    message => message.role === "assistant"
-  );
+  const submitted = persisted.filter(message => message.id > baselineMessageId);
   const userCommitted = Boolean(
-    latestUserMessage &&
-      pendingUserContent &&
-      latestUserContentMatches(latestUserMessage.content, pendingUserContent)
+    pendingUserContent && submitted.some(message => message.role === "user")
   );
   const replyCommitted = Boolean(
-    latestAssistantMessage &&
-      streamingContent &&
-      latestAssistantMessage.content.trim() === streamingContent.trim()
+    streamingContent &&
+      submitted.some(
+        message =>
+          message.role === "assistant" &&
+          !message.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
+      )
   );
   const persistedToolIds = new Set<string>();
-  for (const message of persisted) {
+  for (const message of submitted) {
     const persistedTool = parsePersistedToolActivity(message.content);
     if (persistedTool) persistedToolIds.add(persistedTool.id);
   }
@@ -89,11 +102,4 @@ export function reconcileChatMessages(
     activity => !persistedToolIds.has(activity.id)
   );
   return { userCommitted, replyCommitted, liveActivities };
-}
-
-function latestUserContentMatches(
-  persistedContent: string,
-  pendingContent: string
-): boolean {
-  return persistedContent.trim() === pendingContent.trim();
 }

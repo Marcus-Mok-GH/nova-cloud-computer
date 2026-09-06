@@ -20,6 +20,7 @@ export default function Workspace() {
   const [streamingContent, setStreamingContent] = useState("");
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
@@ -33,11 +34,25 @@ export default function Workspace() {
     void (async () => { try { const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth); if (jwt) { params.delete("verifier"); window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`); setLocation("/app"); } } catch (err) { console.warn("[Workspace] Failed to exchange Neon verifier", err instanceof Error ? err.message : err); } })();
   }, []);
 
-  const refreshMessages = async () => { try { await savedMessages.refetch(); } catch { /* Keep the last known list if a refresh fails. */ } };
+  const refreshMessages = async (): Promise<boolean> => { try { await savedMessages.refetch(); return true; } catch { return false; } };
+  const finalizeStream = async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (await refreshMessages()) {
+        setIsStreaming(false);
+        setPendingUserContent("");
+        setStreamingContent("");
+        setToolActivities([]);
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+    toast.error("Nova replied, but it could not be reloaded yet. Please wait a moment before sending again.");
+    return false;
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim() || !chatId || isStreaming) return;
-    const content = draft.trim(); setDraft(""); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
+    const content = draft.trim(); setDraft(""); const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
       const response = await fetch("/api/chat/stream", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId, content }) });
@@ -49,7 +64,7 @@ export default function Workspace() {
         buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() || "";
         for (const line of lines) if (line.startsWith("data: ")) {
           const data = line.slice(6).trim();
-          if (data === "[DONE]") { await refreshMessages(); await utils.workspace.computer.invalidate(); setIsStreaming(false); setPendingUserContent(""); setStreamingContent(""); setToolActivities([]); return; }
+          if (data === "[DONE]") { await finalizeStream(); await utils.workspace.computer.invalidate(); return; }
           try {
             const parsed = JSON.parse(data) as { type?: string; tool?: ToolActivity; choices?: Array<{ delta?: { content?: string } }> };
             if (parsed.type === "tool" && parsed.tool?.id) { setToolActivities(previous => { const index = previous.findIndex(activity => activity.id === parsed.tool?.id); if (index === -1) return [...previous, parsed.tool!]; const next = [...previous]; next[index] = { ...next[index], ...parsed.tool }; return next; }); continue; }
@@ -57,14 +72,14 @@ export default function Workspace() {
           } catch { /* Ignore malformed stream fragments. */ }
         }
       }
-      await refreshMessages(); setIsStreaming(false); setStreamingContent(""); setPendingUserContent(""); setToolActivities([]);
-    } catch (error) { console.error("Stream error:", error); await refreshMessages(); setIsStreaming(false); setStreamingContent(""); setPendingUserContent(""); setToolActivities([]); toast.error(error instanceof Error ? error.message : "Failed to send message"); }
+      await finalizeStream();
+    } catch (error) { console.error("Stream error:", error); toast.error(error instanceof Error ? error.message : "Failed to send message"); await finalizeStream(); }
   };
 
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) {
     const persisted = savedMessages.data ?? [];
-    const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, pendingUserContent, streamingContent, toolActivities);
+    const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, baselineMessageId, pendingUserContent, streamingContent, toolActivities);
     return (
     <DashboardLayout>
       <section className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none dark:bg-neutral-900">

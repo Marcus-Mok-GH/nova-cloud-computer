@@ -53,7 +53,7 @@ export default function Home() {
   return (
     <main className="site-shell">
       <header className="nav-shell">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:gap-6 sm:px-5">
           <a className="flex items-center gap-2" href="#top" onClick={() => setMenuOpen(false)} aria-label="Nova home">
             <NovaMark size={22} />
             <span className="text-[17px] font-extrabold tracking-tight text-neutral-950 dark:text-neutral-50">Nova</span>
@@ -63,8 +63,8 @@ export default function Home() {
             <button className="topbar-link" onClick={() => scrollToSection("features")}>Features</button>
             <button className="topbar-link" onClick={() => scrollToSection("pricing")}>Pricing</button>
           </nav>
-          <div className="flex items-center gap-2.5">
-            <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`} title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <button className="theme-toggle hidden md:inline-flex" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`} title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>
             <button className="topbar-link hidden sm:inline-flex" onClick={enterNova}>{isAuthenticated ? "Open space" : "Log in"}</button>
             <button className="pill-btn pill-btn-primary hidden h-10 px-5 text-[13px] sm:inline-flex" onClick={enterNova}>Sign up</button>
             <button className="theme-toggle md:hidden" aria-label={menuOpen ? "Close menu" : "Open menu"} onClick={() => setMenuOpen(open => !open)}>{menuOpen ? <X size={16} /> : <Menu size={16} />}</button>
@@ -76,6 +76,7 @@ export default function Home() {
               {[["Product", "product"], ["Features", "features"], ["Pricing", "pricing"]].map(([label, id]) => (
                 <button key={id} className="rounded-lg px-2 py-2.5 text-left text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white" onClick={() => { setMenuOpen(false); scrollToSection(id); }}>{label}</button>
               ))}
+              <button className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-left text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white" onClick={() => { setMenuOpen(false); toggleTheme?.(); }}><span className="shrink-0">{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</span>Toggle theme</button>
               <button className="pill-btn pill-btn-primary mt-3" onClick={() => { setMenuOpen(false); enterNova(); }}>Sign up</button>
             </div>
           </div>

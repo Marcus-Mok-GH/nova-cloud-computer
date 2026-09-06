@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-06 — De-clutter the landing nav on mobile
+
+- `client/src/pages/Home.tsx`: The theme toggle is hidden from the top bar below `md` and now lives as a "Toggle theme" row inside the mobile hamburger menu (above the Sign up button), so the bar shows only the brand and the hamburger on phones. The top-bar container tightens to `gap-3 px-4` on mobile (`sm:gap-6 sm:px-5` above) and the right-cluster gap drops to `gap-2` on mobile (`sm:gap-2.5` above), so Log in + Sign up + theme do not feel squeezed at `sm`–`md` widths. Desktop (`md` and up) layout is unchanged.
+- `client/src/index.css`: The landing `.pill-btn*`, `.topbar-link`, and `.theme-toggle` rules moved into `@layer components` so Tailwind's display utilities (`hidden`, `sm:inline-flex`, `md:hidden`, `md:inline-flex`) can override their layout — previously the unlayered `display: inline-flex` always won, so Log in/Sign up/theme toggle stayed visible at every width regardless of the `hidden …` classes.
+- Verified: `tsc --noEmit` clean, all tests pass, `pnpm run build` succeeds.
+
 ## 2026-09-06 — Remove Forge object-storage requirement; persist workspace files in Neon
 
 - `server/storage.ts` (deleted): Removed the Forge/S3 object-storage layer that required `BUILT_IN_FORGE_API_URL` and `BUILT_IN_FORGE_API_KEY`. Workspace files now persist directly in Neon Postgres via `file.content`, which was already the durable source of truth.

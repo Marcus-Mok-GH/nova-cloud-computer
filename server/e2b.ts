@@ -629,6 +629,8 @@ export async function runOpencodeChatInPersistentSandbox(
     await provisionOpencodeOnSandbox(target);
     // OpenCode requires a fully-qualified provider/model ID; a bare model name
     // reaches the Zen gateway untagged and fails with an opaque server error.
+    if (!input.model.trim())
+      throw new Error("Unsupported opencode model identifier.");
     const model = input.model.includes("/")
       ? input.model
       : `opencode/${input.model}`;

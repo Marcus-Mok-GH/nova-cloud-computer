@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-06 — Remove Forge object-storage requirement; persist workspace files in Neon
+
+- `server/storage.ts` (deleted): Removed the Forge/S3 object-storage layer that required `BUILT_IN_FORGE_API_URL` and `BUILT_IN_FORGE_API_KEY`. Workspace files now persist directly in Neon Postgres via `file.content`, which was already the durable source of truth.
+- `server/workspaceSync.ts`: Removed `persistWorkspaceToObjectStorage` and `restoreWorkspaceFromObjectStorage`, and dropped every S3 presign/fetch round-trip. `restoreWorkspaceToE2B` now reads file contents straight from the Postgres records, and `persistE2BWorkspace` writes changes back to Postgres only.
+- `server/workspaceAgent.ts`, `server/agentVm.ts`: Removed the now-redundant `persistWorkspaceToObjectStorage` calls around agent runs.
+- `server/workspaceSecurity.ts`: Removed the dead `requireWorkspaceStorageKey` helper (its only caller was the S3 object-key builder).
+- `server/workspaceAgent.test.ts`: Dropped the stale `persistWorkspaceToObjectStorage` mock.
+
+Note: `BUILT_IN_FORGE_API_URL` / `BUILT_IN_FORGE_API_KEY` remain optional and are still consumed by the automations (heartbeat) and admin-notification features; they are no longer required for the workspace/E2B flow.
+
 ## 2026-09-06 — Stream the AI's chat responses as they are generated
 
 - `server/e2b.ts`: `runOpencodeChatInPersistentSandbox` now wires an `onStdout` callback into the E2B `opencode run --format json` command and forwards each `text` part to `onChunk` as soon as opencode emits it, instead of buffering the full reply and re-emitting it as fixed 64-character chunks after the run finished. The authoritative reply is still reconstructed from the full stdout for persistence. Nova's workspace replies now appear progressively rather than all at once.

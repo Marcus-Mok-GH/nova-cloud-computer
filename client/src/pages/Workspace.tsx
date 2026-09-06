@@ -5,23 +5,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
+import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
 import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Sparkles, Wrench, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
-
-type ToolActivity = { id: string; name: string; state: "running" | "completed" | "failed"; args: Record<string, string>; summary?: string };
-const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
-
-function parsePersistedToolActivity(content: string): ToolActivity | null {
-  if (!content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)) return null;
-  try {
-    const parsed = JSON.parse(content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length));
-    if (!parsed || typeof parsed.id !== "string" || typeof parsed.name !== "string") return null;
-    if (parsed.state !== "running" && parsed.state !== "completed" && parsed.state !== "failed") return null;
-    return { id: parsed.id, name: parsed.name, state: parsed.state, args: parsed.args && typeof parsed.args === "object" ? parsed.args : {}, summary: typeof parsed.summary === "string" ? parsed.summary : undefined };
-  } catch { return null; }
-}
 
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
@@ -33,7 +21,7 @@ export default function Workspace() {
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
-  const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false });
+  const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
   const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
 
@@ -45,7 +33,7 @@ export default function Workspace() {
     void (async () => { try { const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth); if (jwt) { params.delete("verifier"); window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`); setLocation("/app"); } } catch (err) { console.warn("[Workspace] Failed to exchange Neon verifier", err instanceof Error ? err.message : err); } })();
   }, []);
 
-  const refreshMessages = async () => { await savedMessages.refetch(); };
+  const refreshMessages = async () => { try { await savedMessages.refetch(); } catch { /* Keep the last known list if a refresh fails. */ } };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim() || !chatId || isStreaming) return;
@@ -61,7 +49,7 @@ export default function Workspace() {
         buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() || "";
         for (const line of lines) if (line.startsWith("data: ")) {
           const data = line.slice(6).trim();
-          if (data === "[DONE]") { setStreamingContent(""); await refreshMessages(); await utils.workspace.computer.invalidate(); setPendingUserContent(""); setToolActivities([]); setIsStreaming(false); return; }
+          if (data === "[DONE]") { await refreshMessages(); await utils.workspace.computer.invalidate(); setIsStreaming(false); setPendingUserContent(""); setStreamingContent(""); setToolActivities([]); return; }
           try {
             const parsed = JSON.parse(data) as { type?: string; tool?: ToolActivity; choices?: Array<{ delta?: { content?: string } }> };
             if (parsed.type === "tool" && parsed.tool?.id) { setToolActivities(previous => { const index = previous.findIndex(activity => activity.id === parsed.tool?.id); if (index === -1) return [...previous, parsed.tool!]; const next = [...previous]; next[index] = { ...next[index], ...parsed.tool }; return next; }); continue; }
@@ -69,12 +57,15 @@ export default function Workspace() {
           } catch { /* Ignore malformed stream fragments. */ }
         }
       }
-      setIsStreaming(false); setStreamingContent(""); await refreshMessages(); setPendingUserContent(""); setToolActivities([]);
-    } catch (error) { console.error("Stream error:", error); setStreamingContent(""); await refreshMessages(); setPendingUserContent(""); setToolActivities([]); setIsStreaming(false); toast.error(error instanceof Error ? error.message : "Failed to send message"); }
+      await refreshMessages(); setIsStreaming(false); setStreamingContent(""); setPendingUserContent(""); setToolActivities([]);
+    } catch (error) { console.error("Stream error:", error); await refreshMessages(); setIsStreaming(false); setStreamingContent(""); setPendingUserContent(""); setToolActivities([]); toast.error(error instanceof Error ? error.message : "Failed to send message"); }
   };
 
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
-  if (chatId) return (
+  if (chatId) {
+    const persisted = savedMessages.data ?? [];
+    const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, pendingUserContent, streamingContent, toolActivities);
+    return (
     <DashboardLayout>
       <section className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none dark:bg-neutral-900">
         <header className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-3 py-2.5 sm:px-5 sm:py-3.5 dark:border-white/5">
@@ -86,14 +77,14 @@ export default function Workspace() {
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col space-y-4">
-            {savedMessages.isLoading ? <p className="text-sm text-neutral-400">Loading conversation...</p> : savedMessages.data?.map(message => {
+            {savedMessages.isLoading ? <p className="text-sm text-neutral-400">Loading conversation...</p> : persisted.map(message => {
               const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
               if (persistedTool) return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 w-full max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><ToolActivityPanel activities={[persistedTool]} /></div></div>;
               return message.role === "user" ? <div key={message.id} className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{message.content}</div></div> : <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div></div></div>;
             })}
-            {pendingUserContent && <div className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{pendingUserContent}</div></div>}
-            {toolActivities.map(activity => <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 w-full max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><ToolActivityPanel activities={[activity]} /></div></div>)}
-            {isStreaming && <div className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent || "Nova is working..."}</div></div></div>}
+            {pendingUserContent && !userCommitted && <div className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{pendingUserContent}</div></div>}
+            {liveActivities.map(activity => <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 w-full max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><ToolActivityPanel activities={[activity]} /></div></div>)}
+            {isStreaming && !replyCommitted && <div className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent || "Nova is working..."}</div></div></div>}
           </div>
         </div>
         <form onSubmit={submit} className="shrink-0 border-t border-neutral-100 bg-white p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:p-3 dark:border-white/5 dark:bg-neutral-900">
@@ -105,7 +96,8 @@ export default function Workspace() {
         </form>
       </section>
     </DashboardLayout>
-  );
+    );
+  }
 
   const folders = computer.data?.folders ?? []; const files = computer.data?.files ?? []; const vm = agentVmStatus.data; const nvidia = nvidiaStatus.data; const isLoading = computer.isLoading;
   return <DashboardLayout><div className="mx-auto max-w-6xl p-4 sm:p-5 md:p-6"><header className="mb-6 sm:mb-8"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p><h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Home</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A quick view of your workspace and the services you have used.</p></header><section aria-label="Workspace statistics"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><HardDrive className="size-3.5" /></span><h2 className="text-sm font-bold tracking-tight text-neutral-900 dark:text-white">Workspace</h2></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric value={isLoading ? "—" : folders.length} label="folders" icon={Folder} /><Metric value={isLoading ? "—" : files.length} label="files" icon={FileText} /><Metric value={isLoading ? "—" : `${nvidia?.allowance.usedRequests ?? 0}/${nvidia?.allowance.maxRequests ?? 0}`} label="NVIDIA requests used" icon={Sparkles} /><Metric value={isLoading ? "—" : `${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs used" icon={HardDrive} /></div></section></div></DashboardLayout>;

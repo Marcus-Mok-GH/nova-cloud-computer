@@ -627,7 +627,12 @@ export async function runOpencodeChatInPersistentSandbox(
   );
   const runOpencode = async (target: E2BSandboxLike) => {
     await provisionOpencodeOnSandbox(target);
-    if (!/^[\w./:-]+$/.test(input.model))
+    // OpenCode requires a fully-qualified provider/model ID; a bare model name
+    // reaches the Zen gateway untagged and fails with an opaque server error.
+    const model = input.model.includes("/")
+      ? input.model
+      : `opencode/${input.model}`;
+    if (!/^[\w./:-]+$/.test(model))
       throw new Error("Unsupported opencode model identifier.");
     const encodedPrompt = Buffer.from(input.prompt, "utf8").toString("base64");
     const script = [
@@ -637,7 +642,7 @@ export async function runOpencodeChatInPersistentSandbox(
       'PROMPT_FILE="$(mktemp "$HOME/.opencode-chat/prompt.XXXXXXXX")"',
       `trap 'rm -f "$PROMPT_FILE"' EXIT`,
       `printf '%s' '${encodedPrompt}' | base64 -d > "$PROMPT_FILE"`,
-      `opencode run -m ${JSON.stringify(input.model)} --format json < "$PROMPT_FILE"`,
+      `opencode run -m ${JSON.stringify(model)} --format json < "$PROMPT_FILE"`,
     ].join("\n");
     const response = await runCommand(target, script, {
       cwd: E2B_WORKSPACE_DIR,

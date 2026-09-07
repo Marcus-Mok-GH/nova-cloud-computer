@@ -74,7 +74,7 @@ export default function Workspace() {
     }
     return refreshed;
   };
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
     if (!draft.trim() || !chatId || isStreaming) return;
     userScrolledUpRef.current = false;
@@ -138,7 +138,19 @@ export default function Workspace() {
         <form onSubmit={submit} className="shrink-0 border-t border-neutral-100 bg-white p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:p-3 dark:border-white/5 dark:bg-neutral-900">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 items-end gap-1.5 rounded-2xl border border-neutral-200 bg-[#fafafa] px-2.5 py-2 transition focus-within:border-[oklch(0.60_0.02_250)] focus-within:ring-4 focus-within:ring-[oklch(0.60_0.02_250/0.10)] sm:items-center sm:gap-2 sm:rounded-full sm:px-4 sm:py-2 dark:border-white/10 dark:bg-neutral-950">
             <FileText className="mb-1 size-4 shrink-0 text-neutral-400 sm:mb-0" />
-            <Textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask Nova..." rows={1} className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-sm leading-5 placeholder:text-neutral-400 focus-visible:ring-0" />
+            <Textarea
+              value={draft}
+              onChange={event => setDraft(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void submit(event);
+                }
+              }}
+              placeholder="Ask Nova..."
+              rows={1}
+              className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-sm leading-5 placeholder:text-neutral-400 focus-visible:ring-0"
+            />
             <button type="submit" disabled={!draft.trim() || isStreaming} className="grid size-9 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250)] text-white transition hover:bg-[oklch(0.54_0.025_250)] disabled:opacity-40" aria-label="Go"><ArrowUp className="size-4" /></button>
           </div>
         </form>

@@ -8,9 +8,9 @@ A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent
 
 ## Overview
 
-Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated sandboxed VMs (via E2B Sandbox) or GitHub-hosted runners.
+Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated E2B sandboxes.
 
-The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an OpenAI-compatible NVIDIA NIM LLM backend.
+The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an E2B-hosted opencode agent. An optional server-to-server NVIDIA NIM gateway powers the separate inference feature.
 
 ---
 
@@ -31,22 +31,23 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 └───────┬──────────────────────────────┬──────────────────────┘
         │                              │
 ┌───────▼──────────┐          ┌────────▼─────────────────────┐
-│  Neon Postgres    │          │  LLM / agent backends       │
-│  (Drizzle ORM)    │          │  • NVIDIA NIM (OpenAI-compat)│
-│  workspaces,      │          │  • E2B Sandbox VMs           │
-│  chats, files,    │          │  • GitHub Actions runners    │
+│  Neon Postgres    │          │  Agent / inference backends │
+│  (Drizzle ORM)    │          │  • E2B Sandbox + opencode   │
+│  workspaces,      │          │  • Optional NVIDIA NIM gateway│
+│  chats, files,    │          │  • Server-only credentials    │
 │  automations,     │          └────────────────────────────┘
 │  projects, tasks   │
 └───────────────────┘
 
-        Object storage:
-        • S3 (workspace files, exports)
+        Workspace files:
+        • Neon Postgres
 ```
 
 - **Client** — React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
 - **Server** — Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
 - **Database** — Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
-- **LLM** — OpenAI-compatible chat completions against NVIDIA NIM (`nvidia/nemotron-3-nano-30b-a3b`), configured per workspace.
+- **Agent** — `opencode` runs inside an E2B persistent sandbox for conversational workspace work.
+- **Optional inference** — A server-to-server NVIDIA NIM gateway provides the separate inference feature when configured.
 - **Agent VMs** — E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
 
 ---
@@ -60,10 +61,10 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── pages/            # Home, SignIn, Workspace, Files, Chats, Deployments, Settings
 │   ├── components/       # DashboardLayout, NovaMark, ui/ (Radix + shadcn)
 │   ├── contexts/         # ThemeContext
-│   ├── hooks/            # useComposition, useMobile, usePersistFn
+│   ├── hooks/            # useComposition, usePersistFn
 │   └── lib/              # trpc client, neonAuth
 ├── server/               # Express + tRPC backend
-│   ├── _core/            # env, context, sdk, llm, oauth, cookies, storage, trpc, etc.
+│   ├── _core/            # env, context, sdk, llm, cookies, trpc, etc.
 │   ├── app.ts            # Express app, route mounting
 │   ├── index.ts          # HTTP server bootstrap + static SPA fallback
 │   ├── routers.ts        # tRPC router (auth, workspace, telegram, nvidia, agentVm, automations, files, chats, models, projects, tasks)
@@ -73,8 +74,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── automations.ts    # Scheduled automation runner
 │   ├── e2b.ts            # E2B SDK wrapper
 │   ├── modelSecrets.ts   # Per-workspace model credentials
-│   ├── nvidiaGateway.ts  # NVIDIA NIM gateway client
-│   ├── storage.ts        # S3 object storage
+│   ├── nvidiaGateway.ts  # Optional NVIDIA NIM gateway client
 │   └── workspaceAgent.ts # Runs the agent against a workspace
 ├── shared/               # Shared types & constants (client + server)
 ├── drizzle/              # Drizzle schema + Neon migrations
@@ -92,9 +92,9 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 | Frontend       | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
 | Backend        | Node/Express, tRPC v11, superjson                                               |
 | Database       | Neon (Postgres), Drizzle ORM                                                    |
-| LLM            | NVIDIA NIM (OpenAI-compatible chat completions)                                 |
+| Agent          | opencode in an E2B Sandbox                                                       |
+| Optional inference | NVIDIA NIM gateway (server-to-server)                                         |
 | Agent VMs      | E2B Sandbox SDK                                                                 |
-| Object storage | AWS S3 (presigned URLs)                                                         |
 | Deployment     | Vercel                                                                          |
 
 ---
@@ -120,15 +120,16 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | Variable                     | Purpose                                                                         |
 | ---------------------------- | ------------------------------------------------------------------------------- |
 | `DATABASE_URL`               | Neon Postgres connection string                                                 |
-| `NVIDIA_NIM_API_KEY`         | NVIDIA NIM credential for the agent LLM                                         |
-| `NVIDIA_NIM_API_URL`         | NVIDIA NIM endpoint URL (defaults to `https://integrate.api.nvidia.com/v1`)     |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
+| `OPENCODE_ZEN_MODEL`         | Optional opencode model override; defaults to `opencode/big-pickle`             |
+| `NVIDIA_GATEWAY_URL`         | Optional HTTPS URL for the server-to-server NVIDIA inference gateway            |
+| `NOVA_NVIDIA_GATEWAY_TOKEN`  | Server-only credential for the NVIDIA inference gateway                         |
+| `NVIDIA_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace NVIDIA request cap; defaults to `50`             |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
-| AWS S3 vars                  | Object storage access keys                                                      |
 
 ---
 

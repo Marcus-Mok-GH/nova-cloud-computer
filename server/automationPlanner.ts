@@ -1,7 +1,5 @@
-import { ENV } from "./_core/env";
 import { z } from "zod";
-import { getE2BClient, runOpencodeChatInPersistentSandbox } from "./e2b";
-import { getOrCreateWorkspace, updateWorkspacePersistentSandbox } from "./db";
+import { completeWithNvidiaGateway } from "./nvidiaGateway";
 
 export type PlannedAutomation = {
   name: string;
@@ -75,25 +73,6 @@ const automationSystemPrompt = (userTimezone: string, now: string) =>
     "definition should be a compact machine-readable plan with intent, trigger, steps, args, output, constraints, and safety fields. Do not put executable code in it.",
   ].join("\n");
 
-function extractTextContent(content: unknown): string | undefined {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const text = content
-      .filter(
-        part =>
-          part &&
-          typeof part === "object" &&
-          "text" in part &&
-          typeof (part as { text?: unknown }).text === "string"
-      )
-      .map(part => (part as { text: string }).text)
-      .join("\n")
-      .trim();
-    return text || undefined;
-  }
-  return undefined;
-}
-
 const plannedAutomationSchema = z
   .object({
     name: z.string(),
@@ -136,36 +115,26 @@ export async function planAutomation(
     throw new Error(
       "That automation request is too long. Keep it under 8,000 characters."
     );
-  const client = getE2BClient();
-  if (!client)
-    throw new Error(
-      "Nova’s VM (openCode) isn’t available, so it can’t create automations right now. Please try again shortly."
-    );
-  const workspace = await getOrCreateWorkspace(ownerId);
-
   const now = new Date().toISOString();
   const prompt = [
     automationSystemPrompt(userTimezone, now),
     `Convert this automation request into the requested JSON object.\n${cleaned}`,
   ].join("\n");
 
-  // The VM's opencode agent returns free-form text. Instruct it to emit the plan
-  // as a single JSON object and retry a few times if parsing fails, so model
-  // output quirks cannot break automation creation.
+  // NVIDIA NIM returns free-form text. Instruct it to emit the plan as a single
+  // JSON object and retry only when parsing/sanitizing the returned plan fails,
+  // so model output quirks cannot break automation creation. Gateway failures
+  // (configuration, rate limit, unreachable) must propagate immediately: every
+  // attempt claims an inference allowance unit, so retrying them would silently
+  // burn up to three allowances for a single request.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await completeWithNvidiaGateway(
+      ownerId,
+      `${prompt}\n\nReply with ONLY the JSON object.`
+    );
+    const raw = result.text.trim();
     try {
-      const result = await runOpencodeChatInPersistentSandbox(client, {
-        workspaceId: workspace.id,
-        sandboxId: workspace.persistentSandboxId,
-        ownerId,
-        model: ENV.opencodeZenModel,
-        prompt: `${prompt}\n\nReply with ONLY the JSON object.`,
-      });
-      if (result.sandboxId !== workspace.persistentSandboxId) {
-        await updateWorkspacePersistentSandbox(workspace.id, result.sandboxId);
-      }
-      const raw = extractTextContent(result.reply);
       if (!raw) throw new Error("Nova did not return an automation plan.");
       return sanitizePlan(parsePlan(raw), userTimezone);
     } catch (error) {

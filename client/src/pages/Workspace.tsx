@@ -6,9 +6,10 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Wrench, XCircle } from "lucide-react";
-import React, { FormEvent, useEffect, useState } from "react";
+import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Wrench, XCircle } from "lucide-react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 
 export default function Workspace() {
@@ -24,6 +25,27 @@ export default function Workspace() {
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+
+  const handleChatScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 120;
+  };
+
+  useEffect(() => {
+    userScrolledUpRef.current = false;
+  }, [chatId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (userScrolledUpRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatId, savedMessages.data?.length, streamingContent, toolActivities, isStreaming]);
+
+  const isUnavailableReply = (content: string) => content === NVIDIA_UNAVAILABLE_MESSAGE;
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
@@ -35,22 +57,27 @@ export default function Workspace() {
 
   const refreshMessages = async (): Promise<boolean> => { try { await savedMessages.refetch(); return true; } catch { return false; } };
   const finalizeStream = async () => {
+    let refreshed = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (await refreshMessages()) {
-        setIsStreaming(false);
-        setPendingUserContent("");
-        setStreamingContent("");
-        setToolActivities([]);
-        return true;
-      }
+      refreshed = await refreshMessages();
+      if (refreshed) break;
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
     }
-    toast.error("Nova replied, but it could not be reloaded yet. Please wait a moment before sending again.");
-    return false;
+    if (refreshed) {
+      setIsStreaming(false);
+      setPendingUserContent("");
+      setStreamingContent("");
+      setToolActivities([]);
+    } else {
+      setIsStreaming(false);
+      toast.error("Nova replied, but it could not be reloaded yet. Please wait a moment before sending again.");
+    }
+    return refreshed;
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim() || !chatId || isStreaming) return;
+    userScrolledUpRef.current = false;
     const content = draft.trim(); setDraft(""); const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -79,6 +106,11 @@ export default function Workspace() {
   if (chatId) {
     const persisted = savedMessages.data ?? [];
     const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, baselineMessageId, pendingUserContent, streamingContent, toolActivities);
+    const lastPersistedRole = persisted.length ? persisted[persisted.length - 1].role : null;
+    const pendingBubbleRendered = Boolean(pendingUserContent) && !userCommitted;
+    const liveLabel = (index: number) =>
+      index === 0 ? (pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null) : false;
+    const streamingLabel = liveActivities.length > 0 ? false : pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null;
     return (
     <DashboardLayout>
       <section className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-white shadow-none dark:bg-neutral-900">
@@ -89,16 +121,18 @@ export default function Workspace() {
             <div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p><p className="hidden text-xs text-neutral-400 sm:block">Private workspace context</p></div>
           </div>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-6">
+        <div ref={scrollRef} onScroll={handleChatScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col space-y-4">
-            {savedMessages.isLoading ? <p className="text-sm text-neutral-400">Loading conversation...</p> : persisted.map(message => {
+            {savedMessages.isLoading ? <p className="text-sm text-neutral-400">Loading conversation...</p> : persisted.map((message, index) => {
               const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
-              if (persistedTool) return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 w-full max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><ToolActivityPanel activities={[persistedTool]} /></div></div>;
-              return message.role === "user" ? <div key={message.id} className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{message.content}</div></div> : <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div></div></div>;
+              const showLabel = index === 0 || persisted[index - 1].role === "user";
+              if (persistedTool) return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{showLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>}<ToolActivityPanel activities={[persistedTool]} /></div></div>;
+              if (message.role === "user") return <div key={message.id} className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{message.content}</div></div>;
+              return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{showLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>}{isUnavailableReply(message.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{message.content}</span></div></div> : <div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{message.content}</div>}</div></div>;
             })}
             {pendingUserContent && !userCommitted && <div className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-white dark:text-neutral-950">{pendingUserContent}</div></div>}
-            {liveActivities.map(activity => <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 w-full max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><ToolActivityPanel activities={[activity]} /></div></div>)}
-            {isStreaming && !replyCommitted && <div className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p><div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent || "Nova is working..."}</div></div></div>}
+            {liveActivities.map((activity, index) => <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{liveLabel(index) && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>}<ToolActivityPanel activities={[activity]} /></div></div>)}
+            {isStreaming && !replyCommitted && <div className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{streamingLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Nova App</p>}{isUnavailableReply(streamingContent) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{streamingContent}</span></div></div> : streamingContent ? <div className="break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-sm leading-6 text-neutral-800 sm:px-4 dark:bg-neutral-800 dark:text-neutral-200">{streamingContent}</div> : <TypingIndicator />}</div></div>}
           </div>
         </div>
         <form onSubmit={submit} className="shrink-0 border-t border-neutral-100 bg-white p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:p-3 dark:border-white/5 dark:bg-neutral-900">
@@ -115,6 +149,14 @@ export default function Workspace() {
 
   const folders = computer.data?.folders ?? []; const files = computer.data?.files ?? []; const vm = agentVmStatus.data; const isLoading = computer.isLoading;
   return <DashboardLayout><div className="mx-auto max-w-6xl p-4 sm:p-5 md:p-6"><header className="mb-6 sm:mb-8"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p><h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Home</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A quick view of your workspace and the services you have used.</p></header><section aria-label="Workspace statistics"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><HardDrive className="size-3.5" /></span><h2 className="text-sm font-bold tracking-tight text-neutral-900 dark:text-white">Workspace</h2></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Metric value={isLoading ? "—" : folders.length} label="folders" icon={Folder} /><Metric value={isLoading ? "—" : files.length} label="files" icon={FileText} /><Metric value={isLoading ? "—" : `${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs used" icon={HardDrive} /></div></section></div></DashboardLayout>;
+}
+
+export function TypingIndicator() {
+  return (
+    <div data-testid="typing-indicator" className="flex items-center gap-1.5 break-words rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-3 sm:px-4 dark:bg-neutral-800" aria-label="Nova is typing">
+      {[0, 1, 2].map(index => <span key={index} className="typing-dot size-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500" />)}
+    </div>
+  );
 }
 
 function ToolActivityPanel({ activities }: { activities: ToolActivity[] }) {

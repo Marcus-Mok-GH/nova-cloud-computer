@@ -30,6 +30,9 @@ export default function WorkspaceSettings() {
   </div></DashboardLayout>;
 }
 
+/**
+ * Renders the account management card with user profile information, sign-out, and account deletion controls.
+ */
 function AccountManagementCard() {
   const { user, logout } = useAuth();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false); const [confirmText, setConfirmText] = useState("");

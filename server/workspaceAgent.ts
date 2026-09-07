@@ -470,7 +470,7 @@ export async function runWorkspaceAgent(
   }
 
   const reply =
-    "Nova’s VM (openCode) isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
+    "Nova’s VM (opencode) isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
   await options.onChunk?.(reply);
   const message = await appendChatMessageForUser(ownerId, {
     chatId,

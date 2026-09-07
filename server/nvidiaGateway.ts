@@ -2,7 +2,7 @@ import { claimNvidiaInferenceRequestForUser, getNvidiaInferenceAllowanceForUser 
 
 const DEFAULT_MAX_REQUESTS = 50;
 const MAX_CONFIGURED_REQUESTS = 1000;
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 100_000;
 const ERROR_MESSAGE_LIMIT = 600;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 

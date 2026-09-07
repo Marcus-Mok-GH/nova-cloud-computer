@@ -297,7 +297,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
       };
   }
   const folder = content.match(
-    /(?:create|make|add)\s+(?:a\s+)?folder\s+(?:named|called)\s+['"]?([^'".\n]+)['"]?/i
+    /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?folder\s+(?:named|called|titled)\s+['"]?([^'".\n]+)['"]?/i
   );
   if (folder?.[1]?.trim()) {
     const created = await createWorkspaceFolderForUser(ownerId, {
@@ -310,11 +310,13 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
       };
   }
   const file = content.match(
-    /(?:create|make|add)\s+(?:a\s+)?(?:plain text\s+)?file\s+(?:named|called)\s+['"]?([\w.-]+)['"]?/i
+    /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:plain[ -]?text\s+|text\s+)?file\s+(?:named|called|titled)\s+['"]?([\w.-]+)['"]?/i
   );
   if (file?.[1]?.trim()) {
     const exact =
-      content.match(/(?:containing exactly|with content)\s*:?\s*(.+)$/i)?.[1] ??
+      content.match(
+        /(?:containing exactly|with content|with the text|saying|that says)\s*:?\s*(.+)$/i
+      )?.[1] ??
       "";
     const created = await createWorkspaceFileForUser(ownerId, {
       name: file[1].trim(),
@@ -334,9 +336,9 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a concise, direct assistant for a private computer workspace.
 
-You are a text-only assistant: you have no tools, shell, sandbox, or file access. You cannot read, run, create, edit, move, or delete anything. Never claim that an action happened or that you inspected a file or ran a command. You may only advise and answer questions about the workspace.
+Nova handles real workspace actions directly and reliably: creating files and folders, renaming, moving, and deleting files and folders, sending Telegram messages, and starting a sandbox (VM) run. When a user asks for one of those, it happens automatically outside this conversation — confirm the result concisely and do not say you cannot help.
 
-For explicit file/folder operations (create, rename, move, delete), sending Telegram messages, and starting a VM run, Nova handles those directly and deterministically outside this conversation — do not attempt to perform them yourself.
+You cannot read file contents or run commands yourself, so never claim to have inspected a file or run a command.
 
 Be direct and action-oriented in your advice. Prefer the smallest correct guidance and point the user to the workspace's actual state. Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 

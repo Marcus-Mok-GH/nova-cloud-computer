@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-07 — Reset chat auto-scroll when switching conversations
+
+- `client/src/pages/Workspace.tsx`: The user-stickiness scroll guard is now reset whenever `chatId` changes, so opening a different conversation scrolls to its latest message instead of inheriting the previous chat's scroll offset.
+
+
+## 2026-09-07 — Show an animated "typing" indicator while Nova is working
+
+- `client/src/pages/Workspace.tsx`: While the AI stream is active the chat now shows three animated dots instead of a static "Nova is thinking…" placeholder; the indicator is replaced by streamed text as tokens arrive and disappears the moment streaming finalizes. `finalizeStream` now always clears the streaming state even when the post-reply refetch fails, so the indicator can never linger.
+- `client/src/index.css`: Added the `nova-typing-bounce` keyframes and a `.typing-dot` animation, with a `prefers-reduced-motion` fallback that keeps the dots static.
+- `client/src/pages/Workspace.render.test.tsx`: Added coverage asserting the indicator is absent while idle and renders exactly three animated dots while working.
+- Verified: `tsc --noEmit` clean, tests pass, `biome check` clean.
+
+## 2026-09-07 — De-clutter the chat view and surface unavailable-AI replies as errors
+
+- `client/src/pages/Workspace.tsx`: The chat view now auto-scrolls to the newest message (with a user-stickiness guard so it won't yank the viewport while reading history, except when a new message is sent). Repeated "Nova App" labels are deduped, so an assistant turn — tool activity panels plus the reply — reads as one grouped row instead of several noisy ones.
+- `client/src/pages/Workspace.tsx`: When NVIDIA inference is unavailable, the persisted/streaming reply is now rendered as an explicit error bubble ("Nova is offline") instead of a normal reply. Detection is client-side only; the server-persisted copy is unchanged.
+- `server/workspaceAgent.ts`, `shared/const.ts`: The NVIDIA-unavailable fallback text now lives in a single shared constant (`NVIDIA_UNAVAILABLE_MESSAGE`) imported by both the server (persist path) and the client (render path), so the copy can't drift.
+- `client/src/pages/Workspace.render.test.tsx`: Added coverage for the error bubble and label-dedup behavior.
+- Verified: `tsc --noEmit` clean, tests pass, `biome check` clean.
+
 ## 2026-09-07 — Replace OpenCode Zen VM with NVIDIA NIM; drop the home-screen NVIDIA metric
 
 - `server/e2b.ts`: Removed the OpenCode Zen VM chat implementation (`provisionOpencodeOnSandbox`, `runOpencodeChatInPersistentSandbox`, `OpencodeChatResult`) and the `OPENCODE_CHAT_TIMEOUT_MS` constant. E2B sandboxes remain for autonomous task execution only; the opencode CLI is no longer provisioned or invoked for conversational work.

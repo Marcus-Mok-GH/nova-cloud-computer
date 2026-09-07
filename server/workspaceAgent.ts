@@ -15,6 +15,7 @@ import {
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
 import { completeWithNvidiaGateway } from "./nvidiaGateway";
+import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm";
@@ -424,8 +425,7 @@ export async function runWorkspaceAgent(
     console.error("[Chat] NVIDIA chat failed", error);
   }
 
-  const reply =
-    "NVIDIA inference isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
+  const reply = NVIDIA_UNAVAILABLE_MESSAGE;
   await options.onChunk?.(reply);
   const message = await appendChatMessageForUser(ownerId, {
     chatId,

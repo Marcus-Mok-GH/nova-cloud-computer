@@ -146,6 +146,19 @@ describe("Nova VM-agent workspace", () => {
     expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
   });
 
+  it("creates a file from a natural 'write a file' request with content", async () => {
+    await runWorkspaceAgent(
+      7,
+      3,
+      "Write a file named groceries.txt saying milk and eggs"
+    );
+    expect(createFile).toHaveBeenCalledWith(7, {
+      name: "groceries.txt",
+      content: "milk and eggs",
+    });
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
+  });
+
   it("renames and moves folders through explicit direct requests", async () => {
     await expect(
       runWorkspaceAgent(7, 3, "Rename folder Notes to Research")

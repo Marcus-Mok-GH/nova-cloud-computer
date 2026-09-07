@@ -35,6 +35,10 @@ export default function Workspace() {
   };
 
   useEffect(() => {
+    userScrolledUpRef.current = false;
+  }, [chatId]);
+
+  useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (userScrolledUpRef.current) return;

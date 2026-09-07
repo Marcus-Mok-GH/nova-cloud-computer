@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-07 — Reset chat auto-scroll when switching conversations
+
+- `client/src/pages/Workspace.tsx`: The user-stickiness scroll guard is now reset whenever `chatId` changes, so opening a different conversation scrolls to its latest message instead of inheriting the previous chat's scroll offset.
+
+
 ## 2026-09-07 — Show an animated "typing" indicator while Nova is working
 
 - `client/src/pages/Workspace.tsx`: While the AI stream is active the chat now shows three animated dots instead of a static "Nova is thinking…" placeholder; the indicator is replaced by streamed text as tokens arrive and disappears the moment streaming finalizes. `finalizeStream` now always clears the streaming state even when the post-reply refetch fails, so the indicator can never linger.

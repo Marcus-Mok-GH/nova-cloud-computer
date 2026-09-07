@@ -3,11 +3,12 @@
 ## 2026-09-07 — Replace OpenCode Zen VM with NVIDIA NIM; drop the home-screen NVIDIA metric
 
 - `server/e2b.ts`: Removed the OpenCode Zen VM chat implementation (`provisionOpencodeOnSandbox`, `runOpencodeChatInPersistentSandbox`, `OpencodeChatResult`) and the `OPENCODE_CHAT_TIMEOUT_MS` constant. E2B sandboxes remain for autonomous task execution only; the opencode CLI is no longer provisioned or invoked for conversational work.
-- `server/workspaceAgent.ts`: Conversational chat, chat auto-titling, and the VM agent path now call `completeWithNvidiaGateway` (NVIDIA NIM) instead of running the opencode CLI inside the user's persistent VM. The "Nova's VM (opencode) isn't available" fallback copy now references NVIDIA inference directly.
-- `server/automationPlanner.ts`: Automation planning now runs through `completeWithNvidiaGateway` instead of the VM opencode agent, dropping the E2B client/persistent-sandbox wiring.
+- `server/workspaceAgent.ts`: Conversational chat, chat auto-titling, and the VM agent path now call `completeWithNvidiaGateway` (NVIDIA NIM) instead of running the opencode CLI inside the user's persistent VM. The conversational path is explicitly text-only — the agent prompt no longer instructs shell/file tool use that the gateway can't perform — and the "Nova's VM (opencode) isn't available" fallback copy now references NVIDIA inference directly.
+- `server/automationPlanner.ts`: Automation planning now runs through `completeWithNvidiaGateway` instead of the VM opencode agent. Gateway failures (configuration, rate-limit, unreachable) propagate immediately instead of being retried — retries now apply only to plan parse/sanitize failures — so a single request can't burn multiple inference allowance units.
 - `server/_core/env.ts`: Removed the now-unused `opencodeZenModel` (`OPENCODE_ZEN_MODEL`) config.
 - `client/src/pages/Workspace.tsx`: Removed the `NVIDIA requests used` metric from the home screen (and its `trpc.nvidia.status` query + `Sparkles` icon), leaving workspace stats to folders, files, and VM runs.
-- Verified: `tsc --noEmit` clean, all tests pass, `pnpm run build` succeeds.
+- Added `server/automationPlanner.test.ts` covering gateway-failure propagation and parse-only retries.
+- Verified: `tsc --noEmit` clean, all tests pass (134 tests), `pnpm run build` succeeds.
 
 ## 2026-09-06 — De-clutter the landing nav on mobile
 

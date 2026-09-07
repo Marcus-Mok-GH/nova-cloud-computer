@@ -122,16 +122,19 @@ export async function planAutomation(
   ].join("\n");
 
   // NVIDIA NIM returns free-form text. Instruct it to emit the plan as a single
-  // JSON object and retry a few times if parsing fails, so model output quirks
-  // cannot break automation creation.
+  // JSON object and retry only when parsing/sanitizing the returned plan fails,
+  // so model output quirks cannot break automation creation. Gateway failures
+  // (configuration, rate limit, unreachable) must propagate immediately: every
+  // attempt claims an inference allowance unit, so retrying them would silently
+  // burn up to three allowances for a single request.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await completeWithNvidiaGateway(
+      ownerId,
+      `${prompt}\n\nReply with ONLY the JSON object.`
+    );
+    const raw = result.text.trim();
     try {
-      const result = await completeWithNvidiaGateway(
-        ownerId,
-        `${prompt}\n\nReply with ONLY the JSON object.`
-      );
-      const raw = result.text.trim();
       if (!raw) throw new Error("Nova did not return an automation plan.");
       return sanitizePlan(parsePlan(raw), userTimezone);
     } catch (error) {

@@ -39,5 +39,7 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Log out");
     expect(markup).toContain("Delete account");
     expect(markup).toContain("Delete my account");
+    expect(markup).not.toContain("Change password");
+    expect(markup).not.toContain("Current password");
   });
 });

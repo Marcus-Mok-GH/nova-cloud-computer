@@ -10,7 +10,7 @@ A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent
 
 Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated E2B sandboxes.
 
-The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an E2B-hosted opencode agent. An optional server-to-server NVIDIA NIM gateway powers the separate inference feature.
+The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an NVIDIA NIM-powered AI agent. A server-to-server NVIDIA NIM gateway powers AI-agent inference, while E2B sandboxes handle autonomous task execution.
 
 ---
 
@@ -32,8 +32,8 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
         │                              │
 ┌───────▼──────────┐          ┌────────▼─────────────────────┐
 │  Neon Postgres    │          │  Agent / inference backends │
-│  (Drizzle ORM)    │          │  • E2B Sandbox + opencode   │
-│  workspaces,      │          │  • Optional NVIDIA NIM gateway│
+│  (Drizzle ORM)    │          │  • NVIDIA NIM (AI agent)    │
+│  workspaces,      │          │  • E2B Sandbox (task exec)  │
 │  chats, files,    │          │  • Server-only credentials    │
 │  automations,     │          └────────────────────────────┘
 │  projects, tasks   │
@@ -46,8 +46,8 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 - **Client** — React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
 - **Server** — Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
 - **Database** — Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
-- **Agent** — `opencode` runs inside an E2B persistent sandbox for conversational workspace work.
-- **Optional inference** — A server-to-server NVIDIA NIM gateway provides the separate inference feature when configured.
+- **Agent** — Conversational workspace work and automation planning run through the NVIDIA NIM gateway.
+- **Inference** — A server-to-server NVIDIA NIM gateway provides AI-agent inference.
 - **Agent VMs** — E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
 
 ---
@@ -92,8 +92,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 | Frontend       | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
 | Backend        | Node/Express, tRPC v11, superjson                                               |
 | Database       | Neon (Postgres), Drizzle ORM                                                    |
-| Agent          | opencode in an E2B Sandbox                                                       |
-| Optional inference | NVIDIA NIM gateway (server-to-server)                                         |
+| Agent          | NVIDIA NIM gateway (server-to-server)                                          |
 | Agent VMs      | E2B Sandbox SDK                                                                 |
 | Deployment     | Vercel                                                                          |
 
@@ -122,7 +121,6 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `DATABASE_URL`               | Neon Postgres connection string                                                 |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `OPENCODE_ZEN_MODEL`         | Optional opencode model override; defaults to `opencode/big-pickle`             |
 | `NVIDIA_GATEWAY_URL`         | Optional HTTPS URL for the server-to-server NVIDIA inference gateway            |
 | `NOVA_NVIDIA_GATEWAY_TOKEN`  | Server-only credential for the NVIDIA inference gateway                         |
 | `NVIDIA_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace NVIDIA request cap; defaults to `50`             |

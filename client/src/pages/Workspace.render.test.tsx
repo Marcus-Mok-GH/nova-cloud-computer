@@ -50,7 +50,6 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("Home");
     expect(markup).toContain("Workspace");
-    expect(markup).toContain("NVIDIA requests used");
     expect(markup).toContain("VM runs used");
     expect(markup).toContain("1");
     expect(markup).toContain("0/50");
@@ -80,9 +79,7 @@ describe("Workspace rendered browser states", () => {
     state.nvidiaStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("12/50");
     expect(markup).toContain("7/50");
-    expect(markup).toContain("NVIDIA requests used");
     expect(markup).toContain("VM runs used");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");

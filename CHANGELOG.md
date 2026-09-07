@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-07 — Replace OpenCode Zen VM with NVIDIA NIM; drop the home-screen NVIDIA metric
+
+- `server/e2b.ts`: Removed the OpenCode Zen VM chat implementation (`provisionOpencodeOnSandbox`, `runOpencodeChatInPersistentSandbox`, `OpencodeChatResult`) and the `OPENCODE_CHAT_TIMEOUT_MS` constant. E2B sandboxes remain for autonomous task execution only; the opencode CLI is no longer provisioned or invoked for conversational work.
+- `server/workspaceAgent.ts`: Conversational chat, chat auto-titling, and the VM agent path now call `completeWithNvidiaGateway` (NVIDIA NIM) instead of running the opencode CLI inside the user's persistent VM. The "Nova's VM (opencode) isn't available" fallback copy now references NVIDIA inference directly.
+- `server/automationPlanner.ts`: Automation planning now runs through `completeWithNvidiaGateway` instead of the VM opencode agent, dropping the E2B client/persistent-sandbox wiring.
+- `server/_core/env.ts`: Removed the now-unused `opencodeZenModel` (`OPENCODE_ZEN_MODEL`) config.
+- `client/src/pages/Workspace.tsx`: Removed the `NVIDIA requests used` metric from the home screen (and its `trpc.nvidia.status` query + `Sparkles` icon), leaving workspace stats to folders, files, and VM runs.
+- Verified: `tsc --noEmit` clean, all tests pass, `pnpm run build` succeeds.
+
 ## 2026-09-06 — De-clutter the landing nav on mobile
 
 - `client/src/pages/Home.tsx`: The theme toggle is hidden from the top bar below `md` and now lives as a "Toggle theme" row inside the mobile hamburger menu (above the Sign up button), so the bar shows only the brand and the hamburger on phones. The top-bar container tightens to `gap-3 px-4` on mobile (`sm:gap-6 sm:px-5` above) and the right-cluster gap drops to `gap-2` on mobile (`sm:gap-2.5` above), so Log in + Sign up + theme do not feel squeezed at `sm`–`md` widths. Desktop (`md` and up) layout is unchanged.

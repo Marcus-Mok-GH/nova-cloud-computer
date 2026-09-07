@@ -1,4 +1,3 @@
-import { ENV } from "./_core/env";
 import {
   appendChatMessageForUser,
   getChatForUser,
@@ -12,17 +11,10 @@ import {
   getTelegramCredentialsForUser,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
-  updateWorkspacePersistentSandbox,
 } from "./db";
 import { sendTelegramMessage } from "./telegram";
 import { startAgentVmRun } from "./agentVm";
-import {
-  ensurePersistentSandbox,
-  getE2BClient,
-  runOpencodeChatInPersistentSandbox,
-  withE2BWorkspaceLock,
-} from "./e2b";
-import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
+import { completeWithNvidiaGateway } from "./nvidiaGateway";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm";
@@ -84,22 +76,16 @@ export async function autoTitleChatForUser(
         !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
     );
     if (!firstUser || !firstAssistant) return;
-    const computer = await getWorkspaceComputer(ownerId);
-    const client = getE2BClient();
-    if (!client) return;
     const prompt = [
       "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
       firstUser.content,
       firstAssistant.content,
     ].join("\n");
-    const result = await runOpencodeChatInPersistentSandbox(client, {
-      workspaceId: computer.workspace.id,
-      sandboxId: computer.workspace.persistentSandboxId,
+    const result = await completeWithNvidiaGateway(
       ownerId,
-      model: ENV.opencodeZenModel,
-      prompt: prompt.slice(0, 2000),
-    });
-    const raw = String(result.reply ?? "")
+      prompt.slice(0, 2000)
+    );
+    const raw = String(result.text ?? "")
       .trim()
       .split("\n")[0]
       .replace(/^["']+|["']+$/g, "")
@@ -345,7 +331,7 @@ async function runDirectWorkspaceAction(ownerId: number, content: string) {
   };
 }
 
-const OPENCODE_STYLE_WORKSPACE_PROMPT = `You are Nova, an interactive software-engineering agent operating inside a private computer workspace.
+const WORKSPACE_AGENT_PROMPT = `You are Nova, an interactive software-engineering agent operating inside a private computer workspace.
 
 Be concise, direct, and action-oriented. When the user asks you to perform work, use the available tools instead of merely describing what should be done. Do not claim that an action happened unless the corresponding tool succeeded.
 
@@ -397,7 +383,7 @@ export async function runWorkspaceAgent(
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
   const computer = await getWorkspaceComputer(ownerId);
-  const context = OPENCODE_STYLE_WORKSPACE_PROMPT.replace(
+  const context = WORKSPACE_AGENT_PROMPT.replace(
     "{{folders}}",
     computer.folders.map(folder => folder.name).join(", ") || "none"
   ).replace(
@@ -420,57 +406,29 @@ export async function runWorkspaceAgent(
     return { message, actions: direct.actions };
   }
 
-  // Conversational chat: run the full opencode agent inside the user's persistent
-  // VM (big-pickle, anonymous OpenCode Zen provider), mirroring the Zo Computer
-  // setup. The VM's opencode handles its own tools (bash, file edit, etc.). There
-  // is no server-side model key — the VM is the model.
-  const client = getE2BClient();
-  if (client) {
-    try {
-      const result = await withE2BWorkspaceLock(
-        ownerId,
-        computer.workspace.id,
-        async () => {
-          const sandbox = await ensurePersistentSandbox(
-            client,
-            computer.workspace.id,
-            ownerId,
-            computer.workspace.persistentSandboxId
-          );
-          await restoreWorkspaceToE2B(ownerId, sandbox);
-          const result = await runOpencodeChatInPersistentSandbox(client, {
-            workspaceId: computer.workspace.id,
-            sandboxId: computer.workspace.persistentSandboxId,
-            ownerId,
-            model: ENV.opencodeZenModel,
-            prompt: `${context}\n\n${content}`,
-            onChunk: options.onChunk,
-          });
-          const completedSandbox = await client.connect(result.sandboxId);
-          await persistE2BWorkspace(ownerId, completedSandbox);
-          await updateWorkspacePersistentSandbox(
-            computer.workspace.id,
-            result.sandboxId
-          );
-          return result;
-        }
-      );
-      const reply = String(
-        result.reply || "I’m ready to help with this workspace."
-      ).trim();
-      const message = await appendChatMessageForUser(ownerId, {
-        chatId,
-        role: "assistant",
-        content: reply,
-      });
-      return { message, actions: [] };
-    } catch (error) {
-      console.error("[Chat] VM opencode chat failed", error);
-    }
+  // Conversational chat: run the prompt through NVIDIA NIM (Nova's server-only
+  // NVIDIA gateway). No workspace VM or agent CLI is involved.
+  try {
+    const result = await completeWithNvidiaGateway(
+      ownerId,
+      `${context}\n\n${content}`
+    );
+    const reply = String(
+      result.text || "I’m ready to help with this workspace."
+    ).trim();
+    await options.onChunk?.(reply);
+    const message = await appendChatMessageForUser(ownerId, {
+      chatId,
+      role: "assistant",
+      content: reply,
+    });
+    return { message, actions: [] };
+  } catch (error) {
+    console.error("[Chat] NVIDIA chat failed", error);
   }
 
   const reply =
-    "Nova’s VM (opencode) isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
+    "NVIDIA inference isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
   await options.onChunk?.(reply);
   const message = await appendChatMessageForUser(ownerId, {
     chatId,

@@ -39,6 +39,11 @@ const features = [
   { icon: Rocket, title: "Deployments", copy: "A calm release room for what Nova is ready to publish — deployment notes and status in one place." },
 ];
 
+/**
+ * Landing page component that renders the public-facing homepage.
+ * Includes navigation header, hero section, product overview, features showcase,
+ * FAQ accordion, pricing/CTA section, and footer.
+ */
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated } = useAuth();

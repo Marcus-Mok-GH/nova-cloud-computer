@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-07 — Nova creates files and folders from natural language
+
+- `server/workspaceAgent.ts`: Rewrote the workspace agent prompt so Nova no longer describes itself as a text-only assistant that cannot create, edit, move, or delete anything. It now states plainly that it creates files and folders, renames/moves/deletes them, sends Telegram messages, and starts VM runs — handled directly and reliably — while still never claiming to read file contents or run commands.
+- `server/workspaceAgent.ts`: Broadened the direct file/folder create matching to accept `write`, `new`, and `titled`, plus extra content cues (`saying`, `that says`, `with the text`), so more natural requests create files and folders without a model round-trip.
+- `server/workspaceAgent.test.ts`: Added coverage for a natural `write a file named … saying …` request.
+- Verified: `tsc --noEmit` clean, tests pass, `biome check` clean.
+
 ## 2026-09-07 — Reset chat auto-scroll when switching conversations
 
 - `client/src/pages/Workspace.tsx`: The user-stickiness scroll guard is now reset whenever `chatId` changes, so opening a different conversation scrolls to its latest message instead of inheriting the previous chat's scroll offset.

@@ -23,6 +23,7 @@ import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential 
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { getE2BClient, initWorkspacePersistentVm } from "./e2b";
+import { wouldCreateWorkspaceFolderCycle } from "./workspaceFolderTree";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -372,6 +373,13 @@ export async function updateWorkspaceFolderForUser(ownerId: number, folderId: nu
     if (input.parentId === folder.id) return undefined;
     const parent = await getFolderForUser(ownerId, input.parentId);
     if (!parent) return undefined;
+    const workspace = await getOrCreateWorkspace(ownerId);
+    const folders = await db
+      .select({ id: workspaceFolders.id, parentId: workspaceFolders.parentId })
+      .from(workspaceFolders)
+      .where(eq(workspaceFolders.workspaceId, workspace.id));
+    if (wouldCreateWorkspaceFolderCycle(folders, folder.id, parent.id))
+      return undefined;
   }
   const updateSet: Partial<typeof workspaceFolders.$inferInsert> = { updatedAt: new Date() };
   if (input.name !== undefined) updateSet.name = input.name;

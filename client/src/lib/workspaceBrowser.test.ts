@@ -28,4 +28,13 @@ describe("workspace browser data", () => {
     expect(getFolderTrail(folders, 2).map(folder => folder.name)).toEqual(["Plans", "Research"]);
     expect(getFolderTrail(folders, null)).toEqual([]);
   });
+
+  it("handles unknown folders and corrupt parent cycles without looping", () => {
+    expect(getFolderTrail(folders, 999)).toEqual([]);
+    const corruptFolders = [
+      { id: 1, name: "Plans", parentId: 2 },
+      { id: 2, name: "Research", parentId: 1 },
+    ];
+    expect(getFolderTrail(corruptFolders, 1).map(folder => folder.name)).toEqual(["Research", "Plans"]);
+  });
 });

@@ -66,7 +66,6 @@ vi.mock("./db", () => ({
   createWorkspaceFileForUser: createFile,
   createWorkspaceFolderForUser: createFolder,
   getWorkspaceComputer: computer,
-  updateWorkspacePersistentSandbox: vi.fn(async () => undefined),
   updateWorkspaceFolderForUser: updateFolder,
   updateWorkspaceFileForUser: updateFile,
   deleteWorkspaceFileForUser: deleteFile,
@@ -74,31 +73,20 @@ vi.mock("./db", () => ({
   getTelegramCredentialsForUser: telegramCredentials,
 }));
 
-const getE2BClient = vi.fn();
-const runOpencodeChat = vi.fn();
-const withE2BWorkspaceLock = vi.fn(
-  async (
-    _ownerId: number,
-    _workspaceId: number,
-    operation: () => Promise<unknown>
-  ) => operation()
-);
+const completeWithNvidiaGateway = vi.fn();
+vi.mock("./nvidiaGateway", () => ({
+  completeWithNvidiaGateway,
+}));
+
+// startAgentVmRun (imported by workspaceAgent) pulls the E2B client; keep a
+// lightweight mock so the real e2b SDK is never loaded in the test worker.
 vi.mock("./e2b", () => ({
-  getE2BClient,
-  withE2BWorkspaceLock,
-  ensurePersistentSandbox: vi.fn(
-    async (
-      _client: unknown,
-      _workspaceId: number,
-      _ownerId: number,
-      sandboxId?: string | null
-    ) => ({
-      sandboxId: sandboxId ?? "sbx-vm",
-      commands: { run: vi.fn() },
-      files: { write: vi.fn(), read: vi.fn(), list: vi.fn() },
-    })
-  ),
-  runOpencodeChatInPersistentSandbox: runOpencodeChat,
+  getE2BClient: vi.fn(),
+  isE2BConfigured: vi.fn(() => false),
+  runE2BTaskInPersistentSandbox: vi.fn(),
+  ensurePersistentSandbox: vi.fn(),
+  getE2BSandboxStatus: vi.fn(),
+  withE2BWorkspaceLock: vi.fn(),
 }));
 
 vi.mock("./workspaceSync", () => ({
@@ -106,23 +94,21 @@ vi.mock("./workspaceSync", () => ({
   restoreWorkspaceToE2B: vi.fn(async () => 0),
 }));
 
-vi.mock("./_core/env", () => ({
-  ENV: {
-    appId: "",
-    cookieSecret: "",
-    oAuthServerUrl: "",
-    ownerOpenId: "",
-    opencodeZenModel: "big-pickle",
-    databaseUrl: "",
-    neonAuthBaseUrl: "",
-    modelCredentialSecret: "",
-    isProduction: false,
-  },
-}));
-
 const { runWorkspaceAgent, autoTitleChatForUser } = await import(
   "./workspaceAgent"
 );
+
+const nvidiaResult = (text: string) => ({
+  text,
+  model: "nvidia/nemotron-3-nano-30b-a3b",
+  usage: null,
+  allowance: {
+    usedRequests: 1,
+    maxRequests: 50,
+    remainingRequests: 49,
+    exhausted: false,
+  },
+});
 
 describe("Nova VM-agent workspace", () => {
   afterEach(() => {
@@ -157,7 +143,7 @@ describe("Nova VM-agent workspace", () => {
     );
     expect(createFolder).toHaveBeenCalledWith(7, { name: "Research" });
     expect(result.actions).toEqual([{ kind: "folder", name: "Research" }]);
-    expect(runOpencodeChat).not.toHaveBeenCalled();
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
   });
 
   it("renames and moves folders through explicit direct requests", async () => {
@@ -198,21 +184,13 @@ describe("Nova VM-agent workspace", () => {
     expect(result.actions).toEqual([
       { kind: "folder", operation: "deleted", name: "Archive" },
     ]);
-    expect(runOpencodeChat).not.toHaveBeenCalled();
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
   });
 
-  it("streams a conversational reply via the VM's opencode CLI", async () => {
-    getE2BClient.mockReturnValue({
-      connect: vi.fn(async () => ({
-        sandboxId: "sbx-vm",
-        commands: { run: vi.fn() },
-        files: { write: vi.fn(), read: vi.fn(), list: vi.fn() },
-      })),
-    });
-    runOpencodeChat.mockResolvedValue({
-      reply: "Hello from the VM.",
-      sandboxId: "sbx-vm",
-    });
+  it("returns a conversational reply via NVIDIA NIM", async () => {
+    completeWithNvidiaGateway.mockResolvedValue(
+      nvidiaResult("Hello from NVIDIA NIM.")
+    );
 
     await expect(
       runWorkspaceAgent(
@@ -224,23 +202,18 @@ describe("Nova VM-agent workspace", () => {
       actions: [],
       message: expect.objectContaining({
         role: "assistant",
-        content: "Hello from the VM.",
+        content: "Hello from NVIDIA NIM.",
       }),
     });
 
-    expect(runOpencodeChat).toHaveBeenCalledWith(
-      expect.objectContaining({ connect: expect.any(Function) }),
-      expect.objectContaining({
-        workspaceId: 41,
-        ownerId: 7,
-        model: "big-pickle",
-        prompt: expect.stringContaining("PINEAPPLE"),
-      })
+    expect(completeWithNvidiaGateway).toHaveBeenCalledWith(
+      7,
+      expect.stringContaining("PINEAPPLE")
     );
   });
 
-  it("reports the VM is unavailable when no E2B client is configured", async () => {
-    getE2BClient.mockReturnValue(undefined);
+  it("reports NVIDIA is unavailable when the completion throws", async () => {
+    completeWithNvidiaGateway.mockRejectedValue(new Error("gateway down"));
     await expect(
       runWorkspaceAgent(
         7,
@@ -251,26 +224,7 @@ describe("Nova VM-agent workspace", () => {
       actions: [],
       message: expect.objectContaining({
         role: "assistant",
-        content: expect.stringContaining("VM"),
-      }),
-    });
-    expect(runOpencodeChat).not.toHaveBeenCalled();
-  });
-
-  it("reports the VM is unavailable when the opencode chat throws", async () => {
-    getE2BClient.mockReturnValue({});
-    runOpencodeChat.mockRejectedValue(new Error("sandbox down"));
-    await expect(
-      runWorkspaceAgent(
-        7,
-        3,
-        "Please reply with exactly this one word: PINEAPPLE."
-      )
-    ).resolves.toMatchObject({
-      actions: [],
-      message: expect.objectContaining({
-        role: "assistant",
-        content: expect.stringContaining("VM"),
+        content: expect.stringContaining("NVIDIA"),
       }),
     });
   });
@@ -289,12 +243,10 @@ describe("autoTitleChatForUser", () => {
     vi.clearAllMocks();
   });
 
-  it("renames a default-titled chat from its first messages via the VM", async () => {
-    getE2BClient.mockReturnValue({});
-    runOpencodeChat.mockResolvedValue({
-      reply: "Sprint planning help",
-      sandboxId: "sbx-vm",
-    });
+  it("renames a default-titled chat from its first messages via NVIDIA NIM", async () => {
+    completeWithNvidiaGateway.mockResolvedValue(
+      nvidiaResult("Sprint planning help")
+    );
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint planning help", [
       "New workspace conversation",
@@ -306,7 +258,7 @@ describe("autoTitleChatForUser", () => {
   it("leaves already-titled chats alone", async () => {
     chat.mockResolvedValue({ id: 3, title: "Sprint planning help" });
     await autoTitleChatForUser(7, 3);
-    expect(runOpencodeChat).not.toHaveBeenCalled();
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
     expect(renameChat).not.toHaveBeenCalled();
   });
 
@@ -315,16 +267,14 @@ describe("autoTitleChatForUser", () => {
       { id: 1, role: "user", content: "Hello?" },
     ]);
     await autoTitleChatForUser(7, 3);
-    expect(runOpencodeChat).not.toHaveBeenCalled();
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
     expect(renameChat).not.toHaveBeenCalled();
   });
 
   it("strips wrapping quotes and newlines from the model title", async () => {
-    getE2BClient.mockReturnValue({});
-    runOpencodeChat.mockResolvedValue({
-      reply: '""Sprint\nplanning"\n',
-      sandboxId: "sbx-vm",
-    });
+    completeWithNvidiaGateway.mockResolvedValue(
+      nvidiaResult('""Sprint\nplanning"\n')
+    );
     await autoTitleChatForUser(7, 3);
     expect(renameChat).toHaveBeenCalledWith(7, 3, "Sprint", [
       "New workspace conversation",
@@ -333,9 +283,8 @@ describe("autoTitleChatForUser", () => {
     ]);
   });
 
-  it("does not rename when the VM title is missing", async () => {
-    getE2BClient.mockReturnValue({});
-    runOpencodeChat.mockResolvedValue({ reply: "", sandboxId: "sbx-vm" });
+  it("does not rename when the NVIDIA title is missing", async () => {
+    completeWithNvidiaGateway.mockResolvedValue(nvidiaResult(""));
     await autoTitleChatForUser(7, 3);
     expect(renameChat).not.toHaveBeenCalled();
   });

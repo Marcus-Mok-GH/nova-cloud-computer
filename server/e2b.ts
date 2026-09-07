@@ -6,7 +6,6 @@ const MAX_FILE_BYTES = 60_000;
 const MAX_CODE_BYTES = 12_000;
 const MAX_OUTPUT_BYTES = 12_000;
 const RUN_TIMEOUT_MS = 30_000;
-const OPENCODE_CHAT_TIMEOUT_MS = 180_000;
 const PERSISTENT_SANDBOX_TIMEOUT_MS = 3_600_000;
 const DEFAULT_MAX_SANDBOX_CREATIONS = 50;
 
@@ -322,35 +321,6 @@ async function runCommand(
   }
 }
 
-// Install and configure OpenCode inside the persistent E2B sandbox. Provisioning is
-// best effort because a transient package-network error should not prevent other VM use.
-async function provisionOpencodeOnSandbox(sandbox: E2BSandboxLike) {
-  const config = JSON.stringify({
-    $schema: "https://opencode.ai/config.json",
-    model: "opencode/big-pickle",
-  });
-  const encodedConfig = Buffer.from(config, "utf8").toString("base64");
-  const script = [
-    "set -e",
-    'if ! command -v opencode >/dev/null 2>&1 && [ ! -x "$HOME/.opencode/bin/opencode" ]; then',
-    "  curl -fsSL https://opencode.ai/install | bash",
-    "fi",
-    'grep -q \'opencode/bin\' "$HOME/.bashrc" 2>/dev/null || printf \'\\nexport PATH="$HOME/.opencode/bin:$PATH"\\n\' >> "$HOME/.bashrc"',
-    'mkdir -p "$HOME/.config/opencode"',
-    `printf '%s' '${encodedConfig}' | base64 -d > "$HOME/.config/opencode/opencode.json"`,
-  ].join("\n");
-  try {
-    await runCommand(sandbox, script, {
-      cwd: E2B_WORKSPACE_DIR,
-      timeoutMs: 180_000,
-    });
-  } catch (error) {
-    console.warn(
-      `[E2B] opencode provisioning skipped for sandbox ${sandbox.sandboxId}: ${safeE2BError(error)}`
-    );
-  }
-}
-
 async function createOrGetPersistentSandbox(
   client: E2BClientLike,
   workspaceId: number,
@@ -362,7 +332,6 @@ async function createOrGetPersistentSandbox(
       timeoutMs: PERSISTENT_SANDBOX_TIMEOUT_MS,
     });
     await sandbox.setTimeout?.(PERSISTENT_SANDBOX_TIMEOUT_MS);
-    await provisionOpencodeOnSandbox(sandbox);
     return sandbox;
   }
 
@@ -370,7 +339,6 @@ async function createOrGetPersistentSandbox(
   const sandbox = await client.create(
     persistentSandboxConfig(workspaceId, ownerId)
   );
-  await provisionOpencodeOnSandbox(sandbox);
   return sandbox;
 }
 
@@ -600,102 +568,4 @@ export async function initWorkspacePersistentVm(
       return undefined;
     }
   }
-}
-
-export type OpencodeChatResult = {
-  reply: string;
-  sandboxId: string;
-};
-
-// Run the OpenCode CLI agent inside the user's persistent E2B sandbox.
-export async function runOpencodeChatInPersistentSandbox(
-  client: E2BClientLike,
-  input: {
-    workspaceId: number;
-    ownerId: number;
-    sandboxId?: string | null;
-    model: string;
-    prompt: string;
-    onChunk?: (chunk: string) => void | Promise<void>;
-  }
-): Promise<OpencodeChatResult> {
-  const sandbox = await ensurePersistentSandbox(
-    client,
-    input.workspaceId,
-    input.ownerId,
-    input.sandboxId
-  );
-  const runOpencode = async (target: E2BSandboxLike) => {
-    await provisionOpencodeOnSandbox(target);
-    // OpenCode requires a fully-qualified provider/model ID; a bare model name
-    // reaches the Zen gateway untagged and fails with an opaque server error.
-    if (!input.model.trim())
-      throw new Error("Unsupported opencode model identifier.");
-    const model = input.model.includes("/")
-      ? input.model
-      : `opencode/${input.model}`;
-    if (!/^[\w./:-]+$/.test(model))
-      throw new Error("Unsupported opencode model identifier.");
-    const encodedPrompt = Buffer.from(input.prompt, "utf8").toString("base64");
-    const script = [
-      "set -e",
-      'export PATH="$HOME/.opencode/bin:$PATH"',
-      'mkdir -p "$HOME/.opencode-chat"',
-      'PROMPT_FILE="$(mktemp "$HOME/.opencode-chat/prompt.XXXXXXXX")"',
-      `trap 'rm -f "$PROMPT_FILE"' EXIT`,
-      `printf '%s' '${encodedPrompt}' | base64 -d > "$PROMPT_FILE"`,
-      `opencode run -m ${JSON.stringify(model)} --format json < "$PROMPT_FILE"`,
-    ].join("\n");
-    let stdoutBuffer = "";
-    const response = await runCommand(target, script, {
-      cwd: E2B_WORKSPACE_DIR,
-      timeoutMs: OPENCODE_CHAT_TIMEOUT_MS,
-      onStdout: async (data: string) => {
-        stdoutBuffer += data;
-        const lines = stdoutBuffer.split("\n");
-        stdoutBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          let event: { type?: string; part?: { type?: string; text?: string } };
-          try {
-            event = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          if (event.type === "text" && typeof event.part?.text === "string")
-            await input.onChunk?.(event.part.text);
-        }
-      },
-    });
-    const output = response.stdout ?? "";
-    if (response.exitCode !== 0)
-      throw new Error(
-        `opencode exited with code ${response.exitCode}: ${safeE2BError(output || response.stderr || response.error)}`
-      );
-    const lines = output.split("\n");
-    const reply: string[] = [];
-    for (const line of lines) {
-      let event: { type?: string; part?: { type?: string; text?: string } };
-      try {
-        event = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (event.type === "text" && typeof event.part?.text === "string")
-        reply.push(event.part.text);
-    }
-    return reply.join("");
-  };
-
-  let reply: string;
-  let sandboxId: string;
-  try {
-    reply = await runOpencode(sandbox);
-    sandboxId = sandbox.sandboxId;
-  } catch (error) {
-    throw new Error(
-      `OpenCode outcome is uncertain; Nova will not rerun it automatically: ${safeE2BError(error)}`
-    );
-  }
-
-  return { reply, sandboxId };
 }

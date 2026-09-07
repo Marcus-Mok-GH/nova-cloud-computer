@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Sparkles, Wrench, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Wrench, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
@@ -24,7 +24,6 @@ export default function Workspace() {
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
-  const nvidiaStatus = trpc.nvidia.status.useQuery(undefined, { retry: false, refetchInterval: 30000 });
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
@@ -114,8 +113,8 @@ export default function Workspace() {
     );
   }
 
-  const folders = computer.data?.folders ?? []; const files = computer.data?.files ?? []; const vm = agentVmStatus.data; const nvidia = nvidiaStatus.data; const isLoading = computer.isLoading;
-  return <DashboardLayout><div className="mx-auto max-w-6xl p-4 sm:p-5 md:p-6"><header className="mb-6 sm:mb-8"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p><h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Home</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A quick view of your workspace and the services you have used.</p></header><section aria-label="Workspace statistics"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><HardDrive className="size-3.5" /></span><h2 className="text-sm font-bold tracking-tight text-neutral-900 dark:text-white">Workspace</h2></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric value={isLoading ? "—" : folders.length} label="folders" icon={Folder} /><Metric value={isLoading ? "—" : files.length} label="files" icon={FileText} /><Metric value={isLoading ? "—" : `${nvidia?.allowance.usedRequests ?? 0}/${nvidia?.allowance.maxRequests ?? 0}`} label="NVIDIA requests used" icon={Sparkles} /><Metric value={isLoading ? "—" : `${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs used" icon={HardDrive} /></div></section></div></DashboardLayout>;
+  const folders = computer.data?.folders ?? []; const files = computer.data?.files ?? []; const vm = agentVmStatus.data; const isLoading = computer.isLoading;
+  return <DashboardLayout><div className="mx-auto max-w-6xl p-4 sm:p-5 md:p-6"><header className="mb-6 sm:mb-8"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p><h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Home</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A quick view of your workspace and the services you have used.</p></header><section aria-label="Workspace statistics"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><HardDrive className="size-3.5" /></span><h2 className="text-sm font-bold tracking-tight text-neutral-900 dark:text-white">Workspace</h2></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Metric value={isLoading ? "—" : folders.length} label="folders" icon={Folder} /><Metric value={isLoading ? "—" : files.length} label="files" icon={FileText} /><Metric value={isLoading ? "—" : `${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs used" icon={HardDrive} /></div></section></div></DashboardLayout>;
 }
 
 function ToolActivityPanel({ activities }: { activities: ToolActivity[] }) {

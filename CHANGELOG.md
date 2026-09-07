@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-07 — De-clutter the chat view and surface unavailable-AI replies as errors
+
+- `client/src/pages/Workspace.tsx`: The chat view now auto-scrolls to the newest message (with a user-stickiness guard so it won't yank the viewport while reading history, except when a new message is sent). Repeated "Nova App" labels are deduped, so an assistant turn — tool activity panels plus the reply — reads as one grouped row instead of several noisy ones.
+- `client/src/pages/Workspace.tsx`: When NVIDIA inference is unavailable, the persisted/streaming reply is now rendered as an explicit error bubble ("Nova is offline") instead of a normal reply. Detection is client-side only; the server-persisted copy is unchanged.
+- `server/workspaceAgent.ts`, `shared/const.ts`: The NVIDIA-unavailable fallback text now lives in a single shared constant (`NVIDIA_UNAVAILABLE_MESSAGE`) imported by both the server (persist path) and the client (render path), so the copy can't drift.
+- `client/src/pages/Workspace.render.test.tsx`: Added coverage for the error bubble and label-dedup behavior.
+- Verified: `tsc --noEmit` clean, tests pass, `biome check` clean.
+
 ## 2026-09-07 — Replace OpenCode Zen VM with NVIDIA NIM; drop the home-screen NVIDIA metric
 
 - `server/e2b.ts`: Removed the OpenCode Zen VM chat implementation (`provisionOpencodeOnSandbox`, `runOpencodeChatInPersistentSandbox`, `OpencodeChatResult`) and the `OPENCODE_CHAT_TIMEOUT_MS` constant. E2B sandboxes remain for autonomous task execution only; the opencode CLI is no longer provisioned or invoked for conversational work.

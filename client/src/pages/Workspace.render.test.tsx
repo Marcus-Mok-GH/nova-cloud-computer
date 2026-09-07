@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Workspace from "./Workspace";
+import Workspace, { TypingIndicator } from "./Workspace";
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
 
 const state = vi.hoisted(() => ({
@@ -121,5 +121,18 @@ describe("Workspace rendered browser states", () => {
     const markup = renderChat();
     expect(markup).toContain("Second reply");
     expect((markup.match(/Nova App/g) || []).length).toBe(1);
+  });
+
+  it("does not render the typing indicator while idle", () => {
+    state.chatMessages = [];
+    const markup = renderChat();
+    expect(markup).not.toContain('data-testid="typing-indicator"');
+  });
+
+  it("renders an animated typing indicator for the working state", () => {
+    const markup = renderToStaticMarkup(<TypingIndicator />);
+    expect(markup).toContain('data-testid="typing-indicator"');
+    expect(markup).toContain("typing-dot");
+    expect((markup.match(/typing-dot/g) || []).length).toBe(3);
   });
 });

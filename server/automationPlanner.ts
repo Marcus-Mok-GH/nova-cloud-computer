@@ -15,6 +15,10 @@ export type PlannedAutomation = {
   clarificationQuestion: string | null;
 };
 
+/**
+ * Validates a 6-field cron expression whose first field is "0" (seconds),
+ * allowing only digits, `*`, `,`, `/`, and `-` in each field.
+ */
 function validCron(cron: string): boolean {
   const fields = cron.trim().split(/\s+/);
   if (fields.length !== 6 || fields[0] !== "0") return false;

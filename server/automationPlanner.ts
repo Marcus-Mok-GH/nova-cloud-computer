@@ -19,7 +19,7 @@ function validCron(cron: string): boolean {
   const fields = cron.trim().split(/\s+/);
   if (fields.length !== 6 || fields[0] !== "0") return false;
   return fields.every(
-    field => /^[0-9*,\/-]+$/.test(field) && field.length <= 32
+    field => /^[0-9*,/-]+$/.test(field) && field.length <= 32
   );
 }
 

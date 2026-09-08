@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-08 — Clean up cron validation regex
+
+- `server/automationPlanner.ts`: Removed the redundant backslash before `/` in the `validCron` character class and added a docstring describing the function. No behavior change.
+
 ## 2026-09-07 — Nova creates files and folders from natural language
 
 - `server/workspaceAgent.ts`: Rewrote the workspace agent prompt so Nova no longer describes itself as a text-only assistant that cannot create, edit, move, or delete anything. It now states plainly that it creates files and folders, renames/moves/deletes them, sends Telegram messages, and starts VM runs — handled directly and reliably — while still never claiming to read file contents or run commands.

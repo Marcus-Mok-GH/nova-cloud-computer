@@ -14,13 +14,12 @@ export type UserAutomationFrequency = keyof typeof USER_AUTOMATION_CRONS | "cust
 function safeAutomation(row: UserAutomation) {
   return { id: row.id, name: row.name, instructions: row.instructions, frequency: row.frequency, scheduleCron: row.scheduleCron, scheduleTimezone: row.scheduleTimezone, executionPrompt: row.executionPrompt, args: row.args, definition: row.definition, enabled: row.enabled, scheduleActive: Boolean(row.scheduleCronTaskUid), lastRunAt: row.lastRunAt, lastError: row.lastError, createdAt: row.createdAt, updatedAt: row.updatedAt };
 }
-async function workspaceFor(ownerId: number) { return getOrCreateWorkspace(ownerId); }
 
-export async function listUserAutomations(ownerId: number) { const database = await getDb(); const workspace = await workspaceFor(ownerId); const rows = await database.select().from(userAutomations).where(and(eq(userAutomations.ownerId, ownerId), eq(userAutomations.workspaceId, workspace.id))).orderBy(asc(userAutomations.createdAt)); return rows.map(safeAutomation); }
-export async function getUserAutomation(ownerId: number, id: number) { const database = await getDb(); const workspace = await workspaceFor(ownerId); return (await database.select().from(userAutomations).where(and(eq(userAutomations.id, id), eq(userAutomations.ownerId, ownerId), eq(userAutomations.workspaceId, workspace.id))).limit(1))[0]; }
+export async function listUserAutomations(ownerId: number) { const database = await getDb(); const workspace = await getOrCreateWorkspace(ownerId); const rows = await database.select().from(userAutomations).where(and(eq(userAutomations.ownerId, ownerId), eq(userAutomations.workspaceId, workspace.id))).orderBy(asc(userAutomations.createdAt)); return rows.map(safeAutomation); }
+export async function getUserAutomation(ownerId: number, id: number) { const database = await getDb(); const workspace = await getOrCreateWorkspace(ownerId); return (await database.select().from(userAutomations).where(and(eq(userAutomations.id, id), eq(userAutomations.ownerId, ownerId), eq(userAutomations.workspaceId, workspace.id))).limit(1))[0]; }
 
 export async function createUserAutomation(ownerId: number, input: { name: string; instructions: string; frequency: UserAutomationFrequency; scheduleCron: string; scheduleTimezone: string; executionPrompt: string; args: Record<string, unknown>; definition: Record<string, unknown> }) {
-  const database = await getDb(); const workspace = await workspaceFor(ownerId);
+  const database = await getDb(); const workspace = await getOrCreateWorkspace(ownerId);
   const [created] = await database.insert(userAutomations).values({ ownerId, workspaceId: workspace.id, name: input.name, instructions: input.instructions, frequency: input.frequency, scheduleCron: input.scheduleCron, scheduleTimezone: input.scheduleTimezone, executionPrompt: input.executionPrompt, args: input.args, definition: input.definition, enabled: false }).returning();
   if (!created) throw new Error("Nova could not create the automation."); return safeAutomation(created);
 }
@@ -39,7 +38,7 @@ export async function getUserAutomationForScheduleTask(taskUid: string) { const 
 export async function runUserAutomationForScheduleTask(taskUid: string, now = new Date()) {
   const database = await getDb(); const automation = await getUserAutomationForScheduleTask(taskUid); if (!automation || !automation.enabled) return { skipped: true };
   try {
-    const workspace = await workspaceFor(automation.ownerId);
+    const workspace = await getOrCreateWorkspace(automation.ownerId);
     const prompt = `${automation.executionPrompt}\n\nStructured automation arguments:\n${JSON.stringify(automation.args, null, 2)}\n\nExecution constraints:\n${JSON.stringify((automation.definition as Record<string, unknown>)?.constraints ?? {}, null, 2)}\n\nRun time: ${now.toISOString()}\nWorkspace: ${workspace.name}`;
     const result = await invokeLLM({ messages: [{ role: "system", content: "You are Nova's scheduled automation worker. Follow the compiled automation prompt and arguments. Use only capabilities actually available to this worker. Never invent actions, credentials, external access, or completed work. If the requested work cannot be performed, clearly report the limitation instead of pretending. Return a concise Markdown report." }, { role: "user", content: prompt }] });
     const message = result.choices?.[0]?.message?.content;

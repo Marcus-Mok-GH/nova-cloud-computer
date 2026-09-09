@@ -22,7 +22,14 @@ export function createSecretBox(secret: string) {
   };
 }
 
-export const encryptModelApiKey = (apiKey: string) => createSecretBox(ENV.modelCredentialSecret).encrypt(apiKey);
-export const decryptModelApiKey = (cipherText: string) => createSecretBox(ENV.modelCredentialSecret).decrypt(cipherText);
+let memoizedSecretBox: ReturnType<typeof createSecretBox> | undefined;
+/** Lazily creates and memoizes the secret box derived from the model credential secret. */
+function getSecretBox() {
+  if (!memoizedSecretBox) memoizedSecretBox = createSecretBox(ENV.modelCredentialSecret);
+  return memoizedSecretBox;
+}
+
+export const encryptModelApiKey = (apiKey: string) => getSecretBox().encrypt(apiKey);
+export const decryptModelApiKey = (cipherText: string) => getSecretBox().decrypt(cipherText);
 export const encryptPrivateCredential = encryptModelApiKey;
 export const decryptPrivateCredential = decryptModelApiKey;

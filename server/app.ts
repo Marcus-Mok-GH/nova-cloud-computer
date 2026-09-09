@@ -1,13 +1,12 @@
 import express from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { parse as parseCookie } from "cookie";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
 import { sdk } from "./_core/sdk";
-import { COOKIE_NAME } from "@shared/const";
+import { sessionToken } from "./_core/cookies";
 import { runAutomationForScheduleTask } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
-import { createUserAutomation, deleteUserAutomation, getUserAutomation, listUserAutomations, runUserAutomationForScheduleTask, setUserAutomationScheduleTask, updateUserAutomation, USER_AUTOMATION_CRONS } from "./userAutomations";
+import { getUserAutomation, createUserAutomation, deleteUserAutomation, listUserAutomations, runUserAutomationForScheduleTask, setUserAutomationScheduleTask, updateUserAutomation, USER_AUTOMATION_CRONS } from "./userAutomations";
 import { automationPlannerRouter } from "./automationPlannerRoute";
 import { findWorkspaceOwnerByTelegramToken, getTelegramCredentialsForUser, deleteChatForUser, listChatsForUser, updateTelegramChatForUser, createChatForUser } from "./db";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
@@ -21,7 +20,6 @@ export const app = express(); app.disable("x-powered-by");
 app.use((_req, res, next) => { res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("X-Frame-Options", "DENY"); res.setHeader("Referrer-Policy", "no-referrer"); res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); res.setHeader("Cross-Origin-Opener-Policy", "same-origin"); res.setHeader("Cross-Origin-Resource-Policy", "same-origin"); res.setHeader("Cache-Control", "private, no-store, max-age=0"); if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains"); next(); });
 app.use(express.json({ limit: "1mb" })); app.use(express.urlencoded({ limit: "1mb", extended: true })); app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 app.use(automationPlannerRouter);
-function sessionToken(req: express.Request) { return parseCookie(req.headers.cookie ?? "")[COOKIE_NAME] ?? ""; }
 async function authenticatedUser(req: express.Request, res: express.Response) { const user = await sdk.authenticateRequest(req); if (!user) { res.status(401).json({ error: "Unauthorized" }); return null; } return user; }
 
 app.get("/api/user-automations", async (req, res) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await listUserAutomations(user.id)); } catch (error) { console.error("User automation list failed", error); return res.status(500).json({ error: "Could not load automations." }); } });

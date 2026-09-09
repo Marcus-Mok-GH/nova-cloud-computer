@@ -23,6 +23,7 @@ export function createSecretBox(secret: string) {
 }
 
 let memoizedSecretBox: ReturnType<typeof createSecretBox> | undefined;
+/** Lazily creates and memoizes the secret box derived from the model credential secret. */
 function getSecretBox() {
   if (!memoizedSecretBox) memoizedSecretBox = createSecretBox(ENV.modelCredentialSecret);
   return memoizedSecretBox;

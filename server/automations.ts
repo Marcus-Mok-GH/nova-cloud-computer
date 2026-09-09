@@ -61,6 +61,7 @@ function shortList(values: string[], limit = 6) {
         .join("\n")
     : "- None yet";
 }
+/** Returns the `limit` most recently updated entries, newest first. */
 function recentEntries<T extends { updatedAt: Date }>(list: T[], limit = 6) {
   return [...list]
     .sort(
@@ -69,6 +70,7 @@ function recentEntries<T extends { updatedAt: Date }>(list: T[], limit = 6) {
     )
     .slice(0, limit);
 }
+/** Pluralizes `word` based on `count` (e.g. "1 file", "2 files"). */
 function plural(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }

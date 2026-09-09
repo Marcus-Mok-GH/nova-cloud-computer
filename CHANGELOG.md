@@ -12,6 +12,7 @@
 - `server/automations.ts`: Extracted shared `recentEntries(list, n)` and `plural(count, word)` TS helpers used in `buildWorkspaceBriefing`. The generated Python string template in `buildWorkspaceBriefingVmCode` was intentionally left byte-for-byte unchanged.
 - `client/src/lib/nav.ts` (new), `client/src/pages/More.tsx`, `client/src/components/DashboardLayout.tsx`: Extracted the duplicated 5-item navigation array into a single shared `navItems` module; `description` is an optional field rendered only by `More.tsx`.
 - Verified: `tsc --noEmit` clean, full Vitest suite matches baseline (32 files passed / 2 skipped; 140 tests passed / 3 skipped), `npm run build` succeeds.
+- Added one-line docstrings to the new `sessionToken`, `recentEntries`, `plural`, `getSecretBox`, `persistAssistant` helpers and the `NavItem` type, per CodeRabbit's docstring-coverage nitpick on PR #74. Comment-only; no logic changed.
 
 ## 2026-09-08 — Clean up cron validation regex
 

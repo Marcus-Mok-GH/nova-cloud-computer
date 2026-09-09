@@ -368,6 +368,7 @@ export async function runWorkspaceAgent(
       }
     }
   };
+  /** Appends the assistant's reply to the chat and returns the persisted message. */
   const persistAssistant = async (reply: string) =>
     appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
 

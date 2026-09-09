@@ -49,6 +49,7 @@ export function getSessionCookieOptions(
   };
 }
 
+/** Extracts the Nova session token from the request's cookie header, or "" if absent. */
 export function sessionToken(req: Pick<Request, "headers">) {
   return parseCookie(req.headers.cookie ?? "")[COOKIE_NAME] ?? "";
 }

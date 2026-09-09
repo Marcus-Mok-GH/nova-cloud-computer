@@ -1,5 +1,6 @@
 import { Folder, HardDrive, MessageSquareText, Rocket, Settings2, type LucideIcon } from "lucide-react";
 
+/** A single entry in Nova's primary dashboard navigation. */
 export type NavItem = { icon: LucideIcon; label: string; path: string; description?: string };
 
 export const navItems: NavItem[] = [

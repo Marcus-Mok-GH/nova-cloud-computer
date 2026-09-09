@@ -1,4 +1,6 @@
 import type { CookieOptions, Request } from "express";
+import { parse as parseCookie } from "cookie";
+import { COOKIE_NAME } from "@shared/const";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -45,4 +47,8 @@ export function getSessionCookieOptions(
     sameSite: isSecureRequest(req) ? "none" : "lax",
     secure: isSecureRequest(req),
   };
+}
+
+export function sessionToken(req: Pick<Request, "headers">) {
+  return parseCookie(req.headers.cookie ?? "")[COOKIE_NAME] ?? "";
 }

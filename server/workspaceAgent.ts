@@ -368,6 +368,9 @@ export async function runWorkspaceAgent(
       }
     }
   };
+  const persistAssistant = async (reply: string) =>
+    appendChatMessageForUser(ownerId, { chatId, role: "assistant", content: reply });
+
   const emitDirectActions = async (actions: AgentAction[]) => {
     for (let index = 0; index < actions.length; index += 1) {
       const action = actions[index];
@@ -398,11 +401,7 @@ export async function runWorkspaceAgent(
   if (direct.actions.length > 0 || direct.reply.trim()) {
     await emitDirectActions(direct.actions);
     await options.onChunk?.(direct.reply);
-    const message = await appendChatMessageForUser(ownerId, {
-      chatId,
-      role: "assistant",
-      content: direct.reply,
-    });
+    const message = await persistAssistant(direct.reply);
     return { message, actions: direct.actions };
   }
 
@@ -417,11 +416,7 @@ export async function runWorkspaceAgent(
       result.text || "I’m ready to help with this workspace."
     ).trim();
     await options.onChunk?.(reply);
-    const message = await appendChatMessageForUser(ownerId, {
-      chatId,
-      role: "assistant",
-      content: reply,
-    });
+    const message = await persistAssistant(reply);
     return { message, actions: [] };
   } catch (error) {
     console.error("[Chat] NVIDIA chat failed", error);
@@ -429,10 +424,6 @@ export async function runWorkspaceAgent(
 
   const reply = NVIDIA_UNAVAILABLE_MESSAGE;
   await options.onChunk?.(reply);
-  const message = await appendChatMessageForUser(ownerId, {
-    chatId,
-    role: "assistant",
-    content: reply,
-  });
+  const message = await persistAssistant(reply);
   return { message, actions: [] };
 }

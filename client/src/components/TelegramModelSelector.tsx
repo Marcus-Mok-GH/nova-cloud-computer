@@ -1,6 +1,5 @@
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import React from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 

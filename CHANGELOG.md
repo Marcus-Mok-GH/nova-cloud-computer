@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-09 — Behavior-preserving cleanup pass
+
+- `server/automations.ts`: Removed the unused `runAutomationForUser` export and its sole consumer import `getAutomationRecordForUser`.
+- `server/userAutomations.ts`: Inlined the `workspaceFor` wrapper into direct `getOrCreateWorkspace` calls at all call sites and removed the wrapper.
+- `server/modelSecrets.ts`: `encryptModelApiKey`/`decryptModelApiKey` now derive the AES-256-GCM secret box once (lazily memoized at module scope) instead of re-creating it on every call. Encrypt/decrypt output unchanged.
+- `client/src/components/DashboardLayoutSkeleton.tsx`, `client/src/components/TelegramModelSelector.tsx`, `client/src/pages/Chats.tsx`, `client/src/pages/More.tsx`, `client/src/pages/NotFound.tsx`: Removed unused default `React` imports (automatic JSX runtime). `Home`, `SignIn`, `WorkspaceSettings`, `NovaMark`, and `UserAutomationsCard` kept their imports because the Vitest render harness still uses the classic JSX transform.
+- `server/automations.ts`: Dropped the now-internal-only `export` from the `WorkspaceBriefingInput` type.
+- `server/_core/cookies.ts`, `server/app.ts`, `server/routers.ts`: Extracted the duplicated cookie/session-token parsing into a shared `sessionToken` helper in `server/_core/cookies.ts`, used by both the tRPC automations.update procedure and the Express user-automations handlers. Same cookie name and `""` fallback.
+- `server/workspaceAgent.ts`: Extracted a local `persistAssistant(reply)` helper used by the three `role: "assistant"` `appendChatMessageForUser` call sites.
+- `server/automations.ts`: Extracted shared `recentEntries(list, n)` and `plural(count, word)` TS helpers used in `buildWorkspaceBriefing`. The generated Python string template in `buildWorkspaceBriefingVmCode` was intentionally left byte-for-byte unchanged.
+- `client/src/lib/nav.ts` (new), `client/src/pages/More.tsx`, `client/src/components/DashboardLayout.tsx`: Extracted the duplicated 5-item navigation array into a single shared `navItems` module; `description` is an optional field rendered only by `More.tsx`.
+- Verified: `tsc --noEmit` clean, full Vitest suite matches baseline (32 files passed / 2 skipped; 140 tests passed / 3 skipped), `npm run build` succeeds.
+
 ## 2026-09-08 — Clean up cron validation regex
 
 - `server/automationPlanner.ts`: Removed the redundant backslash before `/` in the `validCron` character class and added a docstring describing the function. No behavior change.

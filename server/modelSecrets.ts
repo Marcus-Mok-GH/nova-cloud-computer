@@ -22,7 +22,13 @@ export function createSecretBox(secret: string) {
   };
 }
 
-export const encryptModelApiKey = (apiKey: string) => createSecretBox(ENV.modelCredentialSecret).encrypt(apiKey);
-export const decryptModelApiKey = (cipherText: string) => createSecretBox(ENV.modelCredentialSecret).decrypt(cipherText);
+let memoizedSecretBox: ReturnType<typeof createSecretBox> | undefined;
+function getSecretBox() {
+  if (!memoizedSecretBox) memoizedSecretBox = createSecretBox(ENV.modelCredentialSecret);
+  return memoizedSecretBox;
+}
+
+export const encryptModelApiKey = (apiKey: string) => getSecretBox().encrypt(apiKey);
+export const decryptModelApiKey = (cipherText: string) => getSecretBox().decrypt(cipherText);
 export const encryptPrivateCredential = encryptModelApiKey;
 export const decryptPrivateCredential = decryptModelApiKey;

@@ -1,15 +1,7 @@
-import React from "react";
-import { Folder, HardDrive, MessageSquareText, Rocket, Settings2, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
-
-const nav = [
-  { icon: HardDrive, label: "Home", path: "/app", description: "Your Nova workspace and computer" },
-  { icon: Folder, label: "Files", path: "/app/files", description: "Browse and manage your files" },
-  { icon: MessageSquareText, label: "Chats", path: "/app/chats", description: "Continue conversations with Nova" },
-  { icon: Rocket, label: "Deployments", path: "/app/deployments", description: "Manage your deployed apps and services" },
-  { icon: Settings2, label: "Settings", path: "/app/settings", description: "Configure your workspace" },
-];
+import { navItems } from "@/lib/nav";
 
 export default function More() {
   const [, setLocation] = useLocation();
@@ -28,7 +20,7 @@ export default function More() {
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {nav.map(item => (
+          {navItems.map(item => (
             <button
               key={item.path}
               onClick={() => setLocation(item.path)}

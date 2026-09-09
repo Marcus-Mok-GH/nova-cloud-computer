@@ -2,7 +2,6 @@ import {
   claimAutomationRun,
   createWorkspaceFileForUser,
   getAutomationForScheduleTask,
-  getAutomationRecordForUser,
   getOrCreateWorkspace,
   getWorkspaceComputer,
   listAutomationRecordsForUser,
@@ -17,7 +16,7 @@ const ERROR_LIMIT = 1000;
 /** Daily at 09:00 UTC. Heartbeat cron expressions include a seconds field. */
 export const WORKSPACE_DIGEST_CRON = "0 0 9 * * *";
 
-export type WorkspaceBriefingInput = {
+type WorkspaceBriefingInput = {
   workspace: { name: string };
   folders: Array<{ name: string }>;
   files: Array<{ name: string; mimeType: string; updatedAt: Date }>;
@@ -62,6 +61,17 @@ function shortList(values: string[], limit = 6) {
         .join("\n")
     : "- None yet";
 }
+function recentEntries<T extends { updatedAt: Date }>(list: T[], limit = 6) {
+  return [...list]
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    )
+    .slice(0, limit);
+}
+function plural(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
 export function getAutomationRunKey(kind: "workspace_digest", now: Date) {
   return `${kind}:${utcDateKey(now)}`;
 }
@@ -70,18 +80,10 @@ export function buildWorkspaceBriefing(
   input: WorkspaceBriefingInput,
   now: Date
 ) {
-  const recentFiles = [...input.files]
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
-    .map(file => `${file.name} (${file.mimeType})`);
-  const recentChats = [...input.chats]
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
-    .map(chat => chat.title);
+  const recentFiles = recentEntries(input.files).map(
+    file => `${file.name} (${file.mimeType})`
+  );
+  const recentChats = recentEntries(input.chats).map(chat => chat.title);
   const rules = input.settings.workspaceRules?.trim();
   return [
     "# Daily workspace briefing",
@@ -90,9 +92,9 @@ export function buildWorkspaceBriefing(
     "",
     "## Snapshot",
     "",
-    `- ${input.folders.length} folder${input.folders.length === 1 ? "" : "s"}`,
-    `- ${input.files.length} file${input.files.length === 1 ? "" : "s"}`,
-    `- ${input.chats.length} saved conversation${input.chats.length === 1 ? "" : "s"}`,
+    `- ${plural(input.folders.length, "folder")}`,
+    `- ${plural(input.files.length, "file")}`,
+    `- ${plural(input.chats.length, "saved conversation")}`,
     "",
     "## Recently updated files",
     "",
@@ -345,16 +347,6 @@ export async function runDueAutomationsForUser(
     outcome.skipped += current.skipped;
   }
   return outcome;
-}
-
-export async function runAutomationForUser(
-  ownerId: number,
-  automationId: number,
-  now = new Date()
-) {
-  const automation = await getAutomationRecordForUser(ownerId, automationId);
-  if (!automation) return undefined;
-  return runAutomationForOwner(ownerId, automation, now);
 }
 
 export async function runAutomationForScheduleTask(

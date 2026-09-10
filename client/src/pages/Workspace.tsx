@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Folder, HardDrive, MessageSquareText, Wrench, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowUp, BarChart3, Bot, CheckCircle2, CircleDashed, Clock3, Cloud, Database, FileText, Folder, HardDrive, MessageSquareText, Rocket, Server, TrendingUp, Wrench, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
@@ -25,6 +25,9 @@ export default function Workspace() {
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
+  const dashboard = trpc.workspace.dashboard.useQuery(undefined, { retry: false });
+  const agentRuns = trpc.agentVm.list.useQuery(undefined, { retry: false });
+  const automations = trpc.automations.list.useQuery(undefined, { retry: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
 
@@ -159,9 +162,94 @@ export default function Workspace() {
     );
   }
 
-  const folders = computer.data?.folders ?? []; const files = computer.data?.files ?? []; const vm = agentVmStatus.data; const isLoading = computer.isLoading;
-  return <DashboardLayout><div className="mx-auto max-w-6xl p-4 sm:p-5 md:p-6"><header className="mb-6 sm:mb-8"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">Your private computer</p><h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Home</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A quick view of your workspace and the services you have used.</p></header><section aria-label="Workspace statistics"><div className="mb-3 flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-[oklch(0.60_0.02_250/0.10)] text-[oklch(0.72_0.015_250)]"><HardDrive className="size-3.5" /></span><h2 className="text-sm font-bold tracking-tight text-neutral-900 dark:text-white">Workspace</h2></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Metric value={isLoading ? "—" : folders.length} label="folders" icon={Folder} /><Metric value={isLoading ? "—" : files.length} label="files" icon={FileText} /><Metric value={isLoading ? "—" : `${vm?.allowance.usedRuns ?? 0}/${vm?.allowance.maxRuns ?? 0}`} label="VM runs used" icon={HardDrive} /></div></section></div></DashboardLayout>;
+  const folders = computer.data?.folders ?? [];
+  const files = computer.data?.files ?? [];
+  const chats = computer.data?.chats ?? [];
+  const vm = agentVmStatus.data;
+  const projects = dashboard.data?.projects ?? [];
+  const tasks = dashboard.data?.tasks ?? [];
+  const runs = agentRuns.data ?? [];
+  const automationRows = automations.data ?? [];
+  const isLoading = computer.isLoading || dashboard.isLoading;
+  const completedTasks = tasks.filter(task => task.status === "done").length;
+  const completedRuns = runs.filter(run => run.status === "completed").length;
+  const failedRuns = runs.filter(run => run.status === "failed").length;
+  const totalTrackedWork = tasks.length + runs.length;
+  const completionRate = totalTrackedWork ? Math.round(((completedTasks + completedRuns) / totalTrackedWork) * 100) : 0;
+  const activeAutomations = automationRows.filter(automation => automation.enabled).length;
+  const recentActivity = [
+    ...runs.map(run => ({ icon: Bot, title: run.task, detail: "Agent VM · " + run.status, time: run.createdAt, tone: "bg-blue-500/10 text-blue-700 dark:text-blue-400" })),
+    ...chats.map(chat => ({ icon: MessageSquareText, title: chat.title, detail: "Conversation updated", time: chat.updatedAt, tone: "bg-violet-500/10 text-violet-700 dark:text-violet-400" })),
+    ...projects.map(project => ({ icon: Folder, title: project.name, detail: "Project created", time: project.createdAt, tone: "bg-amber-500/10 text-amber-700 dark:text-amber-400" })),
+  ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 6);
+  const dailyActivity = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - index));
+    const nextDay = new Date(day);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const count = [...chats, ...runs, ...tasks].filter(item => {
+      const createdAt = new Date(item.createdAt).getTime();
+      return createdAt >= day.getTime() && createdAt < nextDay.getTime();
+    }).length;
+    return { label: day.toLocaleDateString(undefined, { weekday: "short" }), count };
+  });
+  const maxDailyActivity = Math.max(...dailyActivity.map(day => day.count), 1);
+  const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+  const sandboxStatus = vm?.sandbox.status ?? "unavailable";
+  const isWorkspaceReady = sandboxStatus === "active" || sandboxStatus === "sleeping";
+  return (
+    <DashboardLayout>
+      <div className="mx-auto max-w-7xl p-4 sm:p-5 md:p-6">
+        <header className="mb-7 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[oklch(0.72_0.015_250)]">Workspace intelligence</p>
+            <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">Analytics</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500 dark:text-neutral-400">A live view of your Nova computer, agent work, conversations, and workspace health.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setLocation("/app/chats")} className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3.5 py-2.5 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-neutral-300 hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-white/10"><MessageSquareText className="size-3.5" />Open conversations</button>
+            <button type="button" onClick={() => setLocation("/app/files")} className="inline-flex items-center gap-2 rounded-xl bg-[oklch(0.60_0.02_250)] px-3.5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[oklch(0.54_0.025_250)]"><Folder className="size-3.5" />Browse workspace</button>
+          </div>
+        </header>
+
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace analytics summary">
+          <AnalyticsMetric label="Conversations" value={isLoading ? "—" : chats.length} note="saved in this computer" icon={MessageSquareText} tone="violet" />
+          <AnalyticsMetric label="Tracked work" value={isLoading ? "—" : totalTrackedWork} note={completionRate + "% completed"} icon={TrendingUp} tone="blue" />
+          <AnalyticsMetric label="Workspace assets" value={isLoading ? "—" : files.length + folders.length} note={files.length + " files · " + folders.length + " folders"} icon={Database} tone="amber" />
+          <AnalyticsMetric label="Agent VM runs" value={isLoading ? "—" : runs.length} note={failedRuns ? failedRuns + " need attention" : "no failed runs"} icon={Bot} tone={failedRuns ? "red" : "emerald"} />
+        </section>
+
+        <section className="mt-5 grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
+          <article className="rounded-2xl border border-neutral-200/80 bg-white p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400"><BarChart3 className="size-4" /></span><h2 className="text-sm font-bold">Activity overview</h2></div><p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Workspace events over the last seven days</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500 dark:bg-white/10 dark:text-neutral-300">Live data</span></div>
+            <div className="mt-7 flex h-44 items-end gap-2 sm:gap-4">{dailyActivity.map(day => <div key={day.label} className="flex min-w-0 flex-1 flex-col items-center gap-2"><span className="text-[10px] font-bold text-neutral-400">{day.count}</span><div className="flex h-32 w-full items-end rounded-lg bg-neutral-100 px-1.5 dark:bg-white/5"><div className="w-full rounded-md bg-[oklch(0.60_0.02_250)] transition-all" style={{ height: (day.count / maxDailyActivity) * 100 + "%", minHeight: day.count ? "8px" : "2px" }} /></div><span className="text-[10px] font-semibold text-neutral-400">{day.label}</span></div>)}</div>
+          </article>
+          <article className="rounded-2xl border border-neutral-200/80 bg-white p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><Activity className="size-4" /></span><h2 className="text-sm font-bold">System health</h2></div>
+            <div className="mt-5 space-y-4"><HealthRow icon={Cloud} label="Persistent workspace" value={isWorkspaceReady ? sandboxStatus : "Unavailable"} good={isWorkspaceReady} /><HealthRow icon={Server} label="Agent provider" value={vm?.provider ?? "—"} good={Boolean(vm?.configured)} /><HealthRow icon={Rocket} label="Automations" value={activeAutomations + " active"} good={activeAutomations > 0 || automationRows.length === 0} /><HealthRow icon={HardDrive} label="Current model" value={dashboard.data?.settings?.activeModelId ?? "Default"} good /></div>
+            <button type="button" onClick={() => setLocation("/app/deployments")} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 py-2.5 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/10">View deployment status <Rocket className="size-3.5" /></button>
+          </article>
+        </section>
+
+        <section className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+          <article className="overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-[0_12px_30px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-start justify-between gap-4 p-5 sm:p-6"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400"><Clock3 className="size-4" /></span><h2 className="text-sm font-bold">Recent activity</h2></div><p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">The latest changes across your private computer</p></div><button type="button" onClick={() => setLocation("/app/chats")} className="text-xs font-bold text-[oklch(0.60_0.02_250)] hover:underline">View chats</button></div>
+            <div className="divide-y divide-neutral-100 border-t border-neutral-100 dark:divide-white/10 dark:border-white/10">{recentActivity.length ? recentActivity.map((item, index) => { const Icon = item.icon; return <div key={item.title + index} className="flex items-center gap-3 px-5 py-3.5 sm:px-6"><span className={"grid size-8 shrink-0 place-items-center rounded-lg " + item.tone}><Icon className="size-3.5" /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-neutral-800 dark:text-neutral-100">{item.title}</p><p className="mt-0.5 text-[11px] text-neutral-400">{item.detail}</p></div><span className="shrink-0 text-[10px] font-semibold text-neutral-400">{formatDate(item.time)}</span></div>; }) : <div className="px-5 py-10 text-center text-xs text-neutral-400 sm:px-6">Your workspace activity will appear here.</div>}</div>
+          </article>
+          <article className="rounded-2xl border border-neutral-200/80 bg-white p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-neutral-900">
+            <div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400"><Bot className="size-4" /></span><h2 className="text-sm font-bold">Agent performance</h2></div><p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Execution outcomes from your VM</p></div><span className="text-2xl font-extrabold tracking-tight text-neutral-950 dark:text-white">{completedRuns}</span></div>
+            <div className="mt-6 space-y-4"><ProgressRow label="Completed runs" value={completedRuns} total={Math.max(runs.length, 1)} tone="bg-emerald-500" /><ProgressRow label="Failed runs" value={failedRuns} total={Math.max(runs.length, 1)} tone="bg-red-500" /><ProgressRow label="Active automations" value={activeAutomations} total={Math.max(automationRows.length, 1)} tone="bg-amber-500" /><ProgressRow label="Completed tasks" value={completedTasks} total={Math.max(tasks.length, 1)} tone="bg-blue-500" /></div>
+            <div className="mt-6 grid grid-cols-2 gap-2"><MiniStat label="Projects" value={projects.length} /><MiniStat label="Tasks" value={tasks.length} /><MiniStat label="Files" value={files.length} /><MiniStat label="Folders" value={folders.length} /></div>
+          </article>
+        </section>
+
+        <section className="mt-5 rounded-2xl bg-neutral-950 p-5 text-white sm:p-7 dark:bg-white/[0.08]"><div className="flex flex-col justify-between gap-5 md:flex-row md:items-center"><div><div className="flex items-center gap-2 text-blue-300"><TrendingUp className="size-4" /><span className="text-[11px] font-bold uppercase tracking-[0.14em]">Keep building</span></div><h2 className="mt-2 text-xl font-extrabold tracking-tight">Your computer is ready for the next task.</h2><p className="mt-2 max-w-xl text-sm leading-6 text-neutral-300">Start a conversation with Nova or inspect the files and automations behind your workspace.</p></div><button type="button" onClick={() => setLocation("/app/chats")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-xs font-bold text-neutral-950 transition hover:bg-blue-50">Start a conversation <ArrowUp className="size-3.5" /></button></div></section>
+      </div>
+    </DashboardLayout>
+  );
 }
+
 
 export function TypingIndicator() {
   return (
@@ -176,5 +264,24 @@ function ToolActivityPanel({ activities }: { activities: ToolActivity[] }) {
 }
 
 function WorkspaceError({ onRetry }: { onRetry: () => void }) { return <DashboardLayout><div className="grid min-h-[65vh] place-items-center px-4 text-center"><div><NovaMark size={40} className="mx-auto" /><h1 className="mt-4 text-2xl font-extrabold tracking-tight">Nova could not open your computer.</h1><p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">Your workspace remains private. Try reconnecting to your computer.</p><Button className="mt-5 rounded-full bg-[oklch(0.60_0.02_250)] hover:bg-[oklch(0.54_0.025_250)]" onClick={onRetry}>Try again</Button></div></div></DashboardLayout>; }
+
+
+function AnalyticsMetric({ label, value, note, icon: Icon, tone }: { label: string; value: React.ReactNode; note: string; icon: React.ComponentType<{ className?: string }>; tone: "violet" | "blue" | "amber" | "emerald" | "red" }) {
+  const tones = { violet: "bg-violet-500/10 text-violet-600 dark:text-violet-400", blue: "bg-blue-500/10 text-blue-600 dark:text-blue-400", amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400", emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", red: "bg-red-500/10 text-red-600 dark:text-red-400" };
+  return <article className="rounded-2xl border border-neutral-200/80 bg-white p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-neutral-900"><div className={"grid size-9 place-items-center rounded-xl " + tones[tone]}><Icon className="size-4" /></div><p className="mt-5 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</p><p className="mt-1 text-3xl font-extrabold tracking-tight text-neutral-950 dark:text-white">{value}</p><p className="mt-1 text-xs text-neutral-400">{note}</p></article>;
+}
+
+function HealthRow({ icon: Icon, label, value, good }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; good: boolean }) {
+  return <div className="flex items-center gap-3"><span className={"grid size-8 place-items-center rounded-lg " + (good ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400")}><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-bold text-neutral-700 dark:text-neutral-200">{label}</span><span className="block truncate text-[11px] text-neutral-400">{value}</span></span><span className={"size-2 rounded-full " + (good ? "bg-emerald-500" : "bg-amber-500")} /></div>;
+}
+
+function ProgressRow({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
+  const percentage = Math.min(Math.round((value / Math.max(total, 1)) * 100), 100);
+  return <div><div className="mb-1.5 flex items-center justify-between text-xs"><span className="font-semibold text-neutral-600 dark:text-neutral-300">{label}</span><span className="font-bold text-neutral-400">{value}</span></div><div className="h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-white/10"><div className={"h-full rounded-full " + tone} style={{ width: percentage + "%" }} /></div></div>;
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-xl bg-neutral-50 p-3 dark:bg-white/5"><p className="text-lg font-extrabold text-neutral-900 dark:text-white">{value}</p><p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</p></div>;
+}
 
 function Metric({ value, label, icon: Icon }: { value: React.ReactNode; label: string; icon: React.ComponentType<{ className?: string }> }) { return <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-5 dark:border-white/10 dark:bg-neutral-900"><Icon className="size-4 text-[oklch(0.72_0.015_250)]" /><p className="mt-6 text-3xl font-extrabold tracking-tight text-neutral-950 sm:mt-7 dark:text-white">{value}</p><p className="mt-1 text-xs text-neutral-400">{label}</p></div>; }

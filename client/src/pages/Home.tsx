@@ -6,25 +6,19 @@ import {
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   Cpu,
-  Database,
   FileText,
-  Folder,
   Menu,
   MessageSquareText,
   Moon,
   MoreHorizontal,
-  Network,
   Rocket,
-  Search,
   Server,
   ShieldCheck,
   Sparkles,
   Sun,
   TerminalSquare,
-  TrendingUp,
   X,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -50,10 +44,10 @@ const metrics: Metric[] = [
 ];
 
 const activity = [
-  { icon: TerminalSquare, title: "Agent VM completed a task", detail: "Generated a deployment summary", time: "2 min ago", tone: "bg-emerald-500" },
-  { icon: FileText, title: "12 files synchronized", detail: "Workspace /projects/nova", time: "18 min ago", tone: "bg-blue-500" },
-  { icon: MessageSquareText, title: "New conversation started", detail: "Product analytics review", time: "42 min ago", tone: "bg-violet-500" },
-  { icon: Rocket, title: "Deployment health check passed", detail: "Production · 184ms response", time: "1 hr ago", tone: "bg-amber-500" },
+  { icon: TerminalSquare, title: "Agent VM completed a task", detail: "Generated a deployment summary", time: "2 min ago", tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" },
+  { icon: FileText, title: "12 files synchronized", detail: "Workspace /projects/nova", time: "18 min ago", tone: "bg-blue-500/10 text-blue-700 dark:text-blue-400" },
+  { icon: MessageSquareText, title: "New conversation started", detail: "Product analytics review", time: "42 min ago", tone: "bg-violet-500/10 text-violet-700 dark:text-violet-400" },
+  { icon: Rocket, title: "Deployment health check passed", detail: "Production · 184ms response", time: "1 hr ago", tone: "bg-amber-500/10 text-amber-700 dark:text-amber-400" },
 ];
 
 const agentRows = [
@@ -202,7 +196,7 @@ function Home() {
         <section id="activity" className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.35fr)]">
           <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(15,23,42,0.04)] sm:p-6 dark:border-white/8 dark:bg-white/[0.045] dark:shadow-none">
             <div className="flex items-start justify-between"><div><h2 className="text-sm font-bold">Recent activity</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">The latest events across your workspace</p></div><button type="button" onClick={() => setLocation(isAuthenticated ? "/app" : "/sign-in")} className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400">View all</button></div>
-            <div className="mt-5 divide-y divide-slate-100 dark:divide-white/8">{activity.map(item => { const Icon = item.icon; return <div key={item.title} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"><span className={"mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg " + item.tone + "/10 text-slate-600 dark:text-slate-300"><Icon className="size-3.5" /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{item.title}</p><p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{item.detail}</p></div><span className="shrink-0 text-[10px] font-semibold text-slate-400">{item.time}</span></div>; })}</div>
+            <div className="mt-5 divide-y divide-slate-100 dark:divide-white/8">{activity.map(item => { const Icon = item.icon; return <div key={item.title} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"><span className={"mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg " + item.tone"><Icon className="size-3.5" /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{item.title}</p><p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">{item.detail}</p></div><span className="shrink-0 text-[10px] font-semibold text-slate-400">{item.time}</span></div>; })}</div>
           </article>
 
           <article id="agents" className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(15,23,42,0.04)] dark:border-white/8 dark:bg-white/[0.045] dark:shadow-none">

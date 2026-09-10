@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
@@ -20,11 +20,12 @@ import {
   Sun,
   TerminalSquare,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import NovaMark from "@/components/NovaMark";
 
-type Icon = ComponentType<{ className?: string }>;
+type Icon = LucideIcon;
 
 type Metric = {
   label: string;

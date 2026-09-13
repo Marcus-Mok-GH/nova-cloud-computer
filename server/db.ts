@@ -159,6 +159,11 @@ export async function getOrCreateWorkspace(ownerId: number) {
   }
   if (!workspace) throw new Error("Nova could not create a workspace.");
 
+  // The durable sandbox is already recorded: return the fresh row without
+  // reconnecting or re-provisioning. VM/automation flows that need a live
+  // sandbox connect explicitly via ensurePersistentSandbox/initWorkspacePersistentVm.
+  if (workspace.persistentSandboxId) return workspace;
+
   try {
     return await ensureWorkspacePersistentVm(workspace, ownerId);
   } catch {

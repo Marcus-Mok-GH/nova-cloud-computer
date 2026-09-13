@@ -8,7 +8,7 @@ vi.mock("./db", () => ({
   claimNvidiaInferenceRequestForUser: claim,
 }));
 
-const { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } = await import("./nvidiaGateway");
+const { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, resetNvidiaGatewayHealthCache, NvidiaGatewayClientError } = await import("./nvidiaGateway");
 
 describe("NVIDIA gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -20,6 +20,7 @@ describe("NVIDIA gateway client", () => {
     process.env.NOVA_NVIDIA_GATEWAY_TOKEN = "t".repeat(32);
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
     claim.mockResolvedValue({ usedRequests: 1 });
+    resetNvidiaGatewayHealthCache();
     vi.clearAllMocks();
   });
 
@@ -56,6 +57,48 @@ describe("NVIDIA gateway client", () => {
       providerConfigured: false,
       providerConfigurationKnown: false,
     });
+  });
+  it("probes gateway health once and reuses the cached status within the TTL", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }));
+
+    await getNvidiaGatewayStatus(7);
+    await getNvidiaGatewayStatus(7);
+    await getNvidiaGatewayStatus(7);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api-server-zeta.vercel.app/api/nvidia/health", expect.anything());
+  });
+  it("streams SSE deltas through onChunk and accumulates the full reply", async () => {
+    const sseBody = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}',
+      "",
+      'data: {"choices":[{"delta":{"content":" from"}}]}',
+      "",
+      'data: {"choices":[{"delta":{"content":" NVIDIA"}}]}',
+      "",
+      "data: [DONE]",
+      "",
+      "",
+    ].join("\n");
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(sseBody, { status: 200, headers: { "content-type": "text/event-stream" } }));
+
+    const chunks: string[] = [];
+    const result = await completeWithNvidiaGateway(7, "Summarize the release notes", undefined, chunk => chunks.push(chunk));
+    expect(chunks).toEqual(["Hello", " from", " NVIDIA"]);
+    expect(result).toMatchObject({ text: "Hello from NVIDIA", usage: null, allowance: { usedRequests: 1 } });
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/api/nvidia/chat", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Summarize the release notes", stream: true }) }));
+  });
+  it("falls back to the buffered JSON completion and emits it once when the gateway does not stream", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "Buffered reply", model: "nvidia/nemotron-3-nano-30b-a3b" }), { status: 200 }));
+
+    const chunks: string[] = [];
+    const result = await completeWithNvidiaGateway(7, "Draft a summary", undefined, chunk => chunks.push(chunk));
+    expect(chunks).toEqual(["Buffered reply"]);
+    expect(result).toMatchObject({ text: "Buffered reply" });
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/api/nvidia/chat", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Draft a summary", stream: true }) }));
   });
   it("discovers only text and vision-language models from NVIDIA", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [

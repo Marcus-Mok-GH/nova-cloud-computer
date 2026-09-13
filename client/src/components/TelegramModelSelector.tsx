@@ -42,7 +42,7 @@ export default function TelegramModelSelector() {
             value={selected}
             onChange={event => update.mutate({ provider: "nvidia-nim", modelId: event.target.value })}
             disabled={!options.length || update.isPending}
-            className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.015_250)]/30"
+            className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           >
             {!selected && <option value="">Select a model</option>}
             {options.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}

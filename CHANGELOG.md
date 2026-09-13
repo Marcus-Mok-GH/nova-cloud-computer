@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-13 — Better NVIDIA unavailable messages
+
+- `server/workspaceAgent.ts`: when NVIDIA inference fails, the agent now checks gateway status before attempting completion and surfaces a specific message for each failure mode (not configured, unreachable, allowance exhausted) instead of the generic "isn't available" string. The catch block also inspects `NvidiaGatewayClientError.kind` and returns a targeted reply for configuration, rate-limit, and invalid-response errors.
+- `server/workspaceAgent.test.ts`: added tests for the four new pre-check paths (unconfigured, unreachable, allowance exhausted, and each error kind from the catch block).
+
 ## 2026-09-13 — Stream chat responses end-to-end
 
 - `server/nvidiaGateway.ts`: `completeWithNvidiaGateway` now accepts an `onChunk` callback and requests `stream: true` from the gateway, consuming the SSE `data:` events incrementally so the first token of a reply reaches the client long before the model finishes. If the gateway is not yet deployed with streaming it falls back to the buffered JSON body, emitted as a single chunk, so the wire format stays compatible. The non-stream path and its returned `{ text, model, usage, allowance }` shape are unchanged; `usage` may be `null` in stream mode.

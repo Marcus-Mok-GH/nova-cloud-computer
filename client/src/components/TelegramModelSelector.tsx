@@ -31,7 +31,7 @@ export default function TelegramModelSelector() {
         </Button>
       </div>
       <div className="mt-6 rounded-2xl border bg-muted/20 p-4">
-        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-[oklch(0.72_0.015_250)]" /> Available NVIDIA models</div>
+        <div className="flex items-center gap-2 text-sm font-bold"><Sparkles className="size-4 text-primary" /> Available NVIDIA models</div>
         {settings.isLoading ? (
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading models...</div>
         ) : settings.isError ? (

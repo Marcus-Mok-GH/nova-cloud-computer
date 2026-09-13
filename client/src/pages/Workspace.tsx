@@ -58,7 +58,7 @@ export default function Workspace() {
     void (async () => { try { const jwt = await exchangeNeonVerifierAndGetJwt(neonAuth); if (jwt) { params.delete("verifier"); window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`); setLocation("/app"); } } catch (err) { console.warn("[Workspace] Failed to exchange Neon verifier", err instanceof Error ? err.message : err); } })();
   }, []);
 
-  const refreshMessages = async (): Promise<boolean> => { try { await savedMessages.refetch(); return true; } catch { return false; } };
+  const refreshMessages = async (): Promise<boolean> => { try { await savedMessages.refetch(); return !result.isError; } catch { return false; } };
   const finalizeStream = async (): Promise<boolean> => {
     const refreshed = await refreshMessages();
     setIsStreaming(false);

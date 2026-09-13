@@ -463,8 +463,8 @@ export async function runWorkspaceAgent(
             ownerId,
             `${context}\n\n${content}`,
             undefined,
-            (chunk) => {
-                void options.onChunk?.(chunk);
+            async (chunk) => {
+                await options.onChunk?.(chunk);
             },
         );
         const reply = String(

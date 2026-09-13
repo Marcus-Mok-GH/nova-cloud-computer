@@ -270,9 +270,9 @@ async function readGatewayStreamedCompletion(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") return { text };
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") { await reader.cancel().catch(() => {}); return { text }; }
         try {
           const event = JSON.parse(data) as {
             choices?: Array<{ delta?: { content?: string } }>;
@@ -287,7 +287,7 @@ async function readGatewayStreamedCompletion(
         }
       }
     }
-    if (text.trim()) return { text };
+    throw new Error("AI inference stream failed: incomplete response.");
   }
   // Gateway not streaming yet: read the buffered JSON body and emit it once.
   const payload = await response.json().catch(() => undefined) as GatewayCompletion | { error?: { message?: string } } | undefined;

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileText,
   FolderOpen,
+  LayoutGrid,
   MessageSquareText,
   Moon,
   Rocket,
@@ -102,7 +103,7 @@ function Home() {
               <div className="grid min-h-[390px] grid-cols-[132px_1fr]">
                 <aside className="border-r border-[#e7e4dc] bg-[#f3f1eb] p-3 dark:border-white/10 dark:bg-[#1b211f]">
                   <p className="px-2 pb-3 text-[9px] font-bold uppercase tracking-[0.14em] text-[#9a9c94]">Your space</p>
-                  <div className="space-y-1 text-[11px] font-medium text-[#626660] dark:text-[#b3b8b0]"><div className="flex items-center gap-2 rounded-lg bg-white px-2 py-2 text-[#374447] shadow-sm dark:bg-white/10 dark:text-white"><FolderOpen className="size-3.5" />Files</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><MessageSquareText className="size-3.5" />Chats</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><Timer className="size-3.5" />Routines</div></div>
+                  <div className="space-y-1 text-[11px] font-medium text-[#626660] dark:text-[#b3b8b0]"><div className="flex items-center gap-2 rounded-lg bg-white px-2 py-2 text-[#374447] shadow-sm dark:bg-white/10 dark:text-white"><LayoutGrid className="size-3.5" />Overview</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><FolderOpen className="size-3.5" />Files</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><MessageSquareText className="size-3.5" />Chats</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><Timer className="size-3.5" />Routines</div></div>
                   <div className="mt-10 border-t border-[#dedbd2] pt-3 dark:border-white/10"><p className="px-2 text-[9px] font-bold uppercase tracking-[0.14em] text-[#9a9c94]">Recent</p><p className="mt-3 truncate px-2 text-[11px] text-[#777a73]">project-notes.md</p><p className="mt-2 truncate px-2 text-[11px] text-[#777a73]">weekly-plan.txt</p></div>
                 </aside>
                 <div className="p-5 sm:p-7">

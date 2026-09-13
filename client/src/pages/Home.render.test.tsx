@@ -12,12 +12,12 @@ vi.mock("@/lib/authCallbackUrl", () => ({ getMagicLinkCallbackUrl: () => "http:/
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()], Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 
 describe("landing and sign-in render", () => {
-  it("renders the Zo-style landing page", () => {
+  it("renders the calmer landing page", () => {
     const markup = renderToStaticMarkup(<Home />);
-    expect(markup).toContain("A computer that works for you");
-    expect(markup).toContain("Sign up");
-    expect(markup).toContain("No credit card required");
-    expect(markup).toContain("Everything your cloud computer can do.");
+    expect(markup).toContain("Your work, in one calm place.");
+    expect(markup).toContain("Create your workspace");
+    expect(markup).toContain("A place that remembers");
+    expect(markup).toContain("A little less juggling. A lot more follow-through.");
   });
 
   it("renders the Zo-style sign-in page", () => {

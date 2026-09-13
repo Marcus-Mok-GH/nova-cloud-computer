@@ -638,8 +638,8 @@ export async function getNvidiaInferenceAllowanceForUser(ownerId: number) {
 }
 
 /** Atomically claim one workspace request only when its configured allowance remains available. */
-export async function claimNvidiaInferenceRequestForUser(ownerId: number, maxRequests: number) {
-  if (!Number.isInteger(maxRequests) || maxRequests < 1) return undefined;
+export async function claimNvidiaInferenceRequestForUser(ownerId: number, maxRequests: number | null) {
+  if (maxRequests !== null && (!Number.isInteger(maxRequests) || maxRequests < 1)) return undefined;
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const result = await db.execute(sql`
@@ -648,7 +648,7 @@ export async function claimNvidiaInferenceRequestForUser(ownerId: number, maxReq
     ON CONFLICT ("workspaceId") DO UPDATE
     SET "usedRequests" = "nvidia_inference_allowances"."usedRequests" + 1,
         "updatedAt" = now()
-    WHERE "nvidia_inference_allowances"."usedRequests" < ${maxRequests}
+    ${maxRequests === null ? sql`` : sql`WHERE "nvidia_inference_allowances"."usedRequests" < ${maxRequests}`}
     RETURNING "usedRequests"
   `) as unknown as { rows?: Array<{ usedRequests: number }> } | Array<{ usedRequests: number }>;
   const rows = Array.isArray(result) ? result : result.rows ?? [];

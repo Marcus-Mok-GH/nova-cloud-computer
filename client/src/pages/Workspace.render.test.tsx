@@ -57,7 +57,7 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Files & folders");
+    expect(markup).toContain("Conversations");
     expect(markup).toContain("1 files · 1 folders");
     expect(markup).not.toContain("Plans");
     expect(markup).not.toContain("launch-brief.md");
@@ -85,7 +85,7 @@ describe("Workspace rendered browser states", () => {
     state.nvidiaStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Agent VM runs");
+    expect(markup).toContain("conversations");
     expect(markup).toContain("no failed runs");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");

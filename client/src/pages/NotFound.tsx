@@ -12,18 +12,18 @@ export default function NotFound() {
   };
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-white dark:bg-neutral-950">
-      <Card className="mx-4 w-full max-w-lg border-neutral-200 bg-white shadow-[0_8px_30px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-neutral-900">
+    <div className="flex min-h-screen w-full items-center justify-center bg-card dark:bg-background">
+      <Card className="mx-4 w-full max-w-lg border-border bg-card shadow-[0_8px_30px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-card">
         <CardContent className="pb-8 pt-10 text-center">
           <NovaMark size={44} className="mx-auto" />
 
           <h1 className="mt-6 text-4xl font-extrabold tracking-tight">404</h1>
 
-          <h2 className="mt-2 text-xl font-bold text-neutral-700 dark:text-neutral-200">
+          <h2 className="mt-2 text-xl font-bold text-foreground/80 dark:text-foreground">
             Page Not Found
           </h2>
 
-          <p className="mt-3 text-neutral-500 dark:text-neutral-400">
+          <p className="mt-3 text-muted-foreground dark:text-muted-foreground">
             Sorry, the page you are looking for doesn't exist.
             <br />
             It may have been moved or deleted.
@@ -35,7 +35,7 @@ export default function NotFound() {
           >
             <Button
               onClick={handleGoHome}
-              className="rounded-full bg-[oklch(0.72_0.015_250)] px-6 hover:bg-[oklch(0.54_0.025_250)]"
+              className="rounded-full bg-[oklch(0.72_0.015_250)] px-6 hover:bg-primary/90"
             >
               <Home className="size-4" />
               Go Home

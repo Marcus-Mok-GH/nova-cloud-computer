@@ -128,7 +128,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   const maxRequests = getMaxRequests();
   const base = {
     provider: "nvidia-nim" as const,
-    model: "nvidia/nemotron-3-nano-30b-a3b",
+    model: "nvidia/nemotron-nano-3-30b-a3b",
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,

@@ -314,7 +314,7 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
   const response = await gatewayFetch("/api/nvidia/chat", {
     method: "POST",
     body: JSON.stringify({
-      prompt,
+      messages: [{ role: "user", content: prompt }],
       ...(modelId?.trim() ? { model: modelId.trim() } : {}),
       ...(onChunk ? { stream: true } : {}),
     }),

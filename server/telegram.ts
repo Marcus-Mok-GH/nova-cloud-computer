@@ -83,3 +83,19 @@ export async function answerTelegramCallbackQuery(token: string, callbackQueryId
     ...(text ? { text } : {}),
   }, fetchImpl);
 }
+
+export async function sendChatAction(token: string, chatId: string, action: "typing" | "choose_photo" | "upload_photo" | "choose_video" | "upload_video" | "choose_document" | "upload_document" | "find_location", fetchImpl: typeof fetch = fetch) {
+  return telegramRequest<boolean>(token, "sendChatAction", {
+    chat_id: chatId,
+    action,
+  }, fetchImpl);
+}
+
+export async function editTelegramMessage(token: string, chatId: string, messageId: number, text: string, fetchImpl: typeof fetch = fetch) {
+  return telegramRequest<{ message_id: number }>(token, "editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    disable_web_page_preview: true,
+  }, fetchImpl);
+}

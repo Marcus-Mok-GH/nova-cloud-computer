@@ -57,10 +57,11 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Conversations");
-    expect(markup).toContain("1 files · 1 folders");
+    expect(markup).toContain("What are we working on?");
+    expect(markup).toContain("Ask Nova anything about your work");
+    expect(markup).toContain("Pick up where you left off");
+    expect(markup).toContain("launch-brief.md");
     expect(markup).not.toContain("Plans");
-    expect(markup).not.toContain("launch-brief.md");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Ask NVIDIA");
     expect(markup).not.toContain("Run in agent VM");
@@ -69,24 +70,23 @@ describe("Workspace rendered browser states", () => {
 
   it("renders loading, empty, and error states for the workspace summary", () => {
     state.computer = { data: undefined, isError: false, isLoading: true, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("—");
+    expect(renderWorkspace()).toContain("What are we working on?");
 
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("folders");
-    expect(renderWorkspace()).toContain("files");
+    expect(renderWorkspace()).toContain("Files and conversations will appear here");
 
     state.computer = { data: undefined, isError: true, isLoading: false, refetch: vi.fn() };
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
   });
 
-  it("renders the workspace analytics dashboard without execution controls", () => {
+  it("renders the overview home without execution controls", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 7, maxRuns: 50, remainingRuns: 43, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
     state.nvidiaStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "nvidia-nim", model: "nvidia/nemotron-3-nano-30b-a3b", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("conversations");
-    expect(markup).toContain("no failed runs");
+    expect(markup).toContain("Start a chat");
+    expect(markup).toContain("Files and conversations will appear here");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask NVIDIA");

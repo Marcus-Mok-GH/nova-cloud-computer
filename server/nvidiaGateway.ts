@@ -82,6 +82,18 @@ function configuredGatewayToken() {
   return token && token.length >= 32 ? token : undefined;
 }
 
+/** Best-effort human-readable description of a failed NVIDIA HTTP response. */
+function describeNvidiaError(payload: unknown, status: number): string | undefined {
+  const record = payload as { error?: { message?: string } | string; message?: string; detail?: unknown; title?: string } | undefined;
+  const parts: string[] = [];
+  const raw = record?.error ? (typeof record.error === "string" ? record.error : record.error.message) : undefined;
+  const detail = typeof record?.detail === "string" ? record.detail : record?.detail !== undefined ? JSON.stringify(record.detail) : undefined;
+  const message = raw ?? record?.message ?? detail ?? record?.title;
+  if (message) parts.push(String(message).slice(0, 300));
+  parts.push(`HTTP ${status}`);
+  return `NVIDIA request failed (${parts.join(" · ")})`;
+}
+
 function getMaxRequests() {
   const parsed = Number.parseInt(process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE ?? String(DEFAULT_MAX_REQUESTS), 10);
   return Number.isInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_CONFIGURED_REQUESTS) : DEFAULT_MAX_REQUESTS;
@@ -215,7 +227,7 @@ export async function listNvidiaModels(forceRefresh = false) {
   const payload = await response.json().catch(() => undefined) as NvidiaModelsResponse | { error?: { message?: string } } | undefined;
   if (!response.ok) {
     const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? "NVIDIA model discovery is temporarily unavailable.", response.status === 429 ? "rate_limit" : "unavailable");
+    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA model discovery is temporarily unavailable.", response.status === 429 ? "rate_limit" : "unavailable");
   }
   const rawData = (payload as NvidiaModelsResponse | undefined)?.data;
   const models = Array.isArray(rawData)
@@ -286,7 +298,7 @@ async function readGatewayStreamedCompletion(
     | undefined;
   if (!response.ok) {
     const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
+    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
   }
   const bufferedText = typeof (payload as GatewayCompletion | undefined)?.text === "string"
     ? (payload as GatewayCompletion).text
@@ -338,7 +350,7 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
     | undefined;
   if (!response.ok) {
     const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
+    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
   }
   const bufferedText = typeof (payload as GatewayCompletion | undefined)?.text === "string"
     ? (payload as GatewayCompletion).text

@@ -26,7 +26,7 @@ export default function More() {
               onClick={() => setLocation(item.path)}
               className="group flex min-w-0 w-full items-center gap-3 overflow-hidden rounded-2xl border border-border bg-card p-3.5 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-sm sm:gap-4 sm:p-4 dark:border-white/10 dark:bg-card dark:hover:border-white/20"
             >
-              <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-neutral-100 text-foreground/80 transition group-hover:bg-[oklch(0.72_0.015_250)]/10 group-hover:text-primary dark:bg-muted dark:text-foreground">
+              <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-muted text-foreground/80 transition group-hover:bg-primary/10 group-hover:text-primary dark:bg-muted dark:text-foreground">
                 <item.icon className="size-5" />
               </div>
               <div className="min-w-0 flex-1">

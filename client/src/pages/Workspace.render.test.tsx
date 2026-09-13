@@ -57,7 +57,7 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Workspace intelligence");
+    expect(markup).toContain("Files & folders");
     expect(markup).toContain("1 files · 1 folders");
     expect(markup).not.toContain("Plans");
     expect(markup).not.toContain("launch-brief.md");

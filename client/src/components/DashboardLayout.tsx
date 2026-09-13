@@ -5,22 +5,18 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation, useSearch } from "wouter";
-import { LogOut, MessageSquareText, Moon, MoreHorizontal, Plus, Search, Sun } from "lucide-react";
+import { LogOut, Menu, MessageSquareText, Moon, Plus, Search, Sun, X } from "lucide-react";
 import { navItems as nav } from "@/lib/nav";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
-const moreTab = { icon: MoreHorizontal, label: "More…", path: "/app/more" };
-const ITEM_WIDTH = 96;
-const ITEM_GAP = 4;
-const SIDE_PADDING = 16;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const search = useSearch();
-  const [visibleNavCount, setVisibleNavCount] = useState(nav.length);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const recentChats = (computer.data?.chats ?? []).slice(0, 12);
@@ -28,40 +24,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isChatWorkspace = location.startsWith("/app/chats") || new URLSearchParams(search).has("chatId");
   const createChat = trpc.chats.create.useMutation({ onSuccess: async () => { await utils.workspace.computer.invalidate(); } });
 
-  useEffect(() => {
-    const updateNavCapacity = () => {
-      const width = window.innerWidth;
-      const available = Math.max(0, width - SIDE_PADDING * 2);
-      const capacity = Math.floor((available + ITEM_GAP) / (ITEM_WIDTH + ITEM_GAP));
-      setVisibleNavCount(Math.max(1, Math.min(nav.length, capacity)));
-    };
-    updateNavCapacity();
-    window.addEventListener("resize", updateNavCapacity);
-    return () => window.removeEventListener("resize", updateNavCapacity);
-  }, []);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6"><div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.12)] sm:p-8"><NovaMark size={34} className="mx-auto" /><h1 className="mt-5 text-2xl font-extrabold tracking-tight text-foreground">Sign in to continue</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">Your private computer and its agent are available after passwordless sign-in.</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-6 w-full">Sign in</button></div></div>;
 
   const isActive = (path: string) => path === "/app" ? location === "/app" || location.startsWith("/app?") : location === path || location.startsWith(`${path}?`);
-  const showMore = visibleNavCount < nav.length;
-  const visibleNav = showMore ? nav.slice(0, Math.max(0, visibleNavCount - 1)) : nav;
+  const closeMobileNav = () => setMobileNavOpen(false);
   const handleNewChat = async () => { try { const chat = await createChat.mutateAsync({ title: "New workspace conversation" }); setLocation(`/app?chatId=${chat.id}`); } catch {} };
 
   return (
     <div className="dashboard-shell flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground">
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/88 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
-        <button onClick={() => setLocation("/app")} className="flex min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60"><NovaMark size={22} /><span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">Nova</span></button>
+        <div className="flex min-w-0 items-center gap-1"><button onClick={() => setMobileNavOpen(true)} className="grid size-9 shrink-0 place-items-center rounded-xl text-foreground outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 lg:hidden" aria-label="Open navigation"><Menu className="size-5" /></button><button onClick={() => setLocation("/app")} className="flex min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60"><NovaMark size={22} /><span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">Nova</span></button></div>
         <div className="ml-2 flex shrink-0 items-center gap-2">{isChatWorkspace && <span className="hidden items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-emerald-500" />Chat workspace</span>}<DropdownMenu><DropdownMenuTrigger asChild><button className="rounded-full outline-none transition hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring" aria-label="Account menu"><Avatar className="size-8 border border-border"><AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-[min(15rem,calc(100vw-1rem))] rounded-xl"><div className="border-b border-border px-3 py-3 text-xs text-muted-foreground">{user.email}</div><DropdownMenuItem onClick={toggleTheme} className="cursor-pointer rounded-lg py-2.5">{theme === "light" ? <Moon className="mr-2 size-4" /> : <Sun className="mr-2 size-4" />}Switch to {theme === "light" ? "dark" : "light"} theme</DropdownMenuItem><DropdownMenuItem onClick={logout} className="cursor-pointer rounded-lg py-2.5 text-red-500 focus:text-red-500"><LogOut className="mr-2 size-4" />Sign out</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
       </header>
 
+      <div className="lg:hidden">
+        {mobileNavOpen && <div onClick={closeMobileNav} className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" aria-hidden="true" />}
+        <aside aria-label="Workspace navigation" className={`fixed inset-y-0 left-0 z-50 flex w-[280px] max-w-[84vw] flex-col border-r border-border bg-background shadow-2xl transition-transform duration-300 lg:hidden ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}>
+          <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+            <div className="flex min-w-0 items-center gap-2"><NovaMark size={22} /><span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">Nova</span></div>
+            <button onClick={closeMobileNav} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground" aria-label="Close navigation"><X className="size-4" /></button>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {!isChatWorkspace ? <React.Fragment>
+              <p className="px-2 pb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Your space</p>
+              <div className="space-y-1">{nav.map(tab => <button key={tab.label} onClick={() => { setLocation(tab.path); closeMobileNav(); }} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${isActive(tab.path) ? "bg-card text-foreground shadow-sm dark:bg-card dark:text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4" />{tab.label}</button>)}</div>
+              <div className="mt-8 border-t border-border pt-3 dark:border-white/5">
+                <p className="px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Recent</p>
+                <div className="mt-2 space-y-0.5">{recentFiles.length ? recentFiles.map(file => <button key={file.id} onClick={() => { setLocation("/app/files"); closeMobileNav(); }} className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground">{file.name}</button>) : <p className="px-2 py-1.5 text-xs text-muted-foreground">No files yet.</p>}</div>
+              </div>
+            </React.Fragment> : <React.Fragment>
+              <div className="px-3 pb-3">
+                <p className="text-sm font-bold tracking-tight text-foreground">Chats</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Your conversation history</p>
+              </div>
+              <div className="space-y-2 px-1">
+                <button onClick={() => { handleNewChat(); closeMobileNav(); }} disabled={createChat.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-60"><Plus className="size-3.5" />{createChat.isPending ? "Creating…" : "New chat"}</button>
+                <button onClick={() => { setLocation("/app/chats"); closeMobileNav(); }} className="flex w-full items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground hover:border-ring/40 hover:text-foreground"><Search className="size-3.5" />Search chats</button>
+              </div>
+              <div className="mt-3 space-y-1 px-1">{recentChats.length > 0 ? recentChats.map(chat => <button key={chat.id} onClick={() => { setLocation(`/app?chatId=${chat.id}`); closeMobileNav(); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${location.includes(`chatId=${chat.id}`) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><MessageSquareText className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{chat.title}</span><span className="block text-[11px] text-muted-foreground">Workspace conversation</span></span></button>) : <p className="px-3 py-2 text-xs text-muted-foreground">No conversations yet.</p>}</div>
+            </React.Fragment>}
+          </div>
+        </aside>
+      </div>
+
       {!isChatWorkspace && <aside aria-label="Workspace navigation" className="fixed inset-y-14 bottom-0 left-0 z-30 hidden w-[228px] border-r border-border bg-muted/40 lg:block dark:border-white/5 dark:bg-card/40"><div className="flex h-full flex-col p-3"><p className="px-2 pb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Your space</p><div className="space-y-1">{nav.map(tab => <button key={tab.label} onClick={() => setLocation(tab.path)} className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${isActive(tab.path) ? "bg-card text-foreground shadow-sm dark:bg-card dark:text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4" />{tab.label}</button>)}</div><div className="mt-8 border-t border-border pt-3 dark:border-white/5"><p className="px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Recent</p><div className="mt-2 space-y-0.5">{recentFiles.length ? recentFiles.map(file => <button key={file.id} onClick={() => setLocation("/app/files")} className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground">{file.name}</button>) : <p className="px-2 py-1.5 text-xs text-muted-foreground">No files yet.</p>}</div></div></div></aside>}
 
-      {isChatWorkspace && <aside className="fixed inset-y-14 bottom-16 left-0 z-30 hidden w-[292px] border-r border-border bg-background/95 lg:block"><div className="flex h-full flex-col"><div className="flex items-center justify-between border-b border-border px-4 py-3"><div><p className="text-sm font-bold tracking-tight text-foreground">Chats</p><p className="mt-0.5 text-[11px] text-muted-foreground">Your conversation history</p></div><button onClick={() => setLocation("/app/chats")} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-accent" aria-label="Open chats"><MessageSquareText className="size-4" /></button></div><div className="px-3 pt-3"><button onClick={handleNewChat} disabled={createChat.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-60"><Plus className="size-3.5" />{createChat.isPending ? "Creating…" : "New chat"}</button></div><div className="px-3 pt-2"><button onClick={() => setLocation("/app/chats")} className="flex w-full items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground hover:border-ring/40 hover:text-foreground"><Search className="size-3.5" />Search chats</button></div><div className="flex-1 overflow-y-auto px-2 py-3">{recentChats.length > 0 ? <div className="space-y-1">{recentChats.map(chat => <button key={chat.id} onClick={() => setLocation(`/app?chatId=${chat.id}`)} className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${location.includes(`chatId=${chat.id}`) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><MessageSquareText className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{chat.title}</span><span className="block text-[11px] text-muted-foreground">Workspace conversation</span></span></button>)}</div> : <p className="px-3 py-2 text-xs text-muted-foreground">No conversations yet.</p>}</div></div></aside>}
+      {isChatWorkspace && <aside className="fixed inset-y-14 bottom-0 left-0 z-30 hidden w-[292px] border-r border-border bg-background/95 lg:block"><div className="flex h-full flex-col"><div className="flex items-center justify-between border-b border-border px-4 py-3"><div><p className="text-sm font-bold tracking-tight text-foreground">Chats</p><p className="mt-0.5 text-[11px] text-muted-foreground">Your conversation history</p></div><button onClick={() => setLocation("/app/chats")} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-accent" aria-label="Open chats"><MessageSquareText className="size-4" /></button></div><div className="px-3 pt-3"><button onClick={handleNewChat} disabled={createChat.isPending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-60"><Plus className="size-3.5" />{createChat.isPending ? "Creating…" : "New chat"}</button></div><div className="px-3 pt-2"><button onClick={() => setLocation("/app/chats")} className="flex w-full items-center gap-2 rounded-xl border border-border bg-muted px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground hover:border-ring/40 hover:text-foreground"><Search className="size-3.5" />Search chats</button></div><div className="flex-1 overflow-y-auto px-2 py-3">{recentChats.length > 0 ? <div className="space-y-1">{recentChats.map(chat => <button key={chat.id} onClick={() => setLocation(`/app?chatId=${chat.id}`)} className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${location.includes(`chatId=${chat.id}`) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><MessageSquareText className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{chat.title}</span><span className="block text-[11px] text-muted-foreground">Workspace conversation</span></span></button>)}</div> : <p className="px-3 py-2 text-xs text-muted-foreground">No conversations yet.</p>}</div></div></aside>}
 
-      <main className={`min-h-0 min-w-0 flex-1 ${isChatWorkspace ? "overflow-hidden pb-16 lg:pb-0 lg:pl-[292px]" : "overflow-y-auto overscroll-contain pb-24 sm:pb-28 lg:pb-8 lg:pl-[228px]"}`}>{children}</main>
+      <main className={`min-h-0 min-w-0 flex-1 ${isChatWorkspace ? "overflow-hidden lg:pl-[292px]" : "overflow-y-auto overscroll-contain pb-6 lg:pb-8 lg:pl-[228px]"}`}>{children}</main>
 
-      <nav aria-label="Workspace navigation" className="fixed inset-x-0 bottom-0 lg:hidden z-50 border-t border-border bg-background/95 px-1.5 pb-[max(0.55rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl sm:px-2 sm:pt-2"><div className="mx-auto flex w-full max-w-[1400px] items-stretch justify-center"><div className="flex w-full min-w-0 justify-center gap-1">{visibleNav.map(tab => <button key={tab.label} onClick={() => setLocation(tab.path)} className={`flex min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-1 rounded-xl px-1.5 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:max-w-24 sm:px-3 ${isActive(tab.path) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-[18px] shrink-0" /><span className="max-w-full truncate">{tab.label}</span></button>)}{showMore && <button onClick={() => setLocation(moreTab.path)} className={`flex min-w-0 flex-1 basis-0 flex-col items-center justify-center gap-1 rounded-xl px-1.5 py-2 text-[10px] font-semibold transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:max-w-24 sm:px-3 ${isActive(moreTab.path) || nav.slice(visibleNav.length).some(item => isActive(item.path)) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><MoreHorizontal className="size-[18px] shrink-0" /><span className="max-w-full truncate">More…</span></button>}</div></div></nav>
     </div>
   );
 }

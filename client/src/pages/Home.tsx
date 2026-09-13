@@ -3,17 +3,26 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
+  Activity,
   ArrowUpRight,
+  BarChart3,
+  Bot,
   Check,
   ChevronRight,
-  FileText,
+  Cloud,
+  Database,
+  Folder,
   FolderOpen,
+  HardDrive,
   LayoutGrid,
   MessageSquareText,
   Moon,
   Rocket,
+  Server,
+  Settings2,
   Sun,
   Timer,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -100,19 +109,38 @@ function Home() {
           <div className="relative rounded-[2rem] border border-[#d8d5cc] bg-[#ece9e2] p-3 shadow-[0_24px_70px_rgba(47,46,39,0.12)] dark:border-white/10 dark:bg-[#1d2422] dark:shadow-none">
             <div className="overflow-hidden rounded-[1.45rem] border border-[#d4d1c8] bg-[#fbfaf7] dark:border-white/10 dark:bg-[#151a19]">
               <div className="flex items-center justify-between border-b border-[#e3e0d8] px-4 py-3 dark:border-white/10"><div className="flex items-center gap-2"><span className="flex gap-1"><i className="size-2 rounded-full bg-[#d98e6b]" /><i className="size-2 rounded-full bg-[#d6bc72]" /><i className="size-2 rounded-full bg-[#8ca48d]" /></span><span className="ml-2 text-[11px] font-semibold text-[#777a73] dark:text-[#aeb3aa]">Nova / Workspace</span></div><span className="text-[10px] font-medium text-[#9b9d96]">Today</span></div>
-              <div className="grid min-h-[390px] grid-cols-[132px_1fr]">
-                <aside className="border-r border-[#e7e4dc] bg-[#f3f1eb] p-3 dark:border-white/10 dark:bg-[#1b211f]">
-                  <p className="px-2 pb-3 text-[9px] font-bold uppercase tracking-[0.14em] text-[#9a9c94]">Your space</p>
-                  <div className="space-y-1 text-[11px] font-medium text-[#626660] dark:text-[#b3b8b0]"><div className="flex items-center gap-2 rounded-lg bg-white px-2 py-2 text-[#374447] shadow-sm dark:bg-white/10 dark:text-white"><LayoutGrid className="size-3.5" />Overview</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><FolderOpen className="size-3.5" />Files</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><MessageSquareText className="size-3.5" />Chats</div><div className="flex items-center gap-2 rounded-lg px-2 py-2"><Timer className="size-3.5" />Routines</div></div>
-                  <div className="mt-10 border-t border-[#dedbd2] pt-3 dark:border-white/10"><p className="px-2 text-[9px] font-bold uppercase tracking-[0.14em] text-[#9a9c94]">Recent</p><p className="mt-3 truncate px-2 text-[11px] text-[#777a73]">project-notes.md</p><p className="mt-2 truncate px-2 text-[11px] text-[#777a73]">weekly-plan.txt</p></div>
-                </aside>
-                <div className="p-5 sm:p-7">
-                  <p className="text-[11px] font-semibold text-[#b65f38] dark:text-[#e59468]">Good morning</p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#283336] dark:text-[#f4f0e8]">What are we working on?</h2>
-                  <p className="mt-2 max-w-sm text-xs leading-5 text-[#858780] dark:text-[#aeb3aa]">Open a file, continue a conversation, or leave Nova a task for later.</p>
-                  <div className="mt-7 rounded-xl border border-[#ddd9d0] bg-white p-3 dark:border-white/10 dark:bg-white/5"><div className="flex items-center gap-2 text-xs text-[#9a9c94]"><span className="grid size-6 place-items-center rounded-md bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><MessageSquareText className="size-3.5" /></span>Ask Nova anything about your work</div><div className="mt-4 flex justify-end"><span className="rounded-lg bg-[#26343a] px-2.5 py-1.5 text-[10px] font-semibold text-white dark:bg-[#e9e5db] dark:text-[#1f2529]">Start a chat</span></div></div>
-                  <div className="mt-6"><div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#9a9c94]">Pick up where you left off</span><ChevronRight className="size-3.5 text-[#9a9c94]" /></div><div className="mt-3 grid gap-2 sm:grid-cols-2"><div className="rounded-lg border border-[#e3e0d8] px-3 py-2.5 dark:border-white/10"><div className="flex items-center gap-2 text-[11px] font-semibold text-[#59615f] dark:text-[#d3d6cf]"><FileText className="size-3.5 text-[#b65f38]" />Project notes</div><p className="mt-1 text-[10px] text-[#9a9c94]">Edited yesterday</p></div><div className="rounded-lg border border-[#e3e0d8] px-3 py-2.5 dark:border-white/10"><div className="flex items-center gap-2 text-[11px] font-semibold text-[#59615f] dark:text-[#d3d6cf]"><Rocket className="size-3.5 text-[#6f8d75]" />Weekly routine</div><p className="mt-1 text-[10px] text-[#9a9c94]">Runs on Monday</p></div></div></div>
+              <div className="flex min-h-[440px] flex-col">
+                <div className="flex items-center justify-between border-b border-[#e3e0d8] px-4 py-2.5 dark:border-white/10"><div className="flex items-center gap-2"><NovaMark size={15} /><span className="text-[13px] font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">Nova</span></div><span className="grid size-6 place-items-center rounded-full bg-[#26343a] text-[9px] font-bold text-white dark:bg-[#e9e5db] dark:text-[#1f2529]">M</span></div>
+
+                <div className="flex-1 p-4 sm:p-5">
+                  <div className="flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#b65f38] dark:text-[#e59468]">Your workspace</p>
+                      <h3 className="mt-1 text-xl font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">Workspace</h3>
+                      <p className="mt-1 text-[10px] text-[#858780] dark:text-[#aeb3aa]">Files, conversations, and ongoing work in one place.</p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <span className="hidden items-center gap-1 rounded-lg border border-[#ddd9d0] bg-white px-2 py-1.5 text-[9px] font-bold text-[#59615f] shadow-sm sm:inline-flex dark:border-white/10 dark:bg-white/5 dark:text-[#d3d6cf]"><MessageSquareText className="size-3" />Open conversations</span>
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-[#b65f38] px-2 py-1.5 text-[9px] font-bold text-white shadow-sm dark:bg-[#e59468] dark:text-[#1f2529]"><Folder className="size-3" />Browse workspace</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-2.5 dark:border-white/10 dark:bg-white/5"><div className="grid size-6 place-items-center rounded-lg bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><MessageSquareText className="size-3" /></div><p className="mt-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#9a9c94]">Conversations</p><p className="text-base font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">12</p><p className="text-[9px] text-[#9a9c94]">saved in this computer</p></div>
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-2.5 dark:border-white/10 dark:bg-white/5"><div className="grid size-6 place-items-center rounded-lg bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><TrendingUp className="size-3" /></div><p className="mt-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#9a9c94]">Open work</p><p className="text-base font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">4</p><p className="text-[9px] text-[#9a9c94]">67% completed</p></div>
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-2.5 dark:border-white/10 dark:bg-white/5"><div className="grid size-6 place-items-center rounded-lg bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><Database className="size-3" /></div><p className="mt-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#9a9c94]">Files &amp; folders</p><p className="text-base font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">18</p><p className="text-[9px] text-[#9a9c94]">12 files · 6 folders</p></div>
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-2.5 dark:border-white/10 dark:bg-white/5"><div className="grid size-6 place-items-center rounded-lg bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><Bot className="size-3" /></div><p className="mt-2 text-[8px] font-bold uppercase tracking-[0.12em] text-[#9a9c94]">Agent runs</p><p className="text-base font-extrabold tracking-tight text-[#283336] dark:text-[#f4f0e8]">6</p><p className="text-[9px] text-[#9a9c94]">no failed runs</p></div>
+                  </div>
+
+                  <div className="mt-2.5 grid gap-2.5 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-3 dark:border-white/10 dark:bg-white/5"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="grid size-6 place-items-center rounded-lg bg-[#f0ddd4] text-[#b65f38] dark:bg-[#a5674c]/20 dark:text-[#e59468]"><BarChart3 className="size-3" /></span><p className="text-[10px] font-bold text-[#374447] dark:text-[#d3d6cf]">Your week</p></div><span className="rounded-full bg-[#f3f1eb] px-2 py-0.5 text-[8px] font-bold text-[#9a9c94] dark:bg-white/10">Updated as you work</span></div><div className="mt-3 flex h-24 items-end gap-1.5">{[3, 5, 2, 6, 4, 1, 3].map((count, i) => <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1"><div className="flex h-16 w-full items-end rounded-md bg-[#f3f1eb] dark:bg-white/10"><div className="w-full rounded-md bg-[#b65f38] dark:bg-[#e59468]" style={{ height: (count / 6) * 100 + "%", minHeight: "4px" }} /></div><span className="text-[8px] font-semibold text-[#9a9c94]">{"MTWTFSS"[i]}</span></div>)}</div></div>
+                    <div className="rounded-xl border border-[#e3e0d8] bg-white p-3 dark:border-white/10 dark:bg-white/5"><div className="flex items-center gap-2"><span className="grid size-6 place-items-center rounded-lg bg-[#e4efe4] text-[#6f8d75] dark:bg-[#6f8d75]/20 dark:text-[#9dc4a1]"><Activity className="size-3" /></span><p className="text-[10px] font-bold text-[#374447] dark:text-[#d3d6cf]">Workspace status</p></div><div className="mt-3 space-y-2">{[{ icon: Cloud, label: "Persistent workspace", value: "Ready", pct: 100 }, { icon: Server, label: "Agent provider", value: "NVIDIA NIM", pct: 100 }, { icon: Rocket, label: "Automations", value: "3 active", pct: 60 }, { icon: HardDrive, label: "Current model", value: "Default", pct: 100 }].map(row => { const RowIcon = row.icon; return <div key={row.label}><div className="flex items-center justify-between text-[9px]"><span className="flex items-center gap-1.5 font-semibold text-[#59615f] dark:text-[#d3d6cf]"><RowIcon className="size-2.5 text-[#9a9c94]" />{row.label}</span><span className="font-bold text-[#9a9c94]">{row.value}</span></div><div className="mt-1 h-1 overflow-hidden rounded-full bg-[#f3f1eb] dark:bg-white/10"><div className="h-full rounded-full bg-[#b65f38] dark:bg-[#e59468]" style={{ width: row.pct + "%" }} /></div></div>; })}</div></div>
+                  </div>
+
+                  <div className="mt-2.5 rounded-xl bg-[#26343a] p-3.5 text-[#f4f0e8] dark:bg-white/10"><p className="flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-[#e9a17b]"><TrendingUp className="size-3" />Next up</p><div className="mt-1 flex items-center justify-between gap-2"><p className="text-[11px] font-semibold tracking-tight">What would you like to work on next?</p><span className="shrink-0 rounded-lg bg-[#f4f0e8] px-2 py-1 text-[9px] font-bold text-[#26343a]">Start a conversation</span></div></div>
                 </div>
+
+                <div className="border-t border-[#e3e0d8] bg-[#f3f1eb] px-2 py-2 dark:border-white/10 dark:bg-[#1b211f]"><div className="flex items-stretch justify-center gap-1">{[{ icon: LayoutGrid, label: "Overview", active: true }, { icon: Folder, label: "Files", active: false }, { icon: MessageSquareText, label: "Chats", active: false }, { icon: Rocket, label: "Deployments", active: false }, { icon: Settings2, label: "Settings", active: false }].map(tab => { const TabIcon = tab.icon; return <div key={tab.label} className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 ${tab.active ? "bg-[#b65f38]/10 text-[#b65f38] dark:bg-[#e59468]/10 dark:text-[#e59468]" : "text-[#9a9c94]"}`}><TabIcon className="size-3.5" /><span className={`text-[8px] ${tab.active ? "font-bold" : "font-semibold"}`}>{tab.label}</span></div>; })}</div></div>
               </div>
             </div>
           </div>

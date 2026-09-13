@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-13 — Stream chat responses end-to-end
+
+- `server/nvidiaGateway.ts`: `completeWithNvidiaGateway` now accepts an `onChunk` callback and requests `stream: true` from the gateway, consuming the SSE `data:` events incrementally so the first token of a reply reaches the client long before the model finishes. If the gateway is not yet deployed with streaming it falls back to the buffered JSON body, emitted as a single chunk, so the wire format stays compatible. The non-stream path and its returned `{ text, model, usage, allowance }` shape are unchanged; `usage` may be `null` in stream mode.
+- `server/nvidiaGateway.ts`: `getNvidiaGatewayStatus` caches the configured/reachable/provider flags in-process for 10s, so every chat message no longer performs a live `GET /api/nvidia/health`. Per-request DB allowance reads and the atomic inference claim are preserved; exported `resetNvidiaGatewayHealthCache()` for test isolation.
+- `server/workspaceAgent.ts`: Conversational replies are built from streamed deltas (emitted via `options.onChunk`) and still persisted via `persistAssistant`; the direct-action and unavailable-NVIDIA fallback paths are unchanged. `runDirectWorkspaceAction` receives the already-loaded `computer` instead of reloading the workspace a second time per message.
+- `server/routers.ts`, `server/app.ts`: Auto-title generation (`autoTitleChatForUser`) after `chats.send` and after Telegram webhook replies is now fire-and-forget, so a second full LLM completion no longer blocks the response.
+- `server/db.ts`: `getOrCreateWorkspace` returns the freshly-read workspace row directly when `persistentSandboxId` is already stored, eliminating ~8–10 E2B connect/create calls per chat message. VM and automation flows still connect/provision explicitly where a live sandbox is actually needed.
+- `client/src/pages/Workspace.tsx`: `finalizeStream` now performs a single immediate list refresh instead of a retry loop that slept up to ~3s with the input locked and the typing indicator shown.
+- Tests: added streaming, buffered-fallback, and health-cache coverage in `server/nvidiaGateway.client.test.ts`; added conversational-chunk streaming coverage in `server/workspaceAgent.test.ts`.
+- Verified: `tsc --noEmit` clean; targeted Vitest suites pass.
+
 ## 2026-09-09 — Behavior-preserving cleanup pass
 
 - `server/automations.ts`: Removed the unused `runAutomationForUser` export and its sole consumer import `getAutomationRecordForUser`.

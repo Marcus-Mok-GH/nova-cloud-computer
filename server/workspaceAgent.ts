@@ -104,8 +104,11 @@ export async function autoTitleChatForUser(
   }
 }
 
-async function runDirectWorkspaceAction(ownerId: number, content: string) {
-  const computer = await getWorkspaceComputer(ownerId);
+async function runDirectWorkspaceAction(
+  ownerId: number,
+  content: string,
+  computer: Awaited<ReturnType<typeof getWorkspaceComputer>>
+) {
   const telegramMessage = content.match(
     /(?:send|post)\s+(?:a\s+)?telegram(?:\s+message)?(?:\s+saying|\s+with\s+text|:)\s*["']?(.+?)["']?\.?$/i
   );
@@ -398,7 +401,7 @@ export async function runWorkspaceAgent(
   // Explicit workspace actions (file/folder create-rename-move-delete, Telegram,
   // VM run) are resolved directly and need no model. Try them first so these
   // operations stay immediate and deterministic.
-  const direct = await runDirectWorkspaceAction(ownerId, content);
+  const direct = await runDirectWorkspaceAction(ownerId, content, computer);
   if (direct.actions.length > 0 || direct.reply.trim()) {
     await emitDirectActions(direct.actions);
     await options.onChunk?.(direct.reply);
@@ -411,12 +414,15 @@ export async function runWorkspaceAgent(
   try {
     const result = await completeWithNvidiaGateway(
       ownerId,
-      `${context}\n\n${content}`
+      `${context}\n\n${content}`,
+      undefined,
+      chunk => {
+        void options.onChunk?.(chunk);
+      }
     );
     const reply = String(
       result.text || "I’m ready to help with this workspace."
     ).trim();
-    await options.onChunk?.(reply);
     const message = await persistAssistant(reply);
     return { message, actions: [] };
   } catch (error) {

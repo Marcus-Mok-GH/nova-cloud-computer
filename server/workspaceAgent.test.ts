@@ -221,7 +221,39 @@ describe("Nova VM-agent workspace", () => {
 
     expect(completeWithNvidiaGateway).toHaveBeenCalledWith(
       7,
-      expect.stringContaining("PINEAPPLE")
+      expect.stringContaining("PINEAPPLE"),
+      undefined,
+      expect.any(Function)
+    );
+  });
+
+  it("streams conversational chunks through onChunk while persisting the final reply", async () => {
+    completeWithNvidiaGateway.mockImplementationOnce(
+      async (_owner, _prompt, _model, onChunk) => {
+        for (const part of ["Streaming", " replies", " now"]) onChunk?.(part);
+        return nvidiaResult("Streaming replies now");
+      }
+    );
+
+    const chunks: string[] = [];
+    await expect(
+      runWorkspaceAgent(7, 3, "Tell me about streaming replies.", {
+        onChunk: chunk => chunks.push(chunk),
+      })
+    ).resolves.toMatchObject({
+      actions: [],
+      message: expect.objectContaining({
+        role: "assistant",
+        content: "Streaming replies now",
+      }),
+    });
+
+    expect(chunks).toEqual(["Streaming", " replies", " now"]);
+    expect(completeWithNvidiaGateway).toHaveBeenCalledWith(
+      7,
+      expect.stringContaining("Tell me about streaming replies."),
+      undefined,
+      expect.any(Function)
     );
   });
 

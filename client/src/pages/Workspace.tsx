@@ -59,20 +59,14 @@ export default function Workspace() {
   }, []);
 
   const refreshMessages = async (): Promise<boolean> => { try { await savedMessages.refetch(); return true; } catch { return false; } };
-  const finalizeStream = async () => {
-    let refreshed = false;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      refreshed = await refreshMessages();
-      if (refreshed) break;
-      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-    }
+  const finalizeStream = async (): Promise<boolean> => {
+    const refreshed = await refreshMessages();
+    setIsStreaming(false);
     if (refreshed) {
-      setIsStreaming(false);
       setPendingUserContent("");
       setStreamingContent("");
       setToolActivities([]);
     } else {
-      setIsStreaming(false);
       toast.error("Nova replied, but it could not be reloaded yet. Please wait a moment before sending again.");
     }
     return refreshed;
@@ -172,7 +166,7 @@ export default function Workspace() {
   const automationRows = automations.data ?? [];
   const isLoading = computer.isLoading || dashboard.isLoading;
   const completedTasks = tasks.filter(task => task.status === "done").length;
-  const completedRuns = runs.filter(run => run.status === "completed").length;
+  const completedRuns = runs.filter(run => run.status === "succeeded").length;
   const failedRuns = runs.filter(run => run.status === "failed").length;
   const totalTrackedWork = tasks.length + runs.length;
   const completionRate = totalTrackedWork ? Math.round(((completedTasks + completedRuns) / totalTrackedWork) * 100) : 0;

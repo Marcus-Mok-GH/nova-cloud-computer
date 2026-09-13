@@ -43,7 +43,7 @@ describe("NVIDIA gateway client", () => {
     await expect(completeWithNvidiaGateway(7, "Summarize the release notes")).resolves.toMatchObject({ text: "Private response", allowance: { usedRequests: 1 } });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(1, "https://api-server-zeta.vercel.app/models", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer nvapi-test-key-0123456789abcdef0123456789" }) }));
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3.5-lightning-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
-    expect(claim).toHaveBeenCalledWith(7, 50);
+    expect(claim).toHaveBeenCalledWith(7, null);
   });
 
   it("reports an unconfigured gateway safely when no NVIDIA API key is present", async () => {
@@ -64,6 +64,15 @@ describe("NVIDIA gateway client", () => {
       providerConfigurationKnown: true,
     });
   });
+  it("reports an unlimited allowance when no request cap is configured", async () => {
+    delete process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE;
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await expect(getNvidiaGatewayStatus(7)).resolves.toMatchObject({
+      allowance: { maxRequests: null, remainingRequests: null, exhausted: false },
+    });
+  });
+
   it("probes gateway health once and reuses the cached status within the TTL", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3.5-lightning-30b-a3b" }] }), { status: 200 }));
 

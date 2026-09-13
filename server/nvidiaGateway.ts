@@ -1,6 +1,5 @@
 import { claimNvidiaInferenceRequestForUser, getNvidiaInferenceAllowanceForUser } from "./db";
 
-const DEFAULT_MAX_REQUESTS = 50;
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 100_000;
 const ERROR_MESSAGE_LIMIT = 600;
@@ -94,9 +93,16 @@ function describeNvidiaError(payload: unknown, status: number): string | undefin
   return `NVIDIA request failed (${parts.join(" · ")})`;
 }
 
-function getMaxRequests() {
-  const parsed = Number.parseInt(process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE ?? String(DEFAULT_MAX_REQUESTS), 10);
-  return Number.isInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_CONFIGURED_REQUESTS) : DEFAULT_MAX_REQUESTS;
+/**
+ * Daily NVIDIA inference request cap per workspace. Returns null (no cap) unless
+ * NVIDIA_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * "unlimited", or an unset/invalid value all mean unlimited.
+ */
+function getMaxRequests(): number | null {
+  const raw = process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_CONFIGURED_REQUESTS) : null;
 }
 
 function sanitizeGatewayError(error: unknown) {
@@ -144,8 +150,8 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
-      remainingRequests: Math.max(0, maxRequests - allowance.usedRequests),
-      exhausted: allowance.usedRequests >= maxRequests,
+      remainingRequests: maxRequests === null ? null : Math.max(0, maxRequests - allowance.usedRequests),
+      exhausted: maxRequests !== null && allowance.usedRequests >= maxRequests,
     },
   };
   if (!isNvidiaGatewayConfigured()) {
@@ -339,8 +345,8 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
       allowance: {
         usedRequests: claim.usedRequests,
         maxRequests: status.allowance.maxRequests,
-        remainingRequests: Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-        exhausted: claim.usedRequests >= status.allowance.maxRequests,
+        remainingRequests: status.allowance.maxRequests === null ? null : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+        exhausted: status.allowance.maxRequests !== null && claim.usedRequests >= status.allowance.maxRequests,
       },
     };
   }
@@ -366,8 +372,8 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
     allowance: {
       usedRequests: claim.usedRequests,
       maxRequests: status.allowance.maxRequests,
-      remainingRequests: Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-      exhausted: claim.usedRequests >= status.allowance.maxRequests,
+      remainingRequests: status.allowance.maxRequests === null ? null : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+      exhausted: status.allowance.maxRequests !== null && claim.usedRequests >= status.allowance.maxRequests,
     },
   };
 }

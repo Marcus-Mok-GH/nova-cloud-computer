@@ -87,7 +87,7 @@ const getNvidiaGatewayStatus = vi.fn(() => ({
     reachable: true,
     providerConfigured: true,
     providerConfigurationKnown: true,
-    model: "nvidia/nemotron-nano-3-30b-a3b",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     allowance: {
         usedRequests: 0,
         maxRequests: 50,
@@ -131,7 +131,7 @@ const { runWorkspaceAgent, autoTitleChatForUser } = await import(
 
 const nvidiaResult = (text: string) => ({
     text,
-    model: "nvidia/nemotron-nano-3-30b-a3b",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     usage: null,
     allowance: {
         usedRequests: 1,

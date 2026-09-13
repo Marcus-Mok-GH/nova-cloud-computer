@@ -6,12 +6,12 @@ const status = vi.fn(async (ownerId: number) => ({
   reachable: ownerId === 1,
   providerConfigured: ownerId === 1,
   provider: "nvidia-nim" as const,
-  model: "nvidia/nemotron-nano-3-30b-a3b",
+  model: "nvidia/nemotron-3.5-lightning-30b-a3b",
   allowance: { usedRequests: ownerId === 1 ? 2 : 0, maxRequests: 50, remainingRequests: ownerId === 1 ? 48 : 50, exhausted: false },
 }));
 const complete = vi.fn(async (ownerId: number, prompt: string) => ({
   text: `owner ${ownerId}: ${prompt}`,
-  model: "nvidia/nemotron-nano-3-30b-a3b",
+  model: "nvidia/nemotron-3.5-lightning-30b-a3b",
   usage: null,
   allowance: { usedRequests: 3, maxRequests: 50, remainingRequests: 47, exhausted: false },
 }));

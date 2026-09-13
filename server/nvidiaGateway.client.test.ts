@@ -37,12 +37,12 @@ describe("NVIDIA gateway client", () => {
     process.env.NVIDIA_API_KEY = "nvapi-test-key-0123456789abcdef0123456789";
     delete process.env.NOVA_NVIDIA_GATEWAY_TOKEN;
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-nano-3-30b-a3b" }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Private response" } }], model: "nvidia/nemotron-nano-3-30b-a3b" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3.5-lightning-30b-a3b" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Private response" } }], model: "nvidia/nemotron-3.5-lightning-30b-a3b" }), { status: 200 }));
 
     await expect(completeWithNvidiaGateway(7, "Summarize the release notes")).resolves.toMatchObject({ text: "Private response", allowance: { usedRequests: 1 } });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(1, "https://api-server-zeta.vercel.app/models", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer nvapi-test-key-0123456789abcdef0123456789" }) }));
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-nano-3-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3.5-lightning-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
     expect(claim).toHaveBeenCalledWith(7, 50);
   });
 
@@ -65,7 +65,7 @@ describe("NVIDIA gateway client", () => {
     });
   });
   it("probes gateway health once and reuses the cached status within the TTL", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-nano-3-30b-a3b" }] }), { status: 200 }));
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3.5-lightning-30b-a3b" }] }), { status: 200 }));
 
     await getNvidiaGatewayStatus(7);
     await getNvidiaGatewayStatus(7);
@@ -86,25 +86,25 @@ describe("NVIDIA gateway client", () => {
       "",
     ].join("\n");
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-nano-3-30b-a3b" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3.5-lightning-30b-a3b" }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(sseBody, { status: 200, headers: { "content-type": "text/event-stream" } }));
 
     const chunks: string[] = [];
     const result = await completeWithNvidiaGateway(7, "Summarize the release notes", undefined, chunk => chunks.push(chunk));
     expect(chunks).toEqual(["Hello", " from", " NVIDIA"]);
     expect(result).toMatchObject({ text: "Hello from NVIDIA", usage: null, allowance: { usedRequests: 1 } });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-nano-3-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }], stream: true }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3.5-lightning-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }], stream: true }) }));
   });
   it("falls back to the buffered JSON completion and emits it once when NIM does not stream", async () => {
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-nano-3-30b-a3b" }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Buffered reply" } }], model: "nvidia/nemotron-nano-3-30b-a3b" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3.5-lightning-30b-a3b" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Buffered reply" } }], model: "nvidia/nemotron-3.5-lightning-30b-a3b" }), { status: 200 }));
 
     const chunks: string[] = [];
     const result = await completeWithNvidiaGateway(7, "Draft a summary", undefined, chunk => chunks.push(chunk));
     expect(chunks).toEqual(["Buffered reply"]);
     expect(result).toMatchObject({ text: "Buffered reply" });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-nano-3-30b-a3b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3.5-lightning-30b-a3b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
   it("discovers only text and vision-language models from NVIDIA", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [

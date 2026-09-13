@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { Activity, AlertTriangle, ArrowLeft, ArrowUp, BarChart3, Bot, CheckCircle2, CircleDashed, Clock3, Cloud, Database, FileText, Folder, HardDrive, MessageSquareText, Rocket, Server, TrendingUp, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, MessageSquareText, Wrench, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
@@ -23,11 +23,9 @@ export default function Workspace() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
+  const startChat = trpc.chats.create.useMutation({ onSuccess: async chat => { await utils.workspace.computer.invalidate(); setLocation(`/app?chatId=${chat.id}`); } });
+  const handleStartChat = () => { if (!startChat.isPending) startChat.mutate({ title: "New workspace conversation" }); };
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
-  const agentVmStatus = trpc.agentVm.status.useQuery(undefined, { retry: false, refetchInterval: 5000 });
-  const dashboard = trpc.workspace.dashboard.useQuery(undefined, { retry: false });
-  const agentRuns = trpc.agentVm.list.useQuery(undefined, { retry: false });
-  const automations = trpc.automations.list.useQuery(undefined, { retry: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
 
@@ -156,89 +154,31 @@ export default function Workspace() {
     );
   }
 
-  const folders = computer.data?.folders ?? [];
   const files = computer.data?.files ?? [];
   const chats = computer.data?.chats ?? [];
-  const vm = agentVmStatus.data;
-  const projects = dashboard.data?.projects ?? [];
-  const tasks = dashboard.data?.tasks ?? [];
-  const runs = agentRuns.data ?? [];
-  const automationRows = automations.data ?? [];
-  const isLoading = computer.isLoading || dashboard.isLoading;
-  const completedTasks = tasks.filter(task => task.status === "done").length;
-  const completedRuns = runs.filter(run => run.status === "succeeded").length;
-  const failedRuns = runs.filter(run => run.status === "failed").length;
-  const totalTrackedWork = tasks.length + runs.length;
-  const completionRate = totalTrackedWork ? Math.round(((completedTasks + completedRuns) / totalTrackedWork) * 100) : 0;
-  const activeAutomations = automationRows.filter(automation => automation.enabled).length;
-  const recentActivity = [
-    ...runs.map(run => ({ icon: Bot, title: run.task, detail: "Agent VM · " + run.status, time: run.createdAt, tone: "bg-primary/10 text-primary dark:text-primary" })),
-    ...chats.map(chat => ({ icon: MessageSquareText, title: chat.title, detail: "Conversation updated", time: chat.updatedAt, tone: "bg-primary/10 text-primary dark:text-primary" })),
-    ...projects.map(project => ({ icon: Folder, title: project.name, detail: "Project created", time: project.createdAt, tone: "bg-amber-500/10 text-amber-700 dark:text-amber-400" })),
-  ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 6);
-  const dailyActivity = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date();
-    day.setHours(0, 0, 0, 0);
-    day.setDate(day.getDate() - (6 - index));
-    const nextDay = new Date(day);
-    nextDay.setDate(nextDay.getDate() + 1);
-    const count = [...chats, ...runs, ...tasks].filter(item => {
-      const createdAt = new Date(item.createdAt).getTime();
-      return createdAt >= day.getTime() && createdAt < nextDay.getTime();
-    }).length;
-    return { label: day.toLocaleDateString(undefined, { weekday: "short" }), count };
-  });
-  const maxDailyActivity = Math.max(...dailyActivity.map(day => day.count), 1);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-  const sandboxStatus = vm?.sandbox.status ?? "unavailable";
-  const isWorkspaceReady = sandboxStatus === "active" || sandboxStatus === "sleeping";
+  const pickUpCards = [
+    ...files.slice(0, 2).map(file => ({ key: `file-${file.id}`, icon: FileText, title: file.name, detail: `Edited ${formatDate(file.updatedAt)}`, path: "/app/files" })),
+    ...chats.slice(0, 2).map(chat => ({ key: `chat-${chat.id}`, icon: MessageSquareText, title: chat.title, detail: `Conversation · ${formatDate(chat.updatedAt)}`, path: `/app?chatId=${chat.id}` })),
+  ].slice(0, 4);
+
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-7xl p-4 sm:p-5 md:p-6">
-        <header className="mb-7 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Your workspace</p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-foreground dark:text-foreground">Workspace</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Files, conversations, and ongoing work in one place.</p>
+      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
+        <p className="text-sm font-semibold text-primary">{greeting}</p>
+        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl dark:text-foreground">What are we working on?</h1>
+        <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Open a file, continue a conversation, or leave Nova a task for later.</p>
+
+        <button type="button" onClick={handleStartChat} disabled={startChat.isPending} className="mt-8 w-full rounded-2xl border border-border bg-card p-4 text-left shadow-[0_12px_30px_rgba(10,10,10,0.04)] transition hover:border-neutral-300 sm:p-5 dark:border-white/10 dark:bg-card dark:hover:border-white/20"><span className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-sm text-muted-foreground dark:text-muted-foreground">{startChat.isPending ? "Creating…" : "Ask Nova anything about your work"}</span></span><span className="mt-4 flex justify-end"><span className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-bold text-white dark:bg-foreground dark:text-background">Start a chat</span></span></button>
+
+        <div className="mt-8">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Pick up where you left off</p>
+          <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+            {pickUpCards.length ? pickUpCards.map(card => { const CardIcon = card.icon; return <button type="button" key={card.key} onClick={() => setLocation(card.path)} className="rounded-xl border border-border bg-card px-3.5 py-3 text-left transition hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-card dark:hover:border-white/20"><span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground"><CardIcon className="size-3.5 shrink-0 text-primary" /><span className="min-w-0 truncate">{card.title}</span></span><p className="mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">{card.detail}</p></button>; }) : <p className="text-xs text-muted-foreground dark:text-muted-foreground">Files and conversations will appear here as your workspace fills up.</p>}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setLocation("/app/chats")} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5 text-xs font-bold text-foreground/80 shadow-sm transition hover:border-neutral-300 hover:bg-muted dark:border-white/10 dark:bg-card dark:text-foreground dark:hover:bg-card/10"><MessageSquareText className="size-3.5" />Open conversations</button>
-            <button type="button" onClick={() => setLocation("/app/files")} className="inline-flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-primary/90"><Folder className="size-3.5" />Browse workspace</button>
-          </div>
-        </header>
-
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Workspace overview">
-          <AnalyticsMetric label="Conversations" value={isLoading ? "—" : chats.length} note="saved in this computer" icon={MessageSquareText} tone="violet" />
-          <AnalyticsMetric label="Open work" value={isLoading ? "—" : totalTrackedWork} note={completionRate + "% completed"} icon={TrendingUp} tone="blue" />
-          <AnalyticsMetric label="Files & folders" value={isLoading ? "—" : files.length + folders.length} note={files.length + " files · " + folders.length + " folders"} icon={Database} tone="amber" />
-          <AnalyticsMetric label="Agent runs" value={isLoading ? "—" : runs.length} note={failedRuns ? failedRuns + " need attention" : "no failed runs"} icon={Bot} tone={failedRuns ? "red" : "emerald"} />
-        </section>
-
-        <section className="mt-5 grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
-          <article className="rounded-2xl border border-border/80 bg-card p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-card">
-            <div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary dark:text-primary"><BarChart3 className="size-4" /></span><h2 className="text-sm font-bold">Your week</h2></div><p className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">A quick look at what has been moving</p></div><span className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold text-muted-foreground dark:bg-card/10 dark:text-foreground/80">Updated as you work</span></div>
-            <div className="mt-7 flex h-44 items-end gap-2 sm:gap-4">{dailyActivity.map(day => <div key={day.label} className="flex min-w-0 flex-1 flex-col items-center gap-2"><span className="text-[10px] font-bold text-muted-foreground">{day.count}</span><div className="flex h-32 w-full items-end rounded-lg bg-muted px-1.5 dark:bg-card/5"><div className="w-full rounded-md bg-primary transition-all" style={{ height: (day.count / maxDailyActivity) * 100 + "%", minHeight: day.count ? "8px" : "2px" }} /></div><span className="text-[10px] font-semibold text-muted-foreground">{day.label}</span></div>)}</div>
-          </article>
-          <article className="rounded-2xl border border-border/80 bg-card p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-card">
-            <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><Activity className="size-4" /></span><h2 className="text-sm font-bold">Workspace status</h2></div>
-            <div className="mt-5 space-y-4"><HealthRow icon={Cloud} label="Persistent workspace" value={isWorkspaceReady ? sandboxStatus : "Unavailable"} good={isWorkspaceReady} /><HealthRow icon={Server} label="Agent provider" value={vm?.provider ?? "—"} good={Boolean(vm?.configured)} /><HealthRow icon={Rocket} label="Automations" value={activeAutomations + " active"} good={activeAutomations > 0 || automationRows.length === 0} /><HealthRow icon={HardDrive} label="Current model" value={dashboard.data?.settings?.activeModelId ?? "Default"} good /></div>
-            <button type="button" onClick={() => setLocation("/app/deployments")} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-xs font-bold text-muted-foreground transition hover:bg-muted dark:border-white/10 dark:text-foreground/80 dark:hover:bg-card/10">View deployment status <Rocket className="size-3.5" /></button>
-          </article>
-        </section>
-
-        <section className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
-          <article className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-[0_12px_30px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card">
-            <div className="flex items-start justify-between gap-4 p-5 sm:p-6"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary dark:text-primary"><Clock3 className="size-4" /></span><h2 className="text-sm font-bold">Recent activity</h2></div><p className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">The latest changes across your private computer</p></div><button type="button" onClick={() => setLocation("/app/chats")} className="text-xs font-bold text-primary hover:underline">View chats</button></div>
-            <div className="divide-y divide-neutral-100 border-t border-border dark:divide-white/10 dark:border-white/10">{recentActivity.length ? recentActivity.map((item, index) => { const Icon = item.icon; return <div key={item.title + index} className="flex items-center gap-3 px-5 py-3.5 sm:px-6"><span className={"grid size-8 shrink-0 place-items-center rounded-lg " + item.tone}><Icon className="size-3.5" /></span><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-foreground dark:text-foreground">{item.title}</p><p className="mt-0.5 text-[11px] text-muted-foreground">{item.detail}</p></div><span className="shrink-0 text-[10px] font-semibold text-muted-foreground">{formatDate(item.time)}</span></div>; }) : <div className="px-5 py-10 text-center text-xs text-muted-foreground sm:px-6">Your workspace activity will appear here.</div>}</div>
-          </article>
-          <article className="rounded-2xl border border-border/80 bg-card p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-6 dark:border-white/10 dark:bg-card">
-            <div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400"><Bot className="size-4" /></span><h2 className="text-sm font-bold">Agent activity</h2></div><p className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">What Nova has been working on</p></div><span className="text-2xl font-extrabold tracking-tight text-foreground dark:text-foreground">{completedRuns}</span></div>
-            <div className="mt-6 space-y-4"><ProgressRow label="Completed runs" value={completedRuns} total={Math.max(runs.length, 1)} tone="bg-emerald-500" /><ProgressRow label="Failed runs" value={failedRuns} total={Math.max(runs.length, 1)} tone="bg-red-500" /><ProgressRow label="Active automations" value={activeAutomations} total={Math.max(automationRows.length, 1)} tone="bg-amber-500" /><ProgressRow label="Completed tasks" value={completedTasks} total={Math.max(tasks.length, 1)} tone="bg-primary" /></div>
-            <div className="mt-6 grid grid-cols-2 gap-2"><MiniStat label="Projects" value={projects.length} /><MiniStat label="Tasks" value={tasks.length} /><MiniStat label="Files" value={files.length} /><MiniStat label="Folders" value={folders.length} /></div>
-          </article>
-        </section>
-
-        <section className="mt-5 rounded-2xl bg-neutral-950 p-5 text-white sm:p-7 dark:bg-card/[0.08]"><div className="flex flex-col justify-between gap-5 md:flex-row md:items-center"><div><div className="flex items-center gap-2 text-orange-200"><TrendingUp className="size-4" /><span className="text-[11px] font-bold uppercase tracking-[0.14em]">Next up</span></div><h2 className="mt-2 text-xl font-extrabold tracking-tight">What would you like to work on next?</h2><p className="mt-2 max-w-xl text-sm leading-6 text-neutral-300">Pick up a conversation, browse your files, or adjust how Nova works.</p></div><button type="button" onClick={() => setLocation("/app/chats")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-xs font-bold text-foreground transition hover:bg-orange-50">Start a conversation <ArrowUp className="size-3.5" /></button></div></section>
+        </div>
       </div>
     </DashboardLayout>
   );
@@ -258,24 +198,3 @@ function ToolActivityPanel({ activities }: { activities: ToolActivity[] }) {
 }
 
 function WorkspaceError({ onRetry }: { onRetry: () => void }) { return <DashboardLayout><div className="grid min-h-[65vh] place-items-center px-4 text-center"><div><NovaMark size={40} className="mx-auto" /><h1 className="mt-4 text-2xl font-extrabold tracking-tight">Nova could not open your computer.</h1><p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">Your workspace remains private. Try reconnecting to your computer.</p><Button className="mt-5 rounded-full bg-primary hover:bg-primary/90" onClick={onRetry}>Try again</Button></div></div></DashboardLayout>; }
-
-
-function AnalyticsMetric({ label, value, note, icon: Icon, tone }: { label: string; value: React.ReactNode; note: string; icon: React.ComponentType<{ className?: string }>; tone: "violet" | "blue" | "amber" | "emerald" | "red" }) {
-  const tones = { violet: "bg-primary/10 text-primary dark:text-primary", blue: "bg-primary/10 text-primary dark:text-primary", amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400", emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", red: "bg-red-500/10 text-red-600 dark:text-red-400" };
-  return <article className="rounded-2xl border border-border/80 bg-card p-5 shadow-[0_12px_30px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card"><div className={"grid size-9 place-items-center rounded-xl " + tones[tone]}><Icon className="size-4" /></div><p className="mt-5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{label}</p><p className="mt-1 text-3xl font-extrabold tracking-tight text-foreground dark:text-foreground">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></article>;
-}
-
-function HealthRow({ icon: Icon, label, value, good }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; good: boolean }) {
-  return <div className="flex items-center gap-3"><span className={"grid size-8 place-items-center rounded-lg " + (good ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400")}><Icon className="size-3.5" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-bold text-foreground/80 dark:text-foreground">{label}</span><span className="block truncate text-[11px] text-muted-foreground">{value}</span></span><span className={"size-2 rounded-full " + (good ? "bg-emerald-500" : "bg-amber-500")} /></div>;
-}
-
-function ProgressRow({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
-  const percentage = Math.min(Math.round((value / Math.max(total, 1)) * 100), 100);
-  return <div><div className="mb-1.5 flex items-center justify-between text-xs"><span className="font-semibold text-muted-foreground dark:text-foreground/80">{label}</span><span className="font-bold text-muted-foreground">{value}</span></div><div className="h-2 overflow-hidden rounded-full bg-muted dark:bg-card/10"><div className={"h-full rounded-full " + tone} style={{ width: percentage + "%" }} /></div></div>;
-}
-
-function MiniStat({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-xl bg-muted p-3 dark:bg-card/5"><p className="text-lg font-extrabold text-foreground dark:text-foreground">{value}</p><p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{label}</p></div>;
-}
-
-function Metric({ value, label, icon: Icon }: { value: React.ReactNode; label: string; icon: React.ComponentType<{ className?: string }> }) { return <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_12px_30px_rgba(10,10,10,0.04)] sm:p-5 dark:border-white/10 dark:bg-card"><Icon className="size-4 text-primary" /><p className="mt-6 text-3xl font-extrabold tracking-tight text-foreground sm:mt-7 dark:text-foreground">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label}</p></div>; }

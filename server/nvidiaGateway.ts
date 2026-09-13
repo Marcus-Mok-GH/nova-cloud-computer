@@ -126,6 +126,7 @@ export function isNvidiaGatewayConfigured() {
   return !!(configuredGatewayUrl() && configuredGatewayToken());
 }
 
+/** Returns cached or freshly-probed NVIDIA gateway health flags and the user's current allowance. */
 export async function getNvidiaGatewayStatus(ownerId: number) {
   const allowance = await getNvidiaInferenceAllowanceForUser(ownerId);
   const maxRequests = getMaxRequests();
@@ -219,6 +220,7 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
  * /v1/models endpoint. Vision-language models remain eligible because they accept text
  * chat as well as image input. Results are cached briefly for model pickers.
  */
+/** Returns the list of available NVIDIA models, cached for five minutes. */
 export async function listNvidiaModels(forceRefresh = false) {
   if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
   const response = await gatewayFetch("/v1/models");

@@ -66,6 +66,7 @@ const DEFAULT_CHAT_TITLES = new Set([
     "Telegram Chat",
 ]);
 
+/** Generates a concise title for a chat based on its first user and assistant messages, but only when the title is still a default placeholder. */
 export async function autoTitleChatForUser(
     ownerId: number,
     chatId: number,
@@ -367,6 +368,7 @@ Be direct and action-oriented in your advice. Prefer the smallest correct guidan
 Current folders: {{folders}}
 Current files: {{files}}`;
 
+/** Runs the workspace agent: resolves direct file/folder actions immediately, otherwise streams a conversational reply through the NVIDIA gateway. */
 export async function runWorkspaceAgent(
     ownerId: number,
     chatId: number,

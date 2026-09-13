@@ -84,6 +84,7 @@ export async function answerTelegramCallbackQuery(token: string, callbackQueryId
   }, fetchImpl);
 }
 
+/** Sends a Telegram typing action to indicate the bot is processing a message. */
 export async function sendChatAction(token: string, chatId: string, action: "typing" | "choose_photo" | "upload_photo" | "choose_video" | "upload_video" | "choose_document" | "upload_document" | "find_location", fetchImpl: typeof fetch = fetch) {
   return telegramRequest<boolean>(token, "sendChatAction", {
     chat_id: chatId,

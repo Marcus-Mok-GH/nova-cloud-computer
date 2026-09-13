@@ -14,8 +14,10 @@ describe("NVIDIA gateway client", () => {
   const originalFetch = globalThis.fetch;
   const originalUrl = process.env.NVIDIA_GATEWAY_URL;
   const originalToken = process.env.NOVA_NVIDIA_GATEWAY_TOKEN;
+  const originalNimKey = process.env.NVIDIA_API_KEY;
 
   beforeEach(() => {
+    delete process.env.NVIDIA_API_KEY;
     process.env.NVIDIA_GATEWAY_URL = "https://api-server-zeta.vercel.app";
     process.env.NOVA_NVIDIA_GATEWAY_TOKEN = "t".repeat(32);
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -28,44 +30,48 @@ describe("NVIDIA gateway client", () => {
     globalThis.fetch = originalFetch;
     if (originalUrl === undefined) delete process.env.NVIDIA_GATEWAY_URL; else process.env.NVIDIA_GATEWAY_URL = originalUrl;
     if (originalToken === undefined) delete process.env.NOVA_NVIDIA_GATEWAY_TOKEN; else process.env.NOVA_NVIDIA_GATEWAY_TOKEN = originalToken;
+    if (originalNimKey === undefined) delete process.env.NVIDIA_API_KEY; else process.env.NVIDIA_API_KEY = originalNimKey;
   });
 
-  it("uses the server-only service token for health and bounded completion calls", async () => {
+  it("uses the NVIDIA NIM API key for health and bounded completion calls", async () => {
+    process.env.NVIDIA_API_KEY = "nvapi-test-key-0123456789abcdef0123456789";
+    delete process.env.NOVA_NVIDIA_GATEWAY_TOKEN;
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "Private response", model: "nvidia/nemotron-3-nano-30b-a3b" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3-nano-30b-a3b" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Private response" } }], model: "nvidia/nemotron-3-nano-30b-a3b" }), { status: 200 }));
 
     await expect(completeWithNvidiaGateway(7, "Summarize the release notes")).resolves.toMatchObject({ text: "Private response", allowance: { usedRequests: 1 } });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(1, "https://api-server-zeta.vercel.app/api/nvidia/health", expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${"t".repeat(32)}` }) }));
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/api/nvidia/chat", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Summarize the release notes" }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1, "https://api-server-zeta.vercel.app/models", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer nvapi-test-key-0123456789abcdef0123456789" }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-nano-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
     expect(claim).toHaveBeenCalledWith(7, 50);
   });
 
-  it("reports an unconfigured gateway safely without making a browser-reachable provider call", async () => {
+  it("reports an unconfigured gateway safely when no NVIDIA API key is present", async () => {
     delete process.env.NVIDIA_GATEWAY_URL;
+    delete process.env.NOVA_NVIDIA_GATEWAY_TOKEN;
     const status = await getNvidiaGatewayStatus(7);
     expect(status).toMatchObject({ configured: false, reachable: false, providerConfigured: false });
     await expect(completeWithNvidiaGateway(7, "Draft a summary")).rejects.toBeInstanceOf(NvidiaGatewayClientError);
   });
 
-  it("keeps a successful gateway reachable when a health response body is unavailable", async () => {
+  it("treats a successful /models round-trip as a valid, configured NIM connection", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await expect(getNvidiaGatewayStatus(7)).resolves.toMatchObject({
       configured: true,
       reachable: true,
-      providerConfigured: false,
-      providerConfigurationKnown: false,
+      providerConfigured: true,
+      providerConfigurationKnown: true,
     });
   });
   it("probes gateway health once and reuses the cached status within the TTL", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }));
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3-nano-30b-a3b" }] }), { status: 200 }));
 
     await getNvidiaGatewayStatus(7);
     await getNvidiaGatewayStatus(7);
     await getNvidiaGatewayStatus(7);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(globalThis.fetch).toHaveBeenCalledWith("https://api-server-zeta.vercel.app/api/nvidia/health", expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api-server-zeta.vercel.app/models", expect.anything());
   });
   it("streams SSE deltas through onChunk and accumulates the full reply", async () => {
     const sseBody = [
@@ -80,25 +86,25 @@ describe("NVIDIA gateway client", () => {
       "",
     ].join("\n");
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3-nano-30b-a3b" }] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(sseBody, { status: 200, headers: { "content-type": "text/event-stream" } }));
 
     const chunks: string[] = [];
     const result = await completeWithNvidiaGateway(7, "Summarize the release notes", undefined, chunk => chunks.push(chunk));
     expect(chunks).toEqual(["Hello", " from", " NVIDIA"]);
     expect(result).toMatchObject({ text: "Hello from NVIDIA", usage: null, allowance: { usedRequests: 1 } });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/api/nvidia/chat", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Summarize the release notes", stream: true }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-nano-30b-a3b", messages: [{ role: "user", content: "Summarize the release notes" }], stream: true }) }));
   });
-  it("falls back to the buffered JSON completion and emits it once when the gateway does not stream", async () => {
+  it("falls back to the buffered JSON completion and emits it once when NIM does not stream", async () => {
     globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", providerConfigured: true }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "Buffered reply", model: "nvidia/nemotron-3-nano-30b-a3b" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "nvidia/nemotron-3-nano-30b-a3b" }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Buffered reply" } }], model: "nvidia/nemotron-3-nano-30b-a3b" }), { status: 200 }));
 
     const chunks: string[] = [];
     const result = await completeWithNvidiaGateway(7, "Draft a summary", undefined, chunk => chunks.push(chunk));
     expect(chunks).toEqual(["Buffered reply"]);
     expect(result).toMatchObject({ text: "Buffered reply" });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/api/nvidia/chat", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Draft a summary", stream: true }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-nano-30b-a3b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
   it("discovers only text and vision-language models from NVIDIA", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [

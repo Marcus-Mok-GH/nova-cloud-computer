@@ -121,8 +121,9 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `DATABASE_URL`               | Neon Postgres connection string                                                 |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `NVIDIA_GATEWAY_URL`         | Optional HTTPS URL for the server-to-server NVIDIA inference gateway            |
-| `NOVA_NVIDIA_GATEWAY_TOKEN`  | Server-only credential for the NVIDIA inference gateway                         |
+| `NVIDIA_API_KEY`             | Server-only NVIDIA NIM API key (`nvapi-...`) from build.nvidia.com; powers chat  |
+| `NVIDIA_GATEWAY_URL`         | Optional HTTPS override for the NVIDIA inference base URL (defaults to NIM)     |
+| `NOVA_NVIDIA_GATEWAY_TOKEN`  | Legacy fallback credential if `NVIDIA_API_KEY` is not set                       |
 | `NVIDIA_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace NVIDIA request cap; defaults to `50`             |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |

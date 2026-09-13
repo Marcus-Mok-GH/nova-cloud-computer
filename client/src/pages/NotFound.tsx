@@ -35,7 +35,7 @@ export default function NotFound() {
           >
             <Button
               onClick={handleGoHome}
-              className="rounded-full bg-[oklch(0.72_0.015_250)] px-6 hover:bg-primary/90"
+              className="rounded-full bg-primary px-6 hover:bg-primary/90"
             >
               <Home className="size-4" />
               Go Home

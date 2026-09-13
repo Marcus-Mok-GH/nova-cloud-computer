@@ -56,7 +56,7 @@ describe("NVIDIA protected router", () => {
     await expect(owner.nvidia.complete({ prompt: "Summarize these workspace notes" })).resolves.toMatchObject({ text: "owner 1: Summarize these workspace notes" });
     expect(status).toHaveBeenCalledWith(1);
     expect(status).toHaveBeenCalledWith(2);
-    expect(complete).toHaveBeenCalledWith(1, "Summarize these workspace notes");
+    expect(complete).toHaveBeenCalledWith(1, "Summarize these workspace notes", undefined);
   });
 
   it("enforces bounded prompts and maps allowance exhaustion to a safe rate-limit error", async () => {

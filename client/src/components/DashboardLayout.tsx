@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { LogOut, MessageSquareText, Moon, MoreHorizontal, Plus, Search, Sun } from "lucide-react";
 import { navItems as nav } from "@/lib/nav";
 import NovaMark from "./NovaMark";
@@ -19,12 +19,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { loading, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
+  const search = useSearch();
   const [visibleNavCount, setVisibleNavCount] = useState(nav.length);
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const recentChats = (computer.data?.chats ?? []).slice(0, 12);
   const recentFiles = (computer.data?.files ?? []).slice(0, 6);
-  const isChatWorkspace = location.startsWith("/app/chats") || location.startsWith("/app?chatId=");
+  const isChatWorkspace = location.startsWith("/app/chats") || new URLSearchParams(search).has("chatId");
   const createChat = trpc.chats.create.useMutation({ onSuccess: async () => { await utils.workspace.computer.invalidate(); } });
 
   useEffect(() => {

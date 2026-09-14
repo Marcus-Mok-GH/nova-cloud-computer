@@ -329,16 +329,21 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "run_vm_task",
       description:
-        "Start a sandbox VM run for a task that needs real command execution or code running (e.g. scripts, installs, builds).",
+        "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). Always write complete Python code in `code` — `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
       parameters: {
         type: "object",
         properties: {
           task: {
             type: "string",
-            description: "The task for the sandbox VM to perform.",
+            description: "Short label for the run (max ~80 chars).",
+          },
+          code: {
+            type: "string",
+            description:
+              "The complete Python 3 script to execute in the sandbox VM. Use print() to output results.",
           },
         },
-        required: ["task"],
+        required: ["task", "code"],
       },
     },
   },
@@ -650,7 +655,10 @@ async function executeWorkspaceTool(
     case "run_vm_task": {
       const task = str(args.task);
       if (!task) return { ok: false, result: "A task is required." };
-      const started = await startAgentVmRun(ownerId, { task });
+      const started = await startAgentVmRun(ownerId, {
+        task,
+        code: str(args.code) || undefined,
+      });
       if (!started.configured)
         return {
           ok: false,

@@ -34,7 +34,13 @@ describe("DashboardLayout single-menu check", () => {
     expect(html).toContain(">Chats<");
     expect(html).not.toContain('aria-label="Chat history"');
     expect(html).not.toContain("Your conversation history");
-    // exactly one sidebar
-    expect((html.match(/<aside/g) || []).length).toBe(1);
+    // the only asides are the mobile drawer and desktop rail, both workspace navigation
+    expect((html.match(/<aside/g) || []).length).toBe(2);
+    expect((html.match(/aria-label="Workspace navigation"/g) || []).length).toBe(2);
+    // the mobile drawer is hidden from md up and the desktop rail only shows from md up
+    expect(html).toContain("md:hidden");
+    expect(html).toContain("hidden border-r border-border bg-muted/40");
+    // content is full width on phones (left padding only from md)
+    expect(html).toMatch(/<main class="min-h-0 min-w-0 flex-1[^"]*md:pl-/);
   });
 });

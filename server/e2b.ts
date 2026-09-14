@@ -415,49 +415,6 @@ function commandOutput(result: E2BCommandResult) {
   return [result.stdout, result.stderr].filter(Boolean).join("\n");
 }
 
-export async function runE2BTask(
-  client: E2BClientLike,
-  input: E2BTaskInput
-): Promise<E2BTaskResult> {
-  validateE2BCode(input.code);
-  reserveSandboxCreation();
-  const sandbox = await client.create({
-    ...persistentSandboxConfig(input.workspaceId, input.ownerId),
-    metadata: {
-      "nova.owner": String(input.ownerId),
-      "nova.workspace": String(input.workspaceId),
-      "nova.run": String(input.runId),
-    },
-    timeoutMs: 1_200_000,
-    lifecycle: { onTimeout: "kill" as const },
-  });
-
-  try {
-    await input.onSandboxCreated?.(sandbox.sandboxId);
-    const bundle = buildE2BWorkspaceBundle(input.files, input.folders);
-    await uploadBundleToSandbox(
-      sandbox,
-      input.files,
-      input.folders,
-      input.task,
-      input.code
-    );
-    const response = await runCommand(sandbox, "python3 .nova-task.py", {
-      cwd: E2B_WORKSPACE_DIR,
-      timeoutMs: RUN_TIMEOUT_MS,
-    });
-    const output = sanitizeE2BOutput(commandOutput(response));
-    if (response.exitCode !== 0) throw new Error(output);
-    return {
-      sandboxId: sandbox.sandboxId,
-      output,
-      uploadedFileCount: bundle.uploads.length,
-    };
-  } finally {
-    if (sandbox.kill) await sandbox.kill().catch(() => undefined);
-  }
-}
-
 class E2BTaskExitError extends Error {}
 
 async function runTaskInPersistentSandbox(

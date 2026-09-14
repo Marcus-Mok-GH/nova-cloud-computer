@@ -12,7 +12,7 @@
   ],
   "functions": {
     "api/[...path].ts": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "includeFiles": "dist/server/**"
     }
   }

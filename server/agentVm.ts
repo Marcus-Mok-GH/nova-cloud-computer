@@ -49,7 +49,7 @@ export async function getAgentVmStatus(ownerId: number) {
     configured: isE2BConfigured(),
     provider: "e2b" as const,
     policy: "persistent_workspace" as const,
-    limits: { timeoutSeconds: 30, network: "allowed" as const },
+    limits: { timeoutSeconds: 240, network: "allowed" as const },
     allowance: { usedRuns: 0, maxRuns: 0, remainingRuns: 0, exhausted: false },
     persistence: "s3_e2b_bidirectional" as const,
     sandbox,

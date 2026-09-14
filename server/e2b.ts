@@ -5,7 +5,10 @@ const MAX_WORKSPACE_FILES = 24;
 const MAX_FILE_BYTES = 60_000;
 const MAX_CODE_BYTES = 12_000;
 const MAX_OUTPUT_BYTES = 12_000;
-const RUN_TIMEOUT_MS = 30_000;
+// Per-run cap for the task script. Generous by design: the Vercel function
+// budget (maxDuration 300s) is the real ceiling; this only stops a truly
+// hung script from eating the whole request.
+const RUN_TIMEOUT_MS = 240_000;
 const PERSISTENT_SANDBOX_TIMEOUT_MS = 3_600_000;
 const DEFAULT_MAX_SANDBOX_CREATIONS = 50;
 

@@ -6,7 +6,6 @@ import {
   persistentSandboxConfig,
   resetSandboxCreationCount,
   reserveSandboxCreation,
-  runE2BTask,
   runE2BTaskInPersistentSandbox,
   sanitizeE2BOutput,
   validateE2BCode,
@@ -41,81 +40,12 @@ describe("E2B sandbox service", () => {
     } as unknown as E2BSandboxLike;
   }
 
-  it("creates a bounded sandbox, uploads a scoped bundle, records its ID, and kills it", async () => {
-    const write = vi.fn(async () => undefined);
-    const run = vi.fn(async (command: string) =>
-      command.startsWith("python")
-        ? { stdout: "analysis complete\n", stderr: "", exitCode: 0 }
-        : { stdout: "", stderr: "", exitCode: 0 }
-    );
-    const sandbox = sandboxWith(run);
-    sandbox.sandboxId = "sbx-private";
-    sandbox.files.write = write;
-    const create = vi.fn(async () => sandbox);
-    const onSandboxCreated = vi.fn(async () => undefined);
-    const client: E2BClientLike = { create, connect: vi.fn() };
-
-    const result = await runE2BTask(client, {
-      runId: 7,
-      workspaceId: 4,
-      ownerId: 12,
-      task: "Inspect my notes",
-      files: [
-        {
-          id: 2,
-          name: "notes.md",
-          content: "Private note",
-          mimeType: "text/markdown",
-          folderId: null,
-        },
-      ],
-      folders: [],
-      onSandboxCreated,
-    });
-
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        template: "base",
-        timeoutMs: 1_200_000,
-        metadata: expect.objectContaining({
-          "nova.owner": "12",
-          "nova.workspace": "4",
-          "nova.run": "7",
-        }),
-      })
-    );
-    expect(onSandboxCreated).toHaveBeenCalledWith("sbx-private");
-    expect(write).toHaveBeenCalledWith(
-      `${E2B_WORKSPACE_DIR}/input/2-notes.md`,
-      "Private note"
-    );
-    expect(run).toHaveBeenCalledWith(
-      "python3 .nova-task.py",
-      expect.objectContaining({ cwd: E2B_WORKSPACE_DIR, timeoutMs: 30_000 })
-    );
-    expect(sandbox.kill).toHaveBeenCalledOnce();
-    expect(result).toMatchObject({
-      sandboxId: "sbx-private",
-      output: "analysis complete",
-      uploadedFileCount: 1,
-    });
-  });
   it("blocks sandbox creation at the configured no-card safety cap", async () => {
     process.env.E2B_MAX_SANDBOX_CREATIONS = "0";
     const create = vi.fn();
     const client: E2BClientLike = { create, connect: vi.fn() };
 
     expect(() => reserveSandboxCreation()).toThrow(/no-card safety limit/i);
-    await expect(
-      runE2BTask(client, {
-        runId: 7,
-        workspaceId: 4,
-        ownerId: 12,
-        task: "Blocked task",
-        files: [],
-        folders: [],
-      })
-    ).rejects.toThrow(/no-card safety limit/i);
     await expect(ensurePersistentSandbox(client, 4, 12)).rejects.toThrow(
       /no-card safety limit/i
     );

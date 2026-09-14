@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const append = vi.fn(
   async (_owner: number, input: { role: string; content: string }) => ({
@@ -135,6 +135,7 @@ vi.mock("./telegram", () => ({
 const {
   runWorkspaceAgent,
   autoTitleChatForUser,
+  setGatewayRetryDelaysForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
 } = await import("./workspaceAgent");
 
@@ -157,6 +158,10 @@ const chatResult = (
 });
 
 describe("Nova tool-calling workspace agent", () => {
+  beforeEach(() => {
+    setGatewayRetryDelaysForTests([0, 0]);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -357,14 +362,32 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Connect Telegram in Settings first.");
   });
 
-  it("reports NVIDIA is unavailable when the chat throws", async () => {
-    chatWithNvidiaGateway.mockRejectedValueOnce(
+  it("streams reply chunks to onChunk as the model produces them", async () => {
+    chatWithNvidiaGateway.mockImplementationOnce(async (owner, messages, options) => {
+      options?.onChunk?.("Hello");
+      options?.onChunk?.(" world");
+      return chatResult({ text: "Hello world" });
+    });
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "tell me a story", {
+      onChunk,
+    });
+    expect(onChunk).toHaveBeenCalledWith("Hello");
+    expect(onChunk).toHaveBeenCalledWith(" world");
+    // The streamed reply is not re-sent as one bulk chunk.
+    expect(onChunk).not.toHaveBeenCalledWith("Hello world");
+    expect(result.message.content).toBe("Hello world");
+  });
+
+  it("reports NVIDIA is unavailable when every retry fails", async () => {
+    chatWithNvidiaGateway.mockRejectedValue(
       new NvidiaGatewayClientError("boom", "unavailable")
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
     expect(result.message.content).toContain("NVIDIA");
     expect(onChunk).toHaveBeenCalled();
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(3);
   });
 
   it("reports configuration error when the gateway is not configured", async () => {
@@ -430,6 +453,7 @@ describe("Nova tool-calling workspace agent", () => {
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("allowance");
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
   });
 
   it("returns configuration message when the chat throws a configuration error", async () => {
@@ -440,12 +464,42 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain("not connected");
   });
 
-  it("returns invalid-response message when the chat throws an invalid_response error", async () => {
-    chatWithNvidiaGateway.mockRejectedValueOnce(
+  it("returns invalid-response message when every retry is invalid", async () => {
+    chatWithNvidiaGateway.mockRejectedValue(
       new NvidiaGatewayClientError("bad", "invalid_response")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("invalid response");
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(3);
+  });
+
+  it("recovers from a transient gateway failure by retrying the round", async () => {
+    chatWithNvidiaGateway
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError("blip", "unavailable")
+      )
+      .mockResolvedValueOnce(chatResult({ text: "All good." }));
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
+    expect(result.message.content).toBe("All good.");
+    expect(onChunk).toHaveBeenCalledWith("All good.");
+  });
+
+  it("does not retry once text has already streamed to the client", async () => {
+    // Simulate a mid-stream failure: a chunk reached the client, then the
+    // gateway round aborted. Retrying would duplicate what the user saw.
+    chatWithNvidiaGateway.mockImplementationOnce(
+      async (owner, messages, options) => {
+        options?.onChunk?.("Partial ");
+        throw new NvidiaGatewayClientError("blip", "unavailable");
+      }
+    );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    expect(onChunk).toHaveBeenCalledWith("Partial ");
+    expect(result.message.content).toContain("NVIDIA");
   });
 });
 

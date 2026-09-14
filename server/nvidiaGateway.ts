@@ -602,13 +602,159 @@ export type GatewayChatResult = {
 
 /**
  * Single OpenAI-compatible chat completion with optional function-calling
- * tools. Non-streaming: tool-call rounds are buffered so the caller can
- * execute tools and re-invoke. Claims one inference request per call.
+ * tools. Tool-call rounds are buffered so the caller can execute tools and
+ * re-invoke; pass `onChunk` to stream text deltas as they arrive. Claims one
+ * inference request per call.
  */
+type StreamedGatewayChat = {
+  text: string;
+  toolCalls: GatewayToolCall[];
+  model: string | null;
+  usage: GatewayCompletion["usage"] | null;
+};
+
+/**
+ * Reads a streamed OpenAI-compatible chat completion for the agent loop: text
+ * deltas are forwarded to `onChunk` as they arrive, and `delta.tool_calls`
+ * fragments are stitched back into complete tool calls. Falls back to the
+ * buffered JSON body when the gateway ignores the `stream` flag.
+ */
+async function readGatewayStreamedChatResult(
+  response: Response,
+  resolvedModel: string,
+  onChunk: (chunk: string) => void
+): Promise<StreamedGatewayChat> {
+  const isEventStream =
+    response.body !== null &&
+    (response.headers.get("content-type") ?? "").includes("text/event-stream");
+  if (!isEventStream) {
+    const payload = (await response.json().catch(() => undefined)) as
+      | {
+          choices?: Array<{
+            message?: {
+              content?: string | null;
+              tool_calls?: Array<{
+                id?: string;
+                function?: { name?: string; arguments?: string };
+              }>;
+            };
+          }>;
+          model?: string;
+          usage?: GatewayCompletion["usage"];
+        }
+      | undefined;
+    const choice = payload?.choices?.[0]?.message;
+    const text = typeof choice?.content === "string" ? choice.content : "";
+    if (text) onChunk(text);
+    const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
+      .filter(call => call?.function?.name)
+      .map(call => ({
+        id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
+        name: String(call.function!.name),
+        arguments:
+          typeof call.function!.arguments === "string"
+            ? call.function!.arguments
+            : "{}",
+      }));
+    return {
+      text,
+      toolCalls,
+      model: payload?.model ?? resolvedModel,
+      usage: payload?.usage ?? null,
+    };
+  }
+  let text = "";
+  let model: string | null = null;
+  const calls: Array<{ id: string; name: string; arguments: string }> = [];
+  try {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const event = JSON.parse(data) as {
+            model?: string;
+            choices?: Array<{
+              delta?: {
+                content?: string | null;
+                tool_calls?: Array<{
+                  index?: number;
+                  id?: string;
+                  type?: string;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+            }>;
+          };
+          if (typeof event.model === "string" && event.model) {
+            model = event.model;
+          }
+          const delta = event.choices?.[0]?.delta;
+          if (!delta) continue;
+          if (typeof delta.content === "string" && delta.content.length > 0) {
+            text += delta.content;
+            onChunk(delta.content);
+          }
+          for (const fragment of delta.tool_calls ?? []) {
+            const index =
+              typeof fragment.index === "number" ? fragment.index : 0;
+            const slot = (calls[index] ??= {
+              id: "",
+              name: "",
+              arguments: "",
+            });
+            if (typeof fragment.id === "string" && fragment.id) {
+              slot.id = fragment.id;
+            }
+            if (
+              typeof fragment.function?.name === "string" &&
+              fragment.function.name
+            ) {
+              slot.name = fragment.function.name;
+            }
+            if (typeof fragment.function?.arguments === "string") {
+              slot.arguments += fragment.function.arguments;
+            }
+          }
+        } catch {
+          // Ignore malformed stream fragments.
+        }
+      }
+    }
+  } catch (error) {
+    throw new NvidiaGatewayClientError(
+      "NVIDIA interrupted the response stream. Please retry shortly.",
+      "unavailable"
+    );
+  }
+  const toolCalls: GatewayToolCall[] = calls
+    .filter(call => call.name)
+    .map(call => ({
+      id: call.id || `call-${Math.random().toString(36).slice(2)}`,
+      name: call.name,
+      arguments: call.arguments || "{}",
+    }));
+  return { text, toolCalls, model: model ?? resolvedModel, usage: null };
+}
+
 export async function chatWithNvidiaGateway(
   ownerId: number,
   messages: GatewayChatMessage[],
-  options: { tools?: GatewayToolDefinition[]; model?: string } = {}
+  options: {
+    tools?: GatewayToolDefinition[];
+    model?: string;
+    /** When set, the final text streams chunk-by-chunk as it arrives. */
+    onChunk?: (chunk: string) => void;
+  } = {}
 ): Promise<GatewayChatResult> {
   const status = await getNvidiaGatewayStatus(ownerId);
   if (
@@ -640,8 +786,56 @@ export async function chatWithNvidiaGateway(
       ...(options.tools?.length
         ? { tools: options.tools, tool_choice: "auto" }
         : {}),
+      ...(options.onChunk ? { stream: true } : {}),
     }),
   });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => undefined)) as
+      | GatewayCompletion
+      | { error?: { message?: string } }
+      | undefined;
+    const message =
+      payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(
+      message ??
+        describeNvidiaError(payload, response.status) ??
+        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+      response.status === 429 ? "rate_limit" : "unavailable"
+    );
+  }
+  if (options.onChunk) {
+    const streamed = await readGatewayStreamedChatResult(
+      response,
+      resolvedModel,
+      options.onChunk
+    );
+    if (!streamed.text && !streamed.toolCalls.length) {
+      throw new NvidiaGatewayClientError(
+        "NVIDIA returned an invalid completion. Please retry shortly.",
+        "invalid_response"
+      );
+    }
+    return {
+      text: streamed.text,
+      toolCalls: streamed.toolCalls,
+      model: streamed.model ?? resolvedModel,
+      usage: streamed.usage,
+      allowance: {
+        usedRequests: claim.usedRequests,
+        maxRequests: status.allowance.maxRequests,
+        remainingRequests:
+          status.allowance.maxRequests === null
+            ? null
+            : Math.max(
+                0,
+                status.allowance.maxRequests - claim.usedRequests
+              ),
+        exhausted:
+          status.allowance.maxRequests !== null &&
+          claim.usedRequests >= status.allowance.maxRequests,
+      },
+    };
+  }
   const payload = (await response.json().catch(() => undefined)) as
     | GatewayCompletion
     | {
@@ -660,16 +854,6 @@ export async function chatWithNvidiaGateway(
         error?: { message?: string };
       }
     | undefined;
-  if (!response.ok) {
-    const message =
-      payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(
-      message ??
-        describeNvidiaError(payload, response.status) ??
-        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
-    );
-  }
   const choice = (
     payload as
       | {

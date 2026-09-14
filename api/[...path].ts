@@ -3,7 +3,22 @@ import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 
 const require = createRequire(import.meta.url);
-const { app } = require("../dist/server/app.cjs") as typeof import("../server/app");
+
+/**
+ * Lazily loads the bundled Express app from `dist/server/app.cjs`. Deferred
+ * until the first co-deployed request instead of at module import time, so
+ * unit tests can import this module's pure helpers (path parsing, header
+ * forwarding, etc.) without needing a production build on disk first — the
+ * CI pipeline still runs `pnpm run build` before `pnpm test` for the real
+ * request-dispatch coverage.
+ */
+let cachedApp: typeof import("../server/app")["app"] | null = null;
+function getCoDeployedApp(): typeof import("../server/app")["app"] {
+  if (!cachedApp) {
+    ({ app: cachedApp } = require("../dist/server/app.cjs") as typeof import("../server/app"));
+  }
+  return cachedApp;
+}
 
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
 const REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
@@ -153,10 +168,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
-  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) return app(req, res);
+  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) return getCoDeployedApp()(req, res);
 
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
-  return app(req, res);
+  return getCoDeployedApp()(req, res);
 }

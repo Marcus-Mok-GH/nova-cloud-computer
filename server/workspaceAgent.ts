@@ -1,512 +1,840 @@
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { startAgentVmRun } from "./agentVm";
 import {
-    appendChatMessageForUser,
-    createWorkspaceFileForUser,
-    createWorkspaceFolderForUser,
-    deleteWorkspaceFileForUser,
-    deleteWorkspaceFolderForUser,
-    getChatForUser,
-    getTelegramCredentialsForUser,
-    getWorkspaceComputer,
-    listChatMessagesForUser,
-    renameChatIfDefaultForUser,
-    updateWorkspaceFileForUser,
-    updateWorkspaceFolderForUser,
+  appendChatMessageForUser,
+  createWorkspaceFileForUser,
+  createWorkspaceFolderForUser,
+  deleteWorkspaceFileForUser,
+  deleteWorkspaceFolderForUser,
+  getChatForUser,
+  getTelegramCredentialsForUser,
+  getWorkspaceComputer,
+  listChatMessagesForUser,
+  renameChatIfDefaultForUser,
+  updateWorkspaceFileForUser,
+  updateWorkspaceFolderForUser,
 } from "./db";
 import {
-    completeWithNvidiaGateway,
-    getNvidiaGatewayStatus,
-    NvidiaGatewayClientError,
+  chatWithNvidiaGateway,
+  completeWithNvidiaGateway,
+  getNvidiaGatewayStatus,
+  type GatewayChatMessage,
+  type GatewayToolCall,
+  type GatewayToolDefinition,
+  NvidiaGatewayClientError,
 } from "./nvidiaGateway";
 import { sendTelegramMessage } from "./telegram";
 
 export type AgentAction = {
-    kind: "folder" | "file" | "telegram" | "vm";
-    name: string;
-    operation?:
-        | "created"
-        | "renamed"
-        | "moved"
-        | "deleted"
-        | "sent"
-        | "completed"
-        | "disabled";
+  kind: "folder" | "file" | "telegram" | "vm";
+  name: string;
+  operation?:
+    | "created"
+    | "updated"
+    | "renamed"
+    | "moved"
+    | "deleted"
+    | "sent"
+    | "completed"
+    | "disabled";
 };
 
 export type WorkspaceToolActivity = {
-    id: string;
-    name: string;
-    state: "running" | "completed" | "failed";
-    args: Record<string, string>;
-    summary?: string;
+  id: string;
+  name: string;
+  state: "running" | "completed" | "failed";
+  args: Record<string, string>;
+  summary?: string;
 };
 
 type WorkspaceAgentOptions = {
-    onEvent?: (event: {
-        type: "tool";
-        tool: WorkspaceToolActivity;
-    }) => void | Promise<void>;
-    onChunk?: (chunk: string) => void | Promise<void>;
+  onEvent?: (event: {
+    type: "tool";
+    tool: WorkspaceToolActivity;
+  }) => void | Promise<void>;
+  onChunk?: (chunk: string) => void | Promise<void>;
 };
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 
-function actionSummary(action?: AgentAction) {
-    if (!action) return "Nova could not complete this tool call.";
-    if (action.operation === "disabled")
-        return `${action.name} is not configured.`;
-    const operation = action.operation ?? "created";
-    return `${operation[0].toUpperCase()}${operation.slice(1)} ${action.kind}: ${action.name}.`;
-}
+/** Safety cap on tool-calling rounds per user message. */
+const MAX_TOOL_ROUNDS = 8;
 
 const DEFAULT_CHAT_TITLES = new Set([
-    "New workspace conversation",
-    "New conversation",
-    "Telegram Chat",
+  "New workspace conversation",
+  "New conversation",
+  "Telegram Chat",
 ]);
 
 /** Generates a concise title for a chat based on its first user and assistant messages, but only when the title is still a default placeholder. */
 export async function autoTitleChatForUser(
-    ownerId: number,
-    chatId: number,
+  ownerId: number,
+  chatId: number
 ): Promise<void> {
-    try {
-        const chat = await getChatForUser(ownerId, chatId);
-        if (!chat || !DEFAULT_CHAT_TITLES.has(chat.title)) return;
-        const messages = await listChatMessagesForUser(ownerId, chatId);
-        const firstUser = messages?.find((m) => m.role === "user");
-        const firstAssistant = messages?.find(
-            (m) =>
-                m.role === "assistant" &&
-                !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX),
-        );
-        if (!firstUser || !firstAssistant) return;
-        const prompt = [
-            "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
-            firstUser.content,
-            firstAssistant.content,
-        ].join("\n");
-        const result = await completeWithNvidiaGateway(
-            ownerId,
-            prompt.slice(0, 2000),
-        );
-        const raw = String(result.text ?? "")
-            .trim()
-            .split("\n")[0]
-            .replace(/^["']+|["']+$/g, "")
-            .trim()
-            .slice(0, 60);
-        if (raw)
-            await renameChatIfDefaultForUser(
-                ownerId,
-                chatId,
-                raw,
-                Array.from(DEFAULT_CHAT_TITLES),
-            );
-    } catch (error) {
-        console.error("[Chat title] auto-title failed", error);
-    }
+  try {
+    const chat = await getChatForUser(ownerId, chatId);
+    if (!chat || !DEFAULT_CHAT_TITLES.has(chat.title)) return;
+    const messages = await listChatMessagesForUser(ownerId, chatId);
+    const firstUser = messages?.find(m => m.role === "user");
+    const firstAssistant = messages?.find(
+      m =>
+        m.role === "assistant" &&
+        !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
+    );
+    if (!firstUser || !firstAssistant) return;
+    const prompt = [
+      "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
+      firstUser.content,
+      firstAssistant.content,
+    ].join("\n");
+    const result = await completeWithNvidiaGateway(
+      ownerId,
+      prompt.slice(0, 2000)
+    );
+    const raw = String(result.text ?? "")
+      .trim()
+      .split("\n")[0]
+      .replace(/^["']+|["']+$/g, "")
+      .trim()
+      .slice(0, 60);
+    if (raw)
+      await renameChatIfDefaultForUser(
+        ownerId,
+        chatId,
+        raw,
+        Array.from(DEFAULT_CHAT_TITLES)
+      );
+  } catch (error) {
+    console.error("[Chat title] auto-title failed", error);
+  }
 }
 
-async function runDirectWorkspaceAction(
-    ownerId: number,
-    content: string,
-    computer: Awaited<ReturnType<typeof getWorkspaceComputer>>,
-) {
-    const telegramMessage = content.match(
-        /(?:send|post)\s+(?:a\s+)?telegram(?:\s+message)?(?:\s+saying|\s+with\s+text|:)\s*["']?(.+?)["']?\.?$/i,
-    );
-    if (telegramMessage?.[1]?.trim()) {
-        const credentials = await getTelegramCredentialsForUser(ownerId);
-        if (!credentials?.chatId)
-            return {
-                reply: "Connect Telegram in Settings, send /start to your bot, and discover its chat before asking me to send a message.",
-                actions: [] as AgentAction[],
-            };
-        const text = telegramMessage[1].trim().replace(/["']$/, "");
-        const sent = await sendTelegramMessage(
-            credentials.token,
-            credentials.chatId,
-            text,
-        );
-        return {
-            reply: `Sent your Telegram message (message #${sent.message_id}).`,
-            actions: [
-                {
-                    kind: "telegram" as const,
-                    name: text,
-                    operation: "sent" as const,
-                },
-            ],
-        };
-    }
-    const vmTask = content.match(
-        /(?:use|run|start|launch)\s+(?:a\s+)?(?:e2b\s+)?(?:vm|sandbox)\s+(?:to|for)\s+(.+)/i,
-    );
-    if (vmTask?.[1]?.trim()) {
-        const started = await startAgentVmRun(ownerId, {
-            task: vmTask[1].trim(),
-        });
-        if (!started.configured)
-            return {
-                reply: started.message,
-                actions: [
-                    {
-                        kind: "vm" as const,
-                        name: "E2B",
-                        operation: "disabled" as const,
-                    },
-                ],
-            };
-        return {
-            reply: started.message,
-            actions: [
-                {
-                    kind: "vm" as const,
-                    name: `run #${started.run?.id ?? ""}`,
-                    operation: "completed" as const,
-                },
-            ],
-        };
-    }
-    const renameFolder = content.match(
-        /rename\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+to\s+['"]?([^'".\n]+)['"]?/i,
-    );
-    if (renameFolder?.[1] && renameFolder[2]) {
-        const folder = computer.folders.find(
-            (item) =>
-                item.name.toLowerCase() ===
-                renameFolder[1].trim().toLowerCase(),
-        );
-        const updated =
-            folder &&
-            (await updateWorkspaceFolderForUser(ownerId, folder.id, {
-                name: renameFolder[2].trim(),
-            }));
-        if (updated)
-            return {
-                reply: `Renamed the folder to **${updated.name}**.`,
-                actions: [
-                    {
-                        kind: "folder" as const,
-                        name: updated.name,
-                        operation: "renamed" as const,
-                    },
-                ],
-            };
-    }
-    const moveFolder = content.match(
-        /move\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?\s+(?:to|into)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i,
-    );
-    if (moveFolder?.[1] && moveFolder[2]) {
-        const folder = computer.folders.find(
-            (item) =>
-                item.name.toLowerCase() === moveFolder[1].trim().toLowerCase(),
-        );
-        const destination = computer.folders.find(
-            (item) =>
-                item.name.toLowerCase() === moveFolder[2].trim().toLowerCase(),
-        );
-        const updated =
-            folder &&
-            destination &&
-            folder.id !== destination.id &&
-            (await updateWorkspaceFolderForUser(ownerId, folder.id, {
-                parentId: destination.id,
-            }));
-        if (updated)
-            return {
-                reply: `Moved **${folder.name}** into **${destination.name}**.`,
-                actions: [
-                    {
-                        kind: "folder" as const,
-                        name: folder.name,
-                        operation: "moved" as const,
-                    },
-                ],
-            };
-    }
-    const renameFile = content.match(
-        /rename\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?\s+to\s+['"]?([\w.-]+)['"]?/i,
-    );
-    if (renameFile?.[1] && renameFile[2]) {
-        const file = computer.files.find(
-            (item) => item.name.toLowerCase() === renameFile[1].toLowerCase(),
-        );
-        const updated =
-            file &&
-            (await updateWorkspaceFileForUser(ownerId, file.id, {
-                name: renameFile[2],
-            }));
-        if (updated)
-            return {
-                reply: `Renamed **${file.name}** to **${updated.name}**.`,
-                actions: [
-                    {
-                        kind: "file" as const,
-                        name: updated.name,
-                        operation: "renamed" as const,
-                    },
-                ],
-            };
-    }
-    const moveFile = content.match(
-        /move\s+(?:the\s+)?file\s+['"]?([\w.-]+)['"]?\s+(?:to|into)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i,
-    );
-    if (moveFile?.[1] && moveFile[2]) {
-        const file = computer.files.find(
-            (item) => item.name.toLowerCase() === moveFile[1].toLowerCase(),
-        );
-        const folder = computer.folders.find(
-            (item) =>
-                item.name.toLowerCase() === moveFile[2].trim().toLowerCase(),
-        );
-        const updated =
-            file &&
-            folder &&
-            (await updateWorkspaceFileForUser(ownerId, file.id, {
-                folderId: folder.id,
-            }));
-        if (updated)
-            return {
-                reply: `Moved **${file.name}** into **${folder.name}**.`,
-                actions: [
-                    {
-                        kind: "file" as const,
-                        name: file.name,
-                        operation: "moved" as const,
-                    },
-                ],
-            };
-    }
-    const deleteFile = content.match(
-        /(?:delete|remove)\s+(?:the\s+)?file\s+['"]?([\w-]+(?:\.[\w-]+)?)/i,
-    );
-    if (deleteFile?.[1]) {
-        const file = computer.files.find(
-            (item) => item.name.toLowerCase() === deleteFile[1].toLowerCase(),
-        );
-        if (file && (await deleteWorkspaceFileForUser(ownerId, file.id)))
-            return {
-                reply: `Deleted **${file.name}** from your private workspace.`,
-                actions: [
-                    {
-                        kind: "file" as const,
-                        name: file.name,
-                        operation: "deleted" as const,
-                    },
-                ],
-            };
-    }
-    const deleteFolder = content.match(
-        /(?:delete|remove)\s+(?:the\s+)?folder\s+['"]?([^'".\n]+)['"]?/i,
-    );
-    if (deleteFolder?.[1]) {
-        const folder = computer.folders.find(
-            (item) =>
-                item.name.toLowerCase() ===
-                deleteFolder[1].trim().toLowerCase(),
-        );
-        if (folder && (await deleteWorkspaceFolderForUser(ownerId, folder.id)))
-            return {
-                reply: `Deleted the **${folder.name}** folder and its contents.`,
-                actions: [
-                    {
-                        kind: "folder" as const,
-                        name: folder.name,
-                        operation: "deleted" as const,
-                    },
-                ],
-            };
-    }
-    const folder = content.match(
-        /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?folder\s+(?:named|called|titled)\s+['"]?([^'".\n]+)['"]?/i,
-    );
-    if (folder?.[1]?.trim()) {
-        const created = await createWorkspaceFolderForUser(ownerId, {
-            name: folder[1].trim(),
-        });
-        if (created)
-            return {
-                reply: `Created the **${created.name}** folder in your private workspace.`,
-                actions: [{ kind: "folder" as const, name: created.name }],
-            };
-    }
-    const file = content.match(
-        /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:plain[ -]?text\s+|text\s+)?file\s+(?:named|called|titled)\s+['"]?([\w.-]+)['"]?/i,
-    );
-    // Fallback for generic phrasing without an explicit filename, e.g.
-    // "create a dummy file" or "make a test file" — derive a filename from the
-    // descriptor instead of falling through to the model, which cannot
-    // actually create anything and must never claim otherwise.
-    const genericFile = file
-        ? null
-        : content.match(
-              /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?([\w-]+)\s+file\b/i,
-          );
-    const fileMatch = file ?? genericFile;
-    if (fileMatch?.[1]?.trim()) {
-        const exact =
-            content.match(
-                /(?:containing exactly|with content|with the text|saying|that says)\s*:?\s*(.+)$/i,
-            )?.[1] ?? "";
-        const rawName = fileMatch[1].trim();
-        const name = /\.[\w]+$/.test(rawName) ? rawName : `${rawName}.txt`;
-        const created = await createWorkspaceFileForUser(ownerId, {
-            name,
-            content: exact,
-        });
-        if (created)
-            return {
-                reply: `Created **${created.name}** in your private workspace.`,
-                actions: [{ kind: "file" as const, name: created.name }],
-            };
-    }
-    return {
-        reply: "",
-        actions: [] as AgentAction[],
-    };
+/** Tool schemas exposed to the model on every message. */
+const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
+  {
+    type: "function",
+    function: {
+      name: "list_workspace",
+      description:
+        "List the current folders and files in the user's private workspace, with their ids and locations.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_file",
+      description:
+        "Create a new file in the user's private workspace with the given name and content.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "File name including its extension, e.g. notes.txt",
+          },
+          content: {
+            type: "string",
+            description: "Full text content to store in the file.",
+          },
+          folder: {
+            type: "string",
+            description:
+              "Optional existing folder name or id to place the file in. Omit for the workspace root.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_file",
+      description: "Read the full text content of an existing workspace file.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            description: "File name or id to read.",
+          },
+        },
+        required: ["file"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_file",
+      description:
+        "Replace the entire content of an existing workspace file. Read the file first when unsure about its current content.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            description: "File name or id to edit.",
+          },
+          content: {
+            type: "string",
+            description: "The new full content for the file.",
+          },
+        },
+        required: ["file", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "rename_file",
+      description: "Rename an existing workspace file.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "File name or id to rename." },
+          new_name: {
+            type: "string",
+            description: "The new file name, including its extension.",
+          },
+        },
+        required: ["file", "new_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_file",
+      description: "Move an existing workspace file into a folder.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "File name or id to move." },
+          folder: {
+            type: "string",
+            description: "Target folder name or id.",
+          },
+        },
+        required: ["file", "folder"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_file",
+      description: "Delete a file from the user's private workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          file: { type: "string", description: "File name or id to delete." },
+        },
+        required: ["file"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_folder",
+      description: "Create a new folder in the user's private workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Folder name." },
+          parent: {
+            type: "string",
+            description:
+              "Optional existing parent folder name or id. Omit for the workspace root.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "rename_folder",
+      description: "Rename an existing workspace folder.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder: {
+            type: "string",
+            description: "Folder name or id to rename.",
+          },
+          new_name: { type: "string", description: "The new folder name." },
+        },
+        required: ["folder", "new_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_folder",
+      description: "Move an existing workspace folder into another folder.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder: { type: "string", description: "Folder name or id to move." },
+          parent: {
+            type: "string",
+            description: "Target parent folder name or id.",
+          },
+        },
+        required: ["folder", "parent"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_folder",
+      description:
+        "Delete a folder and everything inside it from the user's private workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          folder: {
+            type: "string",
+            description: "Folder name or id to delete.",
+          },
+        },
+        required: ["folder"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_telegram_message",
+      description:
+        "Send a text message to the user's linked Telegram chat. Requires Telegram to be connected.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Message text to send." },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_vm_task",
+      description:
+        "Start a sandbox VM run for a task that needs real command execution or code running (e.g. scripts, installs, builds).",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description: "The task for the sandbox VM to perform.",
+          },
+        },
+        required: ["task"],
+      },
+    },
+  },
+];
+
+type Computer = Awaited<ReturnType<typeof getWorkspaceComputer>>;
+type FolderRow = Computer["folders"][number];
+type FileRow = Computer["files"][number];
+
+function resolveFolder(
+  computer: Computer,
+  ref: unknown
+): FolderRow | undefined {
+  if (typeof ref !== "string" || !ref.trim()) return undefined;
+  const key = ref.trim();
+  const numeric = /^\d+$/.test(key) ? Number(key) : undefined;
+  return computer.folders.find(
+    folder =>
+      (numeric !== undefined && folder.id === numeric) ||
+      folder.name.toLowerCase() === key.toLowerCase()
+  );
+}
+
+function resolveFile(computer: Computer, ref: unknown): FileRow | undefined {
+  if (typeof ref !== "string" || !ref.trim()) return undefined;
+  const key = ref.trim();
+  const numeric = /^\d+$/.test(key) ? Number(key) : undefined;
+  return computer.files.find(
+    file =>
+      (numeric !== undefined && file.id === numeric) ||
+      file.name.toLowerCase() === key.toLowerCase()
+  );
+}
+
+function describeWorkspace(computer: Computer) {
+  const folders =
+    computer.folders
+      .map(
+        folder =>
+          `${folder.name} (id ${folder.id}${folder.parentId ? `, parent id ${folder.parentId}` : ""})`
+      )
+      .join(", ") || "none";
+  const files =
+    computer.files
+      .map(
+        file =>
+          `${file.name} (id ${file.id}${file.folderId ? `, folder id ${file.folderId}` : ""})`
+      )
+      .join(", ") || "none";
+  return { folders, files };
 }
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a concise, direct assistant for a private computer workspace.
 
-IMPORTANT: you are only ever shown a message after the system already tried to match it against a supported workspace action (create/rename/move/delete a file or folder, send a Telegram message, start a sandbox run) and found no match. This means whatever the user just asked for was NOT performed automatically — you are not confirming a completed action, you are the fallback for requests that need clarification or are simply chat. Never say something was created, edited, moved, deleted, or sent unless you can see it reflected in the current files/folders list below — if you cannot see it, it did not happen.
+For every message you decide how to respond: act on the workspace with the provided tools, reply conversationally, or both. Whenever the user asks to create, read, edit, rename, move, or delete files or folders, send a Telegram message, or run a sandbox VM task, use the matching tool instead of describing steps. Prefer acting over explaining.
 
-You cannot edit or read the contents of files, and you cannot run commands. If the user wants to edit a file, tell them that's not supported yet. If they want to create a file or folder but the request wasn't understood, tell them the exact phrasing that works (e.g. "create a file named notes.txt") rather than pretending it worked.
-
-Be direct and action-oriented in your advice. Prefer the smallest correct guidance and point the user to the workspace's actual state below — it is always accurate. Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
+Workspace rules:
+- Resolve files and folders by the exact names/ids listed below; if something is missing, say so instead of guessing.
+- edit_file replaces the file's entire content — read it first when unsure.
+- Keep tool arguments exact and minimal, and briefly confirm what each tool did in your reply.
+- Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
+- Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
 Current folders: {{folders}}
 Current files: {{files}}`;
 
-/** Runs the workspace agent: resolves direct file/folder actions immediately, otherwise streams a conversational reply through the NVIDIA gateway. */
+type ToolExecution = {
+  ok: boolean;
+  result: string;
+  action?: AgentAction;
+};
+
+/** Executes a single model-requested tool call against the workspace. */
+async function executeWorkspaceTool(
+  ownerId: number,
+  computer: Computer,
+  call: GatewayToolCall
+): Promise<ToolExecution> {
+  let args: Record<string, unknown> = {};
+  try {
+    args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
+    if (args === null || typeof args !== "object") args = {};
+  } catch {
+    return { ok: false, result: "Invalid JSON arguments." };
+  }
+  const str = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
+  switch (call.name) {
+    case "list_workspace": {
+      const { folders, files } = describeWorkspace(computer);
+      return {
+        ok: true,
+        result: `Folders: ${folders}. Files: ${files}.`,
+      };
+    }
+    case "create_file": {
+      const name = str(args.name);
+      if (!name) return { ok: false, result: "A file name is required." };
+      const folder =
+        args.folder !== undefined
+          ? resolveFolder(computer, args.folder)
+          : undefined;
+      if (args.folder !== undefined && !folder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      const created = await createWorkspaceFileForUser(ownerId, {
+        name,
+        content: str(args.content),
+        folderId: folder?.id ?? null,
+      });
+      if (!created)
+        return {
+          ok: false,
+          result: `Could not create the file — a file named ${name} may already exist.`,
+        };
+      return {
+        ok: true,
+        result: `Created ${created.name} (id ${created.id}).`,
+        action: { kind: "file", name: created.name, operation: "created" },
+      };
+    }
+    case "read_file": {
+      const file = resolveFile(computer, args.file);
+      if (!file)
+        return { ok: false, result: `File not found: ${str(args.file)}.` };
+      return {
+        ok: true,
+        result: `Content of ${file.name} (id ${file.id}):\n${String(file.content ?? "").slice(0, 20000)}`,
+      };
+    }
+    case "edit_file": {
+      const file = resolveFile(computer, args.file);
+      if (!file)
+        return { ok: false, result: `File not found: ${str(args.file)}.` };
+      const content = typeof args.content === "string" ? args.content : "";
+      const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
+        content,
+      });
+      if (!updated)
+        return { ok: false, result: `Could not edit ${file.name}.` };
+      return {
+        ok: true,
+        result: `Updated ${file.name} (id ${file.id}).`,
+        action: { kind: "file", name: file.name, operation: "updated" },
+      };
+    }
+    case "rename_file": {
+      const file = resolveFile(computer, args.file);
+      const newName = str(args.new_name);
+      if (!file)
+        return { ok: false, result: `File not found: ${str(args.file)}.` };
+      if (!newName)
+        return { ok: false, result: "A new file name is required." };
+      const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
+        name: newName,
+      });
+      if (!updated)
+        return {
+          ok: false,
+          result: `Could not rename ${file.name} — ${newName} may already exist.`,
+        };
+      return {
+        ok: true,
+        result: `Renamed ${file.name} to ${updated.name}.`,
+        action: { kind: "file", name: updated.name, operation: "renamed" },
+      };
+    }
+    case "move_file": {
+      const file = resolveFile(computer, args.file);
+      const folder = resolveFolder(computer, args.folder);
+      if (!file)
+        return { ok: false, result: `File not found: ${str(args.file)}.` };
+      if (!folder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
+        folderId: folder.id,
+      });
+      if (!updated)
+        return { ok: false, result: `Could not move ${file.name}.` };
+      return {
+        ok: true,
+        result: `Moved ${file.name} into ${folder.name}.`,
+        action: { kind: "file", name: file.name, operation: "moved" },
+      };
+    }
+    case "delete_file": {
+      const file = resolveFile(computer, args.file);
+      if (!file)
+        return { ok: false, result: `File not found: ${str(args.file)}.` };
+      if (!(await deleteWorkspaceFileForUser(ownerId, file.id)))
+        return { ok: false, result: `Could not delete ${file.name}.` };
+      return {
+        ok: true,
+        result: `Deleted ${file.name}.`,
+        action: { kind: "file", name: file.name, operation: "deleted" },
+      };
+    }
+    case "create_folder": {
+      const name = str(args.name);
+      if (!name) return { ok: false, result: "A folder name is required." };
+      const parent =
+        args.parent !== undefined
+          ? resolveFolder(computer, args.parent)
+          : undefined;
+      if (args.parent !== undefined && !parent)
+        return {
+          ok: false,
+          result: `Parent folder not found: ${str(args.parent)}.`,
+        };
+      const created = await createWorkspaceFolderForUser(ownerId, {
+        name,
+        parentId: parent?.id ?? null,
+      });
+      if (!created)
+        return {
+          ok: false,
+          result: `Could not create the folder — ${name} may already exist.`,
+        };
+      return {
+        ok: true,
+        result: `Created the ${created.name} folder (id ${created.id}).`,
+        action: { kind: "folder", name: created.name, operation: "created" },
+      };
+    }
+    case "rename_folder": {
+      const folder = resolveFolder(computer, args.folder);
+      const newName = str(args.new_name);
+      if (!folder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      if (!newName)
+        return { ok: false, result: "A new folder name is required." };
+      const updated = await updateWorkspaceFolderForUser(ownerId, folder.id, {
+        name: newName,
+      });
+      if (!updated)
+        return {
+          ok: false,
+          result: `Could not rename ${folder.name} — ${newName} may already exist.`,
+        };
+      return {
+        ok: true,
+        result: `Renamed ${folder.name} to ${updated.name}.`,
+        action: { kind: "folder", name: updated.name, operation: "renamed" },
+      };
+    }
+    case "move_folder": {
+      const folder = resolveFolder(computer, args.folder);
+      const parent = resolveFolder(computer, args.parent);
+      if (!folder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      if (!parent)
+        return {
+          ok: false,
+          result: `Parent folder not found: ${str(args.parent)}.`,
+        };
+      if (folder.id === parent.id)
+        return { ok: false, result: "A folder cannot be moved into itself." };
+      const updated = await updateWorkspaceFolderForUser(ownerId, folder.id, {
+        parentId: parent.id,
+      });
+      if (!updated)
+        return { ok: false, result: `Could not move ${folder.name}.` };
+      return {
+        ok: true,
+        result: `Moved ${folder.name} into ${parent.name}.`,
+        action: { kind: "folder", name: folder.name, operation: "moved" },
+      };
+    }
+    case "delete_folder": {
+      const folder = resolveFolder(computer, args.folder);
+      if (!folder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      if (!(await deleteWorkspaceFolderForUser(ownerId, folder.id)))
+        return { ok: false, result: `Could not delete ${folder.name}.` };
+      return {
+        ok: true,
+        result: `Deleted the ${folder.name} folder and its contents.`,
+        action: { kind: "folder", name: folder.name, operation: "deleted" },
+      };
+    }
+    case "send_telegram_message": {
+      const text = str(args.text);
+      if (!text) return { ok: false, result: "Message text is required." };
+      const credentials = await getTelegramCredentialsForUser(ownerId);
+      if (!credentials?.chatId)
+        return {
+          ok: false,
+          result:
+            "Telegram is not connected. Tell the user to connect Telegram in Settings, send /start to their bot, and discover its chat first.",
+        };
+      const sent = await sendTelegramMessage(
+        credentials.token,
+        credentials.chatId,
+        text
+      );
+      return {
+        ok: true,
+        result: `Sent the Telegram message (message #${sent.message_id}).`,
+        action: { kind: "telegram", name: text, operation: "sent" },
+      };
+    }
+    case "run_vm_task": {
+      const task = str(args.task);
+      if (!task) return { ok: false, result: "A task is required." };
+      const started = await startAgentVmRun(ownerId, { task });
+      if (!started.configured)
+        return {
+          ok: false,
+          result: started.message,
+          action: { kind: "vm", name: "E2B", operation: "disabled" },
+        };
+      return {
+        ok: true,
+        result: started.message,
+        action: {
+          kind: "vm",
+          name: `run #${started.run?.id ?? ""}`,
+          operation: "completed",
+        },
+      };
+    }
+    default:
+      return { ok: false, result: `Unknown tool: ${call.name}.` };
+  }
+}
+
+function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
+  return execution.action
+    ? `${execution.action.operation === "deleted" ? "Delet" : execution.action.operation === "updated" ? "Updat" : "Creat"}ed ${execution.action.kind}: ${execution.action.name}.`
+    : call.name;
+}
+
+/**
+ * Runs the workspace agent for a message: a tool-calling loop over the NVIDIA
+ * gateway. Every message goes through the model with workspace tools
+ * (create/read/edit/rename/move/delete files and folders, Telegram, VM runs);
+ * the loop executes requested tools and continues until the model produces a
+ * final text reply (or the round cap is hit).
+ */
 export async function runWorkspaceAgent(
-    ownerId: number,
-    chatId: number,
-    content: string,
-    options: WorkspaceAgentOptions = {},
+  ownerId: number,
+  chatId: number,
+  content: string,
+  options: WorkspaceAgentOptions = {}
 ) {
-    const emitTool = async (tool: WorkspaceToolActivity) => {
-        try {
-            await options.onEvent?.({ type: "tool", tool });
-        } catch {}
-
-        if (tool.state === "completed" || tool.state === "failed") {
-            try {
-                await appendChatMessageForUser(ownerId, {
-                    chatId,
-                    role: "assistant",
-                    content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
-                });
-            } catch (error) {
-                console.error("[Tool activity] failed to persist", error);
-            }
-        }
-    };
-    /** Appends the assistant's reply to the chat and returns the persisted message. */
-    const persistAssistant = async (reply: string) =>
-        appendChatMessageForUser(ownerId, {
-            chatId,
-            role: "assistant",
-            content: reply,
-        });
-
-    const emitDirectActions = async (actions: AgentAction[]) => {
-        for (let index = 0; index < actions.length; index += 1) {
-            const action = actions[index];
-            await emitTool({
-                id: `direct-${index}`,
-                name: `workspace_${action.kind}`,
-                state: action.operation === "disabled" ? "failed" : "completed",
-                args: { name: action.name },
-                summary: actionSummary(action),
-            });
-        }
-    };
-
-    await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
-    const computer = await getWorkspaceComputer(ownerId);
-    const context = WORKSPACE_AGENT_PROMPT.replace(
-        "{{folders}}",
-        computer.folders.map((folder) => folder.name).join(", ") || "none",
-    ).replace(
-        "{{files}}",
-        computer.files.map((file) => file.name).join(", ") || "none",
-    );
-
-    // Explicit workspace actions (file/folder create-rename-move-delete, Telegram,
-    // VM run) are resolved directly and need no model. Try them first so these
-    // operations stay immediate and deterministic.
-    const direct = await runDirectWorkspaceAction(ownerId, content, computer);
-    if (direct.actions.length > 0 || direct.reply.trim()) {
-        await emitDirectActions(direct.actions);
-        await options.onChunk?.(direct.reply);
-        const message = await persistAssistant(direct.reply);
-        return { message, actions: direct.actions };
-    }
-
-    // Conversational chat: run the prompt through NVIDIA NIM (Nova's server-only
-    // NVIDIA gateway). No workspace VM or agent CLI is involved.
+  const emitTool = async (tool: WorkspaceToolActivity) => {
     try {
-        const status = await getNvidiaGatewayStatus(ownerId);
-        if (!status.configured) {
-            const reply =
-                "NVIDIA inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
-            await options.onChunk?.(reply);
-            const message = await persistAssistant(reply);
-            return { message, actions: [] };
-        }
-        if (
-            !status.reachable ||
-            (status.providerConfigurationKnown && !status.providerConfigured)
-        ) {
-            const reply =
-                "NVIDIA inference gateway is temporarily unreachable. Please try again shortly.";
-            await options.onChunk?.(reply);
-            const message = await persistAssistant(reply);
-            return { message, actions: [] };
-        }
-        if (status.allowance.exhausted) {
-            const reply = `NVIDIA inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
-            await options.onChunk?.(reply);
-            const message = await persistAssistant(reply);
-            return { message, actions: [] };
-        }
-        const result = await completeWithNvidiaGateway(
-            ownerId,
-            `${context}\n\n${content}`,
-            undefined,
-            async (chunk) => {
-                await options.onChunk?.(chunk);
-            },
-        );
-        const reply = String(
-            result.text || "I'm ready to help with this workspace.",
-        ).trim();
-        const message = await persistAssistant(reply);
-        return { message, actions: [] };
-    } catch (error) {
-        console.error("[Chat] NVIDIA chat failed", error);
-        const kind =
-            error instanceof NvidiaGatewayClientError
-                ? error.kind
-                : "unavailable";
-        let reply: string;
-        if (kind === "configuration") {
-            reply =
-                "NVIDIA inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
-        } else if (kind === "rate_limit") {
-            reply =
-                "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
-        } else if (kind === "invalid_response") {
-            reply =
-                "NVIDIA returned an invalid response. Please try again shortly.";
-        } else {
-            reply = NVIDIA_UNAVAILABLE_MESSAGE;
-        }
-        await options.onChunk?.(reply);
-        const message = await persistAssistant(reply);
-        return { message, actions: [] };
+      await options.onEvent?.({ type: "tool", tool });
+    } catch {}
+
+    if (tool.state === "completed" || tool.state === "failed") {
+      try {
+        await appendChatMessageForUser(ownerId, {
+          chatId,
+          role: "assistant",
+          content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
+        });
+      } catch (error) {
+        console.error("[Tool activity] failed to persist", error);
+      }
     }
+  };
+  /** Appends the assistant's reply to the chat and returns the persisted message. */
+  const persistAssistant = async (reply: string) =>
+    appendChatMessageForUser(ownerId, {
+      chatId,
+      role: "assistant",
+      content: reply,
+    });
+
+  const actions: AgentAction[] = [];
+
+  await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+
+  try {
+    const status = await getNvidiaGatewayStatus(ownerId);
+    if (!status.configured) {
+      const reply =
+        "NVIDIA inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
+      await options.onChunk?.(reply);
+      const message = await persistAssistant(reply);
+      return { message, actions: [] };
+    }
+    if (
+      !status.reachable ||
+      (status.providerConfigurationKnown && !status.providerConfigured)
+    ) {
+      const reply =
+        "NVIDIA inference gateway is temporarily unreachable. Please try again shortly.";
+      await options.onChunk?.(reply);
+      const message = await persistAssistant(reply);
+      return { message, actions: [] };
+    }
+    if (status.allowance.exhausted) {
+      const reply = `NVIDIA inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
+      await options.onChunk?.(reply);
+      const message = await persistAssistant(reply);
+      return { message, actions: [] };
+    }
+
+    let computer = await getWorkspaceComputer(ownerId);
+    const systemMessage = (): GatewayChatMessage => {
+      const { folders, files } = describeWorkspace(computer);
+      return {
+        role: "system",
+        content: WORKSPACE_AGENT_PROMPT.replace("{{folders}}", folders).replace(
+          "{{files}}",
+          files
+        ),
+      };
+    };
+
+    const messages: GatewayChatMessage[] = [
+      systemMessage(),
+      { role: "user", content },
+    ];
+
+    let reply = "";
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      const result = await chatWithNvidiaGateway(ownerId, messages, {
+        tools: WORKSPACE_TOOLS,
+      });
+      if (result.toolCalls.length === 0) {
+        reply = result.text || "";
+        break;
+      }
+      messages.push({
+        role: "assistant",
+        content: result.text || null,
+        tool_calls: result.toolCalls.map(call => ({
+          id: call.id,
+          type: "function" as const,
+          function: { name: call.name, arguments: call.arguments },
+        })),
+      });
+      for (const call of result.toolCalls) {
+        await emitTool({
+          id: call.id,
+          name: call.name,
+          state: "running",
+          args: { arguments: call.arguments.slice(0, 500) },
+        });
+        let execution: ToolExecution;
+        try {
+          execution = await executeWorkspaceTool(ownerId, computer, call);
+        } catch (error) {
+          console.error("[Workspace tool] failed", call.name, error);
+          execution = {
+            ok: false,
+            result: "The tool call failed unexpectedly.",
+          };
+        }
+        if (execution.action) actions.push(execution.action);
+        await emitTool({
+          id: call.id,
+          name: call.name,
+          state: execution.ok ? "completed" : "failed",
+          args: { arguments: call.arguments.slice(0, 500) },
+          summary: toolSummary(call, execution),
+        });
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: execution.result,
+        });
+      }
+      // Refresh workspace state so later rounds resolve names/ids created
+      // or removed by this round's tools.
+      computer = await getWorkspaceComputer(ownerId);
+      messages[0] = systemMessage();
+    }
+
+    if (!reply.trim()) {
+      reply =
+        "I could not complete that request within my tool-step limit. Please try a more specific request.";
+    }
+    await options.onChunk?.(reply);
+    const message = await persistAssistant(reply);
+    return { message, actions };
+  } catch (error) {
+    console.error("[Chat] NVIDIA chat failed", error);
+    const kind =
+      error instanceof NvidiaGatewayClientError ? error.kind : "unavailable";
+    let reply: string;
+    if (kind === "configuration") {
+      reply =
+        "NVIDIA inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
+    } else if (kind === "rate_limit") {
+      reply =
+        "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
+    } else if (kind === "invalid_response") {
+      reply = "NVIDIA returned an invalid response. Please try again shortly.";
+    } else {
+      reply = NVIDIA_UNAVAILABLE_MESSAGE;
+    }
+    await options.onChunk?.(reply);
+    const message = await persistAssistant(reply);
+    return { message, actions };
+  }
 }

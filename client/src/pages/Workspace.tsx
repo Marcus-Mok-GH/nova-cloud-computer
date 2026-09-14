@@ -17,6 +17,7 @@ export default function Workspace() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [draft, setDraft] = useState("");
+  const [startPrompt, setStartPrompt] = useState("");
   const [pendingUserContent, setPendingUserContent] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
   const [toolActivities, setToolActivities] = useState<ToolActivity[]>([]);
@@ -24,7 +25,6 @@ export default function Workspace() {
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const startChat = trpc.chats.create.useMutation({ onSuccess: async chat => { await utils.workspace.computer.invalidate(); setLocation(`/app?chatId=${chat.id}`); } });
-  const handleStartChat = () => { if (!startChat.isPending) startChat.mutate({ title: "New workspace conversation" }); };
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -69,14 +69,13 @@ export default function Workspace() {
     }
     return refreshed;
   };
-  const submit = async (event: FormEvent | React.KeyboardEvent) => {
-    event.preventDefault();
-    if (!draft.trim() || !chatId || isStreaming) return;
+  /** Streams a message into `targetChatId`, reused by the active-chat composer and the "Start a chat" prompt box. */
+  const sendMessage = async (targetChatId: number, content: string) => {
     userScrolledUpRef.current = false;
-    const content = draft.trim(); setDraft(""); const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
+    const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
-      const response = await fetch("/api/chat/stream", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId, content }) });
+      const response = await fetch("/api/chat/stream", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId: targetChatId, content }) });
       if (!response.ok) { const payload = await response.json().catch(() => null) as { error?: unknown } | null; throw new Error(typeof payload?.error === "string" ? payload.error : "Nova could not start this response. Please retry shortly."); }
       const reader = response.body?.getReader(); if (!reader) throw new Error("Stream not supported");
       const decoder = new TextDecoder(); let buffer = "";
@@ -95,6 +94,26 @@ export default function Workspace() {
       }
       await finalizeStream();
     } catch (error) { console.error("Stream error:", error); toast.error(error instanceof Error ? error.message : "Failed to send message"); await finalizeStream(); }
+  };
+  const submit = async (event: FormEvent | React.KeyboardEvent) => {
+    event.preventDefault();
+    if (!draft.trim() || !chatId || isStreaming) return;
+    const content = draft.trim(); setDraft("");
+    await sendMessage(chatId, content);
+  };
+  /** Creates a new chat from the "Ask Nova anything about your work" box, navigates to it, then streams the typed prompt as its first message. */
+  const handleStartChat = async () => {
+    const content = startPrompt.trim();
+    if (!content || startChat.isPending || isStreaming) return;
+    try {
+      const chat = await startChat.mutateAsync({ title: "New workspace conversation" });
+      setStartPrompt("");
+      setLocation(`/app?chatId=${chat.id}`);
+      await sendMessage(chat.id, content);
+    } catch (error) {
+      console.error("Failed to start chat:", error);
+      toast.error(error instanceof Error ? error.message : "Nova could not start that conversation.");
+    }
   };
 
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
@@ -171,7 +190,28 @@ export default function Workspace() {
         <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl dark:text-foreground">What are we working on?</h1>
         <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Open a file, continue a conversation, or leave Nova a task for later.</p>
 
-        <button type="button" onClick={handleStartChat} disabled={startChat.isPending} className="mt-8 w-full rounded-2xl border border-border bg-card p-4 text-left shadow-[0_12px_30px_rgba(10,10,10,0.04)] transition hover:border-neutral-300 sm:p-5 dark:border-white/10 dark:bg-card dark:hover:border-white/20"><span className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-sm text-muted-foreground dark:text-muted-foreground">{startChat.isPending ? "Creating…" : "Ask Nova anything about your work"}</span></span><span className="mt-4 flex justify-end"><span className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-bold text-white dark:bg-foreground dark:text-background">Start a chat</span></span></button>
+        <div className="mt-8 w-full rounded-2xl border border-border bg-card p-4 shadow-[0_12px_30px_rgba(10,10,10,0.04)] transition sm:p-5 dark:border-white/10 dark:bg-card">
+          <span className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground/90 dark:text-foreground">Ask Nova anything about your work</span></span>
+          <Textarea
+            value={startPrompt}
+            onChange={event => setStartPrompt(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void handleStartChat();
+              }
+            }}
+            placeholder="What do you want Nova to help with?"
+            rows={2}
+            disabled={startChat.isPending || isStreaming}
+            className="mt-3 max-h-32 min-h-16 w-full resize-none border-0 bg-transparent px-0 py-1 text-sm leading-5 placeholder:text-muted-foreground focus-visible:ring-0"
+          />
+          <span className="mt-2 flex justify-end">
+            <Button type="button" onClick={() => void handleStartChat()} disabled={!startPrompt.trim() || startChat.isPending || isStreaming} className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:opacity-40 dark:bg-foreground dark:text-background">
+              {startChat.isPending ? "Starting…" : "Start a chat"}
+            </Button>
+          </span>
+        </div>
 
         <div className="mt-8">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Pick up where you left off</p>

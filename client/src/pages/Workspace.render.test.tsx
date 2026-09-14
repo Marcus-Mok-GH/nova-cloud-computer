@@ -45,6 +45,14 @@ describe("Workspace rendered browser states", () => {
     state.chatMessages = [];
   });
 
+  it("renders the start-chat prompt box as a real textarea with a disabled send button until text is entered", () => {
+    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    const markup = renderWorkspace();
+    expect(markup).toContain("<textarea");
+    expect(markup).toContain("What do you want Nova to help with?");
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Start a chat/);
+  });
+
   it("renders workspace asset counts without folder browsing controls", () => {
     state.computer = {
       data: {

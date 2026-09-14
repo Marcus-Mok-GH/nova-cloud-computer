@@ -29,21 +29,27 @@ vi.mock("./modelSecrets", () => ({
   decryptPrivateCredential: vi.fn((cipherText: string) => cipherText.replace(/^encrypted:/, "")),
 }));
 
-const { getTelegramCredentialsForUser, getTelegramSettingsForUser, saveTelegramSettingsForUser } = await import("./db");
+const { getTelegramCredentialsForUser, getTelegramSettingsForUser, saveTelegramSettingsForUser, telegramLinkCodeForUser } = await import("./db");
 
 describe("Telegram settings persistence", () => {
   beforeEach(() => { stored = undefined; activeWorkspace = workspace; process.env.DATABASE_URL = "postgres://test"; vi.clearAllMocks(); });
+
+  it("derives a stable per-workspace link code", () => {
+    expect(telegramLinkCodeForUser(7)).toBe(telegramLinkCodeForUser(7));
+    expect(telegramLinkCodeForUser(7)).not.toBe(telegramLinkCodeForUser(8));
+    expect(telegramLinkCodeForUser(7)).toMatch(/^[0-9a-f]{12}$/);
+  });
 
   it("stores the BotFather token encrypted and returns only safe metadata to the settings client", async () => {
     const botToken = "123456:private-bot-token";
     const safe = await saveTelegramSettingsForUser(7, { botToken, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova" });
     expect(stored?.encryptedBotToken).toBe(`encrypted:${botToken}`);
     expect(JSON.stringify(safe)).not.toContain(botToken);
-    expect(safe).toEqual({ configured: true, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova", webhook: { linked: false } });
+    expect(safe).toEqual({ configured: true, chatId: "-1001", botUsername: "nova_test_bot", botDisplayName: "Nova", webhook: { linked: false }, linkCode: expect.any(String) });
     await expect(getTelegramCredentialsForUser(7)).resolves.toMatchObject({ token: botToken, chatId: "-1001" });
     await expect(getTelegramSettingsForUser(7)).resolves.not.toHaveProperty("encryptedBotToken");
     activeWorkspace = otherWorkspace;
     await expect(getTelegramCredentialsForUser(8)).resolves.toBeUndefined();
-    await expect(getTelegramSettingsForUser(8)).resolves.toEqual({ configured: false, chatId: null, botUsername: null, botDisplayName: null, webhook: null });
+    await expect(getTelegramSettingsForUser(8)).resolves.toEqual({ configured: false, chatId: null, botUsername: null, botDisplayName: null, webhook: null, linkCode: expect.any(String) });
   });
 });

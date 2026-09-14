@@ -1,3 +1,4 @@
+import { createHmac } from "crypto";
 import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
@@ -512,14 +513,32 @@ async function resolveTelegramWebhookStatus(setting: typeof telegramBotSettings.
   }
 }
 
-function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined, webhook: TelegramWebhookStatus | null) {
-  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null, webhook: null };
+/** Deterministic per-workspace code that authorizes a Telegram chat link through the shared bot. */
+export function telegramLinkCodeForUser(ownerId: number) {
+  return createHmac("sha256", ENV.modelCredentialSecret).update(`nova-telegram-link:${ownerId}`).digest("hex").slice(0, 12);
+}
+
+/** Resolves the workspace owner whose link code matches, for secure webhook-time chat linking. */
+export async function findWorkspaceOwnerByTelegramLinkCode(linkCode: string) {
+  const db = await requireDb();
+  const rows = await db.select({ workspaceId: telegramBotSettings.workspaceId }).from(telegramBotSettings);
+  for (const row of rows) {
+    const ws = (await db.select({ ownerId: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, row.workspaceId)).limit(1))[0];
+    if (ws && telegramLinkCodeForUser(ws.ownerId).toLowerCase() === linkCode.toLowerCase()) return ws.ownerId;
+  }
+  return null;
+}
+
+function toSafeTelegramSettings(setting: typeof telegramBotSettings.$inferSelect | undefined, webhook: TelegramWebhookStatus | null, ownerId: number) {
+  const linkCode = telegramLinkCodeForUser(ownerId);
+  if (!setting) return { configured: false as const, chatId: null, botUsername: null, botDisplayName: null, webhook: null, linkCode };
   return {
     configured: true as const,
     chatId: setting.chatId,
     botUsername: setting.botUsername,
     botDisplayName: setting.botDisplayName,
     webhook,
+    linkCode,
   };
 }
 
@@ -549,7 +568,7 @@ async function getOrCreateTelegramSetting(ownerId: number) {
 export async function getTelegramSettingsForUser(ownerId: number) {
   const setting = await getOrCreateTelegramSetting(ownerId);
   const webhook = setting ? await resolveTelegramWebhookStatus(setting) : null;
-  return toSafeTelegramSettings(setting, webhook);
+  return toSafeTelegramSettings(setting, webhook, ownerId);
 }
 
 export async function saveTelegramSettingsForUser(ownerId: number, input: { botToken: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) {
@@ -576,11 +595,11 @@ export async function saveTelegramSettingsForUser(ownerId: number, input: { botT
 
 export async function updateTelegramChatForUser(ownerId: number, chatId: string) {
   const setting = await getOrCreateTelegramSetting(ownerId);
-  if (!setting) return toSafeTelegramSettings(undefined, null);
+  if (!setting) return toSafeTelegramSettings(undefined, null, ownerId);
   const db = await requireDb();
   const [updated] = await db.update(telegramBotSettings).set({ chatId, updatedAt: new Date() }).where(eq(telegramBotSettings.workspaceId, setting.workspaceId)).returning();
   const webhook = updated ? await resolveTelegramWebhookStatus(updated) : null;
-  return toSafeTelegramSettings(updated, webhook);
+  return toSafeTelegramSettings(updated, webhook, ownerId);
 }
 
 export async function getTelegramCredentialsForUser(ownerId: number) {

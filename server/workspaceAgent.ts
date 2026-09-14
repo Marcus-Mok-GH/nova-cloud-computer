@@ -336,13 +336,25 @@ async function runDirectWorkspaceAction(
     const file = content.match(
         /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:plain[ -]?text\s+|text\s+)?file\s+(?:named|called|titled)\s+['"]?([\w.-]+)['"]?/i,
     );
-    if (file?.[1]?.trim()) {
+    // Fallback for generic phrasing without an explicit filename, e.g.
+    // "create a dummy file" or "make a test file" — derive a filename from the
+    // descriptor instead of falling through to the model, which cannot
+    // actually create anything and must never claim otherwise.
+    const genericFile = file
+        ? null
+        : content.match(
+              /(?:create|make|add|write)\s+(?:a\s+|an\s+)?(?:new\s+)?([\w-]+)\s+file\b/i,
+          );
+    const fileMatch = file ?? genericFile;
+    if (fileMatch?.[1]?.trim()) {
         const exact =
             content.match(
                 /(?:containing exactly|with content|with the text|saying|that says)\s*:?\s*(.+)$/i,
             )?.[1] ?? "";
+        const rawName = fileMatch[1].trim();
+        const name = /\.[\w]+$/.test(rawName) ? rawName : `${rawName}.txt`;
         const created = await createWorkspaceFileForUser(ownerId, {
-            name: file[1].trim(),
+            name,
             content: exact,
         });
         if (created)
@@ -359,11 +371,11 @@ async function runDirectWorkspaceAction(
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a concise, direct assistant for a private computer workspace.
 
-Nova handles real workspace actions directly and reliably: creating files and folders, renaming, moving, and deleting files and folders, sending Telegram messages, and starting a sandbox (VM) run. When a user asks for one of those, it happens automatically outside this conversation — confirm the result concisely and do not say you cannot help.
+IMPORTANT: you are only ever shown a message after the system already tried to match it against a supported workspace action (create/rename/move/delete a file or folder, send a Telegram message, start a sandbox run) and found no match. This means whatever the user just asked for was NOT performed automatically — you are not confirming a completed action, you are the fallback for requests that need clarification or are simply chat. Never say something was created, edited, moved, deleted, or sent unless you can see it reflected in the current files/folders list below — if you cannot see it, it did not happen.
 
-You cannot read file contents or run commands yourself, so never claim to have inspected a file or run a command.
+You cannot edit or read the contents of files, and you cannot run commands. If the user wants to edit a file, tell them that's not supported yet. If they want to create a file or folder but the request wasn't understood, tell them the exact phrasing that works (e.g. "create a file named notes.txt") rather than pretending it worked.
 
-Be direct and action-oriented in your advice. Prefer the smallest correct guidance and point the user to the workspace's actual state. Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
+Be direct and action-oriented in your advice. Prefer the smallest correct guidance and point the user to the workspace's actual state below — it is always accurate. Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
 Current folders: {{folders}}
 Current files: {{files}}`;

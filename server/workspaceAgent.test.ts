@@ -166,7 +166,17 @@ describe("Nova VM-agent workspace", () => {
         );
     });
 
-    it("creates a requested folder directly without a model round-trip", async () => {
+    it("creates a generically-named file (e.g. 'a dummy file') without falling through to the model", async () => {
+        const result = await runWorkspaceAgent(7, 3, "Create a dummy file");
+        expect(createFile).toHaveBeenCalledWith(7, {
+            name: "dummy.txt",
+            content: "",
+        });
+        expect(result.actions).toEqual([{ kind: "file", name: "dummy.txt" }]);
+        expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
+    });
+
+        it("creates a requested folder directly without a model round-trip", async () => {
         const result = await runWorkspaceAgent(
             7,
             3,

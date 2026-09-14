@@ -1,7 +1,7 @@
 import { claimNvidiaInferenceRequestForUser, getNvidiaInferenceAllowanceForUser } from "./db";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
-const REQUEST_TIMEOUT_MS = 100_000;
+const REQUEST_TIMEOUT_MS = 25_000;
 const ERROR_MESSAGE_LIMIT = 600;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 10_000;
@@ -146,7 +146,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   const maxRequests = getMaxRequests();
   const base = {
     provider: "nvidia-nim" as const,
-    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    model: "nvidia/nemotron-3-super-120b-a12b",
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,

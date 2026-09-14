@@ -670,6 +670,59 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
     : call.name;
 }
 
+/** Transient gateway failures worth one automatic in-run retry. */
+const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
+let gatewayRetryDelaysMs: number[] = [400, 1200];
+
+/** Test hook: zero the retry backoff so suites stay fast. */
+export function setGatewayRetryDelaysForTests(delays: number[]) {
+  gatewayRetryDelaysMs = delays;
+}
+
+const waitFor = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Calls the gateway with automatic retries for transient failures (network
+ * blips, 5xx, empty completions). A round that already streamed text to the
+ * client is never retried: a fresh attempt would duplicate what the user saw.
+ */
+async function chatWithGatewayRetry(
+  ownerId: number,
+  messages: GatewayChatMessage[],
+  options: { tools?: GatewayToolDefinition[]; onChunk?: (chunk: string) => void }
+) {
+  const maxAttempts = gatewayRetryDelaysMs.length + 1;
+  for (let attempt = 0; ; attempt += 1) {
+    let streamedChars = 0;
+    const emit = options.onChunk;
+    try {
+      return await chatWithNvidiaGateway(ownerId, messages, {
+        tools: options.tools,
+        ...(emit
+          ? {
+              onChunk: (chunk: string) => {
+                streamedChars += chunk.length;
+                emit(chunk);
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      const retryable =
+        error instanceof NvidiaGatewayClientError &&
+        GATEWAY_RETRY_KINDS.has(error.kind);
+      if (
+        streamedChars > 0 ||
+        !retryable ||
+        attempt >= maxAttempts - 1
+      ) {
+        throw error;
+      }
+      await waitFor(gatewayRetryDelaysMs[attempt]);
+    }
+  }
+}
+
 /**
  * Runs the workspace agent for a message: a tool-calling loop over the NVIDIA
  * gateway. Every message goes through the model with workspace tools
@@ -756,12 +809,22 @@ export async function runWorkspaceAgent(
     ];
 
     let reply = "";
+    let streamedReplyChars = 0;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const result = await chatWithNvidiaGateway(ownerId, messages, {
+      let streamedThisRound = 0;
+      const emitChunk = options.onChunk
+        ? (chunk: string) => {
+            streamedThisRound += chunk.length;
+            options.onChunk?.(chunk);
+          }
+        : undefined;
+      const result = await chatWithGatewayRetry(ownerId, messages, {
         tools: WORKSPACE_TOOLS,
+        ...(emitChunk ? { onChunk: emitChunk } : {}),
       });
       if (result.toolCalls.length === 0) {
         reply = result.text || "";
+        streamedReplyChars = streamedThisRound;
         break;
       }
       messages.push({
@@ -814,7 +877,9 @@ export async function runWorkspaceAgent(
       reply =
         "I could not complete that request within my tool-step limit. Please try a more specific request.";
     }
-    await options.onChunk?.(reply);
+    // The reply already streamed to the client token-by-token: re-sending the
+    // full text would duplicate what the user watched appear.
+    if (streamedReplyChars === 0) await options.onChunk?.(reply);
     const message = await persistAssistant(reply);
     return { message, actions };
   } catch (error) {

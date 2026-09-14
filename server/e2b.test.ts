@@ -101,6 +101,8 @@ describe("E2B sandbox service", () => {
   it("does not retry a user program that returned a non-zero exit code", async () => {
     const run = vi
       .fn()
+      // workspace bootstrap mkdir, then the user program
+      .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 })
       .mockResolvedValueOnce({ stdout: "bad input", stderr: "", exitCode: 2 });
     const sandbox = sandboxWith(run);
     const client: E2BClientLike = {

@@ -388,6 +388,14 @@ export async function recoverPersistentSandbox(
   }
 }
 
+/** Fresh sandboxes do not ship with the Nova workspace directory. Create it
+ *  before any command references it as its cwd (E2B rejects missing cwds). */
+export async function ensureE2BWorkspaceDir(sandbox: E2BSandboxLike) {
+  await sandbox.commands
+    .run(`mkdir -p ${JSON.stringify(E2B_WORKSPACE_DIR)}`)
+    .catch(() => undefined);
+}
+
 async function uploadBundleToSandbox(
   sandbox: E2BSandboxLike,
   files: E2BWorkspaceFile[],
@@ -395,6 +403,7 @@ async function uploadBundleToSandbox(
   task: string,
   code?: string
 ) {
+  await ensureE2BWorkspaceDir(sandbox);
   if (sandbox.files.remove)
     await sandbox.files
       .remove(`${E2B_WORKSPACE_DIR}/input`)

@@ -5,7 +5,7 @@ import {
   updateWorkspaceFileForUser,
 } from "./db";
 import { requireWorkspaceOwner } from "./workspaceSecurity";
-import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
+import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
@@ -77,6 +77,7 @@ export async function restoreWorkspaceToE2B(
 ) {
   const computer = await getWorkspaceComputer(ownerId);
   await requireWorkspaceOwner(ownerId, computer.workspace.id);
+  await ensureE2BWorkspaceDir(sandbox);
   await sandbox.commands.run(
     `find ${JSON.stringify(E2B_WORKSPACE_DIR)} -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`,
     { cwd: E2B_WORKSPACE_DIR, timeoutMs: 30_000 }

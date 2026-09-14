@@ -45,6 +45,10 @@ describe("Files page", () => {
     expect(markup).toContain("launch-brief.md");
     expect(markup).toContain("New folder");
     expect(markup).toContain("New file");
+    // VS Code style explorer header actions
+    expect(markup).toContain("Collapse folders");
+    // rows are compact VS Code style tree rows
+    expect(markup).toContain("h-[26px]");
   });
 
   it("shows an empty state when the active Files folder has no contents", () => {

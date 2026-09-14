@@ -1,4 +1,7 @@
-import { claimNvidiaInferenceRequestForUser, getNvidiaInferenceAllowanceForUser } from "./db";
+import {
+  claimNvidiaInferenceRequestForUser,
+  getNvidiaInferenceAllowanceForUser,
+} from "./db";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -37,7 +40,8 @@ export type AvailableNvidiaModel = NvidiaModel & {
   kind: "text" | "vision";
 };
 
-let modelCache: { models: AvailableNvidiaModel[]; expiresAt: number } | undefined;
+let modelCache:
+  { models: AvailableNvidiaModel[]; expiresAt: number } | undefined;
 
 type GatewayHealthFlags = {
   configured: boolean;
@@ -47,8 +51,7 @@ type GatewayHealthFlags = {
 };
 
 let gatewayHealthCache:
-  | { key: string; expiresAt: number; flags: GatewayHealthFlags }
-  | undefined;
+  { key: string; expiresAt: number; flags: GatewayHealthFlags } | undefined;
 
 /** Clears the in-process gateway health cache (used by tests between cases). */
 export function resetNvidiaGatewayHealthCache() {
@@ -56,7 +59,11 @@ export function resetNvidiaGatewayHealthCache() {
 }
 
 export class NvidiaGatewayClientError extends Error {
-  constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
+  constructor(
+    message: string,
+    public readonly kind:
+      "configuration" | "unavailable" | "rate_limit" | "invalid_response"
+  ) {
     super(message);
     this.name = "NvidiaGatewayClientError";
   }
@@ -77,16 +84,37 @@ function configuredGatewayUrl() {
 }
 
 function configuredGatewayToken() {
-  const token = process.env.NVIDIA_API_KEY?.trim() || process.env.NOVA_NVIDIA_GATEWAY_TOKEN?.trim();
+  const token =
+    process.env.NVIDIA_API_KEY?.trim() ||
+    process.env.NOVA_NVIDIA_GATEWAY_TOKEN?.trim();
   return token && token.length >= 32 ? token : undefined;
 }
 
 /** Best-effort human-readable description of a failed NVIDIA HTTP response. */
-function describeNvidiaError(payload: unknown, status: number): string | undefined {
-  const record = payload as { error?: { message?: string } | string; message?: string; detail?: unknown; title?: string } | undefined;
+function describeNvidiaError(
+  payload: unknown,
+  status: number
+): string | undefined {
+  const record = payload as
+    | {
+        error?: { message?: string } | string;
+        message?: string;
+        detail?: unknown;
+        title?: string;
+      }
+    | undefined;
   const parts: string[] = [];
-  const raw = record?.error ? (typeof record.error === "string" ? record.error : record.error.message) : undefined;
-  const detail = typeof record?.detail === "string" ? record.detail : record?.detail !== undefined ? JSON.stringify(record.detail) : undefined;
+  const raw = record?.error
+    ? typeof record.error === "string"
+      ? record.error
+      : record.error.message
+    : undefined;
+  const detail =
+    typeof record?.detail === "string"
+      ? record.detail
+      : record?.detail !== undefined
+        ? JSON.stringify(record.detail)
+        : undefined;
   const message = raw ?? record?.message ?? detail ?? record?.title;
   if (message) parts.push(String(message).slice(0, 300));
   parts.push(`HTTP ${status}`);
@@ -99,15 +127,23 @@ function describeNvidiaError(payload: unknown, status: number): string | undefin
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
-  const raw = process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+  const raw =
+    process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
-  return Number.isInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_CONFIGURED_REQUESTS) : null;
+  return Number.isInteger(parsed) && parsed >= 1
+    ? Math.min(parsed, MAX_CONFIGURED_REQUESTS)
+    : null;
 }
 
 function sanitizeGatewayError(error: unknown) {
-  const message = error instanceof Error ? error.message : "NVIDIA inference is temporarily unavailable. Please retry shortly.";
-  return message.replace(/Bearer\s+\S+/gi, "Bearer [private credential]").slice(0, ERROR_MESSAGE_LIMIT);
+  const message =
+    error instanceof Error
+      ? error.message
+      : "NVIDIA inference is temporarily unavailable. Please retry shortly.";
+  return message
+    .replace(/Bearer\s+\S+/gi, "Bearer [private credential]")
+    .slice(0, ERROR_MESSAGE_LIMIT);
 }
 
 function serviceHeaders(token: string) {
@@ -120,7 +156,11 @@ function serviceHeaders(token: string) {
 async function gatewayFetch(path: string, init: RequestInit = {}) {
   const baseUrl = configuredGatewayUrl();
   const token = configuredGatewayToken();
-  if (!baseUrl || !token) throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. An administrator must configure Nova’s server-only gateway connection.", "configuration");
+  if (!baseUrl || !token)
+    throw new NvidiaGatewayClientError(
+      "NVIDIA inference is not connected yet. An administrator must configure Nova’s server-only gateway connection.",
+      "configuration"
+    );
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -130,7 +170,10 @@ async function gatewayFetch(path: string, init: RequestInit = {}) {
       signal: controller.signal,
     });
   } catch (error) {
-    throw new NvidiaGatewayClientError(sanitizeGatewayError(error), "unavailable");
+    throw new NvidiaGatewayClientError(
+      sanitizeGatewayError(error),
+      "unavailable"
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -150,7 +193,10 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
-      remainingRequests: maxRequests === null ? null : Math.max(0, maxRequests - allowance.usedRequests),
+      remainingRequests:
+        maxRequests === null
+          ? null
+          : Math.max(0, maxRequests - allowance.usedRequests),
       exhausted: maxRequests !== null && allowance.usedRequests >= maxRequests,
     },
   };
@@ -180,7 +226,11 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       providerConfigured: response.ok,
       providerConfigurationKnown: true,
     };
-    gatewayHealthCache = { key: cacheKey, expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, flags };
+    gatewayHealthCache = {
+      key: cacheKey,
+      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
+      flags,
+    };
     return { ...base, ...flags };
   } catch {
     const flags: GatewayHealthFlags = {
@@ -189,34 +239,72 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       providerConfigured: false,
       providerConfigurationKnown: false,
     };
-    gatewayHealthCache = { key: cacheKey, expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, flags };
+    gatewayHealthCache = {
+      key: cacheKey,
+      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
+      flags,
+    };
     return { ...base, ...flags };
   }
 }
 
 function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
   const explicitTask = model.task?.toLowerCase().trim();
-  if (explicitTask && /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding|video/i.test(explicitTask)) return undefined;
-  const explicitModalities = [...(model.modalities ?? []), ...(model.supported_modalities ?? [])].map(value => value.toLowerCase());
-  if (explicitModalities.some(value => /audio|video|image_generation|image-generation|text-to-image/i.test(value))) return undefined;
+  if (
+    explicitTask &&
+    /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding|video/i.test(
+      explicitTask
+    )
+  )
+    return undefined;
+  const explicitModalities = [
+    ...(model.modalities ?? []),
+    ...(model.supported_modalities ?? []),
+  ].map(value => value.toLowerCase());
+  if (
+    explicitModalities.some(value =>
+      /audio|video|image_generation|image-generation|text-to-image/i.test(value)
+    )
+  )
+    return undefined;
   if (explicitModalities.length > 0) {
-    if (!explicitModalities.some(value => /text/i.test(value))) return undefined;
-    return explicitModalities.some(value => /image|vision/i.test(value)) ? "vision" : "text";
+    if (!explicitModalities.some(value => /text/i.test(value)))
+      return undefined;
+    return explicitModalities.some(value => /image|vision/i.test(value))
+      ? "vision"
+      : "text";
   }
-  if (explicitTask && /vision|multimodal|visual-language/i.test(explicitTask)) return "vision";
-  if (explicitTask && /chat|completion|text|language/i.test(explicitTask)) return "text";
-  if (model.capabilities && typeof model.capabilities === "object" && !Array.isArray(model.capabilities)) {
+  if (explicitTask && /vision|multimodal|visual-language/i.test(explicitTask))
+    return "vision";
+  if (explicitTask && /chat|completion|text|language/i.test(explicitTask))
+    return "text";
+  if (
+    model.capabilities &&
+    typeof model.capabilities === "object" &&
+    !Array.isArray(model.capabilities)
+  ) {
     const keys = Object.keys(model.capabilities).map(key => key.toLowerCase());
-    if (keys.some(key => /audio|video|image-generation|text-to-image|embedding|rerank/i.test(key))) return undefined;
-    const supportsChat = keys.some(key => /chat|completion|text|language/i.test(key));
+    if (
+      keys.some(key =>
+        /audio|video|image-generation|text-to-image|embedding|rerank/i.test(key)
+      )
+    )
+      return undefined;
+    const supportsChat = keys.some(key =>
+      /chat|completion|text|language/i.test(key)
+    );
     if (!supportsChat) return undefined;
-    return keys.some(key => /vision|multimodal|image/i.test(key)) ? "vision" : "text";
+    return keys.some(key => /vision|multimodal|image/i.test(key))
+      ? "vision"
+      : "text";
   }
   // NVIDIA's OpenAI-compatible /v1/models response normally only includes the
   // model ID and ownership fields. Treat metadata-poor models as text chat models
   // unless their ID identifies a known non-chat model family; otherwise the picker
   // is empty even though the gateway successfully returned available models.
-  return /(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id)
+  return /(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(
+    model.id
+  )
     ? undefined
     : "text";
 }
@@ -228,27 +316,47 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
  */
 /** Returns the list of available NVIDIA models, cached for five minutes. */
 export async function listNvidiaModels(forceRefresh = false) {
-  if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now()) return modelCache.models;
+  if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now())
+    return modelCache.models;
   const response = await gatewayFetch("/models");
-  const payload = await response.json().catch(() => undefined) as NvidiaModelsResponse | { error?: { message?: string } } | undefined;
+  const payload = (await response.json().catch(() => undefined)) as
+    NvidiaModelsResponse | { error?: { message?: string } } | undefined;
   if (!response.ok) {
-    const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA model discovery is temporarily unavailable.", response.status === 429 ? "rate_limit" : "unavailable");
+    const message =
+      payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(
+      message ??
+        describeNvidiaError(payload, response.status) ??
+        "NVIDIA model discovery is temporarily unavailable.",
+      response.status === 429 ? "rate_limit" : "unavailable"
+    );
   }
   const rawData = (payload as NvidiaModelsResponse | undefined)?.data;
   const models = Array.isArray(rawData)
     ? rawData
-      .filter((model): model is NvidiaModel => typeof model?.id === "string" && model.id.trim().length > 0)
-      .map(model => ({ ...model, id: model.id.trim() }))
-      .map(model => ({ ...model, kind: modelKind(model) }))
-      .filter((model): model is AvailableNvidiaModel => model.kind !== undefined)
+        .filter(
+          (model): model is NvidiaModel =>
+            typeof model?.id === "string" && model.id.trim().length > 0
+        )
+        .map(model => ({ ...model, id: model.id.trim() }))
+        .map(model => ({ ...model, kind: modelKind(model) }))
+        .filter(
+          (model): model is AvailableNvidiaModel => model.kind !== undefined
+        )
     : [];
   if (models.length === 0) {
-    throw new NvidiaGatewayClientError("NVIDIA returned no available text or vision-language models.", "invalid_response");
+    throw new NvidiaGatewayClientError(
+      "NVIDIA returned no available text or vision-language models.",
+      "invalid_response"
+    );
   }
-  const deduplicated = Array.from(new Map(models.map(model => [model.id, model])).values())
-    .sort((a, b) => a.id.localeCompare(b.id));
-  modelCache = { models: deduplicated, expiresAt: Date.now() + MODEL_CACHE_TTL_MS };
+  const deduplicated = Array.from(
+    new Map(models.map(model => [model.id, model])).values()
+  ).sort((a, b) => a.id.localeCompare(b.id));
+  modelCache = {
+    models: deduplicated,
+    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
+  };
   return deduplicated;
 }
 
@@ -280,7 +388,10 @@ async function readGatewayStreamedCompletion(
       for (const line of lines) {
         if (!line.startsWith("data:")) continue;
         const data = line.slice(5).trim();
-        if (data === "[DONE]") { await reader.cancel().catch(() => {}); return { text }; }
+        if (data === "[DONE]") {
+          await reader.cancel().catch(() => {});
+          return { text };
+        }
         try {
           const event = JSON.parse(data) as {
             choices?: Array<{ delta?: { content?: string } }>;
@@ -298,30 +409,68 @@ async function readGatewayStreamedCompletion(
     throw new Error("AI inference stream failed: incomplete response.");
   }
   // Non-streaming completion: read the buffered JSON body and emit it once.
-  const payload = await response.json().catch(() => undefined) as
+  const payload = (await response.json().catch(() => undefined)) as
     | GatewayCompletion
-    | { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: GatewayCompletion["usage"]; error?: { message?: string } }
+    | {
+        choices?: Array<{ message?: { content?: string } }>;
+        model?: string;
+        usage?: GatewayCompletion["usage"];
+        error?: { message?: string };
+      }
     | undefined;
   if (!response.ok) {
-    const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
+    const message =
+      payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(
+      message ??
+        describeNvidiaError(payload, response.status) ??
+        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+      response.status === 429 ? "rate_limit" : "unavailable"
+    );
   }
-  const bufferedText = typeof (payload as GatewayCompletion | undefined)?.text === "string"
-    ? (payload as GatewayCompletion).text
-    : (payload as { choices?: Array<{ message?: { content?: string } }> } | undefined)?.choices?.[0]?.message?.content ?? "";
+  const bufferedText =
+    typeof (payload as GatewayCompletion | undefined)?.text === "string"
+      ? (payload as GatewayCompletion).text
+      : ((
+          payload as
+            { choices?: Array<{ message?: { content?: string } }> } | undefined
+        )?.choices?.[0]?.message?.content ?? "");
   if (bufferedText) onChunk(bufferedText);
-  const openAiPayload = payload as { model?: string; usage?: GatewayCompletion["usage"] } | undefined;
-  return { text: bufferedText, model: openAiPayload?.model, usage: openAiPayload?.usage };
+  const openAiPayload = payload as
+    { model?: string; usage?: GatewayCompletion["usage"] } | undefined;
+  return {
+    text: bufferedText,
+    model: openAiPayload?.model,
+    usage: openAiPayload?.usage,
+  };
 }
 
-export async function completeWithNvidiaGateway(ownerId: number, prompt: string, modelId?: string, onChunk?: (chunk: string) => void) {
+export async function completeWithNvidiaGateway(
+  ownerId: number,
+  prompt: string,
+  modelId?: string,
+  onChunk?: (chunk: string) => void
+) {
   const status = await getNvidiaGatewayStatus(ownerId);
-  if (!status.configured || !status.reachable || (status.providerConfigurationKnown && !status.providerConfigured)) {
-    throw new NvidiaGatewayClientError("NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.", "configuration");
+  if (
+    !status.configured ||
+    !status.reachable ||
+    (status.providerConfigurationKnown && !status.providerConfigured)
+  ) {
+    throw new NvidiaGatewayClientError(
+      "NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.",
+      "configuration"
+    );
   }
-  const claim = await claimNvidiaInferenceRequestForUser(ownerId, status.allowance.maxRequests);
+  const claim = await claimNvidiaInferenceRequestForUser(
+    ownerId,
+    status.allowance.maxRequests
+  );
   if (!claim) {
-    throw new NvidiaGatewayClientError("This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.", "rate_limit");
+    throw new NvidiaGatewayClientError(
+      "This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
+      "rate_limit"
+    );
   }
   const resolvedModel = modelId?.trim() || status.model;
   const response = await gatewayFetch("/chat/completions", {
@@ -336,7 +485,10 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
     if (!text) {
-      throw new NvidiaGatewayClientError("NVIDIA returned an invalid completion. Please retry shortly.", "invalid_response");
+      throw new NvidiaGatewayClientError(
+        "NVIDIA returned an invalid completion. Please retry shortly.",
+        "invalid_response"
+      );
     }
     return {
       text,
@@ -345,26 +497,50 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
       allowance: {
         usedRequests: claim.usedRequests,
         maxRequests: status.allowance.maxRequests,
-        remainingRequests: status.allowance.maxRequests === null ? null : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-        exhausted: status.allowance.maxRequests !== null && claim.usedRequests >= status.allowance.maxRequests,
+        remainingRequests:
+          status.allowance.maxRequests === null
+            ? null
+            : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+        exhausted:
+          status.allowance.maxRequests !== null &&
+          claim.usedRequests >= status.allowance.maxRequests,
       },
     };
   }
-  const payload = await response.json().catch(() => undefined) as
+  const payload = (await response.json().catch(() => undefined)) as
     | GatewayCompletion
-    | { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: GatewayCompletion["usage"]; error?: { message?: string } }
+    | {
+        choices?: Array<{ message?: { content?: string } }>;
+        model?: string;
+        usage?: GatewayCompletion["usage"];
+        error?: { message?: string };
+      }
     | undefined;
   if (!response.ok) {
-    const message = payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(message ?? describeNvidiaError(payload, response.status) ?? "NVIDIA inference is temporarily unavailable. Please retry shortly.", response.status === 429 ? "rate_limit" : "unavailable");
+    const message =
+      payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(
+      message ??
+        describeNvidiaError(payload, response.status) ??
+        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+      response.status === 429 ? "rate_limit" : "unavailable"
+    );
   }
-  const bufferedText = typeof (payload as GatewayCompletion | undefined)?.text === "string"
-    ? (payload as GatewayCompletion).text
-    : (payload as { choices?: Array<{ message?: { content?: string } }> } | undefined)?.choices?.[0]?.message?.content ?? "";
+  const bufferedText =
+    typeof (payload as GatewayCompletion | undefined)?.text === "string"
+      ? (payload as GatewayCompletion).text
+      : ((
+          payload as
+            { choices?: Array<{ message?: { content?: string } }> } | undefined
+        )?.choices?.[0]?.message?.content ?? "");
   if (!bufferedText) {
-    throw new NvidiaGatewayClientError("NVIDIA returned an invalid completion. Please retry shortly.", "invalid_response");
+    throw new NvidiaGatewayClientError(
+      "NVIDIA returned an invalid completion. Please retry shortly.",
+      "invalid_response"
+    );
   }
-  const completion = payload as { model?: string; usage?: GatewayCompletion["usage"] } | undefined;
+  const completion = payload as
+    { model?: string; usage?: GatewayCompletion["usage"] } | undefined;
   return {
     text: bufferedText,
     model: completion?.model ?? resolvedModel,
@@ -372,8 +548,178 @@ export async function completeWithNvidiaGateway(ownerId: number, prompt: string,
     allowance: {
       usedRequests: claim.usedRequests,
       maxRequests: status.allowance.maxRequests,
-      remainingRequests: status.allowance.maxRequests === null ? null : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-      exhausted: status.allowance.maxRequests !== null && claim.usedRequests >= status.allowance.maxRequests,
+      remainingRequests:
+        status.allowance.maxRequests === null
+          ? null
+          : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+      exhausted:
+        status.allowance.maxRequests !== null &&
+        claim.usedRequests >= status.allowance.maxRequests,
+    },
+  };
+}
+
+export type GatewayToolDefinition = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
+};
+
+export type GatewayToolCall = {
+  id: string;
+  name: string;
+  /** Raw JSON-encoded arguments string, exactly as returned by the model. */
+  arguments: string;
+};
+
+export type GatewayChatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
+};
+
+export type GatewayChatResult = {
+  text: string;
+  toolCalls: GatewayToolCall[];
+  model: string;
+  usage: GatewayCompletion["usage"] | null;
+  allowance: {
+    usedRequests: number;
+    maxRequests: number | null;
+    remainingRequests: number | null;
+    exhausted: boolean;
+  };
+};
+
+/**
+ * Single OpenAI-compatible chat completion with optional function-calling
+ * tools. Non-streaming: tool-call rounds are buffered so the caller can
+ * execute tools and re-invoke. Claims one inference request per call.
+ */
+export async function chatWithNvidiaGateway(
+  ownerId: number,
+  messages: GatewayChatMessage[],
+  options: { tools?: GatewayToolDefinition[]; model?: string } = {}
+): Promise<GatewayChatResult> {
+  const status = await getNvidiaGatewayStatus(ownerId);
+  if (
+    !status.configured ||
+    !status.reachable ||
+    (status.providerConfigurationKnown && !status.providerConfigured)
+  ) {
+    throw new NvidiaGatewayClientError(
+      "NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.",
+      "configuration"
+    );
+  }
+  const claim = await claimNvidiaInferenceRequestForUser(
+    ownerId,
+    status.allowance.maxRequests
+  );
+  if (!claim) {
+    throw new NvidiaGatewayClientError(
+      "This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
+      "rate_limit"
+    );
+  }
+  const resolvedModel = options.model?.trim() || status.model;
+  const response = await gatewayFetch("/chat/completions", {
+    method: "POST",
+    body: JSON.stringify({
+      model: resolvedModel,
+      messages,
+      ...(options.tools?.length
+        ? { tools: options.tools, tool_choice: "auto" }
+        : {}),
+    }),
+  });
+  const payload = (await response.json().catch(() => undefined)) as
+    | GatewayCompletion
+    | {
+        choices?: Array<{
+          message?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              id?: string;
+              type?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+        }>;
+        model?: string;
+        usage?: GatewayCompletion["usage"];
+        error?: { message?: string };
+      }
+    | undefined;
+  if (!response.ok) {
+    const message =
+      payload && "error" in payload ? payload.error?.message : undefined;
+    throw new NvidiaGatewayClientError(
+      message ??
+        describeNvidiaError(payload, response.status) ??
+        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+      response.status === 429 ? "rate_limit" : "unavailable"
+    );
+  }
+  const choice = (
+    payload as
+      | {
+          choices?: Array<{
+            message?: {
+              content?: string | null;
+              tool_calls?: Array<{
+                id?: string;
+                type?: string;
+                function?: { name?: string; arguments?: string };
+              }>;
+            };
+          }>;
+        }
+      | undefined
+  )?.choices?.[0]?.message;
+  const text = typeof choice?.content === "string" ? choice.content : "";
+  const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
+    .filter(call => call?.function?.name)
+    .map(call => ({
+      id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
+      name: String(call.function?.name),
+      arguments:
+        typeof call.function?.arguments === "string"
+          ? call.function.arguments
+          : "{}",
+    }));
+  if (!text && !toolCalls.length) {
+    throw new NvidiaGatewayClientError(
+      "NVIDIA returned an invalid completion. Please retry shortly.",
+      "invalid_response"
+    );
+  }
+  return {
+    text,
+    toolCalls,
+    model: (payload as { model?: string } | undefined)?.model ?? resolvedModel,
+    usage:
+      (payload as { usage?: GatewayCompletion["usage"] } | undefined)?.usage ??
+      null,
+    allowance: {
+      usedRequests: claim.usedRequests,
+      maxRequests: status.allowance.maxRequests,
+      remainingRequests:
+        status.allowance.maxRequests === null
+          ? null
+          : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
+      exhausted:
+        status.allowance.maxRequests !== null &&
+        claim.usedRequests >= status.allowance.maxRequests,
     },
   };
 }

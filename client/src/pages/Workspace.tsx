@@ -209,13 +209,16 @@ export default function Workspace() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
-        <p className="text-sm font-semibold text-primary">{greeting}</p>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl dark:text-foreground">What are we working on?</h1>
-        <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Open a file, continue a conversation, or leave Nova a task for later.</p>
+      <div className="relative mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
+        <div className="rise-in relative">
+          <p className="text-sm font-semibold text-primary">{greeting}</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl dark:text-foreground">What are we working on?</h1>
+          <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Open a file, continue a conversation, or leave Nova a task for later.</p>
+        </div>
 
-        <div className="mt-8 w-full rounded-2xl border border-border bg-card p-4 shadow-[0_12px_30px_rgba(10,10,10,0.04)] transition sm:p-5 dark:border-white/10 dark:bg-card">
-          <span className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground/90 dark:text-foreground">Ask Nova anything about your work</span></span>
+        <div className="rise-in-delay-1 relative mt-8 w-full rounded-2xl border border-border bg-card p-4 shadow-[0_4px_14px_rgba(10,10,10,0.05)] transition-all focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 sm:p-5 dark:border-white/10 dark:bg-card dark:focus-within:border-primary/40">
+          <span className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><MessageSquareText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground/90 dark:text-foreground">Ask Nova anything about your work</span></span>
           <Textarea
             value={startPrompt}
             onChange={event => setStartPrompt(event.target.value)}
@@ -228,16 +231,17 @@ export default function Workspace() {
             placeholder="What do you want Nova to help with?"
             rows={2}
             disabled={startChat.isPending || isStreaming}
-            className="mt-3 max-h-32 min-h-16 w-full resize-none border-0 bg-transparent px-0 py-1 text-sm leading-5 placeholder:text-muted-foreground focus-visible:ring-0"
+            className="mt-3 max-h-32 min-h-16 w-full resize-none border-0 bg-transparent px-0 py-1.5 text-[15px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0"
           />
-          <span className="mt-2 flex justify-end">
-            <Button type="button" onClick={() => void handleStartChat()} disabled={!startPrompt.trim() || startChat.isPending || isStreaming} className="rounded-xl bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:opacity-40 dark:bg-foreground dark:text-background">
+          <span className="mt-2 flex items-center justify-between">
+            <span className="hidden text-[10px] font-medium text-muted-foreground sm:block">Enter ↵ starts the chat</span>
+            <Button type="button" onClick={() => void handleStartChat()} disabled={!startPrompt.trim() || startChat.isPending || isStreaming} className={`rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${startPrompt.trim() && !startChat.isPending && !isStreaming ? "bg-primary text-white hover:bg-primary/90" : "bg-muted text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"}`}>
               {startChat.isPending ? "Starting…" : "Start a chat"}
             </Button>
           </span>
         </div>
 
-        <div className="mt-8">
+        <div className="rise-in-delay-2 relative mt-8">
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Connectors Nova can use</p>
           <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             {connectors.map(connector => {
@@ -245,13 +249,13 @@ export default function Workspace() {
               const needsSetup = connector.name !== "More connectors" && !connector.available;
               const Card = needsSetup ? "button" : "div";
               return (
-                <Card key={connector.name} onClick={needsSetup ? () => setLocation("/app/settings") : undefined} className="rounded-xl border border-border bg-card px-3.5 py-3 text-left transition dark:border-white/10 dark:bg-card dark:hover:border-white/20">
+                <Card key={connector.name} onClick={needsSetup ? () => setLocation("/app/settings") : undefined} className="rounded-2xl border border-border bg-card px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(10,10,10,0.03)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_24px_rgba(10,10,10,0.07)] dark:border-white/10 dark:bg-card dark:hover:border-white/20">
                   <span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground">
-                    <ConnectorIcon className="size-3.5 shrink-0 text-primary" />
+                    <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><ConnectorIcon className="size-3.5" /></span>
                     <span className="min-w-0 truncate">{connector.name}</span>
-                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : connector.name === "More connectors" ? "Coming soon" : "Connect"}</span>
+                    <span className={`ml-auto flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available && <span className="size-1.5 rounded-full bg-emerald-500" />}{connector.available ? "Ready" : connector.name === "More connectors" ? "Coming soon" : "Connect"}</span>
                   </span>
-                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground dark:text-muted-foreground">{connector.detail}</p>
+                  <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground dark:text-muted-foreground">{connector.detail}</p>
                 </Card>
               );
             })}

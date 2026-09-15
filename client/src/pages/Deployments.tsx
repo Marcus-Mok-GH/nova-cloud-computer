@@ -24,20 +24,21 @@ export default function Deployments() {
         : "neutral";
   return (
     <DashboardLayout>
-      <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary dark:text-primary">
+      <section className="relative mx-auto max-w-3xl px-4 py-6 md:px-6">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
+        <p className="rise-in text-[11px] font-bold uppercase tracking-[0.14em] text-primary dark:text-primary">
           Release room
         </p>
-        <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
+        <h1 className="rise-in-delay-1 mt-2 text-3xl font-extrabold tracking-tight">
           Deployments
         </h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">
+        <p className="rise-in-delay-1 mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">
           A calm place to keep track of what Nova is ready to publish.
         </p>
-        <article className="mt-8 overflow-hidden rounded-2xl border border-border bg-card shadow-sm dark:border-white/10 dark:bg-card">
+        <article className="rise-in-delay-2 relative mt-8 overflow-hidden rounded-2xl border border-border bg-card shadow-[0_4px_14px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-card">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border p-5 dark:border-white/5">
             <div className="flex items-center gap-3">
-              <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <span className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
                 <Rocket className="size-5" />
               </span>
               <div>
@@ -48,8 +49,9 @@ export default function Deployments() {
               </div>
             </div>
             <span
-              className={`rounded-full px-3 py-1 text-xs font-bold ${sandboxTone === "emerald" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : sandboxTone === "amber" ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : "bg-neutral-100 text-muted-foreground dark:bg-card/10 dark:text-foreground/80"}`}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${sandboxTone === "emerald" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : sandboxTone === "amber" ? "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" : "bg-neutral-100 text-muted-foreground dark:bg-card/10 dark:text-foreground/80"}`}
             >
+              {sandboxTone === "emerald" && <span className="size-1.5 rounded-full bg-emerald-500" />}
               {sandboxLabel}
             </span>
           </div>

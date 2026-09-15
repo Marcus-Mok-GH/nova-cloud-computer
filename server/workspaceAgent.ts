@@ -57,9 +57,6 @@ type WorkspaceAgentOptions = {
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 
-/** Safety cap on tool-calling rounds per user message. */
-const MAX_TOOL_ROUNDS = 8;
-
 const DEFAULT_CHAT_TITLES = new Set([
   "New workspace conversation",
   "New conversation",
@@ -827,7 +824,7 @@ export async function runWorkspaceAgent(
 
     let reply = "";
     let streamedReplyChars = 0;
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    for (let round = 0; ; round += 1) {
       let streamedThisRound = 0;
       const emitChunk = options.onChunk
         ? (chunk: string) => {
@@ -892,7 +889,7 @@ export async function runWorkspaceAgent(
 
     if (!reply.trim()) {
       reply =
-        "I could not complete that request within my tool-step limit. Please try a more specific request.";
+        "I could not complete that request. Please try again, or rephrase it more specifically.";
     }
     // The reply already streamed to the client token-by-token: re-sending the
     // full text would duplicate what the user watched appear.

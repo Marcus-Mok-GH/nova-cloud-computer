@@ -70,6 +70,13 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
     },
     onError: error => toast.error(error.message),
   });
+  const disconnect = trpc.composio.disconnect.useMutation({
+    onSuccess: async () => {
+      toast.success(`${label} disconnected. Nova lost access until you connect again.`);
+      await utils.composio.status.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
   const entry = status.data?.toolkits?.[toolkit];
   const configured = entry?.configured ?? false;
   const connected = entry?.connected ?? false;
@@ -97,17 +104,33 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
       </div>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-          <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">Connect your {label} account</p></div>
+          <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">{connected ? `Disconnect your ${label} account` : `Connect your ${label} account`}</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
             {errored
               ? `The server has a ${keyLength}-character COMPOSIO_API_KEY, but Composio refused it. If the key was pasted in its masked form it will be far too short — paste the full key from the Composio API-keys screen.`
-              : configured
-                ? `Authorization runs through Composio's secure hosted page — your ${label} credentials never touch Nova's servers.`
-                : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
+              : connected
+                ? `${label} is connected. Disconnecting removes Nova's access and deletes the stored credentials — you can connect again any time.`
+                : configured
+                  ? `Authorization runs through Composio's secure hosted page — your ${label} credentials never touch Nova's servers.`
+                  : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
           </p>
-          <Button className="w-full" onClick={() => connect.mutate({ toolkit })} disabled={!configured || connect.isPending}>
-            {(connect.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Connect {label}
-          </Button>
+          {connected ? (
+            <Button
+              variant="outline"
+              className="w-full text-destructive hover:text-destructive"
+              onClick={() => {
+                if (window.confirm(`Disconnect ${label}? Nova will lose access to this ${label} account until you connect again.`))
+                  disconnect.mutate({ toolkit });
+              }}
+              disabled={disconnect.isPending}
+            >
+              {(disconnect.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Disconnect {label}
+            </Button>
+          ) : (
+            <Button className="w-full" onClick={() => connect.mutate({ toolkit })} disabled={!configured || connect.isPending}>
+              {(connect.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Connect {label}
+            </Button>
+          )}
         </div>
         <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
           <div className="flex items-center gap-2"><RefreshCw className="size-4 text-[#638f84]" /><p className="text-sm font-bold">Check status</p></div>

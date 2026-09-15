@@ -13,7 +13,7 @@ vi.mock("@/lib/trpc", () => ({
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false }) }, runs: { useQuery: () => ({ data: [], isLoading: false }) }, update: { useMutation: () => mutation }, runDue: { useMutation: () => mutation } },
     auth: { deleteAccount: { useMutation: () => mutation } },
-    composio: { status: { useQuery: () => ({ data: { github: { configured: true, connected: true }, gmail: { configured: true, connected: false } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation } },
+    composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
     useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } } }),
   },
 }));
@@ -27,6 +27,8 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Telegram Bot");
     expect(markup).toContain("Connect Telegram");
     expect(markup).toContain("Tell Nova what to automate");
+    expect(markup).toContain("Disconnect GitHub");
+    expect(markup).toContain("Connect Gmail");
     expect(markup).toContain("Enter");
     expect(markup).not.toContain("Open Telegram");
     expect(markup).not.toContain("Codebuff");

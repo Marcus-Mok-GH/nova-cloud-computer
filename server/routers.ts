@@ -44,7 +44,7 @@ import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
-import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
+import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { getTelegramModelSettingsForUser, updateTelegramModelSettingsForUser } from "./telegramModelSettings";
 import { ENV } from "./_core/env";
@@ -126,6 +126,15 @@ export const appRouter = router({
         throw error;
       });
     }),
+    disconnect: protectedProcedure.input(z.object({ toolkit: z.enum(COMPOSIO_TOOLKITS) })).mutation(({ ctx, input }) =>
+      deleteComposioConnection(ctx.user.id, input.toolkit).catch(error => {
+        if (error instanceof ComposioApiError) {
+          const code = error.status === 503 ? "PRECONDITION_FAILED" : error.status === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw error;
+      })
+    ),
     tools: protectedProcedure.input(z.object({ toolkit: z.enum(COMPOSIO_TOOLKITS), search: z.string().trim().max(120).optional(), limit: z.number().int().min(1).max(50).optional() }).optional()).query(({ ctx, input }) => {
       const toolkit = isComposioToolkit(input?.toolkit) ? input.toolkit : "github";
       return listComposioTools(ctx.user.id, toolkit, { search: input?.search, limit: input?.limit }).catch(error => {

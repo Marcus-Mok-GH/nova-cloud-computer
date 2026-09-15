@@ -1,5 +1,11 @@
 import { updateLastActiveTimestamp, useAuth } from "@/_core/hooks/useAuth";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+import {
+  EMAIL_INPUT_NAME,
+  friendlyOtpSendError,
+  isValidSignInEmail,
+  readSubmittedEmail,
+} from "@/lib/signInEmail";
 import NovaMark from "@/components/NovaMark";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
@@ -21,8 +27,18 @@ export default function SignIn() {
     if (!loading && isAuthenticated) setLocation("/app");
   }, [isAuthenticated, loading, setLocation]);
 
-  async function requestOTP(event: FormEvent) {
+  async function requestOTP(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Read the live input value at submit time: autofill, password managers,
+    // and IME input can update the field without React's onChange firing, and
+    // submitting that stale state is what produced the misleading
+    // "Invalid email address format" dead end for perfectly valid addresses.
+    const submittedEmail = readSubmittedEmail(new FormData(event.currentTarget));
+    setEmail(submittedEmail);
+    if (!isValidSignInEmail(submittedEmail)) {
+      setError("Please enter a valid email address, like you@example.com.");
+      return;
+    }
     if (!neonAuth) {
       setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
       return;
@@ -30,11 +46,24 @@ export default function SignIn() {
     setPending(true);
     setError(null);
     try {
-      const result = await neonAuth.emailOtp.sendVerificationOtp({ email, type: "sign-in" });
-      if (result.error) setError(result.error.message ?? "Nova could not send that sign-in code.");
+      const result = await neonAuth.emailOtp.sendVerificationOtp({ email: submittedEmail, type: "sign-in" });
+      if (result.error)
+        setError(
+          friendlyOtpSendError(
+            result.error.message,
+            "Nova could not send that sign-in code."
+          )
+        );
       else setSent(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nova could not send that sign-in code.");
+      setError(
+        requestError instanceof Error
+          ? friendlyOtpSendError(
+              requestError.message,
+              "Nova could not send that sign-in code."
+            )
+          : "Nova could not send that sign-in code."
+      );
     } finally {
       setPending(false);
     }
@@ -112,7 +141,7 @@ export default function SignIn() {
           <form onSubmit={requestOTP} className="mt-7 space-y-4">
             <label className="block text-sm font-semibold text-card-foreground">
               Email address
-              <input className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-4 text-base text-foreground outline-none transition placeholder:text-muted-foreground sm:text-sm focus:border-ring focus:ring-4 focus:ring-ring/15" value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" />
+              <input className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-4 text-base text-foreground outline-none transition placeholder:text-muted-foreground sm:text-sm focus:border-ring focus:ring-4 focus:ring-ring/15" name={EMAIL_INPUT_NAME} value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" />
             </label>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">{pending ? "Sending code..." : <>Email me a sign-in code <ArrowRight size={15} /></>}</button>

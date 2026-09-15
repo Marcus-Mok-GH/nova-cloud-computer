@@ -314,25 +314,28 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe("failed");
   });
 
-  it("stops after the tool-round cap with a fallback reply", async () => {
-    // The model always requests another (failing) tool call.
-    chatWithNvidiaGateway.mockImplementation(async () =>
-      chatResult({
+  it("runs tool rounds without a step cap until the model stops calling tools", async () => {
+    // The model requests 12 (failing) tool calls before finishing with text.
+    // The old 8-round cap would have stopped it; the agent now keeps going.
+    chatWithNvidiaGateway.mockImplementation(async () => {
+      const calls = chatWithNvidiaGateway.mock.calls.length;
+      if (calls >= 12) return chatResult({ text: "Done after 12 rounds." });
+      return chatResult({
         toolCalls: [
           {
-            id: `call-x`,
+            id: `call-${calls}`,
             name: "delete_file",
             arguments: JSON.stringify({ file: "missing.txt" }),
           },
         ],
-      })
-    );
+      });
+    });
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "loop forever", {
       onChunk,
     });
-    expect(chatWithNvidiaGateway.mock.calls.length).toBe(8);
-    expect(result.message.content).toContain("tool-step limit");
+    expect(chatWithNvidiaGateway.mock.calls.length).toBe(12);
+    expect(result.message.content).toContain("Done after 12 rounds.");
   });
 
   it("surfaces a disabled Telegram tool to the model", async () => {

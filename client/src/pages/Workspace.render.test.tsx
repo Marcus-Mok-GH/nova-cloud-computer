@@ -11,8 +11,11 @@ const state = vi.hoisted(() => ({
   chatMessages: [] as Array<{ id: number; role: "user" | "assistant"; content: string }>,
   composioStatus: {
     data: {
-      github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
-      gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+      keyLength: 64,
+      toolkits: {
+        github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+      },
     },
     isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
   },
@@ -53,8 +56,11 @@ describe("Workspace rendered browser states", () => {
     state.chatMessages = [];
     state.composioStatus = {
       data: {
-        github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
-        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+        keyLength: 64,
+        toolkits: {
+          github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+          gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+        },
       },
       isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
     };
@@ -99,8 +105,11 @@ describe("Workspace rendered browser states", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
     state.composioStatus = {
       data: {
-        github: { configured: true, connected: true, status: "active" as const, connectedAccountId: "acc_1" },
-        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null },
+        keyLength: 64,
+        toolkits: {
+          github: { configured: true, connected: true, status: "active" as const, connectedAccountId: "acc_1" },
+          gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null },
+        },
       },
       isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
     };

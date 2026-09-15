@@ -176,8 +176,8 @@ export default function Workspace() {
   }
 
   const connectorStatus = trpc.composio.status.useQuery(undefined, { retry: false });
-  const githubConnected = connectorStatus.data?.github?.connected ?? false;
-  const gmailConnected = connectorStatus.data?.gmail?.connected ?? false;
+  const githubConnected = connectorStatus.data?.toolkits?.github?.connected ?? false;
+  const gmailConnected = connectorStatus.data?.toolkits?.gmail?.connected ?? false;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const connectors = [

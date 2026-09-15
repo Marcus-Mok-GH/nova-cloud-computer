@@ -104,8 +104,17 @@ export const appRouter = router({
   }),
   composio: router({
     status: protectedProcedure.query(async ({ ctx }) => {
-      const entries = await Promise.all(COMPOSIO_TOOLKITS.map(async toolkit => [toolkit, await getComposioConnectionStatus(ctx.user.id, toolkit)] as const));
-      return Object.fromEntries(entries);
+      const keyLength = ENV.composioApiKey?.length ?? 0;
+      const entries = await Promise.all(COMPOSIO_TOOLKITS.map(async toolkit => {
+        try {
+          return [toolkit, await getComposioConnectionStatus(ctx.user.id, toolkit)] as const;
+        } catch (error) {
+          // Composio rejected the request (bad key, network, etc.) — surface that
+          // instead of letting the client render "key missing" for a key that exists.
+          return [toolkit, { configured: keyLength > 0, connected: false, status: "error", connectedAccountId: null, error: error instanceof Error ? error.message : "Composio request failed" }] as const;
+        }
+      }));
+      return { keyLength, toolkits: Object.fromEntries(entries) };
     }),
     connect: protectedProcedure.input(z.object({ toolkit: z.enum(COMPOSIO_TOOLKITS) })).mutation(({ ctx, input }) => {
       const callbackUrl = ENV.publicBaseUrl ? `${ENV.publicBaseUrl.replace(/\/$/, "")}/app/settings?connected=${input.toolkit}` : undefined;

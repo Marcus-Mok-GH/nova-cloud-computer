@@ -37,7 +37,7 @@ export class ComposioApiError extends Error {
 export type ComposioConnectionStatus = {
   configured: boolean;
   connected: boolean;
-  status: "active" | "disconnected";
+  status: "active" | "disconnected" | "error";
   connectedAccountId: string | null;
 };
 

@@ -70,8 +70,11 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
     },
     onError: error => toast.error(error.message),
   });
-  const configured = status.data?.[toolkit]?.configured ?? false;
-  const connected = status.data?.[toolkit]?.connected ?? false;
+  const entry = status.data?.toolkits?.[toolkit];
+  const configured = entry?.configured ?? false;
+  const connected = entry?.connected ?? false;
+  const errored = entry?.status === "error";
+  const keyLength = status.data?.keyLength ?? 0;
   const label = toolkit === "github" ? "GitHub" : "Gmail";
   const blurb = toolkit === "github"
     ? "Connect GitHub through Composio and Nova can work with your repositories, issues and pull requests straight from chat — starred repos, filed issues, opened PRs."
@@ -88,16 +91,19 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{blurb}</p>
         </div>
         {connected && <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><Check size={14} /> {label} connected</span>}
-        {!connected && configured && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700">{toolkit === "github" ? <Github size={14} /> : <Mail size={14} />} Not connected</span>}
+        {errored && <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300"><AlertTriangle size={14} /> Composio rejected the key</span>}
+        {!connected && !errored && configured && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700">{toolkit === "github" ? <Github size={14} /> : <Mail size={14} />} Not connected</span>}
         {!configured && <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground"><AlertTriangle size={14} /> Composio key missing</span>}
       </div>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
           <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">Connect your {label} account</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
-            {configured
-              ? `Authorization runs through Composio's secure hosted page — your ${label} credentials never touch Nova's servers.`
-              : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
+            {errored
+              ? `The server has a ${keyLength}-character COMPOSIO_API_KEY, but Composio refused it. If the key was pasted in its masked form it will be far too short — paste the full key from the Composio API-keys screen.`
+              : configured
+                ? `Authorization runs through Composio's secure hosted page — your ${label} credentials never touch Nova's servers.`
+                : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
           </p>
           <Button className="w-full" onClick={() => connect.mutate({ toolkit })} disabled={!configured || connect.isPending}>
             {(connect.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Connect {label}

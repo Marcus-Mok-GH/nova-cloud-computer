@@ -44,6 +44,7 @@ import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
 import { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } from "./nvidiaGateway";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
+import { ComposioApiError, createComposioConnectionLink, getComposioConnectionStatus, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { getTelegramModelSettingsForUser, updateTelegramModelSettingsForUser } from "./telegramModelSettings";
 import { ENV } from "./_core/env";
@@ -100,6 +101,28 @@ export const appRouter = router({
       if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
     }),
+  }),
+  composio: router({
+    status: protectedProcedure.query(({ ctx }) => getComposioConnectionStatus(ctx.user.id)),
+    connect: protectedProcedure.mutation(({ ctx }) => {
+      const callbackUrl = ENV.publicBaseUrl ? `${ENV.publicBaseUrl.replace(/\/$/, "")}/app/settings?connected=github` : undefined;
+      return createComposioConnectionLink(ctx.user.id, { callbackUrl }).catch(error => {
+        if (error instanceof ComposioApiError) {
+          const code = error.status === 503 ? "PRECONDITION_FAILED" : error.status === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw error;
+      });
+    }),
+    tools: protectedProcedure.input(z.object({ search: z.string().trim().max(120).optional(), limit: z.number().int().min(1).max(50).optional() }).optional()).query(({ ctx, input }) =>
+      listComposioTools(ctx.user.id, { search: input?.search, limit: input?.limit }).catch(error => {
+        if (error instanceof ComposioApiError) {
+          const code = error.status === 503 || error.status === 428 ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw error;
+      })
+    ),
   }),
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),

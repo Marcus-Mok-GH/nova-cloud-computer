@@ -84,4 +84,8 @@ export const ENV = {
   publicBaseUrl: resolvePublicBaseUrl(),
   /** Server-wide Telegram bot that works without any per-user configuration; the app auto-registers its webhook. Empty string when unset. */
   defaultTelegramBotToken: process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "",
+  /** Composio project API key enabling connector toolkits (GitHub, etc.). Empty string when unset. */
+  composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
+  /** Composio REST base URL (defaults to the hosted v3.1 API). */
+  composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev/api/v3.1",
 };

@@ -9,7 +9,13 @@ const state = vi.hoisted(() => ({
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false },
   nvidiaStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3.5-lightning-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
   chatMessages: [] as Array<{ id: number; role: "user" | "assistant"; content: string }>,
-  composioStatus: { data: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() },
+  composioStatus: {
+    data: {
+      github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+      gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+    },
+    isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+  },
 }));
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -45,7 +51,13 @@ describe("Workspace rendered browser states", () => {
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
     state.nvidiaStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3.5-lightning-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
     state.chatMessages = [];
-    state.composioStatus = { data: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() };
+    state.composioStatus = {
+      data: {
+        github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+      },
+      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+    };
   });
 
   it("renders the start-chat prompt box as a real textarea with a disabled send button until text is entered", () => {
@@ -72,6 +84,8 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Ask Nova anything about your work");
     expect(markup).toContain("Connectors Nova can use");
     expect(markup).toContain("GitHub");
+    expect(markup).toContain("Gmail");
+    expect(markup).not.toContain("Cloud VM");
     expect(markup).toContain("Connect");
     expect(markup).not.toContain("Pick up where you left off");
     expect(markup).not.toContain("Plans");
@@ -81,12 +95,18 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("Codebuff");
   });
 
-  it("shows GitHub as Ready once the connector is connected", () => {
+  it("shows a connected connector as Ready and an unconnected one as Connect", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    state.composioStatus = { data: { configured: true, connected: true, status: "active" as const, connectedAccountId: "acc_1" }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() };
+    state.composioStatus = {
+      data: {
+        github: { configured: true, connected: true, status: "active" as const, connectedAccountId: "acc_1" },
+        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null },
+      },
+      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+    };
     const markup = renderWorkspace();
     expect(markup).toContain("Ready");
-    expect(markup).not.toContain(">Connect<");
+    expect(markup).toContain("Connect");
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {

@@ -9,8 +9,20 @@ import { ENV } from "./_core/env";
  * session, scoped to a stable per-user Composio user id.
  */
 
-const DEFAULT_TOOLKIT = "github";
 const REQUEST_TIMEOUT_MS = 20_000;
+
+/** Connector toolkits Nova supports through Composio. */
+export const COMPOSIO_TOOLKITS = ["github", "gmail"] as const;
+export type ComposioToolkit = (typeof COMPOSIO_TOOLKITS)[number];
+
+export function isComposioToolkit(value: unknown): value is ComposioToolkit {
+  return value === "github" || value === "gmail";
+}
+
+/** Display name used in user-facing status and error messages. */
+export function toolkitLabel(toolkit: ComposioToolkit) {
+  return toolkit === "github" ? "GitHub" : "Gmail";
+}
 
 export class ComposioApiError extends Error {
   constructor(
@@ -104,12 +116,13 @@ type ConnectedAccountsResponse = {
 /** Reports whether the user's GitHub account is connected through Composio. */
 export async function getComposioConnectionStatus(
   ownerId: number,
+  toolkit: ComposioToolkit,
   fetchImpl: typeof fetch = fetch
 ): Promise<ComposioConnectionStatus> {
   if (!isComposioConfigured())
     return { configured: false, connected: false, status: "disconnected", connectedAccountId: null };
   const data = await composioRequest<ConnectedAccountsResponse>(
-    `/connected_accounts?user_id=${encodeURIComponent(composioUserId(ownerId))}&toolkit_slug=${DEFAULT_TOOLKIT}`,
+    `/connected_accounts?user_id=${encodeURIComponent(composioUserId(ownerId))}&toolkit_slug=${toolkit}`,
     {},
     fetchImpl
   );
@@ -131,18 +144,19 @@ export async function getComposioConnectionStatus(
  */
 export async function createComposioConnectionLink(
   ownerId: number,
+  toolkit: ComposioToolkit,
   options: { callbackUrl?: string } = {},
   fetchImpl: typeof fetch = fetch
 ): Promise<{ redirectUrl: string; connectedAccountId: string | null }> {
   const configs = await composioRequest<{ items?: Array<{ id: string }> }>(
-    `/auth_configs?toolkit_slug=${DEFAULT_TOOLKIT}&is_composio_managed=true`,
+    `/auth_configs?toolkit_slug=${toolkit}&is_composio_managed=true`,
     {},
     fetchImpl
   );
   const config = (configs.items ?? [])[0];
   if (!config)
     throw new ComposioApiError(
-      "No GitHub auth config exists in this Composio project yet. Create one in the Composio dashboard.",
+      `No ${toolkitLabel(toolkit)} auth config exists in this Composio project yet. Create one in the Composio dashboard.`,
       404
     );
   const link = await composioRequest<{ redirect_url?: string; connected_account_id?: string }>(
@@ -165,13 +179,14 @@ export async function createComposioConnectionLink(
 /** Searches Composio's GitHub tool catalog and returns slugs plus parameter schemas. */
 export async function listComposioTools(
   ownerId: number,
+  toolkit: ComposioToolkit,
   options: { search?: string; limit?: number } = {},
   fetchImpl: typeof fetch = fetch
 ): Promise<{ tools: ComposioToolSummary[] }> {
-  await requireComposioConnection(ownerId, fetchImpl);
+  await requireComposioConnection(ownerId, toolkit, fetchImpl);
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 50);
   const query = new URLSearchParams({
-    toolkit_slug: DEFAULT_TOOLKIT,
+    toolkit_slug: toolkit,
     limit: String(limit),
   });
   if (options.search?.trim()) query.set("query", options.search.trim());
@@ -191,11 +206,12 @@ export async function listComposioTools(
 /** Executes a Composio GitHub tool on behalf of the connected user. */
 export async function executeComposioTool(
   ownerId: number,
+  toolkit: ComposioToolkit,
   toolSlug: string,
   args: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch
 ): Promise<ComposioToolExecution> {
-  await requireComposioConnection(ownerId, fetchImpl);
+  await requireComposioConnection(ownerId, toolkit, fetchImpl);
   const result = await composioRequest<{
     data?: unknown;
     error?: string;
@@ -219,16 +235,16 @@ export async function executeComposioTool(
 }
 
 /** Throws a clear ComposioApiError when the toolkit is not usable for this user. */
-async function requireComposioConnection(ownerId: number, fetchImpl: typeof fetch) {
+async function requireComposioConnection(ownerId: number, toolkit: ComposioToolkit, fetchImpl: typeof fetch) {
   if (!isComposioConfigured())
     throw new ComposioApiError(
       "Composio connectors are not configured on this Nova server. The owner must set COMPOSIO_API_KEY.",
       503
     );
-  const status = await getComposioConnectionStatus(ownerId, fetchImpl);
+  const status = await getComposioConnectionStatus(ownerId, toolkit, fetchImpl);
   if (!status.connected)
     throw new ComposioApiError(
-      "GitHub is not connected yet. The user must open Settings and connect GitHub first.",
+      `${toolkitLabel(toolkit)} is not connected yet. The user must open Settings and connect ${toolkitLabel(toolkit)} first.`,
       428
     );
 }

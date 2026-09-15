@@ -34,7 +34,7 @@ describe("Composio connector client", () => {
   it("reports disconnected when the API key is absent, without calling Composio", async () => {
     process.env.COMPOSIO_API_KEY = "";
     const fetchImpl = vi.fn();
-    await expect(getComposioConnectionStatus(1, fetchImpl)).resolves.toEqual({
+    await expect(getComposioConnectionStatus(1, "github", fetchImpl)).resolves.toEqual({
       configured: false,
       connected: false,
       status: "disconnected",
@@ -47,7 +47,7 @@ describe("Composio connector client", () => {
     const fetchImpl = vi.fn(async () =>
       composioResponse({ items: [{ id: "acc_init", status: "INITIALIZING" }, { id: "acc_active", status: "ACTIVE" }] })
     );
-    await expect(getComposioConnectionStatus(3, fetchImpl)).resolves.toEqual({
+    await expect(getComposioConnectionStatus(3, "github", fetchImpl)).resolves.toEqual({
       configured: true,
       connected: true,
       status: "active",
@@ -63,7 +63,7 @@ describe("Composio connector client", () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(composioResponse({ items: [{ id: "acfg_github" }] }))
       .mockResolvedValueOnce(composioResponse({ redirect_url: "https://composio.dev/link/abc", connected_account_id: "acc_new" }));
-    await expect(createComposioConnectionLink(5, { callbackUrl: "https://nova.example.com/app/settings?connected=github" }, fetchImpl)).resolves.toEqual({
+    await expect(createComposioConnectionLink(5, "github", { callbackUrl: "https://nova.example.com/app/settings?connected=github" }, fetchImpl)).resolves.toEqual({
       redirectUrl: "https://composio.dev/link/abc",
       connectedAccountId: "acc_new",
     });
@@ -78,7 +78,7 @@ describe("Composio connector client", () => {
 
   it("fails clearly when no GitHub auth config exists in the project", async () => {
     const fetchImpl = vi.fn(async () => composioResponse({ items: [] }));
-    await expect(createComposioConnectionLink(1, {}, fetchImpl)).rejects.toThrow(ComposioApiError);
+    await expect(createComposioConnectionLink(1, "github", {}, fetchImpl)).rejects.toThrow(ComposioApiError);
   });
 
   it("lists tool slugs with parameter schemas after confirming the connection", async () => {
@@ -96,7 +96,7 @@ describe("Composio connector client", () => {
           ],
         })
       );
-    await expect(listComposioTools(9, { search: "create issue" }, fetchImpl)).resolves.toEqual({
+    await expect(listComposioTools(9, "github", { search: "create issue" }, fetchImpl)).resolves.toEqual({
       tools: [
         {
           slug: "GITHUB_CREATE_AN_ISSUE",
@@ -111,7 +111,7 @@ describe("Composio connector client", () => {
 
   it("refuses to execute a tool when GitHub is not connected", async () => {
     const fetchImpl = vi.fn(async () => composioResponse({ items: [] }));
-    await expect(executeComposioTool(2, "GITHUB_STAR_A_REPOSITORY", { owner: "octocat" }, fetchImpl)).rejects.toThrow(
+    await expect(executeComposioTool(2, "github", "GITHUB_STAR_A_REPOSITORY", { owner: "octocat" }, fetchImpl)).rejects.toThrow(
       "GitHub is not connected yet"
     );
   });
@@ -120,7 +120,7 @@ describe("Composio connector client", () => {
     const successFetch = vi.fn()
       .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", status: "ACTIVE" }] }))
       .mockResolvedValueOnce(composioResponse({ data: { starred: true }, successful: true }));
-    await expect(executeComposioTool(4, "GITHUB_STAR_A_REPOSITORY", { owner: "octocat", repo: "Hello-World" }, successFetch)).resolves.toEqual({
+    await expect(executeComposioTool(4, "github", "GITHUB_STAR_A_REPOSITORY", { owner: "octocat", repo: "Hello-World" }, successFetch)).resolves.toEqual({
       ok: true,
       data: { starred: true },
       error: null,
@@ -134,11 +134,28 @@ describe("Composio connector client", () => {
     const failureFetch = vi.fn()
       .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", status: "ACTIVE" }] }))
       .mockResolvedValueOnce(composioResponse({ data: null, successful: false, error: "repo not found" }));
-    await expect(executeComposioTool(4, "GITHUB_STAR_A_REPOSITORY", {}, failureFetch)).resolves.toEqual({
+    await expect(executeComposioTool(4, "github", "GITHUB_STAR_A_REPOSITORY", {}, failureFetch)).resolves.toEqual({
       ok: false,
       data: null,
       error: "repo not found",
     });
+  });
+
+  it("supports the Gmail toolkit with its own connection state and messages", async () => {
+    const fetchImpl = vi.fn(async () => composioResponse({ items: [] }));
+    await expect(getComposioConnectionStatus(6, "gmail", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      connectedAccountId: null,
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/connected_accounts?user_id=nova-user-6&toolkit_slug=gmail"),
+      expect.anything()
+    );
+    await expect(executeComposioTool(6, "gmail", "GMAIL_SEND_EMAIL", { to: "a@b.co" }, fetchImpl)).rejects.toThrow(
+      "Gmail is not connected yet"
+    );
   });
 
   it("wraps Composio HTTP errors with their message", async () => {

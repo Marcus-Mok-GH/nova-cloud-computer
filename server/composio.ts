@@ -110,8 +110,14 @@ async function composioRequest<T>(
 }
 
 type ConnectedAccountsResponse = {
-  items?: Array<{ id: string; status?: string; user_id?: string }>;
+  items?: Array<{ id: string; status?: string; user_id?: string; toolkit?: { slug?: string } | string }>;
 };
+
+/** Best-effort toolkit slug for a connected-account item (may be absent on older payloads). */
+function connectedAccountToolkit(item: NonNullable<ConnectedAccountsResponse["items"]>[number]): string | null {
+  if (typeof item.toolkit === "string") return item.toolkit.toLowerCase();
+  return item.toolkit?.slug?.toLowerCase() ?? null;
+}
 
 /** Reports whether the user's GitHub account is connected through Composio. */
 export async function getComposioConnectionStatus(
@@ -126,13 +132,16 @@ export async function getComposioConnectionStatus(
     {},
     fetchImpl
   );
-  // The Composio list endpoint ignores the user_id query param (verified live:
-  // it returns accounts for every user in the project), so scope client-side.
-  const account = (data.items ?? []).find(
-    item =>
-      item.user_id === composioUserId(ownerId) &&
-      (item.status ?? "").toUpperCase() === "ACTIVE"
-  );
+  // The Composio list endpoint ignores the user_id and toolkit_slug query
+  // params (verified live: it returns accounts for every user and toolkit in
+  // the project), so scope client-side. Items that omit the toolkit field
+  // still match, so an older payload cannot silently hide a real connection.
+  const account = (data.items ?? []).find(item => {
+    if (item.user_id !== composioUserId(ownerId)) return false;
+    if ((item.status ?? "").toUpperCase() !== "ACTIVE") return false;
+    const itemToolkit = connectedAccountToolkit(item);
+    return itemToolkit === null || itemToolkit === toolkit;
+  });
   return {
     configured: true,
     connected: Boolean(account),

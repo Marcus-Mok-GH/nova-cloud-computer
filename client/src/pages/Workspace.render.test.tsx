@@ -67,8 +67,9 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("What are we working on?");
     expect(markup).toContain("Ask Nova anything about your work");
-    expect(markup).toContain("Pick up where you left off");
-    expect(markup).toContain("launch-brief.md");
+    expect(markup).toContain("Connectors Nova can use");
+    expect(markup).toContain("GitHub");
+    expect(markup).not.toContain("Pick up where you left off");
     expect(markup).not.toContain("Plans");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Ask NVIDIA");
@@ -81,7 +82,7 @@ describe("Workspace rendered browser states", () => {
     expect(renderWorkspace()).toContain("What are we working on?");
 
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("Files and conversations will appear here");
+    expect(renderWorkspace()).toContain("Connectors Nova can use");
 
     state.computer = { data: undefined, isError: true, isLoading: false, refetch: vi.fn() };
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
@@ -94,7 +95,7 @@ describe("Workspace rendered browser states", () => {
 
     const markup = renderWorkspace();
     expect(markup).toContain("Start a chat");
-    expect(markup).toContain("Files and conversations will appear here");
+    expect(markup).toContain("Connectors Nova can use");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask NVIDIA");

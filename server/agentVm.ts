@@ -8,6 +8,7 @@ import {
   updateWorkspacePersistentSandbox,
 } from "./db";
 import {
+  buildE2BWorkspaceBundle,
   getE2BClient,
   isE2BConfigured,
   runE2BTaskInPersistentSandbox,
@@ -129,10 +130,23 @@ export async function startAgentVmRun(
         const outputExcerpt = output
           ? `\n\nTask output:\n${output.slice(0, 2000)}${output.length > 2000 ? "\n…(truncated)" : ""}`
           : "\n\nTask output: (nothing was printed — use print() in the code to report results.)";
+        // Tell the model the exact mounted paths of workspace files so it can
+        // open/exec them on the first try instead of probing the filesystem.
+        const bundle = buildE2BWorkspaceBundle(
+          syncedComputer.files,
+          syncedComputer.folders
+        );
+        const filePaths = bundle.uploads
+          .map(upload => upload.remotePath)
+          .slice(0, 15);
+        const filesExcerpt =
+          filePaths.length > 0
+            ? `\n\nWorkspace files at: ${filePaths.join("; ")}${result.uploadedFileCount > filePaths.length ? "; …" : ""}`
+            : "";
         return {
           configured: true as const,
           run: completed,
-          message: `E2B completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.${outputExcerpt}`,
+          message: `E2B completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.${filesExcerpt}${outputExcerpt}`,
         };
       }
     );

@@ -110,7 +110,7 @@ async function composioRequest<T>(
 }
 
 type ConnectedAccountsResponse = {
-  items?: Array<{ id: string; status?: string }>;
+  items?: Array<{ id: string; status?: string; user_id?: string }>;
 };
 
 /** Reports whether the user's GitHub account is connected through Composio. */
@@ -126,8 +126,12 @@ export async function getComposioConnectionStatus(
     {},
     fetchImpl
   );
+  // The Composio list endpoint ignores the user_id query param (verified live:
+  // it returns accounts for every user in the project), so scope client-side.
   const account = (data.items ?? []).find(
-    item => (item.status ?? "").toUpperCase() === "ACTIVE"
+    item =>
+      item.user_id === composioUserId(ownerId) &&
+      (item.status ?? "").toUpperCase() === "ACTIVE"
   );
   return {
     configured: true,

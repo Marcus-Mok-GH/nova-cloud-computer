@@ -24,7 +24,7 @@ import {
   NvidiaGatewayClientError,
 } from "./nvidiaGateway";
 import { sendTelegramMessage } from "./telegram";
-import { ComposioApiError, executeComposioTool, listComposioTools } from "./composio";
+import { ComposioApiError, executeComposioTool, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm" | "connector";
@@ -330,13 +330,15 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "list_connector_tools",
       description:
-        "Search the GitHub connector catalog and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which GitHub action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires GitHub to be connected (Settings).",
+        "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
       parameters: {
         type: "object",
         properties: {
-          search: { type: "string", description: "Optional words to filter actions, e.g. 'create issue' or 'pull request'." },
+          connector: { type: "string", enum: ["github", "gmail"], description: "Which connector's catalog to search." },
+          search: { type: "string", description: "Optional words to filter actions, e.g. 'create issue' or 'send email'." },
           limit: { type: "number", description: "Max actions to return, 1-50 (default 25)." },
         },
+        required: ["connector"],
       },
     },
   },
@@ -345,14 +347,15 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "use_connector_tool",
       description:
-        "Execute a GitHub action on the user's behalf through the connector, e.g. list or star repositories, create issues, comment, open or merge pull requests. The action slug must come from list_connector_tools (or a known GITHUB_* slug) with exactly the parameters it declares. Requires GitHub to be connected (Settings).",
+        "Execute a GitHub or Gmail action on the user's behalf through the connector — e.g. list or star repositories, create issues, open pull requests; search, send or reply to Gmail; draft and manage emails. The action slug must come from list_connector_tools with exactly the parameters it declares. Requires the connector to be connected (Settings).",
       parameters: {
         type: "object",
         properties: {
-          action: { type: "string", description: "The exact action slug, e.g. GITHUB_CREATE_AN_ISSUE." },
+          connector: { type: "string", enum: ["github", "gmail"], description: "Which connector to run the action through." },
+          action: { type: "string", description: "The exact action slug, e.g. GITHUB_CREATE_AN_ISSUE or GMAIL_SEND_EMAIL." },
           params: { type: "object", description: "The action's parameters as a JSON object, exactly as listed by list_connector_tools." },
         },
-        required: ["action", "params"],
+        required: ["connector", "action", "params"],
       },
     },
   },
@@ -434,7 +437,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Use the GitHub connector for repository, issue and pull-request work: search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool. If the connector says GitHub is not connected, tell the user to open Settings and connect GitHub.
+- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool. If a connector reports it is not connected, tell the user to open Settings and connect it.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
@@ -687,11 +690,14 @@ async function executeWorkspaceTool(
       };
     }
     case "list_connector_tools": {
+      const connector = str(args.connector);
+      if (!isComposioToolkit(connector))
+        return { ok: false, result: "connector must be 'github' or 'gmail'." };
       const search = str(args.search) || undefined;
       const limitRaw = Number(args.limit);
       const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
       try {
-        const { tools } = await listComposioTools(ownerId, { search, limit });
+        const { tools } = await listComposioTools(ownerId, connector, { search, limit });
         if (!tools.length)
           return { ok: true, result: `No GitHub actions matched "${search ?? ""}". Try a broader search.` };
         const lines = tools
@@ -707,7 +713,7 @@ async function executeWorkspaceTool(
           .join("\n");
         return {
           ok: true,
-          result: `GitHub actions available:\n${lines}`,
+          result: `${connector === "gmail" ? "Gmail" : "GitHub"} actions available:\n${lines}`,
           action: { kind: "connector", name: `${tools.length} GitHub actions`, operation: "listed" },
         };
       } catch (error) {
@@ -718,17 +724,20 @@ async function executeWorkspaceTool(
       }
     }
     case "use_connector_tool": {
+      const connector = str(args.connector);
       const action = str(args.action);
       const params = (args.params ?? {}) as Record<string, unknown>;
+      if (!isComposioToolkit(connector))
+        return { ok: false, result: "connector must be 'github' or 'gmail'." };
       if (!action) return { ok: false, result: "An action slug is required." };
       try {
-        const execution = await executeComposioTool(ownerId, action, params);
+        const execution = await executeComposioTool(ownerId, connector, action, params);
         const payload = JSON.stringify(execution.data, null, 2);
         return {
           ok: execution.ok,
           result: execution.ok
-            ? `GitHub action ${action} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
-            : `GitHub action ${action} failed: ${execution.error ?? "unknown error"}. Check the parameters with list_connector_tools and retry.`,
+            ? `${connector === "gmail" ? "Gmail" : "GitHub"} action ${action} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
+            : `${connector === "gmail" ? "Gmail" : "GitHub"} action ${action} failed: ${execution.error ?? "unknown error"}. Check the parameters with list_connector_tools and retry.`,
           action: { kind: "connector", name: action, operation: "executed" },
         };
       } catch (error) {

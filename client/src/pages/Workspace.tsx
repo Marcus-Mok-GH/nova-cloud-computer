@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ToolActivityLine } from "@/lib/toolActivityLine";
-import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
+import { dedupeToolActivityMessages, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
 import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, Mail, MessageSquareText, Send, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -27,7 +27,9 @@ export default function Workspace() {
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const startChat = trpc.chats.create.useMutation({ onSuccess: async chat => { await utils.workspace.computer.invalidate(); setLocation(`/app?chatId=${chat.id}`); } });
-  const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
+  // While a conversation is open it polls every 2.5s so activity started
+  // elsewhere (e.g. Telegram) streams into this view in real time.
+  const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false, refetchInterval: Boolean(chatId) ? 2500 : false, refetchIntervalInBackground: false });
   // Connector/Telegram status feeds the home dashboard cards. These hooks
   // MUST run before any early return (React error #300 when the chat view
   // renders fewer hooks than the home view did), so they live up here with the
@@ -153,7 +155,7 @@ export default function Workspace() {
                 <p className="text-lg font-extrabold tracking-tight">What are we working on?</p>
                 <p className="max-w-xs text-sm leading-6 text-muted-foreground">Ask Nova about your files, or give it a task. Replies stream in here.</p>
               </div>
-            ) : persisted.map((message, index) => {
+            ) : dedupeToolActivityMessages(persisted).map((message, index) => {
               const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
               const showLabel = index === 0 || persisted[index - 1].role === "user";
               if (persistedTool) return <div key={message.id} className="chat-in ml-[2.65rem] flex w-full shrink-0"><div className="flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-card px-2.5 py-1 shadow-[0_1px_2px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card"><ToolActivityLine activity={persistedTool} /></div></div>;

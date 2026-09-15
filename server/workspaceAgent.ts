@@ -916,16 +916,17 @@ export async function runWorkspaceAgent(
       await options.onEvent?.({ type: "tool", tool });
     } catch {}
 
-    if (tool.state === "completed" || tool.state === "failed") {
-      try {
-        await appendChatMessageForUser(ownerId, {
-          chatId,
-          role: "assistant",
-          content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
-        });
-      } catch (error) {
-        console.error("[Tool activity] failed to persist", error);
-      }
+    // Persist every state (including "running") so a conversation opened in
+    // the web app can show the task as it happens; the client renders the
+    // latest row per activity id.
+    try {
+      await appendChatMessageForUser(ownerId, {
+        chatId,
+        role: "assistant",
+        content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
+      });
+    } catch (error) {
+      console.error("[Tool activity] failed to persist", error);
     }
   };
   /** Appends the assistant's reply to the chat and returns the persisted message. */

@@ -5,7 +5,7 @@ vi.mock("./_core/env", () => ({
     get composioApiKey() {
       return process.env.COMPOSIO_API_KEY ?? "";
     },
-    composioApiUrl: "https://backend.composio.dev/api/v3.1",
+    composioApiUrl: "https://backend.composio.dev",
   },
 }));
 

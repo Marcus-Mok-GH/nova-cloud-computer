@@ -87,5 +87,5 @@ export const ENV = {
   /** Composio project API key enabling connector toolkits (GitHub, etc.). Empty string when unset. */
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Composio REST base URL (defaults to the hosted v3.1 API). */
-  composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev/api/v3.1",
+  composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev",
 };

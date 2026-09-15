@@ -175,12 +175,14 @@ export default function Workspace() {
     );
   }
 
+  const connectorStatus = trpc.composio.status.useQuery(undefined, { retry: false });
+  const githubConnected = connectorStatus.data?.connected ?? false;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const connectors = [
     { name: "Cloud VM (E2B)", icon: SquareTerminal, available: true, detail: "Runs Python, installs packages and browses the web in an isolated sandbox." },
     { name: "Telegram", icon: Send, available: true, detail: "Delivers messages and routine updates straight to your Telegram chat." },
-    { name: "GitHub", icon: Github, available: false, detail: "Clone repositories, run builds and open pull requests from a task." },
+    { name: "GitHub", icon: Github, available: githubConnected, detail: "Star repos, file issues and open pull requests from a task. Connect it in Settings." },
     { name: "More connectors", icon: CircleDashed, available: false, detail: "Gmail, Slack and Notion are on the roadmap — tell Nova what you need next." },
   ];
 
@@ -219,15 +221,17 @@ export default function Workspace() {
           <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             {connectors.map(connector => {
               const ConnectorIcon = connector.icon;
+              const needsSetup = connector.name === "GitHub" && !connector.available;
+              const Card = needsSetup ? "button" : "div";
               return (
-                <div key={connector.name} className="rounded-xl border border-border bg-card px-3.5 py-3 dark:border-white/10 dark:bg-card">
+                <Card key={connector.name} onClick={needsSetup ? () => setLocation("/app/settings") : undefined} className="rounded-xl border border-border bg-card px-3.5 py-3 text-left transition dark:border-white/10 dark:bg-card dark:hover:border-white/20">
                   <span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground">
                     <ConnectorIcon className="size-3.5 shrink-0 text-primary" />
                     <span className="min-w-0 truncate">{connector.name}</span>
-                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : "Coming soon"}</span>
+                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : connector.name === "GitHub" ? "Connect" : "Coming soon"}</span>
                   </span>
                   <p className="mt-1 text-[11px] leading-4 text-muted-foreground dark:text-muted-foreground">{connector.detail}</p>
-                </div>
+                </Card>
               );
             })}
           </div>

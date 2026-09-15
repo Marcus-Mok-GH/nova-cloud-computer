@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Check, Clipboard, Loader2, LogOut, MessageCircle, Send, ShieldCheck, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
+import { AlertTriangle, Check, Clipboard, Github, Loader2, LogOut, MessageCircle, RefreshCw, Send, ShieldCheck, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,6 +25,7 @@ export default function WorkspaceSettings() {
     <section className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-8 shadow-sm dark:border-white/10 dark:bg-card sm:px-9 sm:py-10"><div className="relative"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Your personal cloud</p><h1 className="mt-3 text-2xl font-extrabold tracking-tight text-foreground dark:text-foreground sm:text-3xl">Preferences with a memory.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Give Nova the standing rules and recurring jobs that make your workspace feel like yours.</p></div></section>
     <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 text-xl font-bold tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section>
     <TelegramBotCard />
+    <GithubConnectorCard />
     <UserAutomationsCard />
     <AccountManagementCard />
   </div></DashboardLayout>;
@@ -55,4 +56,57 @@ function TelegramBotCard() {
   const remove = trpc.telegram.remove.useMutation({ onSuccess: async () => { await refresh(); setChatId(""); toast.success("Telegram connection removed."); }, onError: error => toast.error(error.message) });
   const configured = Boolean(status.data?.configured); const ready = Boolean(configured && status.data?.chatId); const webhookLinked = Boolean(configured && status.data?.webhook?.linked); const waitingForTelegram = configured && !status.data?.chatId;
   return <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Telegram Bot</p><h2 className="mt-1 text-xl font-bold tracking-tight">Send from your workspace</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Saving the bot token only configures the bot. Your Telegram account is connected only after Telegram sends Nova your chat.</p></div>{ready && <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><Check size={14} /> Telegram connected</span>}{waitingForTelegram && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700"><MessageCircle size={14} /> Waiting for Telegram</span>}{configured && !webhookLinked && <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-700"><AlertTriangle size={14} /> Webhook not reachable</span>}</div><div className="mt-6 grid gap-5 lg:grid-cols-2"><div className="space-y-4 rounded-2xl border bg-muted/20 p-4"><div className="flex items-center gap-2"><MessageCircle className="size-4 text-primary" /><p className="text-sm font-bold">Connect your Telegram account</p></div><p className="text-xs leading-5 text-muted-foreground">Connect Telegram secures the bot link and opens the chat with a secure link message pre-filled - send it and this chat links to your account automatically. Check connection then confirms the link.</p><Button className="w-full" onClick={() => { const knownUsername = status.data?.botUsername ?? null; const knownCode = status.data?.linkCode ?? null; const openBot = (username: string, code: string) => window.open(`https://t.me/${username}?text=${encodeURIComponent(`/start nova_app_link_${code}`)}`, "_blank", "noopener"); if (knownUsername && knownCode) openBot(knownUsername, knownCode); void (async () => { const saved = await configure.mutateAsync({ chatId: chatId.trim() || null }).catch(() => null); if (!saved) return; const code = saved.linkCode ?? knownCode; if (!saved.botUsername || !code) { toast.error("The bot link details are unavailable, so Telegram could not be opened."); return; } if (!(knownUsername && knownCode)) openBot(saved.botUsername, code); toast.success("Connection secured. Send the pre-filled message in Telegram to link your account."); })(); }} disabled={configure.isPending}>{configure.isPending && <Loader2 className="animate-spin" size={15} />} Connect Telegram</Button>{configured && <div className="flex gap-2"><Button variant="outline" className="flex-1" onClick={() => discover.mutate()} disabled={discover.isPending}>{discover.isPending && <Loader2 className="animate-spin" size={15} />} Check connection</Button><Button variant="ghost" size="icon" aria-label="Remove Telegram connection" onClick={() => remove.mutate()} disabled={remove.isPending} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div>}</div><div className="space-y-4 rounded-2xl border bg-muted/20 p-4"><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-[#638f84]" /><p className="text-sm font-bold">Send a test</p></div><p className="text-xs leading-5 text-muted-foreground">{ready ? `Sending to chat ${status.data?.chatId}. Your Telegram account is connected.` : "Your Telegram chat is not connected yet. Authorize the bot first."}</p><Textarea value={testText} onChange={event => setTestText(event.target.value)} className="min-h-28" maxLength={4096} disabled={!ready} /><Button variant="outline" className="w-full" onClick={() => sendTest.mutate({ text: testText })} disabled={!ready || !testText.trim() || sendTest.isPending}>{sendTest.isPending && <Loader2 className="animate-spin" size={15} />} <Send size={15} /> Send test message</Button></div></div></section>;
+}
+
+function GithubConnectorCard() {
+  const utils = trpc.useUtils();
+  const status = trpc.composio.status.useQuery(undefined, { retry: false, refetchInterval: 15000 });
+  const connect = trpc.composio.connect.useMutation({
+    onSuccess: async result => {
+      window.open(result.redirectUrl, "_blank", "noopener");
+      toast.success("GitHub authorization opened. Finish it in the new tab, then check the status here.");
+      await utils.composio.status.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const configured = status.data?.configured ?? false;
+  const connected = status.data?.connected ?? false;
+  return (
+    <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm sm:p-7">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Connectors</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">GitHub</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Connect GitHub through Composio and Nova can work with your repositories, issues and pull requests straight from chat — starred repos, filed issues, opened PRs.
+          </p>
+        </div>
+        {connected && <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><Check size={14} /> GitHub connected</span>}
+        {!connected && configured && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700"><Github size={14} /> Not connected</span>}
+        {!configured && <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground"><AlertTriangle size={14} /> Composio key missing</span>}
+      </div>
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+          <div className="flex items-center gap-2"><Github className="size-4 text-primary" /><p className="text-sm font-bold">Connect your GitHub account</p></div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {configured
+              ? "Authorization runs through Composio's secure hosted page — your GitHub credentials never touch Nova's servers."
+              : "The server owner needs to set COMPOSIO_API_KEY before GitHub can be connected."}
+          </p>
+          <Button className="w-full" onClick={() => connect.mutate()} disabled={!configured || connect.isPending}>
+            {(connect.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Connect GitHub
+          </Button>
+        </div>
+        <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+          <div className="flex items-center gap-2"><RefreshCw className="size-4 text-[#638f84]" /><p className="text-sm font-bold">Check status</p></div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {connected ? "GitHub is connected — Nova can use it right now. Try asking Nova to star a repo or file an issue." : "After you finish the authorization in the other tab, the status here updates automatically."}
+          </p>
+          <Button variant="outline" className="w-full" onClick={() => void status.refetch()} disabled={status.isFetching}>
+            {status.isFetching && <Loader2 className="animate-spin" size={15} />} Refresh status
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
 }

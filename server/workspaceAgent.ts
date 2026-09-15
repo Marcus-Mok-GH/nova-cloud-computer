@@ -24,9 +24,10 @@ import {
   NvidiaGatewayClientError,
 } from "./nvidiaGateway";
 import { sendTelegramMessage } from "./telegram";
+import { ComposioApiError, executeComposioTool, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm";
+  kind: "folder" | "file" | "telegram" | "vm" | "connector";
   name: string;
   operation?:
     | "created"
@@ -36,7 +37,10 @@ export type AgentAction = {
     | "deleted"
     | "sent"
     | "completed"
-    | "disabled";
+    | "disabled"
+    | "listed"
+    | "executed"
+    | "failed";
 };
 
 export type WorkspaceToolActivity = {
@@ -324,6 +328,37 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "list_connector_tools",
+      description:
+        "Search the GitHub connector catalog and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which GitHub action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires GitHub to be connected (Settings).",
+      parameters: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "Optional words to filter actions, e.g. 'create issue' or 'pull request'." },
+          limit: { type: "number", description: "Max actions to return, 1-50 (default 25)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "use_connector_tool",
+      description:
+        "Execute a GitHub action on the user's behalf through the connector, e.g. list or star repositories, create issues, comment, open or merge pull requests. The action slug must come from list_connector_tools (or a known GITHUB_* slug) with exactly the parameters it declares. Requires GitHub to be connected (Settings).",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "The exact action slug, e.g. GITHUB_CREATE_AN_ISSUE." },
+          params: { type: "object", description: "The action's parameters as a JSON object, exactly as listed by list_connector_tools." },
+        },
+        required: ["action", "params"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_vm_task",
       description:
         "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management — use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` — `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py — the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
@@ -399,6 +434,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
+- Use the GitHub connector for repository, issue and pull-request work: search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool. If the connector says GitHub is not connected, tell the user to open Settings and connect GitHub.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
@@ -650,6 +686,59 @@ async function executeWorkspaceTool(
         action: { kind: "telegram", name: text, operation: "sent" },
       };
     }
+    case "list_connector_tools": {
+      const search = str(args.search) || undefined;
+      const limitRaw = Number(args.limit);
+      const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
+      try {
+        const { tools } = await listComposioTools(ownerId, { search, limit });
+        if (!tools.length)
+          return { ok: true, result: `No GitHub actions matched "${search ?? ""}". Try a broader search.` };
+        const lines = tools
+          .map(tool => {
+            const params = Object.entries(tool.inputParameters ?? {})
+              .map(([name, schema]) => {
+                const spec = schema as { type?: string; description?: string };
+                return `${name}${spec?.type ? ` (${spec.type})` : ""}: ${spec?.description ?? ""}`;
+              })
+              .join("; ");
+            return `${tool.slug} — ${tool.description}${params ? ` Parameters: ${params}` : ""}`;
+          })
+          .join("\n");
+        return {
+          ok: true,
+          result: `GitHub actions available:\n${lines}`,
+          action: { kind: "connector", name: `${tools.length} GitHub actions`, operation: "listed" },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: error instanceof ComposioApiError ? error.message : `The connector catalog is unavailable: ${str((error as Error)?.message)}.`,
+        };
+      }
+    }
+    case "use_connector_tool": {
+      const action = str(args.action);
+      const params = (args.params ?? {}) as Record<string, unknown>;
+      if (!action) return { ok: false, result: "An action slug is required." };
+      try {
+        const execution = await executeComposioTool(ownerId, action, params);
+        const payload = JSON.stringify(execution.data, null, 2);
+        return {
+          ok: execution.ok,
+          result: execution.ok
+            ? `GitHub action ${action} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
+            : `GitHub action ${action} failed: ${execution.error ?? "unknown error"}. Check the parameters with list_connector_tools and retry.`,
+          action: { kind: "connector", name: action, operation: "executed" },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: error instanceof ComposioApiError ? error.message : `The connector request failed: ${str((error as Error)?.message)}.`,
+          action: { kind: "connector", name: action, operation: "failed" },
+        };
+      }
+    }
     case "run_vm_task": {
       const task = str(args.task);
       if (!task) return { ok: false, result: "A task is required." };
@@ -679,9 +768,13 @@ async function executeWorkspaceTool(
 }
 
 function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
-  return execution.action
-    ? `${execution.action.operation === "deleted" ? "Delet" : execution.action.operation === "updated" ? "Updat" : "Creat"}ed ${execution.action.kind}: ${execution.action.name}.`
-    : call.name;
+  const action = execution.action;
+  if (!action) return call.name;
+  if (action.kind === "connector")
+    return action.operation === "listed"
+      ? `Listed ${action.name}.`
+      : `${action.operation === "failed" ? "Failed running" : "Ran"} GitHub action: ${action.name}.`;
+  return `${action.operation === "deleted" ? "Delet" : action.operation === "updated" ? "Updat" : "Creat"}ed ${action.kind}: ${action.name}.`;
 }
 
 /** Transient gateway failures worth one automatic in-run retry. */

@@ -32,9 +32,10 @@ export default function Chats() {
 
   return (
     <DashboardLayout>
-      <section className="mx-auto max-w-3xl px-4 py-6 md:px-6">
+      <section className="relative mx-auto max-w-3xl px-4 py-6 md:px-6">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
         <div className="flex flex-wrap items-end justify-between gap-5">
-          <div>
+          <div className="rise-in">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Conversation archive</p>
             <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Every conversation stays with the private computer it helps you shape.</p>
@@ -43,9 +44,9 @@ export default function Chats() {
         </div>
         <div className="mt-8 space-y-2">
           {computer.data?.chats.length ? computer.data.chats.map(chat => (
-            <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 transition hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-card dark:hover:border-white/20">
+            <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_24px_rgba(10,10,10,0.07)] dark:border-white/10 dark:bg-card dark:hover:border-white/20">
               <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><MessageSquareText className="size-4" /></span>
+                <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><MessageSquareText className="size-4" /></span>
                 <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-bold text-foreground dark:text-foreground">{chat.title}</h2><p className="mt-1 text-xs text-muted-foreground">Open saved conversation</p></div>
                 <ChevronRight className="size-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-muted-foreground dark:text-muted-foreground" />
               </button>

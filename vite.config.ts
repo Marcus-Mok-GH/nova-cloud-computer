@@ -149,25 +149,7 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-/**
- * The umami script tag in index.html uses %VITE_ANALYTICS_ENDPOINT% placeholder
- * substitution, which Vite only applies when the variable exists at build time.
- * Without it the tag would ship a literal, always-broken URL, so strip the tag
- * unless analytics is configured.
- */
-function vitePluginConditionalAnalyticsTag(): Plugin {
-  return {
-    name: "conditional-analytics-tag",
-    transformIndexHtml(html) {
-      if (process.env.VITE_ANALYTICS_ENDPOINT && process.env.VITE_ANALYTICS_WEBSITE_ID) {
-        return html;
-      }
-      return html.replace(/[ \t]*<script defer src="%VITE_ANALYTICS_ENDPOINT%\/umami"[^>]*><\/script>\n?/, "");
-    },
-  };
-}
-
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusDebugCollector(), vitePluginConditionalAnalyticsTag()];
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,

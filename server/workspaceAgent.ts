@@ -24,7 +24,7 @@ import {
   NvidiaGatewayClientError,
 } from "./nvidiaGateway";
 import { sendTelegramMessage } from "./telegram";
-import { ComposioApiError, executeComposioTool, isComposioToolkit, listComposioTools } from "./composio";
+import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm" | "connector";
@@ -431,13 +431,72 @@ function describeWorkspace(computer: Computer) {
   return { folders, files };
 }
 
+const CONNECTOR_TOOL_NAMES = new Set(["list_connector_tools", "use_connector_tool"]);
+
+/** Resolves which connector toolkits the user has actually connected. Failures degrade to "not connected". */
+export async function getConnectedConnectorToolkits(
+  ownerId: number,
+  statusCheck: (ownerId: number, toolkit: ComposioToolkit) => Promise<{ connected: boolean }> = getComposioConnectionStatus
+): Promise<ComposioToolkit[]> {
+  try {
+    const results = await Promise.all(
+      COMPOSIO_TOOLKITS.map(async toolkit => ({
+        toolkit,
+        status: await statusCheck(ownerId, toolkit),
+      }))
+    );
+    return results.filter(entry => entry.status.connected).map(entry => entry.toolkit);
+  } catch {
+    return [];
+  }
+}
+
+/** Builds the model tool list: connector tools are exposed only for connected toolkits. */
+export function workspaceToolsForConnectors(
+  connected: ComposioToolkit[]
+): GatewayToolDefinition[] {
+  const nonConnector = WORKSPACE_TOOLS.filter(tool => !CONNECTOR_TOOL_NAMES.has(tool.function.name));
+  if (!connected.length) return nonConnector;
+  const connectorTools = WORKSPACE_TOOLS.filter(tool => CONNECTOR_TOOL_NAMES.has(tool.function.name)).map(tool => {
+    const parameters = (tool.function.parameters ?? {}) as { properties?: Record<string, unknown>; required?: string[] };
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: {
+          ...parameters,
+          properties: {
+            ...parameters.properties,
+            connector: {
+              type: "string",
+              enum: connected,
+              description: `Which connector to use. Connected: ${connected.join(", ")}.`,
+            },
+          },
+        },
+      },
+    };
+  });
+  return [...nonConnector, ...connectorTools];
+}
+
+/** Human-readable connector status line for the system prompt. */
+export function connectorStatusLine(connected: ComposioToolkit[]): string {
+  if (!connected.length)
+    return "no connectors are connected right now, so connector tools are unavailable";
+  const parts = COMPOSIO_TOOLKITS.map(toolkit =>
+    `${toolkit === "github" ? "GitHub" : "Gmail"} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
+  );
+  return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
+}
+
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how — you decide how, then act.
 
 Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool. If a connector reports it is not connected, tell the user to open Settings and connect it.
+- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
@@ -908,6 +967,8 @@ export async function runWorkspaceAgent(
     }
 
     let computer = await getWorkspaceComputer(ownerId);
+    const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
+    const agentTools = workspaceToolsForConnectors(connectedConnectors);
     const systemMessage = (): GatewayChatMessage => {
       const { folders, files } = describeWorkspace(computer);
       return {
@@ -915,7 +976,7 @@ export async function runWorkspaceAgent(
         content: WORKSPACE_AGENT_PROMPT.replace("{{folders}}", folders).replace(
           "{{files}}",
           files
-        ),
+        ).replace("{{connectors}}", connectorStatusLine(connectedConnectors)),
       };
     };
 
@@ -935,7 +996,7 @@ export async function runWorkspaceAgent(
           }
         : undefined;
       const result = await chatWithGatewayRetry(ownerId, messages, {
-        tools: WORKSPACE_TOOLS,
+        tools: agentTools,
         ...(emitChunk ? { onChunk: emitChunk } : {}),
       });
       if (result.toolCalls.length === 0) {

@@ -137,6 +137,8 @@ const {
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  workspaceToolsForConnectors,
+  getConnectedConnectorToolkits,
 } = await import("./workspaceAgent");
 
 const chatResult = (
@@ -551,5 +553,42 @@ describe("autoTitleChatForUser", () => {
     completeWithNvidiaGateway.mockResolvedValueOnce({ text: "" });
     await autoTitleChatForUser(1, 3);
     expect(renameChat).not.toHaveBeenCalled();
+  });
+});
+
+describe("connector tool gating", () => {
+  it("drops connector tools when nothing is connected", () => {
+    const tools = workspaceToolsForConnectors([]);
+    expect(tools.find(tool => tool.function.name === "use_connector_tool")).toBeUndefined();
+    expect(tools.find(tool => tool.function.name === "list_connector_tools")).toBeUndefined();
+    expect(tools.find(tool => tool.function.name === "run_vm_task")).toBeDefined();
+  });
+
+  it("exposes connector tools restricted to the connected toolkit", () => {
+    const tools = workspaceToolsForConnectors(["github"]);
+    const listTool = tools.find(tool => tool.function.name === "list_connector_tools");
+    expect(listTool).toBeDefined();
+    const properties = (listTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+    expect(properties.connector.enum).toEqual(["github"]);
+    const useTool = tools.find(tool => tool.function.name === "use_connector_tool");
+    expect((useTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties.connector.enum).toEqual(["github"]);
+  });
+
+  it("exposes both connector toolkits when both are connected", () => {
+    const tools = workspaceToolsForConnectors(["github", "gmail"]);
+    const listTool = tools.find(tool => tool.function.name === "list_connector_tools");
+    expect((listTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties.connector.enum).toEqual(["github", "gmail"]);
+  });
+
+  it("status failures degrade to no connected toolkits", async () => {
+    const failing = vi.fn(async () => { throw new Error("composio down"); });
+    const connected = await getConnectedConnectorToolkits(1, failing as never);
+    expect(connected).toEqual([]);
+  });
+
+  it("reports only connected toolkits", async () => {
+    const check = async (_owner: number, toolkit: string) => ({ connected: toolkit === "gmail" });
+    const connected = await getConnectedConnectorToolkits(1, check as never);
+    expect(connected).toEqual(["gmail"]);
   });
 });

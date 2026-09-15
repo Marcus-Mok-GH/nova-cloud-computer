@@ -122,7 +122,7 @@ export async function getComposioConnectionStatus(
   if (!isComposioConfigured())
     return { configured: false, connected: false, status: "disconnected", connectedAccountId: null };
   const data = await composioRequest<ConnectedAccountsResponse>(
-    `/connected_accounts?user_id=${encodeURIComponent(composioUserId(ownerId))}&toolkit_slug=${toolkit}`,
+    `/api/v3/connected_accounts?user_id=${encodeURIComponent(composioUserId(ownerId))}&toolkit_slug=${toolkit}`,
     {},
     fetchImpl
   );
@@ -149,7 +149,7 @@ export async function createComposioConnectionLink(
   fetchImpl: typeof fetch = fetch
 ): Promise<{ redirectUrl: string; connectedAccountId: string | null }> {
   const configs = await composioRequest<{ items?: Array<{ id: string }> }>(
-    `/auth_configs?toolkit_slug=${toolkit}&is_composio_managed=true`,
+    `/api/v3/auth_configs?toolkit_slug=${toolkit}&is_composio_managed=true`,
     {},
     fetchImpl
   );
@@ -160,7 +160,7 @@ export async function createComposioConnectionLink(
       404
     );
   const link = await composioRequest<{ redirect_url?: string; connected_account_id?: string }>(
-    "/connected_accounts/link",
+    "/api/v3/connected_accounts/link",
     {
       method: "POST",
       body: {
@@ -192,7 +192,7 @@ export async function listComposioTools(
   if (options.search?.trim()) query.set("query", options.search.trim());
   const data = await composioRequest<{
     items?: Array<{ slug: string; name?: string; description?: string; human_description?: string; input_parameters?: Record<string, unknown> }>;
-  }>(`/tools?${query.toString()}`, {}, fetchImpl);
+  }>(`/api/v3.1/tools?${query.toString()}`, {}, fetchImpl);
   return {
     tools: (data.items ?? []).map(item => ({
       slug: item.slug,
@@ -217,7 +217,7 @@ export async function executeComposioTool(
     error?: string;
     successful?: boolean;
   }>(
-    `/tools/execute/${encodeURIComponent(toolSlug)}`,
+    `/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`,
     {
       method: "POST",
       body: {

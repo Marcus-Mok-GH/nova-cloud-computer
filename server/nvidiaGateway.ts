@@ -619,6 +619,12 @@ type StreamedGatewayChat = {
   toolCalls: GatewayToolCall[];
   model: string | null;
   usage: GatewayCompletion["usage"] | null;
+  /** Upstream error text relayed inside the stream, when present. */
+  error: string | null;
+  /** finish_reason of the final choice, when the gateway sends one. */
+  finishReason: string | null;
+  /** Number of SSE data lines that failed JSON parsing. */
+  malformedFragments: number;
 };
 
 /**
@@ -690,10 +696,20 @@ async function readGatewayStreamedChatResult(
       toolCalls,
       model: payload?.model ?? resolvedModel,
       usage: payload?.usage ?? null,
+      error: (payload as { error?: { message?: string } } | undefined)?.error
+        ?.message ?? null,
+      finishReason:
+        (payload as
+          | { choices?: Array<{ finish_reason?: string }> }
+          | undefined)?.choices?.[0]?.finish_reason ?? null,
+      malformedFragments: 0,
     };
   }
   let text = "";
   let model: string | null = null;
+  let streamError: string | null = null;
+  let finishReason: string | null = null;
+  let malformedFragments = 0;
   const calls: Array<{ id: string; name: string; arguments: string }> = [];
   try {
     const reader = response.body!.getReader();
@@ -722,8 +738,10 @@ async function readGatewayStreamedChatResult(
         if (data === "[DONE]") continue;
         try {
           const event = JSON.parse(data) as {
+            error?: { message?: string } | string;
             model?: string;
             choices?: Array<{
+              finish_reason?: string;
               delta?: {
                 content?: string | null;
                 tool_calls?: Array<{
@@ -738,7 +756,24 @@ async function readGatewayStreamedChatResult(
           if (typeof event.model === "string" && event.model) {
             model = event.model;
           }
-          const delta = event.choices?.[0]?.delta;
+          if (typeof event.error === "string") {
+            streamError = streamError ?? event.error;
+          } else if (
+            event.error &&
+            typeof event.error.message === "string" &&
+            event.error.message
+          ) {
+            streamError = streamError ?? event.error.message;
+          }
+          const lastChoice = event.choices?.[0];
+          if (
+            lastChoice &&
+            typeof lastChoice.finish_reason === "string" &&
+            lastChoice.finish_reason
+          ) {
+            finishReason = lastChoice.finish_reason;
+          }
+          const delta = lastChoice?.delta;
           if (!delta) continue;
           if (typeof delta.content === "string" && delta.content.length > 0) {
             text += delta.content;
@@ -766,7 +801,9 @@ async function readGatewayStreamedChatResult(
             }
           }
         } catch {
-          // Ignore malformed stream fragments.
+          // Ignore malformed stream fragments, but count them so an empty
+          // completion can be diagnosed from the server logs.
+          malformedFragments += 1;
         }
       }
     }
@@ -784,7 +821,15 @@ async function readGatewayStreamedChatResult(
       name: call.name,
       arguments: call.arguments || "{}",
     }));
-  return { text, toolCalls, model: model ?? resolvedModel, usage: null };
+  return {
+    text,
+    toolCalls,
+    model: model ?? resolvedModel,
+    usage: null,
+    error: streamError,
+    finishReason,
+    malformedFragments,
+  };
 }
 
 export async function chatWithNvidiaGateway(
@@ -819,44 +864,84 @@ export async function chatWithNvidiaGateway(
     );
   }
   const resolvedModel = options.model?.trim() || status.model;
-  const response = await gatewayFetch(
-    "/chat/completions",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: resolvedModel,
-        messages,
-        ...(options.tools?.length
-          ? { tools: options.tools, tool_choice: "auto" }
-          : {}),
-        ...(options.onChunk ? { stream: true } : {}),
-      }),
-    },
-    CHAT_REQUEST_TIMEOUT_MS
-  );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => undefined)) as
-      | GatewayCompletion
-      | { error?: { message?: string } }
-      | undefined;
-    const message =
-      payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(
-      message ??
-        describeNvidiaError(payload, response.status) ??
-        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+  // The gateway occasionally returns a 200 completion with no text and no
+  // tool calls (seen on long tool-calling runs). One automatic retry absorbs
+  // those transient empties so the user never sees a dead reply; the request
+  // allowance was already claimed once, so the retry does not double-charge.
+  const EMPTY_COMPLETION_RETRIES = 1;
+  const fetchChatCompletion = () =>
+    gatewayFetch(
+      "/chat/completions",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          model: resolvedModel,
+          messages,
+          ...(options.tools?.length
+            ? { tools: options.tools, tool_choice: "auto" }
+            : {}),
+          ...(options.onChunk ? { stream: true } : {}),
+        }),
+      },
+      CHAT_REQUEST_TIMEOUT_MS
     );
-  }
+  const describeEmptyCompletion = (details: string[]) => {
+    const suffix = details.length ? ` (${details.join("; ")})` : "";
+    console.warn(
+      `[NVIDIA gateway] empty completion for model ${resolvedModel}${suffix}`
+    );
+  };
   if (options.onChunk) {
-    const streamed = await readGatewayStreamedChatResult(
-      response,
-      resolvedModel,
-      options.onChunk
-    );
-    if (!streamed.text && !streamed.toolCalls.length) {
+    let streamed: StreamedGatewayChat | null = null;
+    let upstreamError: string | null = null;
+    for (
+      let attempt = 0;
+      attempt <= EMPTY_COMPLETION_RETRIES && !streamed;
+      attempt += 1
+    ) {
+      const response = await fetchChatCompletion();
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => undefined)) as
+          | GatewayCompletion
+          | { error?: { message?: string } }
+          | undefined;
+        const message =
+          payload && "error" in payload ? payload.error?.message : undefined;
+        throw new NvidiaGatewayClientError(
+          message ??
+            describeNvidiaError(payload, response.status) ??
+            "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+          response.status === 429 ? "rate_limit" : "unavailable"
+        );
+      }
+      const attemptResult = await readGatewayStreamedChatResult(
+        response,
+        resolvedModel,
+        options.onChunk
+      );
+      if (attemptResult.text || attemptResult.toolCalls.length) {
+        streamed = attemptResult;
+        break;
+      }
+      upstreamError = attemptResult.error ?? upstreamError;
+      describeEmptyCompletion([
+        ...(upstreamError ? [`error: ${upstreamError}`] : []),
+        ...(attemptResult.finishReason
+          ? [`finish_reason=${attemptResult.finishReason}`]
+          : []),
+        ...(attemptResult.malformedFragments
+          ? [`${attemptResult.malformedFragments} malformed fragments`]
+          : []),
+        ...(attempt < EMPTY_COMPLETION_RETRIES
+          ? ["retrying"]
+          : ["giving up"]),
+      ]);
+    }
+    if (!streamed) {
       throw new NvidiaGatewayClientError(
-        "NVIDIA returned an invalid completion. Please retry shortly.",
+        upstreamError
+          ? `NVIDIA returned an error completion: ${upstreamError}`
+          : "NVIDIA returned an invalid completion. Please retry shortly.",
         "invalid_response"
       );
     }
@@ -881,26 +966,36 @@ export async function chatWithNvidiaGateway(
       },
     };
   }
-  const payload = (await response.json().catch(() => undefined)) as
-    | GatewayCompletion
-    | {
-        choices?: Array<{
-          message?: {
-            content?: string | null;
-            tool_calls?: Array<{
-              id?: string;
-              type?: string;
-              function?: { name?: string; arguments?: string };
-            }>;
-          };
-        }>;
-        model?: string;
-        usage?: GatewayCompletion["usage"];
-        error?: { message?: string };
-      }
-    | undefined;
-  const choice = (
-    payload as
+  let buffered: {
+    text: string;
+    toolCalls: GatewayToolCall[];
+    payload: GatewayCompletion | Record<string, unknown>;
+  } | null = null;
+  let bufferedUpstreamError: string | null = null;
+  for (
+    let attempt = 0;
+    attempt <= EMPTY_COMPLETION_RETRIES && !buffered;
+    attempt += 1
+  ) {
+    const response = await fetchChatCompletion();
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => undefined)) as
+        | GatewayCompletion
+        | { error?: { message?: string } }
+        | undefined;
+      const message =
+        errorPayload && "error" in errorPayload
+          ? errorPayload.error?.message
+          : undefined;
+      throw new NvidiaGatewayClientError(
+        message ??
+          describeNvidiaError(errorPayload, response.status) ??
+          "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+        response.status === 429 ? "rate_limit" : "unavailable"
+      );
+    }
+    const payload = (await response.json().catch(() => undefined)) as
+      | GatewayCompletion
       | {
           choices?: Array<{
             message?: {
@@ -912,33 +1007,67 @@ export async function chatWithNvidiaGateway(
               }>;
             };
           }>;
+          model?: string;
+          usage?: GatewayCompletion["usage"];
+          error?: { message?: string };
         }
-      | undefined
-  )?.choices?.[0]?.message;
-  const text = typeof choice?.content === "string" ? choice.content : "";
-  const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
-    .filter(call => call?.function?.name)
-    .map(call => ({
-      id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
-      name: String(call.function?.name),
-      arguments:
-        typeof call.function?.arguments === "string"
-          ? call.function.arguments
-          : "{}",
-    }));
-  if (!text && !toolCalls.length) {
+      | undefined;
+    const choice = (
+      payload as
+        | {
+            choices?: Array<{
+              message?: {
+                content?: string | null;
+                tool_calls?: Array<{
+                  id?: string;
+                  type?: string;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+            }>;
+          }
+        | undefined
+    )?.choices?.[0]?.message;
+    const text = typeof choice?.content === "string" ? choice.content : "";
+    const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
+      .filter(call => call?.function?.name)
+      .map(call => ({
+        id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
+        name: String(call.function!.name),
+        arguments:
+          typeof call.function?.arguments === "string"
+            ? call.function.arguments
+            : "{}",
+      }));
+    if (text || toolCalls.length) {
+      buffered = { text, toolCalls, payload: payload ?? {} };
+      break;
+    }
+    bufferedUpstreamError =
+      (payload as { error?: { message?: string } } | undefined)?.error
+        ?.message ?? bufferedUpstreamError;
+    describeEmptyCompletion([
+      ...(bufferedUpstreamError ? [`error: ${bufferedUpstreamError}`] : []),
+      ...(attempt < EMPTY_COMPLETION_RETRIES ? ["retrying"] : ["giving up"]),
+    ]);
+  }
+  if (!buffered) {
     throw new NvidiaGatewayClientError(
-      "NVIDIA returned an invalid completion. Please retry shortly.",
+      bufferedUpstreamError
+        ? `NVIDIA returned an error completion: ${bufferedUpstreamError}`
+        : "NVIDIA returned an invalid completion. Please retry shortly.",
       "invalid_response"
     );
   }
   return {
-    text,
-    toolCalls,
-    model: (payload as { model?: string } | undefined)?.model ?? resolvedModel,
+    text: buffered.text,
+    toolCalls: buffered.toolCalls,
+    model:
+      (buffered.payload as { model?: string } | undefined)?.model ??
+      resolvedModel,
     usage:
-      (payload as { usage?: GatewayCompletion["usage"] } | undefined)?.usage ??
-      null,
+      (buffered.payload as { usage?: GatewayCompletion["usage"] } | undefined)
+        ?.usage ?? null,
     allowance: {
       usedRequests: claim.usedRequests,
       maxRequests: status.allowance.maxRequests,

@@ -92,6 +92,72 @@ describe("NVIDIA gateway chat stream handling", () => {
     ).rejects.toMatchObject({ kind: "invalid_response" });
   });
 
+  it("retries once when a streamed completion comes back empty, then succeeds", async () => {
+    // Long tool-calling runs occasionally get a 200 stream with no content
+    // and no tool calls. One automatic retry absorbs the transient empty so
+    // the user never sees the "invalid response" dead end.
+    let calls = 0;
+    const fetchImpl = gatewayFetchStub(() => {
+      calls += 1;
+      if (calls === 1) return sseResponse(["data: [DONE]\n\n"]);
+      return sseResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "Recovered." } }] })}\n\n`,
+        "data: [DONE]\n\n",
+      ]);
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithNvidiaGateway(
+      1,
+      [{ role: "user", content: "hi" }],
+      { onChunk: () => {} }
+    );
+    expect(result.text).toBe("Recovered.");
+    expect(calls).toBe(2);
+  });
+
+  it("surfaces the gateway error relayed inside an empty stream", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      sseResponse([
+        `data: ${JSON.stringify({ error: { message: "model overloaded" } })}\n\n`,
+        "data: [DONE]\n\n",
+      ])
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    await expect(
+      chatWithNvidiaGateway(1, [{ role: "user", content: "hi" }], {
+        onChunk: () => {},
+      })
+    ).rejects.toMatchObject({
+      kind: "invalid_response",
+      message: expect.stringContaining("model overloaded"),
+    });
+  });
+
+  it("retries an empty buffered completion once before failing", async () => {
+    // The non-streaming path (no onChunk) hits the same transient empties.
+    let calls = 0;
+    const fetchImpl = gatewayFetchStub(() => {
+      calls += 1;
+      if (calls === 1)
+        return new Response(JSON.stringify({ choices: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "Back online." } }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithNvidiaGateway(1, [
+      { role: "user", content: "hi" },
+    ]);
+    expect(result.text).toBe("Back online.");
+    expect(calls).toBe(2);
+  });
+
   it("fails a stalled stream as unavailable instead of hanging forever", async () => {
     // The stream opens, headers arrive, then the gateway goes silent forever.
     const cancel = vi.fn(() => {});

@@ -79,6 +79,51 @@ describe("Composio connector client", () => {
     });
   });
 
+  it("does not report Gmail connected when only GitHub is active under the same user", async () => {
+    // The endpoint also ignores toolkit_slug, so a GitHub connection under the
+    // requesting user must not light up the Gmail card.
+    const fetchImpl = vi.fn(async () =>
+      composioResponse({
+        items: [
+          { id: "acc_github", user_id: "nova-user-4", status: "ACTIVE", toolkit: { slug: "github" } },
+          { id: "acc_gmail_dead", user_id: "nova-user-4", status: "INITIATED", toolkit: { slug: "gmail" } },
+        ],
+      })
+    );
+    await expect(getComposioConnectionStatus(4, "gmail", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      connectedAccountId: null,
+    });
+  });
+
+  it("reports Gmail connected when the user's own Gmail account is active", async () => {
+    const fetchImpl = vi.fn(async () =>
+      composioResponse({
+        items: [{ id: "acc_gmail", user_id: "nova-user-4", status: "ACTIVE", toolkit: { slug: "gmail" } }],
+      })
+    );
+    await expect(getComposioConnectionStatus(4, "gmail", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: true,
+      status: "active",
+      connectedAccountId: "acc_gmail",
+    });
+  });
+
+  it("matches toolkit scoping for legacy payloads that omit the toolkit field", async () => {
+    const fetchImpl = vi.fn(async () =>
+      composioResponse({ items: [{ id: "acc_active", user_id: "nova-user-4", status: "ACTIVE" }] })
+    );
+    await expect(getComposioConnectionStatus(4, "gmail", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: true,
+      status: "active",
+      connectedAccountId: "acc_active",
+    });
+  });
+
   it("creates a connection link through the Composio-managed GitHub auth config", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(composioResponse({ items: [{ id: "acfg_github" }] }))

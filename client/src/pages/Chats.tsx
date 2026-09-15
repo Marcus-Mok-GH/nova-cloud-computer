@@ -8,7 +8,8 @@ import { getNeonAccessToken } from "@/lib/neonAuth";
 import { useLocation } from "wouter";
 
 export default function Chats() {
-  const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
+  // Poll so a conversation started from Telegram shows up without a refresh.
+  const computer = trpc.workspace.computer.useQuery(undefined, { retry: false, refetchInterval: 5000, refetchIntervalInBackground: false });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [deletingId, setDeletingId] = useState<number | null>(null);

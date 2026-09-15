@@ -103,3 +103,23 @@ export function reconcileChatMessages(
   );
   return { userCommitted, replyCommitted, liveActivities };
 }
+
+/**
+ * Collapses persisted tool-activity rows to one entry per activity id,
+ * keeping the LATEST state at its position (running → completed/failed).
+ * Other messages pass through untouched and order is preserved.
+ */
+export function dedupeToolActivityMessages(
+  messages: PersistedChatMessage[]
+): PersistedChatMessage[] {
+  const lastIndexOf: Record<string, number> = {};
+  for (let index = 0; index < messages.length; index += 1) {
+    const activity = parsePersistedToolActivity(messages[index].content);
+    if (activity) lastIndexOf[activity.id] = index;
+  }
+  return messages.filter(
+    (message, index) =>
+      !parsePersistedToolActivity(message.content) ||
+      lastIndexOf[parsePersistedToolActivity(message.content)!.id] === index
+  );
+}

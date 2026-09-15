@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dedupeToolActivityMessages,
   parsePersistedToolActivity,
   reconcileChatMessages,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
@@ -15,6 +16,57 @@ const toolActivity: ToolActivity = {
 };
 
 const persistedToolMessage = `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(toolActivity)}`;
+
+describe("dedupeToolActivityMessages", () => {
+  const tool = (id: number, state: string) => ({
+    id,
+    role: "assistant" as const,
+    content: `__nova_tool_activity__:${JSON.stringify({ id: `call-${id}`, name: "create_file", state, args: { arguments: "{}" } })}`,
+  });
+  const plain = (id: number, role: "user" | "assistant" = "user") => ({
+    id,
+    role,
+    content: "hello",
+  });
+
+  it("keeps only the latest row per tool activity id", () => {
+    const result = dedupeToolActivityMessages([
+      plain(1),
+      tool(2, "running"),
+      tool(3, "running"),
+      tool(4, "completed"),
+    ]);
+    expect(result).toHaveLength(4);
+    const collapsed = dedupeToolActivityMessages([
+      plain(1),
+      tool(2, "running"),
+      tool(3, "running"),
+      tool(4, "completed"),
+      tool(3, "completed"),
+    ]);
+    expect(collapsed).toHaveLength(4);
+    expect(parsePersistedToolActivity(collapsed[1]!.content)!.state).toBe(
+      "running"
+    );
+    expect(parsePersistedToolActivity(collapsed[3]!.content)!.state).toBe(
+      "completed"
+    );
+  });
+
+  it("leaves non-tool messages and single-state tools untouched", () => {
+    const input = [plain(1), tool(2, "completed"), plain(3, "assistant")];
+    expect(dedupeToolActivityMessages(input)).toEqual(input);
+  });
+
+  it("collapses a running row once its final state is persisted", () => {
+    const result = dedupeToolActivityMessages([
+      tool(2, "running"),
+      tool(2, "failed"),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(parsePersistedToolActivity(result[0]!.content)!.state).toBe("failed");
+  });
+});
 
 describe("reconcileChatMessages", () => {
   it("keeps the optimistic user bubble until the message is persisted", () => {

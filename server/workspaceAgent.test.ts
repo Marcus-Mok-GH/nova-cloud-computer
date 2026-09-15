@@ -307,11 +307,17 @@ describe("Nova tool-calling workspace agent", () => {
       "I couldn't find a file named missing.txt."
     );
     expect(result.actions).toEqual([]);
-    const failure = append.mock.calls
+    const toolRows = append.mock.calls
       .map(callArgs => callArgs[1])
-      .find(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    // The running state is persisted first, then the final failed state.
+    expect(toolRows).toHaveLength(2);
     expect(
-      JSON.parse(failure.content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
+      JSON.parse(toolRows[0].content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
+        .state
+    ).toBe("running");
+    expect(
+      JSON.parse(toolRows[1].content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
         .state
     ).toBe("failed");
   });

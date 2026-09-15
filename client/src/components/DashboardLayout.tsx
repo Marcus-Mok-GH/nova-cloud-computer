@@ -3,7 +3,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
-import { trpc } from "@/lib/trpc";
 import { useLocation, useSearch } from "wouter";
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { navItems as nav, NavItem } from "@/lib/nav";
@@ -16,8 +15,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { theme, toggleTheme } = useTheme();
   const [location, setLocation] = useLocation();
   const search = useSearch();
-  const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
-  const recentFiles = (computer.data?.files ?? []).slice(0, 6);
   const hasChatId = new URLSearchParams(search).has("chatId");
   const isChatWorkspace = location.startsWith("/app/chats") || hasChatId;
 
@@ -45,17 +42,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </button>
     ));
 
-  const recentBlock = (onNavigate: () => void) => (
-    <div className="mt-8 border-t border-border pt-3 dark:border-white/5">
-      <p className="px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Recent</p>
-      <div className="mt-2 space-y-0.5">
-        {recentFiles.length
-          ? recentFiles.map(file => <button key={file.id} onClick={() => { onNavigate(); go("/app/files"); }} className="block w-full truncate rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground">{file.name}</button>)
-          : <p className="px-2 py-1.5 text-xs text-muted-foreground">No files yet.</p>}
-      </div>
-    </div>
-  );
-
   return (
     <div className="dashboard-shell flex h-svh min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground">
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/88 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
@@ -74,11 +60,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button onClick={() => setMobileNavOpen(false)} aria-label="Close menu" className="grid size-9 place-items-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"><X className="size-4" /></button>
         </div>
         <div className="mt-2 space-y-1 overflow-y-auto">{navButtons(() => setMobileNavOpen(false))}</div>
-        {recentBlock(() => setMobileNavOpen(false))}
       </aside>
 
       {/* Desktop rail */}
-      <aside aria-label="Workspace navigation" className={`fixed inset-y-14 bottom-0 left-0 z-30 hidden border-r border-border bg-muted dark:border-white/5 dark:bg-card md:flex ${sidebarCollapsed ? "w-[68px]" : "w-[204px] lg:w-[228px]"}`}><div className="flex h-full flex-col p-3">{!sidebarCollapsed && <p className="px-2 pb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Your space</p>}<div className="space-y-1">{navButtons(() => {}, { collapsed: sidebarCollapsed })}</div>{!sidebarCollapsed && recentBlock(() => {})}<button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="mt-auto grid size-9 shrink-0 place-items-center self-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" aria-label={sidebarCollapsed ? "Expand menu" : "Compress menu"}>{sidebarCollapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}</button></div></aside>
+      <aside aria-label="Workspace navigation" className={`fixed inset-y-14 bottom-0 left-0 z-30 hidden border-r border-border bg-muted dark:border-white/5 dark:bg-card md:flex ${sidebarCollapsed ? "w-[68px]" : "w-[204px] lg:w-[228px]"}`}><div className="flex h-full flex-col p-3">{!sidebarCollapsed && <p className="px-2 pb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Your space</p>}<div className="space-y-1">{navButtons(() => {}, { collapsed: sidebarCollapsed })}</div><button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="mt-auto grid size-9 shrink-0 place-items-center self-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" aria-label={sidebarCollapsed ? "Expand menu" : "Compress menu"}>{sidebarCollapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}</button></div></aside>
 
       <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}` : `overflow-y-auto overscroll-contain pb-6 md:pb-8 ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}`}`}>{children}</main>
 

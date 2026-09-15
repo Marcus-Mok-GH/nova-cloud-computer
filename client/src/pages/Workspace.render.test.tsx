@@ -19,6 +19,10 @@ const state = vi.hoisted(() => ({
     },
     isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
   },
+  telegramStatus: {
+    data: { configured: false, chatId: null as string | null },
+    isLoading: false, isError: false, refetch: vi.fn(),
+  },
 }));
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -30,6 +34,7 @@ vi.mock("@/lib/trpc", () => ({
     workspace: { computer: { useQuery: () => state.computer }, dashboard: { useQuery: () => ({ data: { projects: [], tasks: [] }, isLoading: false }) }, modelSettings: { useQuery: () => ({ data: null }) }, updateSettings: { useMutation: () => mutation } },
     agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => ({ data: [] }) } },
     composio: { status: { useQuery: () => state.composioStatus } },
+    telegram: { status: { useQuery: () => state.telegramStatus } },
     nvidia: { status: { useQuery: () => state.nvidiaStatus }, models: { useQuery: () => ({ data: [] }) } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
@@ -64,6 +69,7 @@ describe("Workspace rendered browser states", () => {
       },
       isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
     };
+    state.telegramStatus = { data: { configured: false, chatId: null }, isLoading: false, isError: false, refetch: vi.fn() };
   });
 
   it("renders the start-chat prompt box as a real textarea with a disabled send button until text is entered", () => {
@@ -99,6 +105,26 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("Ask NVIDIA");
     expect(markup).not.toContain("Run in agent VM");
     expect(markup).not.toContain("Codebuff");
+  });
+
+  it("shows the Telegram connector as Ready only when a chat is linked, not when only the bot token is set", () => {
+    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    state.composioStatus = {
+      data: {
+        keyLength: 64,
+        toolkits: {
+          github: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null },
+          gmail: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null },
+        },
+      },
+      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+    };
+    state.telegramStatus = { data: { configured: true, chatId: null }, isLoading: false, isError: false, refetch: vi.fn() };
+    let markup = renderWorkspace();
+    expect(markup).not.toContain("Ready");
+    state.telegramStatus = { data: { configured: true, chatId: "424242" }, isLoading: false, isError: false, refetch: vi.fn() };
+    markup = renderWorkspace();
+    expect(markup).toContain("Ready");
   });
 
   it("shows a connected connector as Ready and an unconnected one as Connect", () => {

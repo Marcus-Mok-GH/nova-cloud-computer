@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-15 — Connector cards say Ready only when actually connected
+
+- `client/src/pages/Workspace.tsx`: the overview Telegram connector card no longer hardcodes a "Ready" badge — it now reads the real Telegram link state, so it shows "Ready" only after the owner's Telegram chat is linked, and "Connect" when only the bot token is configured. GitHub and Gmail cards already reflected their OAuth state.
+- `client/src/pages/Workspace.render.test.tsx`: added a regression test that a configured-but-unlinked Telegram shows no "Ready" badge, and a linked one does.
+
+
 ## 2026-09-15 — Vercel Web Analytics
 
 - `client/index.html`: replaced the placeholder umami tag (which shipped a literal `%VITE_ANALYTICS_ENDPOINT%/umami` URL since the env vars were never set) with the native Vercel Web Analytics script `/_vercel/insights/script.js`, which Vercel serves once Web Analytics is enabled in the project dashboard and which tracks SPA page views automatically.

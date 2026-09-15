@@ -176,12 +176,16 @@ export default function Workspace() {
   }
 
   const connectorStatus = trpc.composio.status.useQuery(undefined, { retry: false });
+  const telegramStatus = trpc.telegram.status.useQuery(undefined, { retry: false });
   const githubConnected = connectorStatus.data?.toolkits?.github?.connected ?? false;
   const gmailConnected = connectorStatus.data?.toolkits?.gmail?.connected ?? false;
+  // The bot token being configured is not "connected": the owner's Telegram
+  // chat only counts as Ready once Telegram has actually linked a chat.
+  const telegramLinked = Boolean(telegramStatus.data?.configured && telegramStatus.data?.chatId);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const connectors = [
-    { name: "Telegram", icon: Send, available: true, detail: "Delivers messages and routine updates straight to your Telegram chat." },
+    { name: "Telegram", icon: Send, available: telegramLinked, detail: "Delivers messages and routine updates straight to your Telegram chat." },
     { name: "GitHub", icon: Github, available: githubConnected, detail: "Star repos, file issues and open pull requests from a task. Connect it in Settings." },
     { name: "Gmail", icon: Mail, available: gmailConnected, detail: "Search, send and reply to email from a task. Connect it in Settings." },
     { name: "More connectors", icon: CircleDashed, available: false, detail: "Slack and Notion are on the roadmap — tell Nova what you need next." },
@@ -222,14 +226,14 @@ export default function Workspace() {
           <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
             {connectors.map(connector => {
               const ConnectorIcon = connector.icon;
-              const needsSetup = ["GitHub", "Gmail"].includes(connector.name) && !connector.available;
+              const needsSetup = connector.name !== "More connectors" && !connector.available;
               const Card = needsSetup ? "button" : "div";
               return (
                 <Card key={connector.name} onClick={needsSetup ? () => setLocation("/app/settings") : undefined} className="rounded-xl border border-border bg-card px-3.5 py-3 text-left transition dark:border-white/10 dark:bg-card dark:hover:border-white/20">
                   <span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground">
                     <ConnectorIcon className="size-3.5 shrink-0 text-primary" />
                     <span className="min-w-0 truncate">{connector.name}</span>
-                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : ["GitHub", "Gmail"].includes(connector.name) ? "Connect" : "Coming soon"}</span>
+                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : connector.name === "More connectors" ? "Coming soon" : "Connect"}</span>
                   </span>
                   <p className="mt-1 text-[11px] leading-4 text-muted-foreground dark:text-muted-foreground">{connector.detail}</p>
                 </Card>

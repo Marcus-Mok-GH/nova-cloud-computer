@@ -125,10 +125,14 @@ export async function startAgentVmRun(
           sandboxId: result.sandboxId,
           completedAt: new Date(),
         });
+        const output = result.output?.trim();
+        const outputExcerpt = output
+          ? `\n\nTask output:\n${output.slice(0, 2000)}${output.length > 2000 ? "\n…(truncated)" : ""}`
+          : "\n\nTask output: (nothing was printed — use print() in the code to report results.)";
         return {
           configured: true as const,
           run: completed,
-          message: `E2B completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.`,
+          message: `E2B completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.${outputExcerpt}`,
         };
       }
     );

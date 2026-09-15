@@ -135,45 +135,57 @@ export default function Workspace() {
     const streamingLabel = liveActivities.length > 0 ? false : pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null;
     return (
     <DashboardLayout>
-      <section className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-card shadow-none dark:bg-card">
-        <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2.5 sm:px-5 sm:py-3.5 dark:border-white/5">
-          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-            <button onClick={() => setLocation("/app/chats")} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:text-muted-foreground dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary sm:size-9"><MessageSquareText className="size-4" /></span>
-            <div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p><p className="hidden text-xs text-muted-foreground sm:block">Private workspace context</p></div>
+      <section className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-0 bg-background shadow-none dark:bg-background">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
+        <header className="z-10 shrink-0 border-b border-border/70 bg-background/85 backdrop-blur-md dark:border-white/5 dark:bg-background/85">
+          <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2.5 px-3 sm:px-5">
+            <button onClick={() => setLocation("/app/chats")} className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaMark size={12} /></span>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p><p className="hidden text-[11px] text-muted-foreground sm:block">Private workspace context</p></div>
+            <button onClick={() => setLocation("/app")} className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1.5 text-[11px] font-bold text-foreground/80 transition-colors hover:border-primary/30 hover:text-foreground dark:border-white/10 dark:bg-card dark:text-foreground/80"><MessageSquareText className="size-3.5 text-primary" />New chat</button>
           </div>
         </header>
-        <div ref={scrollRef} onScroll={handleChatScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-6">
-          <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col space-y-4">
-            {savedMessages.isLoading ? <p className="text-sm text-muted-foreground">Loading conversation...</p> : persisted.map((message, index) => {
+        <div ref={scrollRef} onScroll={handleChatScroll} className="z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6 sm:px-5 sm:py-8">
+          <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-5">
+            {savedMessages.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p> : persisted.length === 0 && !pendingUserContent && !isStreaming ? (
+              <div className="chat-in flex flex-col items-center justify-center gap-3 py-14 text-center">
+                <span className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15"><NovaMark size={22} /></span>
+                <p className="text-lg font-extrabold tracking-tight">What are we working on?</p>
+                <p className="max-w-xs text-sm leading-6 text-muted-foreground">Ask Nova about your files, or give it a task. Replies stream in here.</p>
+              </div>
+            ) : persisted.map((message, index) => {
               const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
               const showLabel = index === 0 || persisted[index - 1].role === "user";
-              if (persistedTool) return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{showLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Nova App</p>}<ToolActivityLine activity={persistedTool} /></div></div>;
-              if (message.role === "user") return <div key={message.id} className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-card dark:text-foreground">{message.content}</div></div>;
-              return <div key={message.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{showLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Nova App</p>}{isUnavailableReply(message.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{message.content}</span></div></div> : <div className="break-words rounded-2xl rounded-tl-md bg-muted px-3.5 py-2.5 text-sm leading-6 text-foreground sm:px-4 dark:bg-muted dark:text-foreground"><MarkdownText text={message.content} /></div>}</div></div>;
+              if (persistedTool) return <div key={message.id} className="chat-in ml-[2.65rem] flex w-full shrink-0"><div className="flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-card px-2.5 py-1 shadow-[0_1px_2px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card"><ToolActivityLine activity={persistedTool} /></div></div>;
+              if (message.role === "user") return <div key={message.id} className="chat-in flex w-full shrink-0 justify-end"><div className="max-w-[92%] rounded-3xl rounded-br-lg bg-neutral-950 px-4 py-2.5 text-[15px] leading-6 text-white shadow-[0_2px_10px_rgba(10,10,10,0.10)] sm:max-w-[85%] dark:bg-foreground dark:text-background">{message.content}</div></div>;
+              return <div key={message.id} className="chat-in flex w-full shrink-0 items-start gap-2.5"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaMark size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.65rem)]">{showLabel && <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nova App</p>}{isUnavailableReply(message.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{message.content}</span></div></div> : <div className="break-words text-[15px] leading-7 text-foreground"><MarkdownText text={message.content} /></div>}</div></div>;
             })}
-            {pendingUserContent && !userCommitted && <div className="flex w-full shrink-0 justify-end"><div className="max-w-[92%] break-words rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-sm leading-6 text-white sm:max-w-[85%] sm:px-4 dark:bg-card dark:text-foreground">{pendingUserContent}</div></div>}
-            {liveActivities.map((activity, index) => <div key={activity.id} className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{liveLabel(index) && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Nova App</p>}<ToolActivityLine activity={activity} /></div></div>)}
-            {isStreaming && !replyCommitted && <div className="flex w-full shrink-0 min-w-0 items-start gap-2"><span className="mt-1 grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><NovaMark size={12} /></span><div className="min-w-0 max-w-[92%] sm:max-w-[85%]">{streamingLabel && <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Nova App</p>}{isUnavailableReply(streamingContent) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{streamingContent}</span></div></div> : streamingContent ? <div className="break-words rounded-2xl rounded-tl-md bg-muted px-3.5 py-2.5 text-sm leading-6 text-foreground sm:px-4 dark:bg-muted dark:text-foreground"><MarkdownText text={streamingContent} /></div> : <TypingIndicator />}</div></div>}
+            {pendingUserContent && !userCommitted && <div className="chat-in flex w-full shrink-0 justify-end"><div className="max-w-[92%] rounded-3xl rounded-br-lg bg-neutral-950 px-4 py-2.5 text-[15px] leading-6 text-white shadow-[0_2px_10px_rgba(10,10,10,0.10)] sm:max-w-[85%] dark:bg-foreground dark:text-background">{pendingUserContent}</div></div>}
+            {liveActivities.map((activity, index) => <div key={activity.id} className="chat-in ml-[2.65rem] flex w-full shrink-0"><div className="flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-card px-2.5 py-1 shadow-[0_1px_2px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card">{liveLabel(index) && <p className="mr-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nova App</p>}<ToolActivityLine activity={activity} /></div></div>)}
+            {isStreaming && !replyCommitted && <div className="chat-in flex w-full shrink-0 items-start gap-2.5"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaMark size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.65rem)]">{streamingLabel && <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nova App</p>}{isUnavailableReply(streamingContent) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{streamingContent}</span></div></div> : streamingContent ? <div className="break-words text-[15px] leading-7 text-foreground"><MarkdownText text={streamingContent} /><span className="stream-caret" /></div> : <TypingIndicator />}</div></div>}
           </div>
         </div>
-        <form onSubmit={submit} className="shrink-0 border-t border-border bg-card p-2.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] sm:p-3 dark:border-white/5 dark:bg-card">
-          <div className="mx-auto flex w-full max-w-3xl min-w-0 items-end gap-1.5 rounded-2xl border border-border bg-[#fafafa] px-2.5 py-2 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10 sm:items-center sm:gap-2 sm:rounded-full sm:px-4 sm:py-2 dark:border-white/10 dark:bg-background">
-            <FileText className="mb-1 size-4 shrink-0 text-muted-foreground sm:mb-0" />
-            <Textarea
-              value={draft}
-              onChange={event => setDraft(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void submit(event);
-                }
-              }}
-              placeholder="Ask Nova..."
-              rows={1}
-              className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-sm leading-5 placeholder:text-muted-foreground focus-visible:ring-0"
-            />
-            <button type="submit" disabled={!draft.trim() || isStreaming} className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-white transition hover:bg-primary/90 disabled:opacity-40" aria-label="Go"><ArrowUp className="size-4" /></button>
+        <form onSubmit={submit} className="z-10 shrink-0 bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-4 pt-3 sm:px-5 sm:pb-5">
+          <div className="mx-auto w-full max-w-3xl">
+            <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 pl-3.5 shadow-[0_4px_14px_rgba(10,10,10,0.05)] transition-all focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/10 dark:bg-card dark:focus-within:border-primary/40">
+              <Textarea
+                value={draft}
+                onChange={event => setDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void submit(event);
+                  }
+                }}
+                placeholder="Message Nova…"
+                rows={1}
+                className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[15px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0"
+              />
+              <button type="submit" disabled={!draft.trim() || isStreaming} aria-label="Send message" className={`grid size-9 shrink-0 place-items-center rounded-xl transition-all ${draft.trim() && !isStreaming ? "bg-primary text-white hover:bg-primary/90" : "bg-muted text-muted-foreground hover:bg-muted dark:bg-white/5 dark:text-muted-foreground dark:hover:bg-white/10"}`}>
+                {isStreaming ? <CircleDashed className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+              </button>
+            </div>
+            <p className="mt-1.5 hidden text-center text-[10px] font-medium text-muted-foreground sm:block">Enter ↵ to send · Shift+Enter for a new line</p>
           </div>
         </form>
       </section>
@@ -253,8 +265,8 @@ export default function Workspace() {
 
 export function TypingIndicator() {
   return (
-    <div data-testid="typing-indicator" className="flex items-center gap-1.5 break-words rounded-2xl rounded-tl-md bg-muted px-3.5 py-3 sm:px-4 dark:bg-muted" aria-label="Nova is typing">
-      {[0, 1, 2].map(index => <span key={index} className="typing-dot size-1.5 rounded-full bg-neutral-400 dark:bg-muted0" />)}
+    <div data-testid="typing-indicator" className="inline-flex items-center gap-1.5 break-words rounded-2xl rounded-tl-md border border-border/60 bg-card px-3.5 py-3 shadow-[0_2px_8px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-card" aria-label="Nova is typing">
+      {[0, 1, 2].map(index => <span key={index} className="typing-dot size-1.5 rounded-full bg-primary/60" />)}
     </div>
   );
 }

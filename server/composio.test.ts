@@ -45,7 +45,7 @@ describe("Composio connector client", () => {
 
   it("detects an active GitHub connected account", async () => {
     const fetchImpl = vi.fn(async () =>
-      composioResponse({ items: [{ id: "acc_init", status: "INITIALIZING" }, { id: "acc_active", status: "ACTIVE" }] })
+      composioResponse({ items: [{ id: "acc_init", user_id: "nova-user-3", status: "INITIALIZING" }, { id: "acc_active", user_id: "nova-user-3", status: "ACTIVE" }] })
     );
     await expect(getComposioConnectionStatus(3, "github", fetchImpl)).resolves.toEqual({
       configured: true,
@@ -57,6 +57,26 @@ describe("Composio connector client", () => {
       expect.stringContaining("/connected_accounts?user_id=nova-user-3&toolkit_slug=github"),
       expect.objectContaining({ headers: expect.objectContaining({ "x-api-key": "test-composio-key" }) })
     );
+  });
+
+  it("ignores another user's active account when the API returns project-wide accounts", async () => {
+    // The live Composio list endpoint ignores the user_id query param and
+    // returns accounts for every user in the project; status must stay
+    // scoped to the requesting owner via the user_id field on each item.
+    const fetchImpl = vi.fn(async () =>
+      composioResponse({
+        items: [
+          { id: "acc_other", user_id: "nova-user-9", status: "ACTIVE" },
+          { id: "acc_mine_dead", user_id: "nova-user-4", status: "INITIATED" },
+        ],
+      })
+    );
+    await expect(getComposioConnectionStatus(4, "github", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      connectedAccountId: null,
+    });
   });
 
   it("creates a connection link through the Composio-managed GitHub auth config", async () => {
@@ -83,7 +103,7 @@ describe("Composio connector client", () => {
 
   it("lists tool slugs with parameter schemas after confirming the connection", async () => {
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", status: "ACTIVE" }] }))
+      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", user_id: "nova-user-9", status: "ACTIVE" }] }))
       .mockResolvedValueOnce(
         composioResponse({
           items: [
@@ -118,7 +138,7 @@ describe("Composio connector client", () => {
 
   it("executes a tool and surfaces failures from Composio", async () => {
     const successFetch = vi.fn()
-      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", status: "ACTIVE" }] }))
+      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", user_id: "nova-user-4", status: "ACTIVE" }] }))
       .mockResolvedValueOnce(composioResponse({ data: { starred: true }, successful: true }));
     await expect(executeComposioTool(4, "github", "GITHUB_STAR_A_REPOSITORY", { owner: "octocat", repo: "Hello-World" }, successFetch)).resolves.toEqual({
       ok: true,
@@ -132,7 +152,7 @@ describe("Composio connector client", () => {
     });
 
     const failureFetch = vi.fn()
-      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", status: "ACTIVE" }] }))
+      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", user_id: "nova-user-4", status: "ACTIVE" }] }))
       .mockResolvedValueOnce(composioResponse({ data: null, successful: false, error: "repo not found" }));
     await expect(executeComposioTool(4, "github", "GITHUB_STAR_A_REPOSITORY", {}, failureFetch)).resolves.toEqual({
       ok: false,

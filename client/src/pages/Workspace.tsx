@@ -8,7 +8,7 @@ import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ToolActivityLine } from "@/lib/toolActivityLine";
 import { parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, MessageSquareText, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, MessageSquareText, Send, SquareTerminal, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
@@ -175,15 +175,14 @@ export default function Workspace() {
     );
   }
 
-  const files = computer.data?.files ?? [];
-  const chats = computer.data?.chats ?? [];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const formatDate = (value: Date | string | null | undefined) => value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-  const pickUpCards = [
-    ...files.slice(0, 2).map(file => ({ key: `file-${file.id}`, icon: FileText, title: file.name, detail: `Edited ${formatDate(file.updatedAt)}`, path: "/app/files" })),
-    ...chats.slice(0, 2).map(chat => ({ key: `chat-${chat.id}`, icon: MessageSquareText, title: chat.title, detail: `Conversation · ${formatDate(chat.updatedAt)}`, path: `/app?chatId=${chat.id}` })),
-  ].slice(0, 4);
+  const connectors = [
+    { name: "Cloud VM (E2B)", icon: SquareTerminal, available: true, detail: "Runs Python, installs packages and browses the web in an isolated sandbox." },
+    { name: "Telegram", icon: Send, available: true, detail: "Delivers messages and routine updates straight to your Telegram chat." },
+    { name: "GitHub", icon: Github, available: false, detail: "Clone repositories, run builds and open pull requests from a task." },
+    { name: "More connectors", icon: CircleDashed, available: false, detail: "Gmail, Slack and Notion are on the roadmap — tell Nova what you need next." },
+  ];
 
   return (
     <DashboardLayout>
@@ -216,9 +215,21 @@ export default function Workspace() {
         </div>
 
         <div className="mt-8">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Pick up where you left off</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Connectors Nova can use</p>
           <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-            {pickUpCards.length ? pickUpCards.map(card => { const CardIcon = card.icon; return <button type="button" key={card.key} onClick={() => setLocation(card.path)} className="rounded-xl border border-border bg-card px-3.5 py-3 text-left transition hover:border-neutral-300 hover:shadow-sm dark:border-white/10 dark:bg-card dark:hover:border-white/20"><span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground"><CardIcon className="size-3.5 shrink-0 text-primary" /><span className="min-w-0 truncate">{card.title}</span></span><p className="mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">{card.detail}</p></button>; }) : <p className="text-xs text-muted-foreground dark:text-muted-foreground">Files and conversations will appear here as your workspace fills up.</p>}
+            {connectors.map(connector => {
+              const ConnectorIcon = connector.icon;
+              return (
+                <div key={connector.name} className="rounded-xl border border-border bg-card px-3.5 py-3 dark:border-white/10 dark:bg-card">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-foreground/90 dark:text-foreground">
+                    <ConnectorIcon className="size-3.5 shrink-0 text-primary" />
+                    <span className="min-w-0 truncate">{connector.name}</span>
+                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${connector.available ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{connector.available ? "Ready" : "Coming soon"}</span>
+                  </span>
+                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground dark:text-muted-foreground">{connector.detail}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

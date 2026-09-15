@@ -28,6 +28,12 @@ export default function Workspace() {
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
   const startChat = trpc.chats.create.useMutation({ onSuccess: async chat => { await utils.workspace.computer.invalidate(); setLocation(`/app?chatId=${chat.id}`); } });
   const savedMessages = trpc.chats.messages.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: false });
+  // Connector/Telegram status feeds the home dashboard cards. These hooks
+  // MUST run before any early return (React error #300 when the chat view
+  // renders fewer hooks than the home view did), so they live up here with the
+  // other hooks and are simply disabled while a chat conversation is open.
+  const connectorStatus = trpc.composio.status.useQuery(undefined, { retry: false, enabled: !chatId });
+  const telegramStatus = trpc.telegram.status.useQuery(undefined, { retry: false, enabled: !chatId });
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
 
@@ -175,8 +181,6 @@ export default function Workspace() {
     );
   }
 
-  const connectorStatus = trpc.composio.status.useQuery(undefined, { retry: false });
-  const telegramStatus = trpc.telegram.status.useQuery(undefined, { retry: false });
   const githubConnected = connectorStatus.data?.toolkits?.github?.connected ?? false;
   const gmailConnected = connectorStatus.data?.toolkits?.gmail?.connected ?? false;
   // The bot token being configured is not "connected": the owner's Telegram

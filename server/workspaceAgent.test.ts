@@ -504,7 +504,40 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith("Partial ");
-    expect(result.message.content).toContain("NVIDIA");
+    // The partial reply the user already watched is kept, with a note that the
+    // gateway dropped — not replaced by a bare error notice.
+    expect(result.message.content).toContain("Partial");
+    expect(result.message.content).toContain("lost the connection");
+    // The streamed partial is not re-emitted; only the failure note follows.
+    const emitted = onChunk.mock.calls.map(call => call[0]).join("");
+    expect(emitted).toBe("Partial " + "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved — send another message and I will continue from here.");
+  });
+
+  it("keeps tool-narration text streamed in earlier rounds when the final round fails", async () => {
+    // Round 1 streams "Checking your files" and requests a tool; round 2
+    // fails with nothing streamed — the user still keeps what they watched.
+    chatWithNvidiaGateway
+      .mockImplementationOnce(async (owner, messages, options) => {
+        options?.onChunk?.("Checking your files. ");
+        return chatResult({
+          text: "Checking your files. ",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "create_folder",
+              arguments: JSON.stringify({ name: "Sprint" }),
+            },
+          ],
+        });
+      })
+      .mockRejectedValue(
+        new NvidiaGatewayClientError("dead", "invalid_response")
+      );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "make a folder", { onChunk });
+    expect(result.message.content).toContain("Checking your files");
+    expect(result.message.content).toContain("lost the connection");
+    expect(result.message.content).not.toContain("invalid response");
   });
 });
 

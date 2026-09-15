@@ -847,7 +847,7 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
 
 /** Transient gateway failures worth one automatic in-run retry. */
 const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
-let gatewayRetryDelaysMs: number[] = [400, 1200];
+let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
 /** Test hook: zero the retry backoff so suites stay fast. */
 export function setGatewayRetryDelaysForTests(delays: number[]) {
@@ -937,6 +937,9 @@ export async function runWorkspaceAgent(
     });
 
   const actions: AgentAction[] = [];
+  // Everything streamed to the client during this run — needed by the catch
+  // below to keep the partial reply when the gateway fails mid-run.
+  let streamedRunText = "";
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
 
@@ -992,6 +995,7 @@ export async function runWorkspaceAgent(
       const emitChunk = options.onChunk
         ? (chunk: string) => {
             streamedThisRound += chunk.length;
+            streamedRunText += chunk;
             options.onChunk?.(chunk);
           }
         : undefined;
@@ -1063,6 +1067,8 @@ export async function runWorkspaceAgent(
     console.error("[Chat] NVIDIA chat failed", error);
     const kind =
       error instanceof NvidiaGatewayClientError ? error.kind : "unavailable";
+    const failureNote =
+      "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved — send another message and I will continue from here.";
     let reply: string;
     if (kind === "configuration") {
       reply =
@@ -1070,12 +1076,22 @@ export async function runWorkspaceAgent(
     } else if (kind === "rate_limit") {
       reply =
         "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
-    } else if (kind === "invalid_response") {
-      reply = "NVIDIA returned an invalid response. Please try again shortly.";
     } else {
-      reply = NVIDIA_UNAVAILABLE_MESSAGE;
+      // A long tool-calling run often streams part of the reply to the client
+      // (the Telegram placeholder, the web stream) before the gateway fails
+      // mid-run. Keep what the user already watched instead of throwing it
+      // away and replacing it with an error notice.
+      const partial = streamedRunText.trim();
+      if (partial) {
+        reply = partial + failureNote;
+      } else if (kind === "invalid_response") {
+        reply = "NVIDIA returned an invalid response. Please try again shortly.";
+      } else {
+        reply = NVIDIA_UNAVAILABLE_MESSAGE;
+      }
     }
-    await options.onChunk?.(reply);
+    // Only emit what the client has not already seen streamed live.
+    await options.onChunk?.(streamedRunText.trim() ? failureNote : reply);
     const message = await persistAssistant(reply);
     return { message, actions };
   }

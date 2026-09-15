@@ -13,6 +13,7 @@ import {
   ComposioApiError,
   composioUserId,
   createComposioConnectionLink,
+  deleteComposioConnection,
   executeComposioTool,
   getComposioConnectionStatus,
   listComposioTools,
@@ -122,6 +123,45 @@ describe("Composio connector client", () => {
       status: "active",
       connectedAccountId: "acc_active",
     });
+  });
+
+  it("deletes the user's active connected account and returns the refreshed status", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const url = String(_url);
+      const calledWith = (path: string) => url.includes(path);
+      const body = (() => {
+        try {
+          return init?.body ? JSON.parse(String(init.body)) : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (calledWith("/connected_accounts/") && init?.method === "DELETE")
+        return composioResponse({ success: true });
+      if (calledWith("/connected_accounts/link")) return composioResponse({ redirect_url: "https://example.com/link" });
+      // List endpoint: one active account until the DELETE lands, none after.
+      const deleted = fetchImpl.mock.calls.some(call => {
+        const [u, i] = call as [string, RequestInit | undefined];
+        return String(u).includes("/connected_accounts/") && i?.method === "DELETE";
+      });
+      return composioResponse({
+        items: deleted
+          ? []
+          : [{ id: "acc_gmail", user_id: "nova-user-8", status: "ACTIVE", toolkit: { slug: "gmail" } }],
+      });
+    });
+    const after = await deleteComposioConnection(8, "gmail", fetchImpl);
+    expect(after).toEqual({ configured: true, connected: false, status: "disconnected", connectedAccountId: null });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v3/connected_accounts/acc_gmail"),
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("refuses to disconnect when the toolkit is not connected", async () => {
+    const fetchImpl = vi.fn(async () => composioResponse({ items: [] }));
+    await expect(deleteComposioConnection(8, "gmail", fetchImpl)).rejects.toThrow("Gmail is not connected");
+    expect(fetchImpl).not.toHaveBeenCalledWith(expect.stringContaining("/connected_accounts/acc"), expect.anything());
   });
 
   it("creates a connection link through the Composio-managed GitHub auth config", async () => {

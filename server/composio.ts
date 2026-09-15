@@ -151,6 +151,32 @@ export async function getComposioConnectionStatus(
 }
 
 /**
+ * Deletes the user's active connected account for a toolkit. Composio drops
+ * the stored credentials, so Nova loses access until the user connects again.
+ * Returns the refreshed status after the deletion.
+ */
+export async function deleteComposioConnection(
+  ownerId: number,
+  toolkit: ComposioToolkit,
+  fetchImpl: typeof fetch = fetch
+): Promise<ComposioConnectionStatus> {
+  if (!isComposioConfigured())
+    return { configured: false, connected: false, status: "disconnected", connectedAccountId: null };
+  const before = await getComposioConnectionStatus(ownerId, toolkit, fetchImpl);
+  if (!before.connected || !before.connectedAccountId)
+    throw new ComposioApiError(
+      `${toolkitLabel(toolkit)} is not connected, so there is nothing to disconnect.`,
+      404
+    );
+  await composioRequest(
+    `/api/v3/connected_accounts/${encodeURIComponent(before.connectedAccountId)}`,
+    { method: "DELETE" },
+    fetchImpl
+  );
+  return getComposioConnectionStatus(ownerId, toolkit, fetchImpl);
+}
+
+/**
  * Starts an auth link session for GitHub and returns the hosted URL the user
  * should visit to authorize. Composio-managed OAuth configs are addressed via
  * the /connected_accounts/link endpoint.

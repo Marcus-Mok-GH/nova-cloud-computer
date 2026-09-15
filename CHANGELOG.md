@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-15 — Vercel Web Analytics
+
+- `client/index.html`: replaced the placeholder umami tag (which shipped a literal `%VITE_ANALYTICS_ENDPOINT%/umami` URL since the env vars were never set) with the native Vercel Web Analytics script `/_vercel/insights/script.js`, which Vercel serves once Web Analytics is enabled in the project dashboard and which tracks SPA page views automatically.
+- `vite.config.ts`: removed the now-dead `vitePluginConditionalAnalyticsTag` transform that stripped the umami tag when analytics env vars were unset.
+
+
 ## 2026-09-13 — Better NVIDIA unavailable messages
 
 - `server/workspaceAgent.ts`: when NVIDIA inference fails, the agent now checks gateway status before attempting completion and surfaces a specific message for each failure mode (not configured, unreachable, allowance exhausted) instead of the generic "isn't available" string. The catch block also inspects `NvidiaGatewayClientError.kind` and returns a targeted reply for configuration, rate-limit, and invalid-response errors.

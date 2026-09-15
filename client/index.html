@@ -45,6 +45,9 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script defer src="%VITE_ANALYTICS_ENDPOINT%/umami" data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+    <!-- Vercel Web Analytics: script is served by Vercel once Web Analytics
+         is enabled in the project (Vercel dashboard -> Analytics -> Enable).
+         Automatically tracks SPA page views (pushState/popstate). -->
+    <script defer src="/_vercel/insights/script.js"></script>
   </body>
 </html>

@@ -5,6 +5,14 @@ import {
 
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 25_000;
+// Chat completions carry the whole conversation plus tool results, so the
+// model can take far longer than a metadata /models lookup to produce its
+// first byte. Give them a much more patient timeout or long tool-calling
+// rounds get aborted mid-generation and surface as gateway failures.
+const CHAT_REQUEST_TIMEOUT_MS = 120_000;
+// A stream that delivers nothing for this long is treated as dead instead of
+// hanging the agent loop (and the Telegram webhook behind it) indefinitely.
+const STREAM_STALL_TIMEOUT_MS = 120_000;
 const ERROR_MESSAGE_LIMIT = 600;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 10_000;
@@ -153,7 +161,7 @@ function serviceHeaders(token: string) {
   };
 }
 
-async function gatewayFetch(path: string, init: RequestInit = {}) {
+async function gatewayFetch(path: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   const baseUrl = configuredGatewayUrl();
   const token = configuredGatewayToken();
   if (!baseUrl || !token)
@@ -162,7 +170,7 @@ async function gatewayFetch(path: string, init: RequestInit = {}) {
       "configuration"
     );
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(`${baseUrl}${path}`, {
       ...init,
@@ -614,6 +622,27 @@ type StreamedGatewayChat = {
 };
 
 /**
+ * Races a stream read against the stall deadline: resolves `null` when the
+ * gateway has delivered nothing for STREAM_STALL_TIMEOUT_MS, without leaving
+ * the underlying read dangling (it settles on its own later and is ignored).
+ */
+async function readWithStallGuard(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): Promise<ReadableStreamReadResult<Uint8Array> | null> {
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<null>(resolve => {
+        stallTimer = setTimeout(() => resolve(null), STREAM_STALL_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (stallTimer) clearTimeout(stallTimer);
+  }
+}
+
+/**
  * Reads a streamed OpenAI-compatible chat completion for the agent loop: text
  * deltas are forwarded to `onChunk` as they arrive, and `delta.tool_calls`
  * fragments are stitched back into complete tool calls. Falls back to the
@@ -671,8 +700,19 @@ async function readGatewayStreamedChatResult(
     const decoder = new TextDecoder();
     let buffer = "";
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const read = await readWithStallGuard(reader);
+      if (!read) {
+        // The gateway went silent mid-stream (proxy timeout, dropped
+        // connection) instead of throwing — cancel and fail as unavailable so
+        // the agent loop can retry instead of hanging forever.
+        await reader.cancel().catch(() => {});
+        throw new NvidiaGatewayClientError(
+          "NVIDIA stopped responding mid-stream. Please retry shortly.",
+          "unavailable"
+        );
+      }
+      if (read.done) break;
+      const value = read.value;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
@@ -731,6 +771,7 @@ async function readGatewayStreamedChatResult(
       }
     }
   } catch (error) {
+    if (error instanceof NvidiaGatewayClientError) throw error;
     throw new NvidiaGatewayClientError(
       "NVIDIA interrupted the response stream. Please retry shortly.",
       "unavailable"
@@ -778,17 +819,21 @@ export async function chatWithNvidiaGateway(
     );
   }
   const resolvedModel = options.model?.trim() || status.model;
-  const response = await gatewayFetch("/chat/completions", {
-    method: "POST",
-    body: JSON.stringify({
-      model: resolvedModel,
-      messages,
-      ...(options.tools?.length
-        ? { tools: options.tools, tool_choice: "auto" }
-        : {}),
-      ...(options.onChunk ? { stream: true } : {}),
-    }),
-  });
+  const response = await gatewayFetch(
+    "/chat/completions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model: resolvedModel,
+        messages,
+        ...(options.tools?.length
+          ? { tools: options.tools, tool_choice: "auto" }
+          : {}),
+        ...(options.onChunk ? { stream: true } : {}),
+      }),
+    },
+    CHAT_REQUEST_TIMEOUT_MS
+  );
   if (!response.ok) {
     const payload = (await response.json().catch(() => undefined)) as
       | GatewayCompletion

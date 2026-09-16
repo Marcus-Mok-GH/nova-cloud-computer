@@ -49,6 +49,7 @@ import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, va
 import { getTelegramModelSettingsForUser, updateTelegramModelSettingsForUser } from "./telegramModelSettings";
 import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
+import { adminRouter } from "./adminRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
 function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNullable<T> {
@@ -71,6 +72,7 @@ const nvidiaCompletionInput = z.object({ prompt: z.string().trim().min(3, "Descr
 
 export const appRouter = router({
   system: systemRouter,
+  admin: adminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),

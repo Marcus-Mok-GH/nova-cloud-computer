@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLocation, useSearch } from "wouter";
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, Moon, Sun, X } from "lucide-react";
-import { navItems as nav, NavItem } from "@/lib/nav";
+import { adminNavItem, navItems as nav, NavItem } from "@/lib/nav";
 import NovaMark from "./NovaMark";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -34,8 +34,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isActive = (path: string) => path === "/app" ? location === "/app" || location.startsWith("/app?") : location === path || location.startsWith(`${path}?`);
   const go = (path: string) => { setMobileNavOpen(false); setLocation(path); };
 
+  const visibleNav: NavItem[] = user?.role === "admin" ? [...nav, adminNavItem] : nav;
   const navButtons = (onNavigate: () => void, opts?: { collapsed?: boolean }) =>
-    nav.map((tab: NavItem) => (
+    visibleNav.map((tab: NavItem) => (
       <button key={tab.label} onClick={() => { onNavigate(); go(tab.path); }} title={tab.label} aria-label={tab.label} aria-current={isActive(tab.path) ? "page" : undefined}
         className={`flex w-full items-center rounded-xl text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${opts?.collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2.5"} ${isActive(tab.path) ? "bg-card text-foreground shadow-sm dark:bg-card dark:text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>
         <tab.icon className="size-4 shrink-0" />{!opts?.collapsed && tab.label}

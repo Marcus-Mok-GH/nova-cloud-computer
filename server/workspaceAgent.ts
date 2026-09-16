@@ -337,7 +337,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "send_progress_update",
       description:
-        "Send the user a brief mid-task progress note over Telegram (opening ETA, interim status, or a blocker notice). Use this while working on a request; use send_telegram_message when sending a message is itself the task. Requires Telegram to be connected.",
+        "Send the user a brief mid-task progress note over Telegram (opening ETA, revised ETA, interim status, or a blocker notice). Use this while working on a request; use send_telegram_message when sending a message is itself the task. Requires Telegram to be connected.",
       parameters: {
         type: "object",
         properties: {
@@ -551,7 +551,7 @@ Operating principles:
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
-- Keep the user posted on Telegram. Over Telegram the user sees only the messages you send — none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"), then send short interim updates during long runs instead of going silent, and tell the user immediately when you hit a blocker — saying whether you are solving it yourself or need something from them. Use send_progress_update for these notes, keep each one brief, and never send a "done" summary until the work actually is done. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
+- Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send — none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"). From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work — after each meaningful step completes, and never let more than a minute or so pass in silence on a long run — and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected — about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker — saying whether you are solving it yourself or need something from them — and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
 
 Formatting: render replies in Markdown when it helps readability — **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 

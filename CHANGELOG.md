@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — The AI owns the ETA end-to-end
+
+- `server/workspaceAgent.ts`: the Telegram progress bullet now makes the model responsible for maintaining the estimate throughout the run — not just the opening one. It revises the range whenever reality diverges ("taking longer than expected — about 2 more minutes"), sends short updates at a steady rhythm while working (after each meaningful step, no long silent gaps), and says whether a blocker changes the ETA. The send_progress_update tool description now mentions revised ETAs. Still zero hardcoded logic: cadence and wording stay the model's own judgment, set by the system prompt.
+- `server/workspaceAgent.test.ts`: the prompt test now asserts the revised-ETA and steady-rhythm guidance.
+
+
 ## 2026-09-16 — Model-driven progress updates replace the hardcoded reporter
 
 - `server/agentProgress.ts` (removed): the heuristic ETA scorer and throttled reporter are gone. Per the project direction, progress behavior is *not* hardcoded — the AI itself decides the ETA, cadence, and blocker notices.

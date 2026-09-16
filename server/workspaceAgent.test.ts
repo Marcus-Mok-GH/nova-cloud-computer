@@ -310,6 +310,9 @@ describe("Nova tool-calling workspace agent", () => {
     );
     expect(telegramPrompt).toContain("send_progress_update");
     expect(telegramPrompt).toContain("time estimate");
+    expect(telegramPrompt).toContain("own the ETA");
+    expect(telegramPrompt).toContain("revised range");
+    expect(telegramPrompt).toContain("never let more than a minute or so pass in silence");
 
     chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
     await runWorkspaceAgent(1, 3, "hi");

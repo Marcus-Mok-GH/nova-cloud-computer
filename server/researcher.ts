@@ -1,13 +1,18 @@
 /** Nova's deep research delegate.
  *
- * The heavy lifting is done by Exa AI's deep research agent (the Exa Agent
- * API): a single call fans out into many live web searches, reads and
- * cross-checks the sources, and returns one grounded, cited report. Nova
- * frames the request and consumes the run's server-sent event stream — no
- * custom sub-agent loop or NVIDIA allowance is involved. */
+ * The heavy lifting is done by Exa AI's deep research models via the Deep
+ * Search API: one request fans out into iterative live web searches, reads
+ * and cross-checks the evidence, and returns one grounded, cited report. The
+ * caller picks the research difficulty — the AI agent decides the level that
+ * fits the question — and the chosen model ID is passed straight through. */
 
 import { ENV } from "./_core/env";
-import { runExaAgentResearch, type ExaCitation } from "./exa";
+import {
+  normalizeExaDeepSearchType,
+  runExaDeepResearch,
+  type ExaCitation,
+  type ExaDeepSearchType,
+} from "./exa";
 
 const RESEARCH_SYSTEM_PROMPT = `You are Nova's research specialist. You investigate topics on the live web and produce thorough, well-sourced research reports.
 
@@ -28,27 +33,23 @@ export type ResearchResult = {
   sources: ExaCitation[];
 };
 
-/** Collects the unique citations from a run's grounding, preserving order. */
-function collectSources(run: Awaited<ReturnType<typeof runExaAgentResearch>>): ExaCitation[] {
-  const sources: ExaCitation[] = [];
-  const seen = new Set<string>();
-  for (const entry of run.output?.grounding ?? []) {
-    for (const citation of entry.citations ?? []) {
-      const url = citation.url?.trim();
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-      sources.push({ url, title: citation.title?.trim() ?? "" });
-    }
-  }
-  return sources;
-}
+/** The difficulty of a research run — Exa's deep research model IDs, shallowest to deepest. */
+export type ResearchDifficulty = ExaDeepSearchType;
 
 /**
- * Runs Exa's deep research agent on a topic and returns its cited report.
+ * Runs Exa deep research on a topic and returns its cited report.
  * @param topic The topic or question to research.
+ * @param difficulty The research model / difficulty — the AI's choice:
+ *   "deep-lite" for lightweight general research (~10 seconds),
+ *   "deep" for medium multi-step research, "deep-reasoning" for the deepest
+ *   research level. Anything unrecognised falls back to "deep".
  * @param instructions Optional focus, constraints or specific questions.
  */
-export async function runResearch(topic: string, instructions?: string): Promise<ResearchResult> {
+export async function runResearch(
+  topic: string,
+  difficulty?: string,
+  instructions?: string,
+): Promise<ResearchResult> {
   if (!ENV.exaApiKey.trim()) {
     throw new Error("Web research is not configured yet — the Nova operator needs to set EXA_API_KEY.");
   }
@@ -56,12 +57,12 @@ export async function runResearch(topic: string, instructions?: string): Promise
   const ask = `${topic.trim()}${
     instructions?.trim() ? `\n\nAdditional instructions: ${instructions.trim()}` : ""
   }`;
-  const run = await runExaAgentResearch({
+  const { report, sources } = await runExaDeepResearch({
     query: ask,
+    type: normalizeExaDeepSearchType(difficulty),
     systemPrompt: RESEARCH_SYSTEM_PROMPT,
-    effort: "medium",
   });
-  const report = run.output?.text?.trim() ?? "";
-  if (!report) throw new Error("Exa Agent finished the research without a report.");
-  return { report, sources: collectSources(run) };
+  const trimmed = report.trim();
+  if (!trimmed) throw new Error("The deep research run finished without a report.");
+  return { report: trimmed, sources };
 }

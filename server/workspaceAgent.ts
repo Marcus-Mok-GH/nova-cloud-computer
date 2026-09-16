@@ -367,13 +367,18 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "research_web",
       description:
-        "Delegate deep research to Exa AI's deep research agent. It fans out many live web searches, reads and cross-checks the sources, and returns a full research report with inline citations and a numbered source list. Use it for anything that needs more than a quick fact: in-depth questions, comparisons, current events, technical investigations, prices, versions, docs. It can take several minutes — use it deliberately, not for simple lookups inside your own workspace.",
+        "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You decide the difficulty: deep-lite answers simple factual questions in about 10 seconds, deep runs medium multi-step research for most questions, deep-reasoning is the deepest level for complex investigations with difficult or conflicting evidence — pick the level that matches the question and say nothing about the choice unless asked.",
       parameters: {
         type: "object",
         properties: {
           topic: {
             type: "string",
             description: "The topic or question to research.",
+          },
+          difficulty: {
+            type: "string",
+            enum: ["deep-lite", "deep", "deep-reasoning"],
+            description: "Research difficulty. deep-lite: lightweight, general research, answers in ~10 seconds — for simple factual lookups. deep: medium multi-step research with evidence gathering — the default for most questions. deep-reasoning: the deepest research level, deliberate reasoning across difficult or conflicting evidence — for complex investigations.",
           },
           instructions: {
             type: "string",
@@ -521,7 +526,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research agent. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
+- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Choose the difficulty argument to match the question (deep-lite for quick lookups, deep for most research, deep-reasoning for the hardest investigations). Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
@@ -838,9 +843,10 @@ async function executeWorkspaceTool(
     case "research_web": {
       const topic = str(args.topic);
       if (!topic) return { ok: false, result: "A research topic is required." };
+      const difficulty = str(args.difficulty) || undefined;
       const instructions = str(args.instructions) || undefined;
       try {
-        const research = await runResearch(topic, instructions);
+        const research = await runResearch(topic, difficulty, instructions);
         const sourcesBlock = research.sources.length
           ? `\n\nAll sources consulted by the researcher:\n${research.sources
               .map((source, index) => `${index + 1}. ${source.title || source.url} — ${source.url}`)

@@ -1,130 +1,136 @@
-/** Exa AI Agent API client for Nova's deep research.
- * Docs: https://exa.ai/docs/agent/quickstart
+/** Exa Deep Search client for Nova's deep research.
+ * Docs: https://exa.ai/docs/search/deep-search
  *
- * POST https://api.exa.ai/agent/runs with `Accept: text/event-stream` starts a
- * deep-research run and follows its server-sent events (keep-alive comments,
- * agent_run.created / started / source events …) until a terminal event:
- * agent_run.completed (full run object) / failed / cancelled. */
+ * POST https://api.exa.ai/search with `type` set to one of Exa's deep research
+ * models runs an iterative research loop before the response: it can issue
+ * multiple searches, compare the evidence with the request, re-search what is
+ * still missing, and then synthesize one grounded result. Providing an
+ * `outputSchema` of `{ type: "text" }` makes the response include the
+ * synthesized report in `output.content` plus field-level citations in
+ * `output.grounding`. */
 
 import { ENV } from "./_core/env";
 
 export type ExaCitation = { url: string; title: string };
 
-export type ExaAgentGrounding = {
+export type ExaGrounding = {
   field: string;
   citations: ExaCitation[];
   confidence?: string | null;
 };
 
-export type ExaAgentRun = {
-  id: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  output?: { text?: string; grounding?: ExaAgentGrounding[] };
-  usage?: Record<string, number>;
-  error?: { code?: string; message?: string };
+/** Exa's deep research models, shallowest to deepest. */
+export type ExaDeepSearchType = "deep-lite" | "deep" | "deep-reasoning";
+
+export const EXA_DEEP_SEARCH_TYPES: readonly ExaDeepSearchType[] = [
+  "deep-lite",
+  "deep",
+  "deep-reasoning",
+];
+
+export type ExaDeepResearchResult = {
+  report: string;
+  sources: ExaCitation[];
 };
 
-export type ExaAgentEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "auto";
-
-export type ExaAgentRunOptions = {
-  /** The research query — the task the deep research agent works on. */
+export type ExaDeepResearchOptions = {
+  /** The research query — the task the deep research model works on. */
   query: string;
-  /** Optional system prompt steering the report style and judgement. */
+  /** The research model / difficulty. Defaults to `deep`. */
+  type?: ExaDeepSearchType;
+  /** Optional system prompt steering the research behavior and report style. */
   systemPrompt?: string;
-  /** Cost/reasoning effort. Fixed efforts are predictably priced; `auto` is metered. */
-  effort?: ExaAgentEffort;
-  /** Hard client-side cap on following the stream (default 270s, Vercel-bound). */
+  /** Hard client-side cap on the request (default 270s, Vercel-bound). */
   timeoutMs?: number;
-  /** Optional observer for every stream event (progress logging, future UI). */
-  onEvent?: (event: string, data: unknown) => void;
 };
 
 export function isExaConfigured() {
   return ENV.exaApiKey.trim().length > 0;
 }
 
-/** Parses one SSE frame's lines into `{ event, data }`, honoring keep-alive comments. */
-function parseSseFrame(rawFrame: string): { event: string; data: string } | null {
-  let event = "";
-  const dataLines: string[] = [];
-  for (const rawLine of rawFrame.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (line.startsWith(":")) continue; // keep-alive comment — ignored by spec
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
-  }
-  if (!event || dataLines.length === 0) return null;
-  return { event, data: dataLines.join("\n") };
+/** Coerces an arbitrary value to a valid deep search type, defaulting to `deep`. */
+export function normalizeExaDeepSearchType(value: unknown): ExaDeepSearchType {
+  return EXA_DEEP_SEARCH_TYPES.includes(value as ExaDeepSearchType)
+    ? (value as ExaDeepSearchType)
+    : "deep";
 }
 
-function safeJson(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
+/** The final report text, tolerating either a bare string or a wrapped object. */
+function extractReport(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (content && typeof content === "object") {
+    const wrapped = content as { text?: unknown; report?: unknown };
+    const text = wrapped.text ?? wrapped.report;
+    if (typeof text === "string") return text.trim();
   }
+  return "";
+}
+
+/** Collects the unique citations from the run's grounding, preserving order. */
+function collectSources(output: { grounding?: ExaGrounding[] } | undefined): ExaCitation[] {
+  const sources: ExaCitation[] = [];
+  const seen = new Set<string>();
+  for (const entry of output?.grounding ?? []) {
+    for (const citation of entry.citations ?? []) {
+      const url = citation.url?.trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      sources.push({ url, title: citation.title?.trim() ?? "" });
+    }
+  }
+  return sources;
+}
+
+/** Falls back to the selected pages when the run emitted no grounding. */
+function fallbackSources(results: { url?: string; title?: string }[] | undefined): ExaCitation[] {
+  return (results ?? [])
+    .map((result) => ({ url: result.url?.trim() ?? "", title: result.title?.trim() ?? "" }))
+    .filter((source) => source.url.length > 0);
 }
 
 /**
- * Runs an Exa deep-research agent to completion via its SSE stream.
- * Resolves with the completed run (`output.text` + `output.grounding`);
- * rejects when the run fails, is cancelled, or the stream ends abnormally.
+ * Runs one Exa deep research request to completion and returns its cited
+ * report. Resolves with the synthesized text (`output.content`) plus the
+ * deduplicated citations; rejects when the request fails or returns no report.
  */
-export async function runExaAgentResearch(options: ExaAgentRunOptions): Promise<ExaAgentRun> {
+export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promise<ExaDeepResearchResult> {
   if (!isExaConfigured()) {
     throw new Error("Exa deep research is not configured — set EXA_API_KEY to enable web research.");
   }
-  const response = await fetch("https://api.exa.ai/agent/runs", {
+  const type = normalizeExaDeepSearchType(options.type);
+  const response = await fetch("https://api.exa.ai/search", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      accept: "text/event-stream",
-      "x-api-key": ENV.exaApiKey,
+      authorization: `Bearer ${ENV.exaApiKey}`,
     },
     body: JSON.stringify({
       query: options.query,
-      effort: options.effort ?? "medium",
+      type,
       ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
+      outputSchema: {
+        type: "text",
+        description:
+          "The complete research report: an executive summary, findings organized under clear headings, inline [1]-style citations, and a final Sources list mapping every number to Title — URL.",
+      },
     }),
     signal: AbortSignal.timeout(options.timeoutMs ?? 270_000),
   });
-  if (!response.ok || !response.body) {
-    throw new Error(`Exa Agent responded with status ${response.status}.`);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const hint = detail.slice(0, 300).replace(/\s+/g, " ").trim();
+    throw new Error(`Exa deep research responded with status ${response.status}${hint ? `: ${hint}` : "."}`);
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) throw new Error("Exa Agent stream ended before the research completed.");
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    let separator = buffer.indexOf("\n\n");
-    while (separator !== -1) {
-      const frame = parseSseFrame(buffer.slice(0, separator));
-      buffer = buffer.slice(separator + 2);
-      separator = buffer.indexOf("\n\n");
-      if (!frame) continue;
-      const payload = safeJson(frame.data);
-      options.onEvent?.(frame.event, payload);
-      // For forward compatibility, ignore unrecognized events and keep reading
-      // until a terminal event arrives.
-      if (frame.event === "agent_run.completed") {
-        const run = payload as unknown as ExaAgentRun | null;
-        if (!run || typeof run.id !== "string") {
-          throw new Error("Exa Agent completed without a usable run object.");
-        }
-        return run;
-      }
-      if (frame.event === "agent_run.failed") {
-        const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
-        const detail = error?.message ?? error?.code ?? "unknown error";
-        throw new Error(`Exa Agent research failed: ${detail}`);
-      }
-      if (frame.event === "agent_run.cancelled") {
-        throw new Error("Exa Agent research was cancelled.");
-      }
-    }
+  const payload = (await response.json().catch(() => null)) as {
+    results?: { url?: string; title?: string }[];
+    output?: { content?: unknown; grounding?: ExaGrounding[] };
+  } | null;
+
+  const report = extractReport(payload?.output?.content);
+  if (!report) {
+    throw new Error("Exa deep research finished without a report.");
   }
+  const sources = collectSources(payload?.output);
+  return { report, sources: sources.length ? sources : fallbackSources(payload?.results) };
 }

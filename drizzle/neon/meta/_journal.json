@@ -113,6 +113,13 @@
       "when": 1789532649376,
       "tag": "0015_add_user_ban",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789534370381,
+      "tag": "0016_add_username",
+      "breakpoints": true
     }
   ]
 }

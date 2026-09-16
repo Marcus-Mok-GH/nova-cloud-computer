@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-16 — Telegram progress updates: ETA, blockers, adaptive autonomy
+
+- `server/agentProgress.ts` (new): a run-progress reporter that estimates an ETA from the request text the moment a Telegram message arrives ("I'll get this done within about 15–30 seconds"), sends throttled milestone updates with a revised ETA while the run is in flight, and immediately notifies on blockers — classifying each as a snag the agent works around on its own or one that needs the user's action. Trivial argument mistakes are suppressed and blocker notices cap at three per run so a flaky tool cannot flood the chat.
+- `server/workspaceAgent.ts`: the run loop now emits `round_started`, `blocker`, and `round_completed` events through the existing `onEvent` channel (the web client ignores unknown event types, so `/api/chat/stream` is unaffected). The system prompt's "assume instead of asking" rule became an explicit collaboration policy: fully autonomous by default for reversible work, switching to a single focused question when guessing has a real cost — irreversible actions, personal taste the model cannot know, or credentials only the user can provide.
+- `server/app.ts`: the Telegram webhook wires an `AgentRunProgressReporter` into every agent run, so the user gets the ETA message up front, milestone updates every ~20 seconds on long runs, and immediate blocker notices with a recovery plan.
+- `server/agentProgress.test.ts` (new) and `server/workspaceAgent.test.ts`: tests for ETA formatting/estimation, blocker classification and throttling, and the new run-loop events.
+
+
 ## 2026-09-15 — Connector cards say Ready only when actually connected
 
 - `client/src/pages/Workspace.tsx`: the overview Telegram connector card no longer hardcodes a "Ready" badge — it now reads the real Telegram link state, so it shows "Ready" only after the owner's Telegram chat is linked, and "Connect" when only the bot token is configured. GitHub and Gmail cards already reflected their OAuth state.

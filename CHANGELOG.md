@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-16 — Telegram file uploads land in the workspace
+
+- `server/telegram.ts`: the webhook no longer skips message-less uploads. `telegramUploadFromMessage` pulls the upload out of any update — photos (largest size), documents, voice notes, audio, video, video notes, stickers — and `downloadTelegramUpload` fetches it via getFile, keeping text-like files (by extension and mime type, including code and config files) as readable content and storing binary as a base64 data URI ready for present_file to re-present. Unnamed photos get stamped names like `photo-20260916-1119.jpg`.
+- `server/app.ts`: on a linked chat, the upload is saved into the user's workspace before the agent run and the model receives a context note (📎 Attachment: "report.pdf" is file id N — acknowledge and work with it). The caption, or a generated "Uploaded <name>" line, becomes the user turn, so a bare file still runs the agent. If saving fails, the model is told to explain and suggest retrying — the reply stays model-driven.
+- `server/telegram.test.ts`: tests for upload extraction (photo size picking, documents, voice, video, none), text vs binary storage, extension-based text detection under octet-stream mimes, and Telegram failure surfacing.
+
+
 ## 2026-09-16 — present_file: the Telegram bot can hand files to the user
 
 - `server/telegram.ts`: new `presentTelegramFile` helper. Images arrive inline via sendPhoto for viewing — data URIs are decoded, hosted URLs are passed straight to Telegram, bare base64 is detected — and everything else is uploaded via sendDocument as a downloadable file with an optional caption. Failures surface Telegram's own error text.

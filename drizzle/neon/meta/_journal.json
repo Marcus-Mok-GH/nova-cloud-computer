@@ -127,6 +127,13 @@
       "when": 1789617600000,
       "tag": "0017_add_agent_stop_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789704000000,
+      "tag": "0018_telegram_update_log",
+      "breakpoints": true
     }
   ]
 }

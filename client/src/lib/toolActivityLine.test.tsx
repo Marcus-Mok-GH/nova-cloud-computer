@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { ToolActivityLine, toolLineText } from "./toolActivityLine";
+import { ResearchToolActivity, ToolActivityLine, toolLineText } from "./toolActivityLine";
 import type { ToolActivity } from "./chatMessages";
 
 const activity = (name: string, argumentsJson: string, state: ToolActivity["state"] = "completed"): ToolActivity =>
@@ -33,10 +33,41 @@ describe("toolLineText", () => {
     expect(toolLineText({ id: "t2", name: "read_file", state: "running", args: {} })).toBe("Read File");
   });
 
+  it("formats research_web one-liners with the topic", () => {
+    expect(toolLineText(activity("research_web", '{"topic":"solid-state vs sodium-ion","difficulty":"deep"}'))).toBe("Deep Research: solid-state vs sodium-ion");
+    expect(toolLineText(activity("research_web", "{}"))).toBe("Deep Research");
+    expect(toolLineText(activity("research_web", '{"topic":"' + "x".repeat(200) + '"}'))).toBe(`Deep Research: ${"x".repeat(59)}…`);
+  });
+
   it("truncates long telegram/vm text", () => {
     const long = "x".repeat(200);
     const line = toolLineText(activity("send_telegram_message", `{"text":"${long}"}`));
     expect(line.length).toBeLessThanOrEqual("Send Telegram Message: ".length + 60);
+  });
+});
+
+describe("ResearchToolActivity", () => {
+  const research = (state: ToolActivity["state"], detail?: string): ToolActivity =>
+    ({ id: "r1", name: "research_web", state, args: { arguments: '{"topic":"python versions","difficulty":"deep-lite"}' }, detail });
+
+  it("starts open while running and streams the live progress note", () => {
+    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research("running", "Exa deep research (deep) is reading the live web — 20s elapsed…") }));
+    expect(html).toContain("research-detail-panel");
+    expect(html).toContain("20s elapsed");
+    expect(html).toContain("Deep Research: python versions");
+  });
+
+  it("renders collapsed with a chevron once completed, ready to reveal the report", () => {
+    const completed = research("completed", "The report says Python 3.14.7 is latest.\n\nAll sources consulted by the researcher:\n1. python.org — https://python.org");
+    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: completed }));
+    expect(html).not.toContain("research-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("Deep Research: python versions");
+    expect(html).toContain("aria-expanded=\"false\"");
+  });
+
+  it("falls back to the starting note while running without progress yet", () => {
+    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research("running") }));
+    expect(html).toContain("Exa deep research is starting its web searches…");
   });
 });
 

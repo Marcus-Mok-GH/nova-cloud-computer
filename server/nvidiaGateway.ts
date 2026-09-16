@@ -197,7 +197,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
   const maxRequests = getMaxRequests();
   const base = {
     provider: "nvidia-nim" as const,
-    model: "nvidia/nemotron-3-super-120b-a12b",
+    model: DEFAULT_NVIDIA_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -222,7 +222,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     gatewayHealthCache?.key === cacheKey &&
     gatewayHealthCache.expiresAt > Date.now()
   ) {
-    return { ...base, ...gatewayHealthCache.flags };
+    return { ...base, model: defaultNvidiaModel(), ...gatewayHealthCache.flags };
   }
   try {
     const response = await gatewayFetch("/models");
@@ -239,7 +239,17 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    return { ...base, ...flags };
+    // Reuse the same /models round-trip to prime model discovery: the default
+    // chat model prefers a vision-capable entry so uploaded images reach the
+    // model directly instead of hitting the no-vision fallback.
+    if (response.ok) {
+      const payload = (await response.json().catch(() => undefined)) as
+        | NvidiaModelsResponse
+        | undefined;
+      const models = parseNvidiaModels(payload);
+      if (models.length > 0) cacheNvidiaModels(models);
+    }
+    return { ...base, model: defaultNvidiaModel(), ...flags };
   } catch {
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -252,7 +262,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    return { ...base, ...flags };
+    return { ...base, model: defaultNvidiaModel(), ...flags };
   }
 }
 
@@ -310,11 +320,58 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
   // model ID and ownership fields. Treat metadata-poor models as text chat models
   // unless their ID identifies a known non-chat model family; otherwise the picker
   // is empty even though the gateway successfully returned available models.
-  return /(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(
+  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id))
+    return undefined;
+  return /(^|[\/_-])(vision|vlm|multimodal|visual-language)([\/_-]|$)/i.test(
     model.id
   )
-    ? undefined
+    ? "vision"
     : "text";
+}
+
+/** The text chat model used when no vision-capable model has been discovered. */
+export const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+
+/** Test hook: drop the discovered-model cache between suites. */
+export function resetNvidiaModelCache() {
+  modelCache = undefined;
+}
+
+/**
+ * The default chat model, preferring a vision-capable one so uploaded images
+ * reach the model directly. Falls back to the text default until discovery
+ * finds a vision model.
+ */
+export function defaultNvidiaModel(): string {
+  if (!modelCache || modelCache.expiresAt <= Date.now()) return DEFAULT_NVIDIA_MODEL;
+  const vision = modelCache.models.filter(model => model.kind === "vision");
+  return vision.find(model => model.id.includes("nemotron"))?.id ?? vision[0]?.id ?? DEFAULT_NVIDIA_MODEL;
+}
+
+function parseNvidiaModels(payload: NvidiaModelsResponse | undefined): AvailableNvidiaModel[] {
+  const rawData = payload?.data;
+  if (!Array.isArray(rawData)) return [];
+  return rawData
+    .filter(
+      (model): model is NvidiaModel =>
+        typeof model?.id === "string" && model.id.trim().length > 0
+    )
+    .map(model => ({ ...model, id: model.id.trim() }))
+    .map(model => ({ ...model, kind: modelKind(model) }))
+    .filter(
+      (model): model is AvailableNvidiaModel => model.kind !== undefined
+    );
+}
+
+function cacheNvidiaModels(models: AvailableNvidiaModel[]) {
+  const deduplicated = Array.from(
+    new Map(models.map(model => [model.id, model])).values()
+  ).sort((a, b) => a.id.localeCompare(b.id));
+  modelCache = {
+    models: deduplicated,
+    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
+  };
+  return deduplicated;
 }
 
 /**
@@ -339,33 +396,14 @@ export async function listNvidiaModels(forceRefresh = false) {
       response.status === 429 ? "rate_limit" : "unavailable"
     );
   }
-  const rawData = (payload as NvidiaModelsResponse | undefined)?.data;
-  const models = Array.isArray(rawData)
-    ? rawData
-        .filter(
-          (model): model is NvidiaModel =>
-            typeof model?.id === "string" && model.id.trim().length > 0
-        )
-        .map(model => ({ ...model, id: model.id.trim() }))
-        .map(model => ({ ...model, kind: modelKind(model) }))
-        .filter(
-          (model): model is AvailableNvidiaModel => model.kind !== undefined
-        )
-    : [];
+  const models = parseNvidiaModels(payload as NvidiaModelsResponse | undefined);
   if (models.length === 0) {
     throw new NvidiaGatewayClientError(
       "NVIDIA returned no available text or vision-language models.",
       "invalid_response"
     );
   }
-  const deduplicated = Array.from(
-    new Map(models.map(model => [model.id, model])).values()
-  ).sort((a, b) => a.id.localeCompare(b.id));
-  modelCache = {
-    models: deduplicated,
-    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
-  };
-  return deduplicated;
+  return cacheNvidiaModels(models);
 }
 
 /**

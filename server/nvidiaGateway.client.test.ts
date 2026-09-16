@@ -8,7 +8,7 @@ vi.mock("./db", () => ({
   claimNvidiaInferenceRequestForUser: claim,
 }));
 
-const { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, resetNvidiaGatewayHealthCache, NvidiaGatewayClientError } = await import("./nvidiaGateway");
+const { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, defaultNvidiaModel, resetNvidiaGatewayHealthCache, resetNvidiaModelCache, NvidiaGatewayClientError } = await import("./nvidiaGateway");
 
 describe("NVIDIA gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -23,6 +23,7 @@ describe("NVIDIA gateway client", () => {
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
     claim.mockResolvedValue({ usedRequests: 1 });
     resetNvidiaGatewayHealthCache();
+    resetNvidiaModelCache();
     vi.clearAllMocks();
   });
 
@@ -115,6 +116,44 @@ describe("NVIDIA gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-super-120b-a12b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
+  it("switches the default chat model to a vision-capable one as soon as discovery finds it", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "nvidia/nemotron-3-super-120b-a12b", modalities: ["text"] },
+      { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
+      { id: "nvidia/neva-22b-vision", modalities: ["text", "image"] },
+    ] }), { status: 200 }));
+    const status = await getNvidiaGatewayStatus(7);
+    expect(status).toMatchObject({ model: "meta/llama-3.2-90b-vision-instruct", reachable: true });
+    expect(defaultNvidiaModel()).toBe("meta/llama-3.2-90b-vision-instruct");
+  });
+
+  it("prefers a nemotron vision model over other vision models", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
+      { id: "nvidia/nemotron-3-super-vision-120b", modalities: ["text", "image"] },
+    ] }), { status: 200 }));
+    await getNvidiaGatewayStatus(7);
+    expect(defaultNvidiaModel()).toBe("nvidia/nemotron-3-super-vision-120b");
+  });
+
+  it("keeps the text default when no vision model is available", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "nvidia/nemotron-3-super-120b-a12b", modalities: ["text"] },
+      { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },
+    ] }), { status: 200 }));
+    const status = await getNvidiaGatewayStatus(7);
+    expect(status.model).toBe("nvidia/nemotron-3-super-120b-a12b");
+  });
+
+  it("detects vision models by id when the gateway returns no modality metadata", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "nvidia/nemotron-3-super-120b-a12b" },
+      { id: "meta/llama-3.2-90b-vision-instruct", object: "model", owned_by: "nvidia" },
+    ] }), { status: 200 }));
+    const status = await getNvidiaGatewayStatus(7);
+    expect(status.model).toBe("meta/llama-3.2-90b-vision-instruct");
+  });
+
   it("discovers only text and vision-language models from NVIDIA", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },

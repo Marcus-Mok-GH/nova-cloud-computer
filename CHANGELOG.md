@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-16 — The default model now switches to a vision-capable one
+
+- `server/nvidiaGateway.ts`: the default chat model (used by every agent run) now prefers a vision-capable model. The gateway health probe's existing /models round-trip also primes model discovery — no extra request — and the default becomes the best vision model found, preferring the nemotron family; the text fallback `DEFAULT_NVIDIA_MODEL` stays when no vision model is available. `modelKind` now also detects vision models by id (`vision`, `vlm`, `multimodal`, `visual-language`) for gateways that return no modality metadata, plus new test hooks (`defaultNvidiaModel`, `resetNvidiaModelCache`).
+- `server/nvidiaGateway.client.test.ts`: tests for the vision-first default (any vision model, nemotron preference, text fallback), and metadata-poor id-based vision detection.
+- Combined with the previous commit, uploaded images now reach the model as vision input on the default configuration, with the strip-and-retry path still guarding non-vision selections.
+
+
 ## 2026-09-16 — The agent can read what users upload
 
 - `server/nvidiaGateway.ts`: `GatewayChatMessage.content` now accepts OpenAI-style content parts alongside plain text, so a user turn can carry images as `image_url` parts.

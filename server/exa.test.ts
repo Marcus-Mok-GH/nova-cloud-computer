@@ -1,30 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isExaConfigured, runExaAgentResearch } from "./exa";
+import { isExaConfigured, normalizeExaDeepSearchType, runExaDeepResearch } from "./exa";
 
 const state = vi.hoisted(() => ({ exaKey: "test-exa-key" }));
 vi.mock("./_core/env", () => ({
   ENV: { get exaApiKey() { return state.exaKey; } },
 }));
 
-const completedRun = {
-  id: "agent_run_01jtest",
-  status: "completed",
-  output: {
-    text: "Nova is a workspace agent [1].",
-    grounding: [{ field: "text", citations: [{ url: "https://nova.example/docs", title: "Nova docs" }] }],
-  },
-};
-
-/** Builds a Response whose body streams the given SSE chunks. */
-function sseResponse(chunks: string[], init?: { status?: number } & Record<string, unknown>) {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      controller.close();
-    },
+/** A deep search response with a synthesized report and field-level grounding. */
+function jsonResponse(payload: unknown, init?: { status?: number } & Record<string, unknown>) {
+  return new Response(JSON.stringify(payload), {
+    status: init?.status ?? 200,
+    headers: { "content-type": "application/json" },
   });
-  return new Response(stream, { status: init?.status ?? 200, headers: { "content-type": "text/event-stream" } });
 }
 
 const fetchStub = vi.fn();
@@ -42,91 +29,115 @@ describe("isExaConfigured", () => {
   });
 });
 
-describe("runExaAgentResearch", () => {
-  it("follows the SSE stream to the completed run, ignoring keep-alives and unknown events", async () => {
-    fetchStub.mockResolvedValueOnce(
-      sseResponse([
-        ": keep-alive\n\n",
-        'id: 1\nevent: agent_run.created\ndata: {"id":"agent_run_01jtest","status":"queued","createdAt":"2026-09-16T06:00:00.000Z"}\n\n',
-        'id: 2\nevent: agent_run.started\ndata: {"id":"agent_run_01jtest","status":"running"}\n\n',
-        'id: 3\nevent: agent_run.source.added\ndata: {"url":"https://nova.example/docs"}\n\n',
-        `id: 4\nevent: agent_run.completed\ndata: ${JSON.stringify(completedRun)}\n\n`,
-      ])
-    );
-    const run = await runExaAgentResearch({ query: "What is Nova?" });
-    expect(run).toEqual(completedRun);
-
-    const [url, init] = fetchStub.mock.calls[0];
-    expect(url).toBe("https://api.exa.ai/agent/runs");
-    expect(init.method).toBe("POST");
-    expect(init.headers["x-api-key"]).toBe("test-exa-key");
-    expect(init.headers.accept).toBe("text/event-stream");
-    const body = JSON.parse(init.body);
-    expect(body).toEqual({ query: "What is Nova?", effort: "medium" });
+describe("normalizeExaDeepSearchType", () => {
+  it("accepts the three deep research model IDs and defaults anything else to deep", () => {
+    expect(normalizeExaDeepSearchType("deep-lite")).toBe("deep-lite");
+    expect(normalizeExaDeepSearchType("deep")).toBe("deep");
+    expect(normalizeExaDeepSearchType("deep-reasoning")).toBe("deep-reasoning");
+    expect(normalizeExaDeepSearchType(undefined)).toBe("deep");
+    expect(normalizeExaDeepSearchType("turbo")).toBe("deep");
+    expect(normalizeExaDeepSearchType("")).toBe("deep");
   });
+});
 
-  it("sends the system prompt and a custom effort when provided", async () => {
+describe("runExaDeepResearch", () => {
+  it("sends the query, chosen model, system prompt and text output schema, and returns the cited report", async () => {
     fetchStub.mockResolvedValueOnce(
-      sseResponse([`event: agent_run.completed\ndata: ${JSON.stringify(completedRun)}\n\n`])
+      jsonResponse({
+        results: [{ title: "Nova docs", url: "https://nova.example/docs" }],
+        output: {
+          content: "Nova is a workspace agent [1].",
+          grounding: [{ field: "text", citations: [{ url: "https://nova.example/docs", title: "Nova docs" }] }],
+        },
+      })
     );
-    await runExaAgentResearch({ query: "q", systemPrompt: "Be thorough.", effort: "high" });
-    expect(JSON.parse(fetchStub.mock.calls[0][1].body)).toEqual({
-      query: "q",
-      effort: "high",
+
+    const research = await runExaDeepResearch({
+      query: "What is Nova?",
+      type: "deep-reasoning",
       systemPrompt: "Be thorough.",
     });
+
+    expect(research.report).toBe("Nova is a workspace agent [1].");
+    expect(research.sources).toEqual([{ url: "https://nova.example/docs", title: "Nova docs" }]);
+
+    const [url, init] = fetchStub.mock.calls[0];
+    expect(url).toBe("https://api.exa.ai/search");
+    expect(init.method).toBe("POST");
+    expect(init.headers.authorization).toBe("Bearer test-exa-key");
+    const body = JSON.parse(init.body);
+    expect(body.query).toBe("What is Nova?");
+    expect(body.type).toBe("deep-reasoning");
+    expect(body.systemPrompt).toBe("Be thorough.");
+    expect(body.outputSchema).toEqual({ type: "text", description: expect.any(String) });
   });
 
-  it("reassembles frames that arrive split across stream chunks", async () => {
+  it("defaults to the deep model when no type is given", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ output: { content: "Report." } }));
+    await runExaDeepResearch({ query: "q" });
+    expect(JSON.parse(fetchStub.mock.calls[0][1].body).type).toBe("deep");
+  });
+
+  it("deduplicates grounding citations while preserving order", async () => {
     fetchStub.mockResolvedValueOnce(
-      sseResponse([
-        'id: 1\nevent: agent_run.cr',
-        `eated\ndata: {"id":"agent_run_01jtest","status":"queued"}\n\nevent: agent_run.completed\ndata: ${JSON.stringify(completedRun)}\n\n`,
-      ])
+      jsonResponse({
+        output: {
+          content: "Report [1] [2].",
+          grounding: [
+            { field: "text", citations: [{ url: "https://a.example", title: "A" }] },
+            {
+              field: "text[2]",
+              citations: [{ url: "https://a.example", title: "A (dup)" }, { url: "https://b.example", title: "B" }],
+            },
+          ],
+        },
+      })
     );
-    const run = await runExaAgentResearch({ query: "q" });
-    expect(run.id).toBe("agent_run_01jtest");
+    const { sources } = await runExaDeepResearch({ query: "q" });
+    expect(sources).toEqual([
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+    ]);
   });
 
-  it("reports every event through the onEvent observer", async () => {
+  it("falls back to the selected pages when no grounding is emitted", async () => {
     fetchStub.mockResolvedValueOnce(
-      sseResponse([
-        'event: agent_run.created\ndata: {"id":"r1","status":"queued"}\n\n',
-        `event: agent_run.completed\ndata: ${JSON.stringify(completedRun)}\n\n`,
-      ])
+      jsonResponse({
+        results: [
+          { title: "A", url: "https://a.example" },
+          { title: "B", url: "https://b.example" },
+        ],
+        output: { content: "Report." },
+      })
     );
-    const events: Array<[string, unknown]> = [];
-    await runExaAgentResearch({ query: "q", onEvent: (event, data) => events.push([event, data]) });
-    expect(events.map(([event]) => event)).toEqual(["agent_run.created", "agent_run.completed"]);
+    const { sources } = await runExaDeepResearch({ query: "q" });
+    expect(sources).toEqual([
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+    ]);
   });
 
-  it("surfaces the failure message from agent_run.failed", async () => {
-    fetchStub.mockResolvedValueOnce(
-      sseResponse(['event: agent_run.failed\ndata: {"id":"r1","status":"failed","error":{"code":"rate_limited","message":"too many runs"}}\n\n'])
+  it("accepts a wrapped report object as output.content", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ output: { content: { text: "  Wrapped report.  " } } }));
+    const { report } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("Wrapped report.");
+  });
+
+  it("throws on a non-OK HTTP status and includes a trimmed error hint", async () => {
+    fetchStub.mockResolvedValueOnce(new Response('{"error":"invalid api key"}', { status: 401 }));
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow(
+      'status 401: {"error":"invalid api key"}'
     );
-    await expect(runExaAgentResearch({ query: "q" })).rejects.toThrow("too many runs");
   });
 
-  it("throws when the run is cancelled", async () => {
-    fetchStub.mockResolvedValueOnce(
-      sseResponse(['event: agent_run.cancelled\ndata: {"id":"r1","status":"cancelled"}\n\n'])
-    );
-    await expect(runExaAgentResearch({ query: "q" })).rejects.toThrow("cancelled");
-  });
-
-  it("throws on a non-OK HTTP status", async () => {
-    fetchStub.mockResolvedValueOnce(new Response("nope", { status: 401 }));
-    await expect(runExaAgentResearch({ query: "q" })).rejects.toThrow("status 401");
-  });
-
-  it("throws when the stream closes before a terminal event", async () => {
-    fetchStub.mockResolvedValueOnce(sseResponse(['event: agent_run.created\ndata: {"id":"r1","status":"queued"}\n\n']));
-    await expect(runExaAgentResearch({ query: "q" })).rejects.toThrow("stream ended");
+  it("throws when the response contains no report", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ results: [] }));
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("without a report");
   });
 
   it("requires a configured API key", async () => {
     state.exaKey = "";
-    await expect(runExaAgentResearch({ query: "q" })).rejects.toThrow("EXA_API_KEY");
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("EXA_API_KEY");
     expect(fetchStub).not.toHaveBeenCalled();
   });
 });

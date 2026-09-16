@@ -578,6 +578,7 @@ Workspace rules:
 - Resolve files and folders by the exact names/ids listed below; if something is missing, list the workspace and act on what exists instead of guessing.
 - edit_file replaces the file's entire content — read it first when unsure.
 - Keep tool arguments exact and minimal.
+- Invoke tools with real tool calls only — never write a tool call out as plain text (like {"name": ..., "parameters": ...}); the runtime only executes real tool calls.
 - Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
 - Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
@@ -594,6 +595,52 @@ type ToolExecution = {
   /** Full raw response surfaced in the research dropdown in the UI. */
   detail?: string;
 };
+
+/**
+ * Some models spell a tool call out as text instead of invoking it —
+ * 'The function call that best answers the given prompt is {"name": "present_file", "parameters": {...}}'.
+ * Recover the intent: extract the embedded JSON object and run it as a real
+ * tool call so the action still executes and the raw JSON never reaches the user.
+ */
+function toolCallWrittenAsText(text: string, tools: Array<{ function: { name: string } }>): { name: string; arguments: string } | undefined {
+  if (!text || !text.includes('"name"')) return undefined;
+  const known = new Set(tools.map(tool => tool.function.name));
+  for (const match of Array.from(text.matchAll(/"name"\s*:\s*"([A-Za-z0-9_]+)"/g))) {
+    const name = match[1];
+    if (!known.has(name) || match.index === undefined) continue;
+    const objectStart = text.lastIndexOf("{", match.index);
+    if (objectStart < 0) continue;
+    // Brace-match forward from the candidate start to the end of that object.
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = objectStart; i < text.length; i += 1) {
+      const ch = text[i];
+      if (escaped) { escaped = false; continue; }
+      if (ch === "\\") { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth !== 0) continue;
+        let parsed: Record<string, unknown>;
+        try { parsed = JSON.parse(text.slice(objectStart, i + 1)) as Record<string, unknown>; } catch { break; }
+        let parameters: Record<string, unknown>;
+        if (typeof parsed.parameters === "object" && parsed.parameters !== null)
+          parameters = parsed.parameters as Record<string, unknown>;
+        else if (typeof parsed.arguments === "object" && parsed.arguments !== null)
+          parameters = parsed.arguments as Record<string, unknown>;
+        else {
+          const { name: _toolName, ...others } = parsed;
+          parameters = others;
+        }
+        return { name, arguments: JSON.stringify(parameters) };
+      }
+    }
+  }
+  return undefined;
+}
 
 /** Executes a single model-requested tool call against the workspace. */
 async function executeWorkspaceTool(
@@ -1206,6 +1253,7 @@ export async function runWorkspaceAgent(
 
     let reply = "";
     let streamedReplyChars = 0;
+    let recoveredCallCount = 0;
     for (let round = 0; ; round += 1) {
       if (round > 0 && (await hasAgentStopAfter(ownerId, runStartedAt))) return stopRun();
       let streamedThisRound = 0;
@@ -1239,21 +1287,43 @@ export async function runWorkspaceAgent(
           });
         }
       })();
-      if (result.toolCalls.length === 0) {
+      // Recover a tool call the model wrote out as text: run it as a real
+      // call so the action executes instead of dumping raw JSON on the user.
+      const recoveredCall =
+        result.toolCalls.length === 0 && recoveredCallCount < 2
+          ? toolCallWrittenAsText(result.text, agentTools)
+          : undefined;
+      if (recoveredCall) {
+        recoveredCallCount += 1;
+        console.info(
+          "[Workspace agent] recovered a tool call written as text:",
+          recoveredCall.name
+        );
+      }
+      if (result.toolCalls.length === 0 && !recoveredCall) {
         reply = result.text || "";
         streamedReplyChars = streamedThisRound;
         break;
       }
+      const calls = result.toolCalls.length > 0
+        ? result.toolCalls
+        : [
+            {
+              id: `recovered-${Date.now()}`,
+              name: recoveredCall!.name,
+              arguments: recoveredCall!.arguments,
+            },
+          ];
       messages.push({
         role: "assistant",
         content: result.text || null,
-        tool_calls: result.toolCalls.map(call => ({
+        tool_calls: calls.map(call => ({
           id: call.id,
           type: "function" as const,
           function: { name: call.name, arguments: call.arguments },
         })),
       });
-      for (const call of result.toolCalls) {
+      for (const call of calls) {
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         await emitTool({
           id: call.id,

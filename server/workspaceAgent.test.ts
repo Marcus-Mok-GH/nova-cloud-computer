@@ -396,6 +396,58 @@ describe("Nova tool-calling workspace agent", () => {
     });
   });
 
+  it("recovers a tool call the model spelled out as text and executes it anyway", async () => {
+    telegramCredentials.mockResolvedValueOnce({ token: "bot-token", chatId: "42" });
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          text: 'The function call that best answers the given prompt is {"name": "present_file", "parameters": {"file": "welcome.md", "caption": "Your file"}}',
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Sent!" }));
+    const result = await runWorkspaceAgent(1, 3, "send me the file", {
+      channel: "telegram",
+    });
+    // The embedded call ran as a real tool call, with its parameters.
+    expect(presentTelegramFile).toHaveBeenCalledWith(
+      "bot-token",
+      "42",
+      { name: "welcome.md", content: "Hello", mimeType: undefined },
+      "Your file"
+    );
+    // The gateway saw a genuine assistant tool call and its tool result.
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-2)).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          function: {
+            name: "present_file",
+            arguments: JSON.stringify({ file: "welcome.md", caption: "Your file" }),
+          },
+        },
+      ],
+    });
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "tool",
+      content: expect.stringContaining("Presented welcome.md"),
+    });
+    // The raw JSON never became the user-facing reply.
+    expect(result.message.content).toBe("Sent!");
+    expect(result.actions).toEqual([
+      { kind: "file", name: "welcome.md", operation: "presented" },
+    ]);
+  });
+
+  it("leaves ordinary JSON in replies alone", async () => {
+    chatWithNvidiaGateway.mockResolvedValueOnce(
+      chatResult({ text: 'Here is the payload: {"name": "unknown_thing", "parameters": {}}' })
+    );
+    const result = await runWorkspaceAgent(1, 3, "show me the payload", {});
+    expect(result.message.content).toContain("unknown_thing");
+    expect(presentTelegramFile).not.toHaveBeenCalled();
+  });
+
   it("exposes present_file only to the Telegram bot, never to the web app", async () => {
     chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });

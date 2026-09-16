@@ -148,7 +148,7 @@ function sanitizeGatewayError(error: unknown) {
   const message =
     error instanceof Error
       ? error.message
-      : "NVIDIA inference is temporarily unavailable. Please retry shortly.";
+      : "Nova’s AI service is temporarily unavailable. Please retry shortly.";
   return message
     .replace(/Bearer\s+\S+/gi, "Bearer [private credential]")
     .slice(0, ERROR_MESSAGE_LIMIT);
@@ -166,7 +166,7 @@ async function gatewayFetch(path: string, init: RequestInit = {}, timeoutMs = RE
   const token = configuredGatewayToken();
   if (!baseUrl || !token)
     throw new NvidiaGatewayClientError(
-      "NVIDIA inference is not connected yet. An administrator must configure Nova’s server-only gateway connection.",
+      "Nova’s AI service is not connected yet. An administrator must configure the server-only gateway connection.",
       "configuration"
     );
   const controller = new AbortController();
@@ -406,14 +406,14 @@ export async function listNvidiaModels(forceRefresh = false) {
     throw new NvidiaGatewayClientError(
       message ??
         describeNvidiaError(payload, response.status) ??
-        "NVIDIA model discovery is temporarily unavailable.",
+        "AI model discovery is temporarily unavailable.",
       response.status === 429 ? "rate_limit" : "unavailable"
     );
   }
   const models = parseNvidiaModels(payload as NvidiaModelsResponse | undefined);
   if (models.length === 0) {
     throw new NvidiaGatewayClientError(
-      "NVIDIA returned no available text or vision-language models.",
+      "The AI service returned no available chat models.",
       "invalid_response"
     );
   }
@@ -484,7 +484,7 @@ async function readGatewayStreamedCompletion(
     throw new NvidiaGatewayClientError(
       message ??
         describeNvidiaError(payload, response.status) ??
-        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+        "Nova’s AI service is temporarily unavailable. Please retry shortly.",
       response.status === 429 ? "rate_limit" : "unavailable"
     );
   }
@@ -518,7 +518,7 @@ export async function completeWithNvidiaGateway(
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
     throw new NvidiaGatewayClientError(
-      "NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.",
+      "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
@@ -528,7 +528,7 @@ export async function completeWithNvidiaGateway(
   );
   if (!claim) {
     throw new NvidiaGatewayClientError(
-      "This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
+      "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "rate_limit"
     );
   }
@@ -546,7 +546,7 @@ export async function completeWithNvidiaGateway(
     const text = typeof completion.text === "string" ? completion.text : "";
     if (!text) {
       throw new NvidiaGatewayClientError(
-        "NVIDIA returned an invalid completion. Please retry shortly.",
+        "The AI service returned an invalid completion. Please retry shortly.",
         "invalid_response"
       );
     }
@@ -582,7 +582,7 @@ export async function completeWithNvidiaGateway(
     throw new NvidiaGatewayClientError(
       message ??
         describeNvidiaError(payload, response.status) ??
-        "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+        "Nova’s AI service is temporarily unavailable. Please retry shortly.",
       response.status === 429 ? "rate_limit" : "unavailable"
     );
   }
@@ -595,7 +595,7 @@ export async function completeWithNvidiaGateway(
         )?.choices?.[0]?.message?.content ?? "");
   if (!bufferedText) {
     throw new NvidiaGatewayClientError(
-      "NVIDIA returned an invalid completion. Please retry shortly.",
+      "The AI service returned an invalid completion. Please retry shortly.",
       "invalid_response"
     );
   }
@@ -780,7 +780,7 @@ async function readGatewayStreamedChatResult(
         // the agent loop can retry instead of hanging forever.
         await reader.cancel().catch(() => {});
         throw new NvidiaGatewayClientError(
-          "NVIDIA stopped responding mid-stream. Please retry shortly.",
+          "The AI service stopped responding mid-stream. Please retry shortly.",
           "unavailable"
         );
       }
@@ -867,7 +867,7 @@ async function readGatewayStreamedChatResult(
   } catch (error) {
     if (error instanceof NvidiaGatewayClientError) throw error;
     throw new NvidiaGatewayClientError(
-      "NVIDIA interrupted the response stream. Please retry shortly.",
+      "The AI service interrupted the response stream. Please retry shortly.",
       "unavailable"
     );
   }
@@ -906,7 +906,7 @@ export async function chatWithNvidiaGateway(
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
     throw new NvidiaGatewayClientError(
-      "NVIDIA inference is not connected yet. Please try again after the server-only gateway configuration is complete.",
+      "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
@@ -916,7 +916,7 @@ export async function chatWithNvidiaGateway(
   );
   if (!claim) {
     throw new NvidiaGatewayClientError(
-      "This workspace has reached Nova’s configured NVIDIA request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
+      "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "rate_limit"
     );
   }
@@ -967,7 +967,7 @@ export async function chatWithNvidiaGateway(
         throw new NvidiaGatewayClientError(
           message ??
             describeNvidiaError(payload, response.status) ??
-            "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+            "Nova’s AI service is temporarily unavailable. Please retry shortly.",
           response.status === 429 ? "rate_limit" : "unavailable"
         );
       }
@@ -997,8 +997,8 @@ export async function chatWithNvidiaGateway(
     if (!streamed) {
       throw new NvidiaGatewayClientError(
         upstreamError
-          ? `NVIDIA returned an error completion: ${upstreamError}`
-          : "NVIDIA returned an invalid completion. Please retry shortly.",
+          ? `The AI service returned an error completion: ${upstreamError}`
+          : "The AI service returned an invalid completion. Please retry shortly.",
         "invalid_response"
       );
     }
@@ -1047,7 +1047,7 @@ export async function chatWithNvidiaGateway(
       throw new NvidiaGatewayClientError(
         message ??
           describeNvidiaError(errorPayload, response.status) ??
-          "NVIDIA inference is temporarily unavailable. Please retry shortly.",
+          "Nova’s AI service is temporarily unavailable. Please retry shortly.",
         response.status === 429 ? "rate_limit" : "unavailable"
       );
     }
@@ -1111,8 +1111,8 @@ export async function chatWithNvidiaGateway(
   if (!buffered) {
     throw new NvidiaGatewayClientError(
       bufferedUpstreamError
-        ? `NVIDIA returned an error completion: ${bufferedUpstreamError}`
-        : "NVIDIA returned an invalid completion. Please retry shortly.",
+        ? `The AI service returned an error completion: ${bufferedUpstreamError}`
+        : "The AI service returned an invalid completion. Please retry shortly.",
       "invalid_response"
     );
   }

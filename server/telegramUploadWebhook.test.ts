@@ -45,11 +45,6 @@ vi.mock("./telegram", async requireActual => ({
   presentTelegramFile: spies.presentTelegramFile,
 }));
 
-vi.mock("./telegramModelSettings", () => ({
-  getTelegramModelSettingsForUser: vi.fn(async () => ({ modelId: null, options: [] })),
-  updateTelegramModelSettingsForUser: vi.fn(async () => ({})),
-}));
-
 vi.mock("./automations", () => ({ runAutomationForScheduleTask: vi.fn(async () => null) }));
 vi.mock("./userAutomations", () => ({
   getUserAutomation: vi.fn(async () => null),
@@ -254,6 +249,26 @@ describe("Telegram upload webhook (full handler)", () => {
     [, , agentContent] = spies.runWorkspaceAgent.mock.calls[1];
     expect(agentContent).toContain("saving it to the workspace failed");
     expect(agentContent).toContain("file is too big");
+  });
+
+  it("routes /models to the agent instead of revealing model ids or providers", async () => {
+    const { status, body } = await postUpdate({
+      update_id: 506,
+      message: {
+        message_id: 15,
+        chat: { id: 42 },
+        text: "/models",
+      },
+    });
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ ok: true });
+    expect(spies.runWorkspaceAgent).toHaveBeenCalledTimes(1);
+    // The only Telegram message is the agent's own reply — no model list.
+    expect(spies.sendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "It's a corgi!");
+    const sent = spies.sendTelegramMessage.mock.calls[0][2] as string;
+    expect(sent).not.toMatch(/moonshotai|nvidia|kimi|nemotron/i);
   });
 
   it("still rejects uploads from chats that are not linked", async () => {

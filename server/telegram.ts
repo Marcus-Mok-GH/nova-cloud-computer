@@ -77,6 +77,60 @@ export async function sendTelegramMessage(token: string, chatId: string, text: s
   }, fetchImpl);
 }
 
+/** Telegram file presentation: images arrive inline for viewing, everything else as a downloadable document. */
+export async function presentTelegramFile(
+  token: string,
+  chatId: string,
+  file: { name: string; content: string; mimeType?: string | null },
+  caption?: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ messageId: number; as: "photo" | "document" }> {
+  const mime = (file.mimeType ?? "").toLowerCase();
+  const content = file.content ?? "";
+  const boundedCaption = caption ? caption.slice(0, 1024) : undefined;
+
+  const upload = async (method: "sendPhoto" | "sendDocument", part: "photo" | "document", blob: Blob) => {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    if (boundedCaption) form.append("caption", boundedCaption);
+    form.append(part, blob, file.name);
+    const response = await fetchImpl(telegramUrl(token, method), { method: "POST", body: form });
+    const data = await response.json().catch(() => ({})) as TelegramResponse<{ message_id: number }>;
+    if (!response.ok || !data.ok || data.result === undefined)
+      throw new Error(data.description || "Telegram could not complete that request.");
+    return data.result.message_id;
+  };
+
+  if (mime.startsWith("image/")) {
+    // Inline data URI → decoded bytes, shown right in the chat.
+    const dataUri = content.match(/^data:([^;]+);base64,([\s\S]*)$/);
+    if (dataUri) {
+      const bytes = Buffer.from(dataUri[2], "base64");
+      return { messageId: await upload("sendPhoto", "photo", new Blob([new Uint8Array(bytes)], { type: dataUri[1] })), as: "photo" };
+    }
+    // Hosted image URL → Telegram fetches it itself.
+    if (/^https?:\/\//i.test(content.trim())) {
+      const response = await fetchImpl(telegramUrl(token, "sendPhoto"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, photo: content.trim(), ...(boundedCaption ? { caption: boundedCaption } : {}) }),
+      });
+      const data = await response.json().catch(() => ({})) as TelegramResponse<{ message_id: number }>;
+      if (!response.ok || !data.ok || data.result === undefined)
+        throw new Error(data.description || "Telegram could not complete that request.");
+      return { messageId: data.result.message_id, as: "photo" };
+    }
+    // Bare base64 bytes → decode and show inline; fall back to a document if it is not valid base64.
+    if (content.trim()) {
+      const bytes = Buffer.from(content, "base64");
+      if (bytes.length > 0 && bytes.toString("base64").replace(/=+$/, "") === content.replace(/\s/g, "").replace(/=+$/, "")) {
+        return { messageId: await upload("sendPhoto", "photo", new Blob([new Uint8Array(bytes)], { type: mime })), as: "photo" };
+      }
+    }
+  }
+  return { messageId: await upload("sendDocument", "document", new Blob([content], { type: mime || "text/plain" })), as: "document" };
+}
+
 export async function answerTelegramCallbackQuery(token: string, callbackQueryId: string, text?: string, fetchImpl: typeof fetch = fetch) {
   return telegramRequest<boolean>(token, "answerCallbackQuery", {
     callback_query_id: callbackQueryId,

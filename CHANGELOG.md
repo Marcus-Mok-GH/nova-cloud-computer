@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — Heavyweight default: Kimi K3
+
+- `server/nvidiaGateway.ts`: the hardcoded default chat model is now `moonshotai/kimi-k3`, verified on NVIDIA NIM — a native-multimodal MoE with 2.8T total parameters (104B active), RGB image input, function/tool calling, and a 1M-token context over the OpenAI-compatible chat API. The fallback ladder is unchanged: if a gateway does not serve it, the best other vision model is used (nemotron family first, e.g. Nemotron 3 Nano Omni), then the text fallback.
+- `server/nvidiaGateway.client.test.ts`: tests for the Kimi K3 default and the omni degradation path.
+
+
 ## 2026-09-16 — Hardcoded NIM-verified vision default
 
 - `server/nvidiaGateway.ts`: the default chat model is now hardcoded to `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, verified on NVIDIA NIM (build.nvidia.com) — vision-capable (jpeg/png image input), tool-calling, OpenAI-compatible chat. The discovery-driven default became a fallback ladder: if a gateway does not serve the hardcoded model, the best other vision model is used (nemotron family first), and only then `TEXT_FALLBACK_MODEL` (`nvidia/nemotron-3-super-120b-a12b`). Model classification no longer rejects chat models for having audio/video input modalities — only text-less models are excluded — so omni models stay eligible, and id-based detection now treats `omni` as vision.

@@ -327,11 +327,12 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: Nemotron 3 Nano Omni — verified available on NVIDIA NIM
- * (build.nvidia.com). Vision-capable (jpeg/png image input), supports tool
- * calling, and serves the OpenAI-compatible chat API.
+ * Default chat model: Kimi K3 — verified available on NVIDIA NIM
+ * (build.nvidia.com/moonshotai/kimi-k3). A heavyweight native-multimodal MoE:
+ * 2.8T total parameters (104B active), RGB image input, function/tool calling,
+ * and a 1M-token context, served over the OpenAI-compatible chat API.
  */
-export const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
+export const DEFAULT_NVIDIA_MODEL = "moonshotai/kimi-k3";
 
 /** Text-only fallback if model discovery proves the default is not served here. */
 export const TEXT_FALLBACK_MODEL = "nvidia/nemotron-3-super-120b-a12b";

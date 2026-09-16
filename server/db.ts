@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -17,6 +17,7 @@ import {
   telegramBotSettings,
   nvidiaInferenceAllowances,
   agentVmRuns,
+  agentStopRequests,
   automations,
   automationRuns,
 } from "../drizzle/schema";
@@ -743,6 +744,47 @@ export async function createAgentVmRunForUser(ownerId: number, input: { task: st
   const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "e2b", task: input.task, status: "queued" }).returning();
   if (!created) throw new Error("Nova could not queue the agent VM run.");
   return toSafeAgentVmRun(created);
+}
+
+/** Current database server time — used so stop requests and run starts are compared on one clock. */
+export async function getDatabaseTime(): Promise<Date> {
+  const db = await requireDb();
+  const result = (await db.execute(sql`select now() as now`)) as unknown as { rows?: Array<{ now: string | Date }> } | Array<{ now: string | Date }>;
+  const rows = Array.isArray(result) ? result : (result.rows ?? []);
+  const value = rows[0]?.now;
+  if (!value) return new Date();
+  return value instanceof Date ? value : new Date(value);
+}
+
+/** Records a fresh stop request for the workspace, replacing any older one. */
+export async function requestAgentStopForUser(ownerId: number) {
+  const db = await requireDb();
+  await db.delete(agentStopRequests).where(eq(agentStopRequests.ownerId, ownerId));
+  const [created] = await db.insert(agentStopRequests).values({ ownerId }).returning();
+  return created;
+}
+
+/** True when a stop request was recorded after `startedAt` for this workspace owner. */
+export async function hasAgentStopAfter(ownerId: number, startedAt: Date) {
+  const db = await requireDb();
+  const rows = await db
+    .select({ id: agentStopRequests.id })
+    .from(agentStopRequests)
+    .where(and(eq(agentStopRequests.ownerId, ownerId), gt(agentStopRequests.createdAt, startedAt)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Cancels the owner's queued/running agent VM runs; returns how many were cancelled. */
+export async function cancelActiveAgentVmRunsForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const cancelled = await db
+    .update(agentVmRuns)
+    .set({ status: "cancelled", errorMessage: "Cancelled by /stop.", completedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(agentVmRuns.workspaceId, workspace.id), inArray(agentVmRuns.status, ["queued", "running"])))
+    .returning({ id: agentVmRuns.id });
+  return cancelled.length;
 }
 
 export async function updateAgentVmRunForUser(ownerId: number, runId: number, input: { status?: AgentVmRunStatus; sandboxId?: string | null; resultSummary?: string | null; errorMessage?: string | null; artifactFileId?: number | null; startedAt?: Date | null; completedAt?: Date | null }) {

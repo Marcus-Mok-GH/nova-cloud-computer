@@ -583,9 +583,14 @@ export type GatewayToolCall = {
   arguments: string;
 };
 
+export type GatewayChatMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export type GatewayChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content?: string | null;
+  /** Plain text, or content parts for multimodal turns (e.g. attached images). */
+  content?: string | null | GatewayChatMessageContentPart[];
   name?: string;
   tool_call_id?: string;
   tool_calls?: Array<{

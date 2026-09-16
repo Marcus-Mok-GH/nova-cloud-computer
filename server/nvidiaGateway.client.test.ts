@@ -116,15 +116,24 @@ describe("NVIDIA gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-super-120b-a12b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
-  it("defaults to the hardcoded NIM-verified omni vision model whenever it is served", async () => {
+  it("defaults to the hardcoded NIM-verified Kimi K3 heavyweight vision model whenever it is served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "nvidia/nemotron-3-super-120b-a12b", modalities: ["text"] },
+      { id: "moonshotai/kimi-k3", modalities: ["text", "image"] },
       { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", modalities: ["text", "image", "audio", "video"] },
-      { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
     ] }), { status: 200 }));
     const status = await getNvidiaGatewayStatus(7);
-    expect(status).toMatchObject({ model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", reachable: true });
-    expect(defaultNvidiaModel()).toBe("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning");
+    expect(status).toMatchObject({ model: "moonshotai/kimi-k3", reachable: true });
+    expect(defaultNvidiaModel()).toBe("moonshotai/kimi-k3");
+  });
+
+  it("degrades to the omni vision model when Kimi K3 is not served", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
+      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", modalities: ["text", "image", "audio", "video"] },
+    ] }), { status: 200 }));
+    const status = await getNvidiaGatewayStatus(7);
+    expect(status.model).toBe("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning");
   });
 
   it("prefers a nemotron vision model when the hardcoded default is not served", async () => {

@@ -13,6 +13,7 @@ vi.mock("./NotFound", () => ({ default: () => <div>404</div> }));
 vi.mock("wouter", () => ({ useLocation: () => ["/app/admin", vi.fn()], useSearch: () => "", Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
     useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { users: 2, admins: 1, chats: 3, messages: 12, projects: 1, tasks: 4, automations: 0, workspaces: 2, telegramLinked: 1, activeAgentRuns: 0 }, recentUsers: [], recentAgentRuns: [] }, isLoading: false }) },

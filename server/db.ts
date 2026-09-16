@@ -93,6 +93,27 @@ export async function isUserBanned(userId: number): Promise<boolean> {
   return Boolean(row?.bannedAt);
 }
 
+/** Identity details the workspace agent greets the user by. */
+export async function getUserIdentityForUser(userId: number): Promise<{ username: string | null; name: string | null; email: string | null }> {
+  const db = await requireDb();
+  const [row] = await db.select({ username: users.username, name: users.name, email: users.email }).from(users).where(eq(users.id, userId)).limit(1);
+  return row ?? { username: null, name: null, email: null };
+}
+
+/** True when another account already claims this username (case-insensitive). */
+export async function isUsernameTaken(username: string): Promise<boolean> {
+  const db = await requireDb();
+  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+  return Boolean(row);
+}
+
+/** Claims or re-claims the username for an account. Returns the updated row. */
+export async function setUsernameForUser(userId: number, username: string) {
+  const db = await requireDb();
+  const [updated] = await db.update(users).set({ username, updatedAt: new Date() }).where(eq(users.id, userId)).returning();
+  return updated;
+}
+
 
 /**
  * Ensures that a user's durable E2B sandbox exists and that Nova retains

@@ -1,4 +1,5 @@
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { searchWeb } from "./webSearch";
 import { startAgentVmRun } from "./agentVm";
 import {
   appendChatMessageForUser,
@@ -8,6 +9,7 @@ import {
   deleteWorkspaceFolderForUser,
   getChatForUser,
   getTelegramCredentialsForUser,
+  getUserIdentityForUser,
   getWorkspaceComputer,
   listChatMessagesForUser,
   renameChatIfDefaultForUser,
@@ -362,6 +364,28 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "web_search",
+      description:
+        "Search the live public web and return the top results with titles, URLs and snippets. Use this for anything current or factual you do not already know: news, prices, release versions, library docs, error messages, specific facts about people, places or products. Never guess what a search can answer. Cite the result URL when a result drives your answer.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The search query — keywords work best.",
+          },
+          max_results: {
+            type: "number",
+            description: "How many results to return (default 5, max 8).",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_vm_task",
       description:
         "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management — use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` — `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py — the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
@@ -496,6 +520,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
+- Search before you guess. Use web_search for anything current or factual you do not know for certain — prices, versions, news, docs, specific facts. A quick search beats a confident-sounding wrong answer; cite the result URL for facts that came from a result.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
@@ -510,6 +535,8 @@ Workspace rules:
 - Keep tool arguments exact and minimal.
 - Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
 - Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
+
+The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 
 Current folders: {{folders}}
 Current files: {{files}}`;
@@ -807,6 +834,21 @@ async function executeWorkspaceTool(
         };
       }
     }
+    case "web_search": {
+      const query = str(args.query);
+      if (!query) return { ok: false, result: "A search query is required." };
+      const maxResults = Math.min(Math.max(Number(args.max_results) || 5, 1), 8);
+      try {
+        const results = await searchWeb(query, maxResults);
+        if (!results.length) return { ok: true, result: `No results found for "${query}".` };
+        const body = results
+          .map((result, index) => `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`)
+          .join("\n");
+        return { ok: true, result: body };
+      } catch (error) {
+        return { ok: false, result: `Web search failed: ${error instanceof Error ? error.message : "unknown error"}.` };
+      }
+    }
     case "run_vm_task": {
       const task = str(args.task);
       if (!task) return { ok: false, result: "A task is required." };
@@ -972,6 +1014,10 @@ export async function runWorkspaceAgent(
 
     let computer = await getWorkspaceComputer(ownerId);
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
+    const identity = await getUserIdentityForUser(ownerId);
+    const userLine = identity.username
+      ? `@${identity.username}${identity.name ? ` (${identity.name})` : ""}`
+      : identity.name || identity.email || "the user";
     const agentTools = workspaceToolsForConnectors(connectedConnectors);
     const systemMessage = (): GatewayChatMessage => {
       const { folders, files } = describeWorkspace(computer);
@@ -980,7 +1026,8 @@ export async function runWorkspaceAgent(
         content: WORKSPACE_AGENT_PROMPT.replace("{{folders}}", folders).replace(
           "{{files}}",
           files
-        ).replace("{{connectors}}", connectorStatusLine(connectedConnectors)),
+        ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
+          .replace("{{user}}", userLine),
       };
     };
 

@@ -367,7 +367,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "research_web",
       description:
-        "Delegate deep research to a specialized researcher sub-agent. It plans and runs several live web searches (powered by Exa AI), cross-reads the sources, and returns a full research report with inline citations and a numbered source list. Use it for anything that needs more than a quick fact: in-depth questions, comparisons, current events, technical investigations, prices, versions, docs. It can take up to a minute — use it deliberately, not for simple lookups inside your own workspace.",
+        "Delegate deep research to Exa AI's deep research agent. It fans out many live web searches, reads and cross-checks the sources, and returns a full research report with inline citations and a numbered source list. Use it for anything that needs more than a quick fact: in-depth questions, comparisons, current events, technical investigations, prices, versions, docs. It can take several minutes — use it deliberately, not for simple lookups inside your own workspace.",
       parameters: {
         type: "object",
         properties: {
@@ -521,7 +521,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from a specialized sub-agent. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
+- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research agent. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
@@ -840,7 +840,7 @@ async function executeWorkspaceTool(
       if (!topic) return { ok: false, result: "A research topic is required." };
       const instructions = str(args.instructions) || undefined;
       try {
-        const research = await runResearch(ownerId, topic, instructions);
+        const research = await runResearch(topic, instructions);
         const sourcesBlock = research.sources.length
           ? `\n\nAll sources consulted by the researcher:\n${research.sources
               .map((source, index) => `${index + 1}. ${source.title || source.url} — ${source.url}`)

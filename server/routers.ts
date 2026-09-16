@@ -9,6 +9,8 @@ import {
   createCustomModelForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
+  isUsernameTaken,
+  setUsernameForUser,
   deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
@@ -77,6 +79,28 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),
     deleteAccount: protectedProcedure.mutation(async ({ ctx }) => { const success = await deleteUserAccount(ctx.user.id); if (!success) throw new TRPCError({ code: "NOT_FOUND", message: "Account deletion could not be completed." }); return { success }; }),
+    /** Claim the app-wide username the agent and other surfaces know you by. */
+    setUsername: protectedProcedure
+      .input(z.object({
+        username: z.string().trim().toLowerCase()
+          .min(3, "Usernames are 3-24 characters.")
+          .max(24, "Usernames are 3-24 characters.")
+          .regex(/^[a-z0-9_-]+$/, "Use lowercase letters, numbers, hyphens or underscores."),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (await isUsernameTaken(input.username)) {
+          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken — try another." });
+        }
+        try {
+          const updated = await setUsernameForUser(ctx.user.id, input.username);
+          if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Account is no longer available." });
+          return updated;
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          // Two simultaneous claims can race past the pre-check onto the unique index.
+          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken — try another." });
+        }
+      }),
   }),
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),

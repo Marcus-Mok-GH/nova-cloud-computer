@@ -1,14 +1,26 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Copy, Eye, EyeOff, KeyRound, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { AtSign, Copy, Eye, EyeOff, KeyRound, Loader2, Mail, Pencil, ShieldCheck, UserRound } from "lucide-react";
 import { useState } from "react";
+import { UsernamePrompt } from "@/components/UsernamePrompt";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export default function Profile() {
   const { user } = useAuth({ redirectOnUnauthenticated: true });
   const [showPassword, setShowPassword] = useState(false);
+  const [usernamePromptOpen, setUsernamePromptOpen] = useState(false);
   const email = user?.email ?? "Not available";
+  const utils = trpc.useUtils();
+  const changeUsername = trpc.auth.setUsername.useMutation({
+    onSuccess: updated => {
+      utils.auth.me.setData(undefined, updated);
+      toast.success(`Your username is now @${updated.username}.`);
+      setUsernamePromptOpen(false);
+    },
+    onError: error => toast.error(error.message || "Could not change that username."),
+  });
 
   const copyEmail = async () => {
     try {
@@ -40,6 +52,17 @@ export default function Profile() {
           <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground dark:text-foreground">Account information</h2>
 
           <div className="mt-6 space-y-4">
+            <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted p-5 sm:flex-row sm:items-center sm:justify-between dark:border-white/10 dark:bg-card/5">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><AtSign size={18} /></span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-foreground dark:text-foreground">Username</p>
+                  <p className="truncate text-sm text-muted-foreground dark:text-muted-foreground">{user?.username ? `@${user.username}` : "Not chosen yet — pick one so your AI agent knows what to call you."}</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" className="gap-2 self-start sm:self-auto" onClick={() => setUsernamePromptOpen(true)} disabled={changeUsername.isPending}>{changeUsername.isPending ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />} {user?.username ? "Change" : "Choose"}</Button>
+            </div>
+
             <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted p-5 sm:flex-row sm:items-center sm:justify-between dark:border-white/10 dark:bg-card/5">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Mail size={18} /></span>
@@ -77,6 +100,7 @@ export default function Profile() {
           </div>
         </section>
       </div>
+      {usernamePromptOpen && user && <UsernamePrompt user={user} onClose={() => setUsernamePromptOpen(false)} />}
     </DashboardLayout>
   );
 }

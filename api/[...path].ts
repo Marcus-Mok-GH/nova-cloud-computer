@@ -59,7 +59,7 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "health" || segments[0] === "__apply_username_migration";
+  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "health"
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

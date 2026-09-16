@@ -80,6 +80,7 @@ vi.mock("./db", () => ({
   deleteWorkspaceFileForUser: deleteFile,
   deleteWorkspaceFolderForUser: deleteFolder,
   getTelegramCredentialsForUser: telegramCredentials,
+  getUserIdentityForUser: async () => ({ username: null, name: "Test User", email: "test@example.com" }),
 }));
 
 const completeWithNvidiaGateway = vi.fn();

@@ -7,6 +7,7 @@ import { useLocation, useSearch } from "wouter";
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { adminNavItem, navItems as nav, NavItem } from "@/lib/nav";
 import NovaMark from "./NovaMark";
+import { UsernamePrompt } from "./UsernamePrompt";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 
@@ -26,6 +27,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   });
   useEffect(() => { window.localStorage.setItem("nova.sidebar.collapsed", sidebarCollapsed ? "1" : "0"); }, [sidebarCollapsed]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [usernamePromptSkipped, setUsernamePromptSkipped] = useState(() => {
+    try { return window.sessionStorage.getItem("nova.username.prompt.skipped") === "1"; } catch { return false; }
+  });
+  const dismissUsernamePrompt = () => {
+    setUsernamePromptSkipped(true);
+    try { window.sessionStorage.setItem("nova.username.prompt.skipped", "1"); } catch {}
+  };
   useEffect(() => { setMobileNavOpen(false); }, [location]);
 
   if (loading) return <DashboardLayoutSkeleton />;
@@ -42,6 +50,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <tab.icon className="size-4 shrink-0" />{!opts?.collapsed && tab.label}
       </button>
     ));
+
+  const showUsernamePrompt = user && !user.username && !usernamePromptSkipped;
 
   return (
     <div className="dashboard-shell flex h-svh min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground">
@@ -68,6 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}` : `overflow-y-auto overscroll-contain pb-6 md:pb-8 ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}`}`}>{children}</main>
 
+      {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
     </div>
   );
 }

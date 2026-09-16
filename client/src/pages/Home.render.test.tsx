@@ -20,6 +20,16 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain("A little less juggling. A lot more follow-through.");
   });
 
+  it("optimizes the workspace preview for phones", () => {
+    const markup = renderToStaticMarkup(<Home />);
+    // The mock window is decorative and hidden from screen readers.
+    expect(markup).toContain("aria-hidden=\"true\"");
+    // Phones get a single-pane preview; the two-pane workspace returns from sm up.
+    expect(markup).toContain("min-h-[300px]");
+    expect(markup).toContain("min-h-[300px] grid-cols-1 sm:min-h-[390px] sm:grid-cols-[132px_1fr]");
+    expect(markup).toContain("hidden border-r border-[#e7e4dc] bg-[#f3f1eb] p-3 sm:block");
+  });
+
   it("renders the Zo-style sign-in page", () => {
     const markup = renderToStaticMarkup(<SignIn />);
     expect(markup).toContain("Sign in to Nova.");

@@ -18,6 +18,7 @@ import {
   nvidiaInferenceAllowances,
   agentVmRuns,
   agentStopRequests,
+  telegramUpdateLog,
   automations,
   automationRuns,
 } from "../drizzle/schema";
@@ -754,6 +755,28 @@ export async function getDatabaseTime(): Promise<Date> {
   const value = rows[0]?.now;
   if (!value) return new Date();
   return value instanceof Date ? value : new Date(value);
+}
+
+/**
+ * Atomically claims a Telegram webhook update id. Returns true when this call
+ * is the first to see the update, false when Telegram is redelivering an
+ * update Nova already handled (the webhook holds the HTTP connection open for
+ * the whole agent run, so Telegram re-sends updates it saw time out — without
+ * this claim every redelivery would re-run the agent and duplicate replies).
+ * Old rows are pruned opportunistically; a database error fails open so the
+ * bot keeps working even if the log table is unavailable.
+ */
+export async function claimTelegramUpdate(updateId: number): Promise<boolean> {
+  const db = await requireDb();
+  try {
+    await db.execute(sql`DELETE FROM "telegram_update_log" WHERE "createdAt" < now() - interval '7 days'`);
+  } catch {}
+  const claimed = await db
+    .insert(telegramUpdateLog)
+    .values({ updateId })
+    .onConflictDoNothing()
+    .returning({ updateId: telegramUpdateLog.updateId });
+  return claimed.length > 0;
 }
 
 /** Records a fresh stop request for the workspace, replacing any older one. */

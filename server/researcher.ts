@@ -39,10 +39,11 @@ export type ResearchDifficulty = ExaDeepSearchType;
 /**
  * Runs Exa deep research on a topic and returns its cited report.
  * @param topic The topic or question to research.
- * @param difficulty The research model / difficulty — the AI's choice:
- *   "deep-lite" for lightweight general research (~10 seconds),
- *   "deep" for medium multi-step research, "deep-reasoning" for the deepest
- *   research level. Anything unrecognised falls back to "deep".
+ * @param difficulty The research model / depth, always chosen by the calling
+ *   AI agent after estimating what the question needs: "deep-lite" for
+ *   single-fact lookups (~10 seconds), "deep" for medium multi-step research,
+ *   "deep-reasoning" for the deepest research level. Anything unrecognised or
+ *   missing falls back to "deep".
  * @param instructions Optional focus, constraints or specific questions.
  */
 export async function runResearch(

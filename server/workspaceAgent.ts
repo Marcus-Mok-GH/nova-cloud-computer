@@ -65,6 +65,8 @@ type WorkspaceAgentOptions = {
   onChunk?: (chunk: string) => void | Promise<void>;
   /** Where the request came from — shapes how the model keeps the user posted. */
   channel?: "telegram" | "web";
+  /** Data-URI images attached to this turn, sent to the model as vision input. */
+  imageAttachments?: string[];
 };
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
@@ -1172,9 +1174,24 @@ export async function runWorkspaceAgent(
       };
     };
 
+    const imageParts = (options.imageAttachments ?? []).filter(uri =>
+      uri.startsWith("data:image/")
+    );
+    let visionActive = imageParts.length > 0;
     const messages: GatewayChatMessage[] = [
       systemMessage(),
-      { role: "user", content },
+      {
+        role: "user",
+        content: visionActive
+          ? [
+              { type: "text" as const, text: content },
+              ...imageParts.map(uri => ({
+                type: "image_url" as const,
+                image_url: { url: uri },
+              })),
+            ]
+          : content,
+      },
     ];
 
     // /stop support: a stop request recorded after the run started aborts the
@@ -1199,10 +1216,29 @@ export async function runWorkspaceAgent(
             options.onChunk?.(chunk);
           }
         : undefined;
-      const result = await chatWithGatewayRetry(ownerId, messages, {
-        tools: agentTools,
-        ...(emitChunk ? { onChunk: emitChunk } : {}),
-      });
+      const result = await (async () => {
+        try {
+          return await chatWithGatewayRetry(ownerId, messages, {
+            tools: agentTools,
+            ...(emitChunk ? { onChunk: emitChunk } : {}),
+          });
+        } catch (error) {
+          if (!visionActive) throw error;
+          // A model without vision rejects image parts outright: drop the
+          // attachment instead of failing the run, and let the model say so.
+          visionActive = false;
+          const userIndex = messages.findIndex(m => m.role === "user");
+          if (userIndex >= 0)
+            messages[userIndex] = {
+              role: "user",
+              content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here — it is still saved in the workspace. Say so plainly and work from what the user says.)`,
+            };
+          return await chatWithGatewayRetry(ownerId, messages, {
+            tools: agentTools,
+            ...(emitChunk ? { onChunk: emitChunk } : {}),
+          });
+        }
+      })();
       if (result.toolCalls.length === 0) {
         reply = result.text || "";
         streamedReplyChars = streamedThisRound;

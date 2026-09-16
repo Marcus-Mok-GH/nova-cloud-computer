@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-16 — The agent can read what users upload
+
+- `server/nvidiaGateway.ts`: `GatewayChatMessage.content` now accepts OpenAI-style content parts alongside plain text, so a user turn can carry images as `image_url` parts.
+- `server/workspaceAgent.ts`: new `imageAttachments` option — data-URI images ride along on the user turn as vision input. If the selected model rejects image parts, the run does not fail: the attachment is stripped, the model is told it cannot view images, and it answers from context.
+- `server/app.ts`: upload context notes are now tailored to what arrived. Images are attached to the model's turn directly ("you can see it"), binary files explain the base64 data-URI layout and point at a short run_vm_task decode (e.g. pypdf for PDFs), and text files point at read_file.
+- `server/workspaceAgent.test.ts`: tests for the vision turn shape and the graceful strip-and-retry path.
+
+
 ## 2026-09-16 — Telegram file uploads land in the workspace
 
 - `server/telegram.ts`: the webhook no longer skips message-less uploads. `telegramUploadFromMessage` pulls the upload out of any update — photos (largest size), documents, voice notes, audio, video, video notes, stickers — and `downloadTelegramUpload` fetches it via getFile, keeping text-like files (by extension and mime type, including code and config files) as readable content and storing binary as a base64 data URI ready for present_file to re-present. Unnamed photos get stamped names like `photo-20260916-1119.jpg`.

@@ -301,6 +301,43 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
+  it("sends uploaded images to the model as vision input on the user turn", async () => {
+    const dataUri = "data:image/jpeg;base64,aGVsbG8=";
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Nice photo of a dog." }));
+    await runWorkspaceAgent(1, 3, "what is in this picture?", {
+      channel: "telegram",
+      imageAttachments: [dataUri],
+    });
+    const messages = chatWithNvidiaGateway.mock.calls[0][1];
+    expect(messages.at(-1)).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "what is in this picture?" },
+        { type: "image_url", image_url: { url: dataUri } },
+      ],
+    });
+  });
+
+  it("drops the attachment instead of failing when the model cannot see images", async () => {
+    const dataUri = "data:image/png;base64,aGVsbG8=";
+    chatWithNvidiaGateway.mockImplementation(async (_owner, messages) => {
+      const last = messages.at(-1);
+      if (Array.isArray(last.content)) throw new NvidiaGatewayClientError("image input is not supported by this model", "unavailable");
+      return chatResult({ text: "I cannot see that image." });
+    });
+    const result = await runWorkspaceAgent(1, 3, "describe this", {
+      channel: "telegram",
+      imageAttachments: [dataUri],
+    });
+    const plainCalls = chatWithNvidiaGateway.mock.calls.filter(
+      call => typeof call[1].at(-1).content === "string"
+    );
+    expect(plainCalls.length).toBeGreaterThan(0);
+    const retriedContent = plainCalls.at(-1)[1].at(-1).content;
+    expect(retriedContent).toContain("cannot view image attachments");
+    expect(result.message.content).toContain("I cannot see that image.");
+  });
+
   it("presents a workspace file over Telegram when the model calls present_file", async () => {
     telegramCredentials.mockResolvedValueOnce({ token: "bot-token", chatId: "42" });
     chatWithNvidiaGateway

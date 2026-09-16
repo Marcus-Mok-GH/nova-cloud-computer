@@ -6,8 +6,9 @@
  * results, and writes a full research report with inline citations and a
  * numbered source list. The report is returned verbatim to the main agent.
  *
- * Every gateway call spends one request of the workspace's NVIDIA allowance,
- * so the loop is capped at MAX_RESEARCH_ROUNDS. */
+ * The sub-agent is fully autonomous: it keeps searching until it decides the
+ * evidence is complete, bounded only by the workspace's NVIDIA request
+ * allowance (the gateway refuses calls once the allowance is exhausted). */
 
 import { ENV } from "./_core/env";
 import {
@@ -17,9 +18,6 @@ import {
   type GatewayToolCall,
 } from "./nvidiaGateway";
 import { searchExa, type ExaSearchResult } from "./exa";
-
-/** Gateway calls allowed per research run (search rounds + final report). */
-export const MAX_RESEARCH_ROUNDS = 6;
 
 const RESEARCHER_TOOLS: GatewayToolDefinition[] = [
   {
@@ -44,7 +42,7 @@ const RESEARCHER_SYSTEM_PROMPT = `You are Nova's research specialist. You invest
 
 How you work:
 1. Plan your searches first: break the topic into the distinct questions a complete answer needs.
-2. Call search_web several times with different, targeted queries until you have enough cross-checked evidence. Prefer recent and primary sources.
+2. Call search_web as many times as the topic genuinely needs — different phrasings, different angles, follow-ups on leads. Prefer recent and primary sources. You are the judge of when the evidence is complete: keep searching while it materially improves the report, then write it.
 3. Write the final report — a structured research brief with:
    - A short executive summary answering the topic directly.
    - The findings, organized under clear headings.
@@ -144,18 +142,12 @@ export async function runResearch(
     return result;
   };
 
-  for (let round = 0; round < MAX_RESEARCH_ROUNDS - 1; round += 1) {
+  // Fully autonomous: the researcher keeps searching until it decides the
+  // evidence is complete and writes its final cited report. The workspace's
+  // NVIDIA request allowance is the natural bound — the gateway refuses
+  // further calls once it is exhausted.
+  for (;;) {
     const result = await searchRound();
     if (!result.toolCalls.length) return { report: result.text.trim(), sources };
   }
-
-  // The researcher kept searching past the cap — force a final report from
-  // what it has gathered so far.
-  messages.push({
-    role: "user",
-    content:
-      "You have reached your search budget. Write your complete final report now, using only the sources you have gathered. Include the inline citations and the Sources list.",
-  });
-  const final = await chatWithNvidiaGateway(ownerId, messages, {});
-  return { report: final.text.trim(), sources };
 }

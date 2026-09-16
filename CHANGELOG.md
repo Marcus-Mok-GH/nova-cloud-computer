@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-16 — present_file: the Telegram bot can hand files to the user
+
+- `server/telegram.ts`: new `presentTelegramFile` helper. Images arrive inline via sendPhoto for viewing — data URIs are decoded, hosted URLs are passed straight to Telegram, bare base64 is detected — and everything else is uploaded via sendDocument as a downloadable file with an optional caption. Failures surface Telegram's own error text.
+- `server/workspaceAgent.ts`: new `present_file` tool, exposed *only on Telegram runs* (the web app filters it out since the workspace is browsable there). It resolves the file in the workspace, sends it over the linked bot chat, and records a "presented" action with a human summary ("Presented notes.txt to the user."). The Telegram prompt now tells the model to present files it creates or meaningfully updates so the user can view or download them right in the chat.
+- `server/telegram.test.ts` and `server/workspaceAgent.test.ts`: tests for the upload paths (document, data-URI photo, URL photo, base64 fallback, failure) and the agent round-trip, graceful not-connected failure, and Telegram-only tool exposure.
+
+
 ## 2026-09-16 — Landing page: agent-action feature card replaces Conversations
 
 - `client/src/pages/Home.tsx`: the middle feature card on the landing page no longer pitches conversations ("Useful help, in context") — it now positions Nova as *An agent that takes action*: "Instead of just chatting, Nova does the work — creating files, sending messages, and carrying jobs through to done." Icon swapped from MessageSquareText to Bot (the old icon stays in use in the hero preview mock).

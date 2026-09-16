@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sendTelegramMessage } from "./telegram";
+import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 
 const append = vi.fn(
   async (_owner: number, input: { role: string; content: string }) => ({
@@ -136,6 +136,7 @@ vi.mock("./workspaceSync", () => ({
 
 vi.mock("./telegram", () => ({
   sendTelegramMessage: vi.fn(async () => ({ message_id: 77 })),
+  presentTelegramFile: vi.fn(async () => ({ messageId: 78, as: "document" })),
 }));
 
 const {
@@ -300,6 +301,79 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
+  it("presents a workspace file over Telegram when the model calls present_file", async () => {
+    telegramCredentials.mockResolvedValueOnce({ token: "bot-token", chatId: "42" });
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-present",
+              name: "present_file",
+              arguments: JSON.stringify({ file: "welcome.md", caption: "Your file" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Here it is." }));
+    const result = await runWorkspaceAgent(1, 3, "make me a welcome file", {
+      channel: "telegram",
+    });
+    expect(presentTelegramFile).toHaveBeenCalledWith(
+      "bot-token",
+      "42",
+      { name: "welcome.md", content: "Hello", mimeType: undefined },
+      "Your file"
+    );
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-present",
+      content: "Presented welcome.md to the user as a document (message #78) — they can view or download it in the chat.",
+    });
+    expect(result.actions).toEqual([
+      { kind: "file", name: "welcome.md", operation: "presented" },
+    ]);
+  });
+
+  it("fails gracefully when Telegram is not connected for a present_file call", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-present",
+              name: "present_file",
+              arguments: JSON.stringify({ file: "welcome.md" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Sorry — Telegram is not connected." }));
+    await runWorkspaceAgent(1, 3, "send me the file", { channel: "telegram" });
+    expect(presentTelegramFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "tool",
+      content: expect.stringContaining("Telegram is not connected"),
+    });
+  });
+
+  it("exposes present_file only to the Telegram bot, never to the web app", async () => {
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const telegramTools = chatWithNvidiaGateway.mock.calls[0][2].tools.map(
+      tool => tool.function.name
+    );
+    const webTools = chatWithNvidiaGateway.mock.calls[1][2].tools.map(
+      tool => tool.function.name
+    );
+    expect(telegramTools).toContain("present_file");
+    expect(webTools).not.toContain("present_file");
+  });
+
   it("reports the request channel and progress guidance through the system prompt", async () => {
     chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
@@ -309,6 +383,7 @@ describe("Nova tool-calling workspace agent", () => {
       "the user only sees the messages you send"
     );
     expect(telegramPrompt).toContain("send_progress_update");
+    expect(telegramPrompt).toContain("present it with present_file");
     expect(telegramPrompt).toContain("time estimate");
     expect(telegramPrompt).toContain("own the ETA");
     expect(telegramPrompt).toContain("revised range");

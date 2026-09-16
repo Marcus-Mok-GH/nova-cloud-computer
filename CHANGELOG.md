@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — Landing-page workspace preview optimized for phones
+
+- `client/src/pages/Home.tsx`: the hero's mock workspace window now adapts to small screens. Phones get a single-pane preview — the decorative sidebar (previously a fixed 132px column, roughly a third of a phone viewport) is hidden below sm and the mock content gets the full card width. The card also scales down on phones: tighter corner radii and padding, a lighter shadow, a shorter min-height (300px vs 390px), comfier content padding, and slightly tighter vertical rhythm between the chat card and the "pick up where you left off" cards. From sm up the two-pane workspace looks exactly as before, and the whole mock is now aria-hidden since it is purely decorative.
+- `client/src/pages/Home.render.test.tsx`: added a regression test asserting the phone-first classes — single-pane grid, hidden sidebar, reduced min-height, and the decorative aria-hidden.
+
+
 ## 2026-09-16 — The AI owns the ETA end-to-end
 
 - `server/workspaceAgent.ts`: the Telegram progress bullet now makes the model responsible for maintaining the estimate throughout the run — not just the opening one. It revises the range whenever reality diverges ("taking longer than expected — about 2 more minutes"), sends short updates at a steady rhythm while working (after each meaningful step, no long silent gaps), and says whether a blocker changes the ETA. The send_progress_update tool description now mentions revised ETAs. Still zero hardcoded logic: cadence and wording stay the model's own judgment, set by the system prompt.

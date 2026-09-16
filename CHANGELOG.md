@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — Disconnect Telegram, mirroring the GitHub/Gmail connectors
+
+- `client/src/pages/WorkspaceSettings.tsx`: while Telegram is connected, the connection card now flips to "Disconnect your Telegram account" with a full-width destructive "Disconnect Telegram" button (confirmation dialog included), the same pattern as the GitHub and Gmail connector cards. The small trash icon and "Check connection" row stay only for the not-yet-connected states; the disconnect toast uses the same copy style as the connectors ("Telegram disconnected. Nova lost access until you connect again.").
+- `client/src/pages/WorkspaceSettings.render.test.tsx`: updated the connected-state assertions to cover the new disconnect UI.
+
+
 ## 2026-09-16 — /stop now stops the response in flight
 
 - `server/app.ts`: the Telegram webhook now acknowledges every update instantly and processes it in the background. Telegram delivers updates one at a time and waits for each ack, so a handler that awaited a full agent run was queuing /stop (and every later update) until the response completed. The /stop confirmation copy now says replies stop almost immediately.

@@ -25,7 +25,11 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("How Nova should help");
     expect(markup).toContain("Telegram Bot");
-    expect(markup).toContain("Connect Telegram");
+    // Telegram is connected in this mock, so the card flips to its disconnect form.
+    expect(markup).toContain("Disconnect your Telegram account");
+    expect(markup).toContain("Disconnect Telegram");
+    expect(markup).toContain("you can connect again any time");
+    expect(markup).not.toContain("Connect Telegram");
     expect(markup).toContain("Tell Nova what to automate");
     expect(markup).toContain("Disconnect GitHub");
     expect(markup).toContain("Connect Gmail");

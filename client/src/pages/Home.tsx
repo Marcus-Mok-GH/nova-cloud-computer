@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileText,
   FolderOpen,
+  Bot,
   LayoutGrid,
   MessageSquareText,
   Moon,
@@ -23,7 +24,7 @@ type Feature = { icon: LucideIcon; eyebrow: string; title: string; body: string 
 
 const features: Feature[] = [
   { icon: FolderOpen, eyebrow: "Workspace", title: "A place that remembers", body: "Keep files, notes, and small projects together so you can pick up where you left off." },
-  { icon: MessageSquareText, eyebrow: "Conversations", title: "Useful help, in context", body: "Talk through a problem with the files and history around it, not in a blank chat window." },
+  { icon: Bot, eyebrow: "Agent", title: "An agent that takes action", body: "Instead of just chatting, Nova does the work — creating files, sending messages, and carrying jobs through to done." },
   { icon: Timer, eyebrow: "Automations", title: "Less work to repeat", body: "Turn the small recurring jobs into routines that keep moving while you get on with the day." },
 ];
 

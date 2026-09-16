@@ -17,6 +17,8 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain("Your work, in one calm place.");
     expect(markup).toContain("Create your workspace");
     expect(markup).toContain("A place that remembers");
+    expect(markup).toContain("An agent that takes action");
+    expect(markup).not.toContain("Useful help, in context");
     expect(markup).toContain("A little less juggling. A lot more follow-through.");
   });
 

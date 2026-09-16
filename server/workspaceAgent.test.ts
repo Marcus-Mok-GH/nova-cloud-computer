@@ -258,6 +258,56 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Created notes.txt for you.");
   });
 
+  it("emits round milestones and blocker events so Telegram can update the user live", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-ok",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+            },
+            {
+              id: "call-blocked",
+              name: "send_telegram_message",
+              arguments: JSON.stringify({ text: "done!" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Done — one step was blocked." }));
+    const onEvent = vi.fn();
+    await runWorkspaceAgent(1, 3, "make notes and message me", { onEvent });
+
+    const eventTypes = onEvent.mock.calls.map(call => call[0].type);
+    expect(eventTypes).toContain("round_started");
+    expect(eventTypes).toContain("blocker");
+    expect(eventTypes).toContain("round_completed");
+
+    const roundStarted = onEvent.mock.calls
+      .map(call => call[0])
+      .find(event => event.type === "round_started");
+    expect(roundStarted).toMatchObject({
+      round: 0,
+      toolNames: ["create_file", "send_telegram_message"],
+    });
+
+    const blocker = onEvent.mock.calls
+      .map(call => call[0])
+      .find(event => event.type === "blocker");
+    expect(blocker?.toolName).toBe("send_telegram_message");
+    expect(blocker?.toolResult).toMatch(/Telegram is not connected/);
+
+    const roundCompleted = onEvent.mock.calls
+      .map(call => call[0])
+      .find(event => event.type === "round_completed");
+    expect(roundCompleted).toMatchObject({
+      round: 0,
+      failedToolNames: ["send_telegram_message"],
+    });
+  });
+
   it("edits an existing file's content through edit_file", async () => {
     chatWithNvidiaGateway
       .mockResolvedValueOnce(

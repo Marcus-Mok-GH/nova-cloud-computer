@@ -56,11 +56,15 @@ export type WorkspaceToolActivity = {
   detail?: string;
 };
 
+/** Run-progress events: live tool activity plus round milestones and blockers. */
+export type WorkspaceAgentEvent =
+  | { type: "tool"; tool: WorkspaceToolActivity }
+  | { type: "round_started"; round: number; toolNames: string[] }
+  | { type: "blocker"; toolName: string; toolResult: string }
+  | { type: "round_completed"; round: number; toolNames: string[]; failedToolNames: string[] };
+
 type WorkspaceAgentOptions = {
-  onEvent?: (event: {
-    type: "tool";
-    tool: WorkspaceToolActivity;
-  }) => void | Promise<void>;
+  onEvent?: (event: WorkspaceAgentEvent) => void | Promise<void>;
   onChunk?: (chunk: string) => void | Promise<void>;
 };
 
@@ -530,7 +534,7 @@ Operating principles:
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate — under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
-- Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
+- Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
@@ -1011,6 +1015,14 @@ export async function runWorkspaceAgent(
       console.error("[Tool activity] failed to persist", error);
     }
   };
+  /** Emits a run-progress event; delivery problems must never break the run. */
+  const emit = (event: WorkspaceAgentEvent) => {
+    try {
+      const delivered = options.onEvent?.(event);
+      if (delivered instanceof Promise) delivered.catch(() => {});
+    } catch {}
+  };
+
   /** Appends the assistant's reply to the chat and returns the persisted message. */
   const persistAssistant = async (reply: string) =>
     appendChatMessageForUser(ownerId, {
@@ -1116,6 +1128,9 @@ export async function runWorkspaceAgent(
           function: { name: call.name, arguments: call.arguments },
         })),
       });
+      const roundToolNames = result.toolCalls.map(call => call.name);
+      emit({ type: "round_started", round, toolNames: roundToolNames });
+      const failedToolNames: string[] = [];
       for (const call of result.toolCalls) {
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         await emitTool({
@@ -1149,6 +1164,10 @@ export async function runWorkspaceAgent(
             result: "The tool call failed unexpectedly.",
           };
         }
+        if (!execution.ok) {
+          failedToolNames.push(call.name);
+          emit({ type: "blocker", toolName: call.name, toolResult: execution.result });
+        }
         if (execution.action) actions.push(execution.action);
         await emitTool({
           id: call.id,
@@ -1166,6 +1185,7 @@ export async function runWorkspaceAgent(
           content: execution.result,
         });
       }
+      emit({ type: "round_completed", round, toolNames: roundToolNames, failedToolNames });
       // Refresh workspace state so later rounds resolve names/ids created
       // or removed by this round's tools.
       computer = await getWorkspaceComputer(ownerId);

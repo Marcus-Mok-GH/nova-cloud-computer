@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-16 — Hide the model ID and provider from users
+
+- `server/app.ts`: removed the Telegram `/models` and `/model` commands and the `nova_model_` button callback — no model ids, no "Current model", no provider names reach the chat. `/models` now simply goes to the agent like any other text.
+- `server/routers.ts`: removed the `telegram.modelSettings` and `telegram.updateModel` tRPC procedures that exposed model ids and provider over the API.
+- Deleted `server/telegramModelSettings.ts` and the unreferenced `client/src/components/TelegramModelSelector.tsx` (dead code that listed model ids in the web UI).
+- `server/nvidiaGateway.ts`: every user-facing error message no longer names NVIDIA ("Nova's AI service is temporarily unavailable", "reached Nova's configured AI request allowance", "The AI service interrupted the response stream", …). Internal logs and env names are unchanged.
+- `server/telegramUploadWebhook.test.ts`: added a test that `/models` goes to the agent and the only Telegram reply contains no model id or provider name.
+
+
 ## 2026-09-16 — Heavyweight default: Kimi K3
 
 - `server/nvidiaGateway.ts`: the hardcoded default chat model is now `moonshotai/kimi-k3`, verified on NVIDIA NIM — a native-multimodal MoE with 2.8T total parameters (104B active), RGB image input, function/tool calling, and a 1M-token context over the OpenAI-compatible chat API. The fallback ladder is unchanged: if a gateway does not serve it, the best other vision model is used (nemotron family first, e.g. Nemotron 3 Nano Omni), then the text fallback.

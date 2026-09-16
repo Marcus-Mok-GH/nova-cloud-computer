@@ -17,10 +17,12 @@ vi.mock("@/lib/trpc", () => ({
     admin: {
       overview: { useQuery: () => ({ data: { totals: { users: 2, admins: 1, chats: 3, messages: 12, projects: 1, tasks: 4, automations: 0, workspaces: 2, telegramLinked: 1, activeAgentRuns: 0 }, recentUsers: [], recentAgentRuns: [] }, isLoading: false }) },
       users: { useQuery: () => ({ data: [
-        { id: 1, name: "Owner", email: "owner@example.com", role: "admin", createdAt: new Date("2026-09-01"), lastSignedIn: new Date("2026-09-15") },
-        { id: 2, name: "Helper", email: "helper@example.com", role: "user", createdAt: new Date("2026-09-10"), lastSignedIn: new Date("2026-09-14") },
+        { id: 1, name: "Owner", email: "owner@example.com", role: "admin", bannedAt: null, createdAt: new Date("2026-09-01"), lastSignedIn: new Date("2026-09-15") },
+        { id: 2, name: "Helper", email: "helper@example.com", role: "user", bannedAt: new Date("2026-09-14"), createdAt: new Date("2026-09-10"), lastSignedIn: new Date("2026-09-14") },
       ], isLoading: false }) },
       setUserRole: { useMutation: () => ({ mutate: vi.fn() }) },
+      setUserBanned: { useMutation: () => ({ mutate: vi.fn() }) },
+      deleteUser: { useMutation: () => ({ mutate: vi.fn() }) },
     },
   },
 }));
@@ -37,6 +39,9 @@ describe("Admin console page", () => {
     expect(markup).toContain("owner@example.com");
     expect(markup).toContain("helper@example.com");
     expect(markup).toContain("Promote");
+    expect(markup).toContain("Ban");
+    expect(markup).toContain("Delete");
+    expect(markup).toContain("banned");
   });
 
   it("hides the console behind the 404 page for non-admins and signed-out visitors", () => {

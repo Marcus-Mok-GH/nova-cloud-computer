@@ -21,8 +21,19 @@ export type AdminManagedUser = {
   name: string | null;
   email: string | null;
   role: "user" | "admin";
+  bannedAt: Date | null;
   createdAt: Date;
   lastSignedIn: Date;
+};
+
+const managedUserColumns = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  role: users.role,
+  bannedAt: users.bannedAt,
+  createdAt: users.createdAt,
+  lastSignedIn: users.lastSignedIn,
 };
 
 async function requireDb() {
@@ -35,14 +46,7 @@ async function requireDb() {
 export async function listUsersForAdmin(): Promise<AdminManagedUser[]> {
   const db = await requireDb();
   const rows = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      createdAt: users.createdAt,
-      lastSignedIn: users.lastSignedIn,
-    })
+    .select(managedUserColumns)
     .from(users)
     .orderBy(desc(users.createdAt));
   return rows as AdminManagedUser[];
@@ -77,14 +81,7 @@ export async function getAdminOverview() {
   ]);
 
   const recentUsers = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      createdAt: users.createdAt,
-      lastSignedIn: users.lastSignedIn,
-    })
+    .select(managedUserColumns)
     .from(users)
     .orderBy(desc(users.createdAt))
     .limit(5);
@@ -125,13 +122,27 @@ export async function setUserRoleForAdmin(userId: number, role: "user" | "admin"
     .update(users)
     .set({ role, updatedAt: new Date() })
     .where(eq(users.id, userId))
-    .returning({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      createdAt: users.createdAt,
-      lastSignedIn: users.lastSignedIn,
-    });
+    .returning(managedUserColumns);
   return updated as AdminManagedUser | undefined;
+}
+
+/** Ban or unban an account. Banned accounts are signed out and cannot sign back
+ * in or use the Telegram bot. Returns the updated row, or undefined if unknown. */
+export async function setUserBannedForAdmin(userId: number, banned: boolean) {
+  const db = await requireDb();
+  const [updated] = await db
+    .update(users)
+    .set({ bannedAt: banned ? new Date() : null, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning(managedUserColumns);
+  return updated as AdminManagedUser | undefined;
+}
+
+/** Delete an account and all of its workspace data (chats, files, automations)
+ * via cascade. The Neon Auth identity itself is managed by Neon and is not
+ * removed; a banned identity that signs in again is simply rejected. */
+export async function deleteUserForAdmin(userId: number) {
+  const db = await requireDb();
+  const [deleted] = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return !!deleted;
 }

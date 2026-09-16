@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sendTelegramMessage } from "./telegram";
 
 const append = vi.fn(
   async (_owner: number, input: { role: string; content: string }) => ({
@@ -258,55 +259,71 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Created notes.txt for you.");
   });
 
-  it("emits round milestones and blocker events so Telegram can update the user live", async () => {
+  it("sends a model-driven progress update when the model calls send_progress_update", async () => {
+    telegramCredentials.mockResolvedValueOnce({ token: "bot-token", chatId: "42" });
     chatWithNvidiaGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
             {
-              id: "call-ok",
-              name: "create_file",
-              arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
-            },
-            {
-              id: "call-blocked",
-              name: "send_telegram_message",
-              arguments: JSON.stringify({ text: "done!" }),
+              id: "call-progress",
+              name: "send_progress_update",
+              arguments: JSON.stringify({
+                text: "I'll get this done within about 30 seconds.",
+              }),
             },
           ],
         })
       )
-      .mockResolvedValueOnce(chatResult({ text: "Done — one step was blocked." }));
-    const onEvent = vi.fn();
-    await runWorkspaceAgent(1, 3, "make notes and message me", { onEvent });
-
-    const eventTypes = onEvent.mock.calls.map(call => call[0].type);
-    expect(eventTypes).toContain("round_started");
-    expect(eventTypes).toContain("blocker");
-    expect(eventTypes).toContain("round_completed");
-
-    const roundStarted = onEvent.mock.calls
-      .map(call => call[0])
-      .find(event => event.type === "round_started");
-    expect(roundStarted).toMatchObject({
-      round: 0,
-      toolNames: ["create_file", "send_telegram_message"],
+      .mockResolvedValueOnce(chatResult({ text: "All done." }));
+    const result = await runWorkspaceAgent(1, 3, "organize my files", {
+      channel: "telegram",
     });
-
-    const blocker = onEvent.mock.calls
-      .map(call => call[0])
-      .find(event => event.type === "blocker");
-    expect(blocker?.toolName).toBe("send_telegram_message");
-    expect(blocker?.toolResult).toMatch(/Telegram is not connected/);
-
-    const roundCompleted = onEvent.mock.calls
-      .map(call => call[0])
-      .find(event => event.type === "round_completed");
-    expect(roundCompleted).toMatchObject({
-      round: 0,
-      failedToolNames: ["send_telegram_message"],
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      "bot-token",
+      "42",
+      "I'll get this done within about 30 seconds."
+    );
+    // The tool result confirms delivery back to the model.
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-progress",
+      content: "Sent the progress update (message #77).",
     });
+    expect(result.actions).toEqual([
+      {
+        kind: "telegram",
+        name: "I'll get this done within about 30 seconds.",
+        operation: "sent",
+      },
+    ]);
   });
+
+  it("reports the request channel and progress guidance through the system prompt", async () => {
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
+    await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
+    const telegramPrompt = chatWithNvidiaGateway.mock.calls[0][1][0].content;
+    expect(telegramPrompt).toContain("Telegram");
+    expect(telegramPrompt).toContain(
+      "the user only sees the messages you send"
+    );
+    expect(telegramPrompt).toContain("send_progress_update");
+    expect(telegramPrompt).toContain("time estimate");
+
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const webPrompt = chatWithNvidiaGateway.mock.calls[1][1][0].content;
+    expect(webPrompt).toContain("the Nova web app");
+    expect(webPrompt).toContain("the user sees your tool activity live");
+
+    // The progress tool is exposed to the model either way.
+    const tools = chatWithNvidiaGateway.mock.calls[1][2].tools;
+    expect(tools.map(tool => tool.function.name)).toContain(
+      "send_progress_update"
+    );
+  });
+
 
   it("edits an existing file's content through edit_file", async () => {
     chatWithNvidiaGateway

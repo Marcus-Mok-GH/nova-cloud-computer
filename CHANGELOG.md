@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-16 — Model-driven progress updates replace the hardcoded reporter
+
+- `server/agentProgress.ts` (removed): the heuristic ETA scorer and throttled reporter are gone. Per the project direction, progress behavior is *not* hardcoded — the AI itself decides the ETA, cadence, and blocker notices.
+- `server/workspaceAgent.ts`: new `send_progress_update` tool (sends a brief mid-task note to the linked Telegram chat) plus a channel option on `runWorkspaceAgent` — `telegram` or `web` — surfaced to the model through the system prompt. A new prompt bullet tells the model how to keep the user posted on Telegram: open with an honest time estimate ("I'll get this done within about 30 seconds"), send interim updates instead of going silent, flag blockers immediately saying whether it needs the user, and skip interim notes in the web app where the user already watches tool activity live. The hardcoded round/blocker event plumbing was removed.
+- `server/app.ts`: the Telegram webhook no longer constructs a reporter; it just passes `channel: "telegram"` to the agent run.
+- `server/workspaceAgent.test.ts`: replaced the event tests with tests for the model-driven flow — the send_progress_update tool round-trip and the channel-aware system prompt.
+
+
 ## 2026-09-16 — Telegram progress updates: ETA, blockers, adaptive autonomy
 
 - `server/agentProgress.ts` (new): a run-progress reporter that estimates an ETA from the request text the moment a Telegram message arrives ("I'll get this done within about 15–30 seconds"), sends throttled milestone updates with a revised ETA while the run is in flight, and immediately notifies on blockers — classifying each as a snag the agent works around on its own or one that needs the user's action. Trivial argument mistakes are suppressed and blocker notices cap at three per run so a flaky tool cannot flood the chat.

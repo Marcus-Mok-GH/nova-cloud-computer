@@ -23,6 +23,8 @@ const setUserBannedSpy = vi.fn(async (userId: number, banned: boolean) => {
   return user;
 });
 const deleteUserSpy = vi.fn(async (userId: number) => users.delete(userId));
+const countOtherActiveAdminsSpy = vi.fn(async (userId: number) =>
+  [...users.values()].filter(u => u.id !== userId && u.role === "admin" && !u.bannedAt).length);
 
 vi.mock("./admin", () => ({
   getAdminOverview: overviewSpy,
@@ -30,6 +32,7 @@ vi.mock("./admin", () => ({
   setUserRoleForAdmin: setUserRoleSpy,
   setUserBannedForAdmin: setUserBannedSpy,
   deleteUserForAdmin: deleteUserSpy,
+  countOtherActiveAdmins: countOtherActiveAdminsSpy,
 }));
 
 const { appRouter } = await import("./routers");
@@ -74,9 +77,34 @@ describe("Nova admin console API", () => {
     expect(demoted).toMatchObject({ success: true, user: { id: 2, role: "user" } });
   });
 
-  it("refuses to change the caller's own role, even for an admin", async () => {
+  it("lets an admin demote themselves while another active admin exists", async () => {
+    users.set(1, { id: 1, name: "Owner", email: "owner@example.com", role: "admin", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    users.set(2, { id: 2, name: "Helper", email: "helper@example.com", role: "admin", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
     const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
+    const result = await caller.admin.setUserRole({ userId: 1, role: "user" });
+    expect(result.user.role).toBe("user");
+    users.set(1, { ...users.get(1)!, role: "admin" }); // restore for later tests
+    users.set(2, { ...users.get(2)!, role: "user" }); // restore for later tests
+  });
+
+  it("refuses self-promotion and refuses self-demotion for the last active admin", async () => {
+    users.set(1, { id: 1, name: "Owner", email: "owner@example.com", role: "admin", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    users.set(2, { id: 2, name: "Helper", email: "helper@example.com", role: "admin", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
+    await expect(caller.admin.setUserRole({ userId: 1, role: "admin" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Temporarily make the caller the only active admin.
+    const helper = users.get(2);
+    if (helper) users.set(2, { ...helper, role: "user" });
     await expect(caller.admin.setUserRole({ userId: 1, role: "user" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    if (helper) users.set(2, { ...helper });
+  });
+
+  it("does not count banned admins when deciding if self-demotion is safe", async () => {
+    users.set(1, { id: 1, name: "Owner", email: "owner@example.com", role: "admin", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
+    users.set(2, { id: 2, name: "Admin2", email: "admin2@example.com", role: "admin", bannedAt: new Date(), createdAt: new Date(), lastSignedIn: new Date() });
+    await expect(caller.admin.setUserRole({ userId: 1, role: "user" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    users.set(2, { id: 2, name: "Helper", email: "helper@example.com", role: "user", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
   });
 
   it("reports unknown accounts as not found", async () => {

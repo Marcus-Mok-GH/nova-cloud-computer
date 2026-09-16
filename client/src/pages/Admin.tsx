@@ -64,6 +64,7 @@ export default function Admin() {
 
   const totals = overviewQuery.data?.totals;
   const users = usersQuery.data ?? [];
+  const otherActiveAdmins = users.filter(account => account.role === "admin" && !account.bannedAt && account.id !== user.id).length;
 
   const stats = [
     { icon: <UsersIcon className="size-4" />, label: "Accounts", value: totals?.users },
@@ -110,6 +111,7 @@ export default function Admin() {
               {users.map(account => {
                 const isSelf = account.id === user.id;
                 const busy = pendingUserId === account.id;
+                const canChangeRole = !isSelf || otherActiveAdmins > 0;
                 return (
                   <li key={account.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                     <div className="min-w-0">
@@ -126,8 +128,8 @@ export default function Admin() {
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         onClick={() => setUserRole.mutate({ userId: account.id, role: account.role === "admin" ? "user" : "admin" })}
-                        disabled={isSelf || busy}
-                        title={isSelf ? "You cannot change your own role here." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
+                        disabled={!canChangeRole || busy}
+                        title={!canChangeRole && isSelf ? "You are the only active admin — promote someone else before demoting yourself." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
                         className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {busy && pendingAction === "role" ? <Loader2 className="size-3.5 animate-spin" /> : account.role === "admin" ? "Demote" : "Promote"}

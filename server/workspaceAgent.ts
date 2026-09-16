@@ -1088,7 +1088,11 @@ const waitFor = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function chatWithGatewayRetry(
   ownerId: number,
   messages: GatewayChatMessage[],
-  options: { tools?: GatewayToolDefinition[]; onChunk?: (chunk: string) => void }
+  options: {
+    tools?: GatewayToolDefinition[];
+    onChunk?: (chunk: string) => void;
+    signal?: AbortSignal;
+  }
 ) {
   const maxAttempts = gatewayRetryDelaysMs.length + 1;
   for (let attempt = 0; ; attempt += 1) {
@@ -1097,6 +1101,7 @@ async function chatWithGatewayRetry(
     try {
       return await chatWithNvidiaGateway(ownerId, messages, {
         tools: options.tools,
+        ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
           ? {
               onChunk: (chunk: string) => {
@@ -1107,6 +1112,8 @@ async function chatWithGatewayRetry(
           : {}),
       });
     } catch (error) {
+      // A user-requested stop aborts the in-flight request: never retry it.
+      if (options.signal?.aborted) throw error;
       const retryable =
         error instanceof NvidiaGatewayClientError &&
         GATEWAY_RETRY_KINDS.has(error.kind);
@@ -1251,6 +1258,22 @@ export async function runWorkspaceAgent(
       return { message, actions: [] };
     };
 
+    // /stop must be able to end a run mid-response, not only between rounds:
+    // the chunk stream is polled for stop requests and aborts the in-flight
+    // completion so a long reply stops almost immediately.
+    const stopController = new AbortController();
+    let lastStopCheckMs = 0;
+    const checkStopMidStream = () => {
+      const now = Date.now();
+      if (now - lastStopCheckMs < 250) return;
+      lastStopCheckMs = now;
+      void hasAgentStopAfter(ownerId, runStartedAt)
+        .then(stop => {
+          if (stop) stopController.abort();
+        })
+        .catch(() => {});
+    };
+
     let reply = "";
     let streamedReplyChars = 0;
     let recoveredCallCount = 0;
@@ -1262,31 +1285,38 @@ export async function runWorkspaceAgent(
             streamedThisRound += chunk.length;
             streamedRunText += chunk;
             options.onChunk?.(chunk);
+            checkStopMidStream();
           }
         : undefined;
-      const result = await (async () => {
-        try {
-          return await chatWithGatewayRetry(ownerId, messages, {
-            tools: agentTools,
-            ...(emitChunk ? { onChunk: emitChunk } : {}),
-          });
-        } catch (error) {
-          if (!visionActive) throw error;
-          // A model without vision rejects image parts outright: drop the
-          // attachment instead of failing the run, and let the model say so.
-          visionActive = false;
-          const userIndex = messages.findIndex(m => m.role === "user");
-          if (userIndex >= 0)
-            messages[userIndex] = {
-              role: "user",
-              content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here — it is still saved in the workspace. Say so plainly and work from what the user says.)`,
-            };
-          return await chatWithGatewayRetry(ownerId, messages, {
-            tools: agentTools,
-            ...(emitChunk ? { onChunk: emitChunk } : {}),
-          });
-        }
-      })();
+      let result: Awaited<ReturnType<typeof chatWithGatewayRetry>>;
+      try {
+        result = await chatWithGatewayRetry(ownerId, messages, {
+          tools: agentTools,
+          ...(emitChunk ? { onChunk: emitChunk } : {}),
+          signal: stopController.signal,
+        });
+      } catch (error) {
+        if (
+          stopController.signal.aborted &&
+          (await hasAgentStopAfter(ownerId, runStartedAt))
+        )
+          return stopRun();
+        if (!visionActive) throw error;
+        // A model without vision rejects image parts outright: drop the
+        // attachment instead of failing the run, and let the model say so.
+        visionActive = false;
+        const userIndex = messages.findIndex(m => m.role === "user");
+        if (userIndex >= 0)
+          messages[userIndex] = {
+            role: "user",
+            content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here — it is still saved in the workspace. Say so plainly and work from what the user says.)`,
+          };
+        result = await chatWithGatewayRetry(ownerId, messages, {
+          tools: agentTools,
+          ...(emitChunk ? { onChunk: emitChunk } : {}),
+          signal: stopController.signal,
+        });
+      }
       // Recover a tool call the model wrote out as text: run it as a real
       // call so the action executes instead of dumping raw JSON on the user.
       const recoveredCall =

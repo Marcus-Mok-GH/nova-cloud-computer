@@ -56,16 +56,14 @@ export type WorkspaceToolActivity = {
   detail?: string;
 };
 
-/** Run-progress events: live tool activity plus round milestones and blockers. */
-export type WorkspaceAgentEvent =
-  | { type: "tool"; tool: WorkspaceToolActivity }
-  | { type: "round_started"; round: number; toolNames: string[] }
-  | { type: "blocker"; toolName: string; toolResult: string }
-  | { type: "round_completed"; round: number; toolNames: string[]; failedToolNames: string[] };
-
 type WorkspaceAgentOptions = {
-  onEvent?: (event: WorkspaceAgentEvent) => void | Promise<void>;
+  onEvent?: (event: {
+    type: "tool";
+    tool: WorkspaceToolActivity;
+  }) => void | Promise<void>;
   onChunk?: (chunk: string) => void | Promise<void>;
+  /** Where the request came from — shapes how the model keeps the user posted. */
+  channel?: "telegram" | "web";
 };
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
@@ -337,6 +335,21 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "send_progress_update",
+      description:
+        "Send the user a brief mid-task progress note over Telegram (opening ETA, interim status, or a blocker notice). Use this while working on a request; use send_telegram_message when sending a message is itself the task. Requires Telegram to be connected.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "The progress note, e.g. \"I'll get this done within about 1-2 minutes.\"" },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_connector_tools",
       description:
         "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
@@ -538,6 +551,7 @@ Operating principles:
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
+- Keep the user posted on Telegram. Over Telegram the user sees only the messages you send — none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"), then send short interim updates during long runs instead of going silent, and tell the user immediately when you hit a blocker — saying whether you are solving it yourself or need something from them. Use send_progress_update for these notes, keep each one brief, and never send a "done" summary until the work actually is done. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
 
 Formatting: render replies in Markdown when it helps readability — **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 
@@ -549,6 +563,7 @@ Workspace rules:
 - Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
+This request arrived via: {{channel}}.
 
 Current folders: {{folders}}
 Current files: {{files}}`;
@@ -790,6 +805,27 @@ async function executeWorkspaceTool(
         action: { kind: "telegram", name: text, operation: "sent" },
       };
     }
+    case "send_progress_update": {
+      const text = str(args.text);
+      if (!text) return { ok: false, result: "A progress note text is required." };
+      const credentials = await getTelegramCredentialsForUser(ownerId);
+      if (!credentials?.chatId)
+        return {
+          ok: false,
+          result:
+            "Telegram is not connected. Tell the user to connect Telegram in Settings, send /start to their bot, and discover its chat first.",
+        };
+      const sent = await sendTelegramMessage(
+        credentials.token,
+        credentials.chatId,
+        text
+      );
+      return {
+        ok: true,
+        result: `Sent the progress update (message #${sent.message_id}).`,
+        action: { kind: "telegram", name: text, operation: "sent" },
+      };
+    }
     case "list_connector_tools": {
       const connector = str(args.connector);
       if (!isComposioToolkit(connector))
@@ -1015,14 +1051,6 @@ export async function runWorkspaceAgent(
       console.error("[Tool activity] failed to persist", error);
     }
   };
-  /** Emits a run-progress event; delivery problems must never break the run. */
-  const emit = (event: WorkspaceAgentEvent) => {
-    try {
-      const delivered = options.onEvent?.(event);
-      if (delivered instanceof Promise) delivered.catch(() => {});
-    } catch {}
-  };
-
   /** Appends the assistant's reply to the chat and returns the persisted message. */
   const persistAssistant = async (reply: string) =>
     appendChatMessageForUser(ownerId, {
@@ -1079,7 +1107,13 @@ export async function runWorkspaceAgent(
           "{{files}}",
           files
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
-          .replace("{{user}}", userLine),
+          .replace("{{user}}", userLine)
+          .replace(
+            "{{channel}}",
+            options.channel === "telegram"
+              ? "Telegram — the user only sees the messages you send, not your tool activity"
+              : "the Nova web app — the user sees your tool activity live as you work"
+          ),
       };
     };
 
@@ -1128,9 +1162,6 @@ export async function runWorkspaceAgent(
           function: { name: call.name, arguments: call.arguments },
         })),
       });
-      const roundToolNames = result.toolCalls.map(call => call.name);
-      emit({ type: "round_started", round, toolNames: roundToolNames });
-      const failedToolNames: string[] = [];
       for (const call of result.toolCalls) {
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         await emitTool({
@@ -1164,10 +1195,6 @@ export async function runWorkspaceAgent(
             result: "The tool call failed unexpectedly.",
           };
         }
-        if (!execution.ok) {
-          failedToolNames.push(call.name);
-          emit({ type: "blocker", toolName: call.name, toolResult: execution.result });
-        }
         if (execution.action) actions.push(execution.action);
         await emitTool({
           id: call.id,
@@ -1185,7 +1212,6 @@ export async function runWorkspaceAgent(
           content: execution.result,
         });
       }
-      emit({ type: "round_completed", round, toolNames: roundToolNames, failedToolNames });
       // Refresh workspace state so later rounds resolve names/ids created
       // or removed by this round's tools.
       computer = await getWorkspaceComputer(ownerId);

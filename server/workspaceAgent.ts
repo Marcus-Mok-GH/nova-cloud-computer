@@ -30,7 +30,7 @@ import { sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "connector";
+  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research";
   name: string;
   operation?:
     | "created"
@@ -52,6 +52,8 @@ export type WorkspaceToolActivity = {
   state: "running" | "completed" | "failed";
   args: Record<string, string>;
   summary?: string;
+  /** Live progress note while running, or the full tool response once done. */
+  detail?: string;
 };
 
 type WorkspaceAgentOptions = {
@@ -551,13 +553,16 @@ type ToolExecution = {
   ok: boolean;
   result: string;
   action?: AgentAction;
+  /** Full raw response surfaced in the research dropdown in the UI. */
+  detail?: string;
 };
 
 /** Executes a single model-requested tool call against the workspace. */
 async function executeWorkspaceTool(
   ownerId: number,
   computer: Computer,
-  call: GatewayToolCall
+  call: GatewayToolCall,
+  onProgress?: (detail: string) => void
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -845,6 +850,18 @@ async function executeWorkspaceTool(
       if (!topic) return { ok: false, result: "A research topic is required." };
       const difficulty = str(args.difficulty) || undefined;
       const instructions = str(args.instructions) || undefined;
+      const level = difficulty === "deep-lite" || difficulty === "deep-reasoning" ? difficulty : "deep";
+      const startedAt = Date.now();
+      // Exa's deep research is a single long HTTP call, so the live progress
+      // stream reports elapsed time while the researcher works.
+      const progressTimer = onProgress
+        ? setInterval(() => {
+            const elapsed = Math.round((Date.now() - startedAt) / 1000);
+            onProgress(`Exa deep research (${level}) is reading the live web — ${elapsed}s elapsed…`);
+          }, 10000)
+        : undefined;
+      if (onProgress)
+        onProgress(`Exa deep research (${level}) is starting its web searches…`);
       try {
         const research = await runResearch(topic, difficulty, instructions);
         const sourcesBlock = research.sources.length
@@ -852,9 +869,22 @@ async function executeWorkspaceTool(
               .map((source, index) => `${index + 1}. ${source.title || source.url} — ${source.url}`)
               .join("\n")}`
           : "";
-        return { ok: true, result: research.report + sourcesBlock };
+        return {
+          ok: true,
+          result: research.report + sourcesBlock,
+          detail: research.report + sourcesBlock,
+          action: { kind: "research", name: topic.slice(0, 60), operation: "completed" },
+        };
       } catch (error) {
-        return { ok: false, result: `Web research failed: ${error instanceof Error ? error.message : "unknown error"}.` };
+        const message = `Web research failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+        return {
+          ok: false,
+          result: message,
+          detail: message,
+          action: { kind: "research", name: topic.slice(0, 60), operation: "failed" },
+        };
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
       }
     }
     case "run_vm_task": {
@@ -888,6 +918,8 @@ async function executeWorkspaceTool(
 function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
   const action = execution.action;
   if (!action) return call.name;
+  if (action.kind === "research")
+    return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
   if (action.kind === "connector")
     return action.operation === "listed"
       ? `Listed ${action.name}.`
@@ -1094,7 +1126,22 @@ export async function runWorkspaceAgent(
         });
         let execution: ToolExecution;
         try {
-          execution = await executeWorkspaceTool(ownerId, computer, call);
+          execution = await executeWorkspaceTool(ownerId, computer, call, detail => {
+            // Progress updates stream live to the open chat only — they are
+            // not persisted, so long research runs don't flood the archive.
+            Promise.resolve(
+              options.onEvent?.({
+                type: "tool",
+                tool: {
+                  id: call.id,
+                  name: call.name,
+                  state: "running",
+                  args: { arguments: call.arguments.slice(0, 500) },
+                  detail,
+                },
+              })
+            ).catch(() => {});
+          });
         } catch (error) {
           console.error("[Workspace tool] failed", call.name, error);
           execution = {
@@ -1109,6 +1156,9 @@ export async function runWorkspaceAgent(
           state: execution.ok ? "completed" : "failed",
           args: { arguments: call.arguments.slice(0, 500) },
           summary: toolSummary(call, execution),
+          ...(execution.detail
+            ? { detail: execution.detail.slice(0, 16000) }
+            : {}),
         });
         messages.push({
           role: "tool",

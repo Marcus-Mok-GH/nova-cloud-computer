@@ -178,6 +178,21 @@ describe("reconcileChatMessages", () => {
     ).toBeNull();
   });
 
+  it("carries the optional detail payload through persistence", () => {
+    const withDetail = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "r1",
+        name: "research_web",
+        state: "completed",
+        args: { arguments: "{}" },
+        summary: "Researched: topic.",
+        detail: "Full report body…\n\nAll sources consulted by the researcher:\n1. src — https://src",
+      })}`
+    );
+    expect(withDetail?.detail).toContain("Full report body");
+    expect(parsePersistedToolActivity(persistedToolMessage)?.detail).toBeUndefined();
+  });
+
   it("rejects non-string or nested args", () => {
     const nested = parsePersistedToolActivity(
       `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({

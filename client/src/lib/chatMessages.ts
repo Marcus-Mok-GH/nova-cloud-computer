@@ -12,6 +12,8 @@ export type ToolActivity = {
   state: "running" | "completed" | "failed";
   args: Record<string, string>;
   summary?: string;
+  /** Live progress note while running, or the full tool response once done. */
+  detail?: string;
 };
 
 export function parsePersistedToolActivity(
@@ -40,6 +42,7 @@ export function parsePersistedToolActivity(
       state: parsed.state,
       args: parseStringRecord(parsed.args),
       summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+      detail: typeof parsed.detail === "string" ? parsed.detail : undefined,
     };
   } catch {
     return null;

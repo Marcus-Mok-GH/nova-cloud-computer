@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, presentTelegramFile, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
+import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, downloadTelegramUpload, presentTelegramFile, sendTelegramMessage, telegramUploadFromMessage, validateTelegramBotToken } from "./telegram";
 
 function telegramResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -35,6 +35,58 @@ describe("Telegram Bot API client", () => {
   it("rejects a non-HTTPS callback target like Telegram would", async () => {
     const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: true }));
     await expect(configureTelegramWebhook("123:secret", "http://nova.example.com", fetchImpl)).rejects.toThrow("public HTTPS URL");
+  });
+
+  it("extracts the upload from a message, preferring the largest photo", () => {
+    const photo = telegramUploadFromMessage({ photo: [{ file_id: "small", file_size: 100 }, { file_id: "large", file_size: 800 }] });
+    expect(photo).toEqual({ kind: "photo", fileId: "large", fileName: null, mimeType: "image/jpeg" });
+    const document = telegramUploadFromMessage({ document: { file_id: "doc1", file_name: "report.pdf", mime_type: "application/pdf" } });
+    expect(document).toEqual({ kind: "document", fileId: "doc1", fileName: "report.pdf", mimeType: "application/pdf" });
+    const voice = telegramUploadFromMessage({ voice: { file_id: "v1", mime_type: "audio/ogg" } });
+    expect(voice).toEqual({ kind: "voice", fileId: "v1", fileName: null, mimeType: "audio/ogg" });
+    const video = telegramUploadFromMessage({ video: { file_id: "vid1" } });
+    expect(video).toEqual({ kind: "video", fileId: "vid1", fileName: null, mimeType: "video/mp4" });
+    expect(telegramUploadFromMessage({ text: "just chatting" })).toBeUndefined();
+    expect(telegramUploadFromMessage({ photo: [] })).toBeUndefined();
+  });
+
+  it("downloads a text upload as readable content", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/getFile")
+        ? telegramResponse({ ok: true, result: { file_path: "documents/notes.txt" } })
+        : new Response("hello from telegram", { status: 200 })
+    );
+    const payload = await downloadTelegramUpload("token", { kind: "document", fileId: "doc1", fileName: "notes.txt", mimeType: "text/plain" }, fetchImpl);
+    expect(payload).toEqual({ name: "notes.txt", content: "hello from telegram", mimeType: "text/plain" });
+  });
+
+  it("stores binary uploads as data URIs and names unnamed photos", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/getFile")
+        ? telegramResponse({ ok: true, result: { file_path: "photos/photo.jpg" } })
+        : new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+    );
+    const payload = await downloadTelegramUpload("token", { kind: "photo", fileId: "p1", fileName: null, mimeType: "image/jpeg" }, fetchImpl);
+    expect(payload.name).toMatch(/^photo-\d+\.jpg$/);
+    expect(payload.content).toBe("data:image/jpeg;base64," + Buffer.from([1, 2, 3]).toString("base64"));
+    expect(String(fetchImpl.mock.calls[1][0])).toContain("/file/bottoken/photos/photo.jpg");
+  });
+
+  it("treats code and config files as text even with an octet-stream mime", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/getFile")
+        ? telegramResponse({ ok: true, result: { file_path: "documents/script.py" } })
+        : new Response("print('hi')", { status: 200 })
+    );
+    const payload = await downloadTelegramUpload("token", { kind: "document", fileId: "d1", fileName: "script.py", mimeType: "application/octet-stream" }, fetchImpl);
+    expect(payload.content).toBe("print('hi')");
+  });
+
+  it("surfaces Telegram failures when downloading an upload", async () => {
+    const failureFetch = vi.fn(async () => telegramResponse({ ok: false, description: "Bad Request: file is too big" }, 400));
+    await expect(downloadTelegramUpload("token", { kind: "document", fileId: "d1", fileName: "big.zip", mimeType: "application/zip" }, failureFetch)).rejects.toThrow("file is too big");
+    const noPathFetch = vi.fn(async () => telegramResponse({ ok: true, result: {} }));
+    await expect(downloadTelegramUpload("token", { kind: "document", fileId: "d1", fileName: "x.bin", mimeType: null }, noPathFetch)).rejects.toThrow("did not return a download path");
   });
 
   it("presents a text file as a downloadable document", async () => {

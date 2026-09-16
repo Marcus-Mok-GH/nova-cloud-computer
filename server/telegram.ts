@@ -77,6 +77,71 @@ export async function sendTelegramMessage(token: string, chatId: string, text: s
   }, fetchImpl);
 }
 
+/** A file a Telegram user sent the bot: photos, documents, voice notes, media — any upload. */
+export type TelegramUpload = {
+  kind: "photo" | "document" | "voice" | "audio" | "video" | "video_note" | "sticker";
+  fileId: string;
+  fileName: string | null;
+  mimeType: string | null;
+};
+
+/** Pull the uploaded file out of a Telegram message, if it carries one. Photos use the largest size. */
+export function telegramUploadFromMessage(message: Record<string, unknown>): TelegramUpload | undefined {
+  const photo = Array.isArray((message as { photo?: unknown }).photo)
+    ? [...((message as { photo: Array<{ file_id?: unknown; file_size?: number }> }).photo)].sort((a, b) => (b.file_size ?? 0) - (a.file_size ?? 0))[0]
+    : undefined;
+  if (photo?.file_id) return { kind: "photo", fileId: String(photo.file_id), fileName: null, mimeType: "image/jpeg" };
+  const sources: Array<TelegramUpload["kind"]> = ["document", "voice", "audio", "video", "video_note", "sticker"];
+  for (const kind of sources) {
+    const media = (message as Record<string, Record<string, unknown>>)[kind];
+    if (!media || typeof media.file_id !== "string") continue;
+    const mimeType =
+      kind === "sticker" && typeof media.mime_type !== "string" ? "image/webp" :
+      typeof media.mime_type === "string" ? media.mime_type :
+      kind === "voice" ? "audio/ogg" :
+      kind === "video" || kind === "video_note" ? "video/mp4" : null;
+    return {
+      kind,
+      fileId: media.file_id,
+      fileName: typeof media.file_name === "string" ? media.file_name : null,
+      mimeType,
+    };
+  }
+  return undefined;
+}
+
+const TEXT_FILE_EXTENSIONS = /\.(txt|md|markdown|csv|json|ya?ml|toml|xml|html?|css|m?js|jsx|ts|tsx|py|rb|rs|go|java|kt|c|cc|cpp|h|hpp|sh|sql|ini|log|svg|env)$/i;
+const TEXT_MIME_TYPES = new Set(["application/json", "application/xml", "application/javascript", "application/x-yaml", "application/yaml", "application/toml", "image/svg+xml", "application/x-sh", "application/sql"]);
+
+function isTextFile(name: string, mimeType: string) {
+  return mimeType.startsWith("text/") || TEXT_FILE_EXTENSIONS.test(name) || TEXT_MIME_TYPES.has(mimeType);
+}
+
+function telegramFileUrl(token: string, filePath: string) {
+  return `https://api.telegram.org/file/bot${encodeURIComponent(token)}/${filePath}`;
+}
+
+/** Download an uploaded Telegram file and shape it into a workspace file payload: text stays readable, binary becomes a data URI. */
+export async function downloadTelegramUpload(token: string, upload: TelegramUpload, fetchImpl: typeof fetch = fetch): Promise<{ name: string; content: string; mimeType: string }> {
+  const fileInfo = await telegramRequest<{ file_path?: string }>(token, "getFile", { file_id: upload.fileId }, fetchImpl);
+  if (!fileInfo.file_path) throw new Error("Telegram did not return a download path for that file.");
+  const response = await fetchImpl(telegramFileUrl(token, fileInfo.file_path));
+  if (!response.ok) throw new Error("Telegram could not deliver that file.");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const stamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+  const name =
+    upload.fileName ??
+    (upload.kind === "photo" ? `photo-${stamp}.jpg`
+      : upload.kind === "voice" ? `voice-${stamp}.ogg`
+      : upload.kind === "video" ? `video-${stamp}.mp4`
+      : upload.kind === "video_note" ? `video-note-${stamp}.mp4`
+      : upload.kind === "sticker" ? `sticker-${stamp}.webp`
+      : `file-${stamp}`);
+  const mimeType = upload.mimeType ?? "application/octet-stream";
+  if (isTextFile(name, mimeType)) return { name, content: new TextDecoder().decode(bytes), mimeType };
+  return { name, content: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`, mimeType };
+}
+
 /** Telegram file presentation: images arrive inline for viewing, everything else as a downloadable document. */
 export async function presentTelegramFile(
   token: string,

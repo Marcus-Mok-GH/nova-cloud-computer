@@ -42,6 +42,8 @@ const updateFile = vi.fn(
 const deleteFile = vi.fn(async () => true);
 const deleteFolder = vi.fn(async () => true);
 const telegramCredentials = vi.fn(async () => undefined);
+const getDatabaseTime = vi.fn(async () => new Date("2026-09-16T05:00:00.000Z"));
+const hasAgentStopAfter = vi.fn(async () => false);
 const computer = vi.fn(async () => ({
   workspace: { id: 41, persistentSandboxId: "sbx-vm" },
   folders: [
@@ -81,6 +83,8 @@ vi.mock("./db", () => ({
   deleteWorkspaceFolderForUser: deleteFolder,
   getTelegramCredentialsForUser: telegramCredentials,
   getUserIdentityForUser: async () => ({ username: null, name: "Test User", email: "test@example.com" }),
+  getDatabaseTime,
+  hasAgentStopAfter,
 }));
 
 const completeWithNvidiaGateway = vi.fn();
@@ -345,6 +349,51 @@ describe("Nova tool-calling workspace agent", () => {
     });
     expect(chatWithNvidiaGateway.mock.calls.length).toBe(12);
     expect(result.message.content).toContain("Done after 12 rounds.");
+  });
+
+  it("stops the run at the next round boundary when /stop was requested", async () => {
+    chatWithNvidiaGateway.mockReset().mockImplementation(() =>
+      Promise.resolve(
+        chatWithNvidiaGateway.mock.calls.length === 1
+          ? chatResult({
+              toolCalls: [
+                { id: "call-1", name: "create_file", arguments: JSON.stringify({ name: "plan.md", content: "x" }) },
+              ],
+            })
+          : chatResult({ text: "This reply should never be produced." })
+      )
+    );
+    // round 0 executes its tool normally; by round 1 the stop request exists.
+    hasAgentStopAfter.mockReset().mockImplementation(async () => hasAgentStopAfter.mock.calls.length >= 2);
+
+    const result = await runWorkspaceAgent(1, 3, "do something long", {});
+    expect(createFile).toHaveBeenCalledTimes(1);
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    expect(result.message.content).toContain("⏹️ Stopped");
+    expect(result.message.content).toContain("/stop");
+    chatWithNvidiaGateway.mockReset();
+    hasAgentStopAfter.mockReset();
+  });
+
+  it("stops between tool calls so a long research run cannot continue", async () => {
+    chatWithNvidiaGateway.mockReset().mockImplementation(() =>
+      Promise.resolve(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "create_file", arguments: JSON.stringify({ name: "a.md", content: "x" }) },
+            { id: "call-2", name: "create_file", arguments: JSON.stringify({ name: "b.md", content: "y" }) },
+          ],
+        })
+      )
+    );
+    // first tool allowed, stop discovered before the second tool
+    hasAgentStopAfter.mockReset().mockImplementation(async () => hasAgentStopAfter.mock.calls.length >= 2);
+
+    const result = await runWorkspaceAgent(1, 3, "two tools", {});
+    expect(createFile).toHaveBeenCalledTimes(1);
+    expect(result.message.content).toContain("⏹️ Stopped");
+    chatWithNvidiaGateway.mockReset();
+    hasAgentStopAfter.mockReset();
   });
 
   it("surfaces a disabled Telegram tool to the model", async () => {

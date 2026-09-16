@@ -1,5 +1,6 @@
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
+import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
 import {
   appendChatMessageForUser,
@@ -1037,9 +1038,20 @@ export async function runWorkspaceAgent(
       { role: "user", content },
     ];
 
+    // /stop support: a stop request recorded after the run started aborts the
+    // run at the next safe point (round boundary or between tool calls).
+    const runStartedAt = await getDatabaseTime();
+    const stopRun = async () => {
+      const stoppedReply = "⏹️ Stopped — this run was cancelled with /stop.";
+      await options.onChunk?.(stoppedReply);
+      const message = await persistAssistant(stoppedReply);
+      return { message, actions: [] };
+    };
+
     let reply = "";
     let streamedReplyChars = 0;
     for (let round = 0; ; round += 1) {
+      if (round > 0 && (await hasAgentStopAfter(ownerId, runStartedAt))) return stopRun();
       let streamedThisRound = 0;
       const emitChunk = options.onChunk
         ? (chunk: string) => {
@@ -1067,6 +1079,7 @@ export async function runWorkspaceAgent(
         })),
       });
       for (const call of result.toolCalls) {
+        if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         await emitTool({
           id: call.id,
           name: call.name,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — Hardcoded NIM-verified vision default
+
+- `server/nvidiaGateway.ts`: the default chat model is now hardcoded to `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, verified on NVIDIA NIM (build.nvidia.com) — vision-capable (jpeg/png image input), tool-calling, OpenAI-compatible chat. The discovery-driven default became a fallback ladder: if a gateway does not serve the hardcoded model, the best other vision model is used (nemotron family first), and only then `TEXT_FALLBACK_MODEL` (`nvidia/nemotron-3-super-120b-a12b`). Model classification no longer rejects chat models for having audio/video input modalities — only text-less models are excluded — so omni models stay eligible, and id-based detection now treats `omni` as vision.
+- `server/nvidiaGateway.client.test.ts`: tests updated for the hardcoded default (served vs not-served, vision fallback ladder, text fallback) and omni discovery.
+
+
 ## 2026-09-16 — End-to-end webhook tests + recovering tool calls written as text
 
 - `server/telegramUploadWebhook.test.ts` (new): drives the real express webhook handler with only the network and database faked — a photo update goes all the way from Telegram download through workspace save to an agent turn carrying the caption, the attachment note, and the image as vision input, then the reply lands back in the chat. Also covers text-file uploads (read_file routing), binary uploads (run_vm_task guidance) plus a failed-download path, and unlinked chats still getting the link prompt instead of running the agent.

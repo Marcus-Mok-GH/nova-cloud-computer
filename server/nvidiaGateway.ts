@@ -279,16 +279,13 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
     ...(model.modalities ?? []),
     ...(model.supported_modalities ?? []),
   ].map(value => value.toLowerCase());
-  if (
-    explicitModalities.some(value =>
-      /audio|video|image_generation|image-generation|text-to-image/i.test(value)
-    )
-  )
-    return undefined;
   if (explicitModalities.length > 0) {
-    if (!explicitModalities.some(value => /text/i.test(value)))
-      return undefined;
-    return explicitModalities.some(value => /image|vision/i.test(value))
+    // Only models that cannot chat in text are rejected. Omni models that
+    // understand audio or video alongside text and images stay eligible.
+    if (!explicitModalities.some(value => value === "text")) return undefined;
+    return explicitModalities.some(
+      value => value === "image" || value === "image_in"
+    )
       ? "vision"
       : "text";
   }
@@ -322,15 +319,22 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
   // is empty even though the gateway successfully returned available models.
   if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id))
     return undefined;
-  return /(^|[\/_-])(vision|vlm|multimodal|visual-language)([\/_-]|$)/i.test(
+  return /(^|[\/_-])(vision|vlm|multimodal|visual-language|omni)([\/_-]|$)/i.test(
     model.id
   )
     ? "vision"
     : "text";
 }
 
-/** The text chat model used when no vision-capable model has been discovered. */
-export const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+/**
+ * Default chat model: Nemotron 3 Nano Omni — verified available on NVIDIA NIM
+ * (build.nvidia.com). Vision-capable (jpeg/png image input), supports tool
+ * calling, and serves the OpenAI-compatible chat API.
+ */
+export const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
+
+/** Text-only fallback if model discovery proves the default is not served here. */
+export const TEXT_FALLBACK_MODEL = "nvidia/nemotron-3-super-120b-a12b";
 
 /** Test hook: drop the discovered-model cache between suites. */
 export function resetNvidiaModelCache() {
@@ -344,8 +348,17 @@ export function resetNvidiaModelCache() {
  */
 export function defaultNvidiaModel(): string {
   if (!modelCache || modelCache.expiresAt <= Date.now()) return DEFAULT_NVIDIA_MODEL;
+  // The hardcoded default is authoritative whenever this gateway serves it.
+  if (modelCache.models.some(model => model.id === DEFAULT_NVIDIA_MODEL))
+    return DEFAULT_NVIDIA_MODEL;
+  // This gateway does not serve the default: degrade to another vision model,
+  // and only then to the text fallback.
   const vision = modelCache.models.filter(model => model.kind === "vision");
-  return vision.find(model => model.id.includes("nemotron"))?.id ?? vision[0]?.id ?? DEFAULT_NVIDIA_MODEL;
+  return (
+    vision.find(model => model.id.includes("nemotron"))?.id ??
+    vision[0]?.id ??
+    TEXT_FALLBACK_MODEL
+  );
 }
 
 function parseNvidiaModels(payload: NvidiaModelsResponse | undefined): AvailableNvidiaModel[] {

@@ -116,18 +116,18 @@ describe("NVIDIA gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "nvidia/nemotron-3-super-120b-a12b", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
-  it("switches the default chat model to a vision-capable one as soon as discovery finds it", async () => {
+  it("defaults to the hardcoded NIM-verified omni vision model whenever it is served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "nvidia/nemotron-3-super-120b-a12b", modalities: ["text"] },
+      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", modalities: ["text", "image", "audio", "video"] },
       { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
-      { id: "nvidia/neva-22b-vision", modalities: ["text", "image"] },
     ] }), { status: 200 }));
     const status = await getNvidiaGatewayStatus(7);
-    expect(status).toMatchObject({ model: "meta/llama-3.2-90b-vision-instruct", reachable: true });
-    expect(defaultNvidiaModel()).toBe("meta/llama-3.2-90b-vision-instruct");
+    expect(status).toMatchObject({ model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", reachable: true });
+    expect(defaultNvidiaModel()).toBe("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning");
   });
 
-  it("prefers a nemotron vision model over other vision models", async () => {
+  it("prefers a nemotron vision model when the hardcoded default is not served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "meta/llama-3.2-90b-vision-instruct", modalities: ["text", "image"] },
       { id: "nvidia/nemotron-3-super-vision-120b", modalities: ["text", "image"] },
@@ -136,7 +136,7 @@ describe("NVIDIA gateway client", () => {
     expect(defaultNvidiaModel()).toBe("nvidia/nemotron-3-super-vision-120b");
   });
 
-  it("keeps the text default when no vision model is available", async () => {
+  it("falls back to the text model when no vision model is available", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "nvidia/nemotron-3-super-120b-a12b", modalities: ["text"] },
       { id: "meta/llama-3.1-8b-instruct", modalities: ["text"] },
@@ -166,11 +166,15 @@ describe("NVIDIA gateway client", () => {
       { id: "nvidia/canary-asr", modalities: ["audio"] },
       { id: "black-forest-labs/flux.1-dev", task: "image-generation" },
       { id: "nvidia/nv-rerankqa-mistral-4b-v3", task: "rerank" },
+      // Omni models understand audio and video alongside text and images —
+      // they stay eligible as vision chat models.
+      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", modalities: ["text", "image", "audio", "video"] },
     ] }), { status: 200 }));
 
     await expect(listNvidiaModels(true)).resolves.toEqual([
       expect.objectContaining({ id: "meta/llama-3.1-70b-instruct", kind: "text" }),
       expect.objectContaining({ id: "meta/llama-3.1-8b-instruct", kind: "text" }),
+      expect.objectContaining({ id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", kind: "vision" }),
       expect.objectContaining({ id: "nvidia/neva-22b", kind: "vision" }),
     ]);
   });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_RESEARCH_ROUNDS, runResearch } from "./researcher";
+import { runResearch } from "./researcher";
 import type { GatewayChatResult, GatewayToolCall } from "./nvidiaGateway";
 
 const state = vi.hoisted(() => ({ exaKey: "test-exa-key" }));
@@ -76,23 +76,28 @@ describe("runResearch", () => {
     expect(secondMessages[4].content).toBe("A search query is required.");
   });
 
-  it("caps the search rounds and forces a final report from what was gathered", async () => {
+  it("researches autonomously for as many rounds as the topic needs", async () => {
     searchExa.mockResolvedValue([]);
-    chatWithNvidiaGateway.mockImplementation((_ownerId, messages) => {
-      // keep returning tool calls until the budget forces the final round
-      const last = messages[messages.length - 1];
-      if (last.role === "user" && last.content?.includes("search budget")) {
-        return Promise.resolve(chatResult("Final forced report."));
-      }
-      return Promise.resolve(chatResult("", [{ id: `call-${messages.length}`, name: "search_web", arguments: JSON.stringify({ query: `q${messages.length}` }) }]));
+    const totalRounds = 9; // deliberately past the old fixed cap of 6
+    let calls = 0;
+    chatWithNvidiaGateway.mockImplementation(() => {
+      calls += 1;
+      return calls < totalRounds
+        ? Promise.resolve(chatResult("", [{ id: `call-${calls}`, name: "search_web", arguments: JSON.stringify({ query: `q${calls}` }) }]))
+        : Promise.resolve(chatResult("Final autonomous report."));
     });
 
     const research = await runResearch(7, "big topic");
-    expect(research.report).toBe("Final forced report.");
-    // MAX_RESEARCH_ROUNDS - 1 search rounds + 1 forced final call
-    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(MAX_RESEARCH_ROUNDS);
-    const finalMessages = chatWithNvidiaGateway.mock.calls[MAX_RESEARCH_ROUNDS - 1][1];
-    expect(finalMessages.at(-1).content).toContain("reached your search budget");
+    expect(research.report).toBe("Final autonomous report.");
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(totalRounds);
+  });
+
+  it("surfaces allowance exhaustion from the gateway mid-research", async () => {
+    searchExa.mockResolvedValue([]);
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(chatResult("", [{ id: "call-1", name: "search_web", arguments: JSON.stringify({ query: "x" }) }]))
+      .mockRejectedValueOnce(new Error("This workspace has reached Nova's configured NVIDIA request allowance."));
+    await expect(runResearch(7, "topic")).rejects.toThrow("NVIDIA request allowance");
   });
 
   it("requires a configured Exa key", async () => {

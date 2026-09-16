@@ -2,7 +2,7 @@
  * Admin console data access. Every function here is reached only through
  * `adminProcedure`, which rejects any caller whose role is not `admin`.
  */
-import { count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   agentVmRuns,
@@ -124,6 +124,17 @@ export async function setUserRoleForAdmin(userId: number, role: "user" | "admin"
     .where(eq(users.id, userId))
     .returning(managedUserColumns);
   return updated as AdminManagedUser | undefined;
+}
+
+/** Number of other admins who could keep the console running — admins that are
+ * currently banned do not count, since they cannot sign in to help. */
+export async function countOtherActiveAdmins(userId: number): Promise<number> {
+  const db = await requireDb();
+  const [row] = await db
+    .select({ total: count() })
+    .from(users)
+    .where(and(eq(users.role, "admin"), isNull(users.bannedAt), ne(users.id, userId)));
+  return Number(row?.total ?? 0);
 }
 
 /** Ban or unban an account. Banned accounts are signed out and cannot sign back

@@ -1,4 +1,6 @@
 import express from "express";
+import { sql } from "drizzle-orm";
+import { getDb } from "./db";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
@@ -39,4 +41,19 @@ async function handleTelegramUpdate(token: string, req: express.Request, res: ex
   if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) { const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started."); await sendTelegramMessage(token, chatId, startMessage); res.status(200).json({ ok: true, replied: "start", linked: isAppLink }); return; } if (text === "/new") { const chat = await createChatForUser(ownerId, "Telegram Chat"); void pruneChatsIfNeeded(ownerId); await sendTelegramMessage(token, chatId, `New chat created (ID: ${chat.id}). Ask me anything!`); res.status(200).json({ ok: true }); return; } const chatId_num = await getOrCreateLatestTelegramChat(ownerId); void pruneChatsIfNeeded(ownerId); await sendChatAction(token, chatId, "typing"); const placeholder = await sendTelegramMessage(token, chatId, "⏳ Thinking..."); let streamedText = ""; let lastEditAt = 0; const streamingPlaceholderMsgId = placeholder.message_id; const TELEGRAM_MESSAGE_LIMIT = 4096; const streamEdit = async (text: string) => { try { await editTelegramMessage(token, chatId, streamingPlaceholderMsgId, text.slice(0, TELEGRAM_MESSAGE_LIMIT)); } catch { /* rate-limited or text unchanged; the final delivery below is authoritative */ } }; const result = await runWorkspaceAgent(ownerId, chatId_num, text, { onChunk: async (chunk: string) => { streamedText += chunk; const now = Date.now(); if (now - lastEditAt >= 1000) { lastEditAt = now; void streamEdit(streamedText); } } }); const reply = String(result.message?.content ?? streamedText ?? "I'm ready to help with this workspace.").trim(); if (!reply) { await sendTelegramMessage(token, chatId, "Nova could not finish that reply. Please try again shortly."); res.status(200).json({ ok: true }); return; } let delivered = false; if (reply.length <= TELEGRAM_MESSAGE_LIMIT) { try { await editTelegramMessage(token, chatId, streamingPlaceholderMsgId, reply); delivered = true; } catch { /* fall through to fresh-message delivery */ } } if (!delivered) { for (let offset = 0; offset < reply.length; offset += TELEGRAM_MESSAGE_LIMIT) { try { await sendTelegramMessage(token, chatId, reply.slice(offset, offset + TELEGRAM_MESSAGE_LIMIT)); delivered = true; } catch { break; } } if (delivered) { try { await editTelegramMessage(token, chatId, streamingPlaceholderMsgId, streamedText ? "↗️ Reply continued below." : "✅ Reply sent below."); } catch {} } } if (!delivered) { await sendTelegramMessage(token, chatId, "Nova could not deliver that reply to Telegram. Please try again shortly."); } void autoTitleChatForUser(ownerId, chatId_num).catch(() => {}); res.status(200).json({ ok: true }); return; } catch (error) { console.error("[Telegram webhook] failed", error); res.status(500).json({ error: "webhook-failed" }); return; } }
 app.post("/api/telegram/webhook/default", async (req, res) => { const token = ENV.defaultTelegramBotToken; if (!token) return res.status(404).json({ error: "bot-not-configured" }); await handleTelegramUpdate(token, req, res); });
 app.post("/api/telegram/webhook/:token", async (req, res) => { const token = req.params.token; if (!token) return res.status(400).json({ error: "missing-token" }); await handleTelegramUpdate(token, req, res); });
+// TEMPORARY one-shot migration route (removed immediately after use).
+const TEMP_MIGRATION_TOKEN = "3f8a1d52-c94e-4b7a-9e6d-8a2c5b0f41d7";
+app.post("/api/__apply_username_migration", async (_req: express.Request, res: express.Response) => {
+  const db = await getDb();
+  if (!db) return res.status(503).json({ error: "Database unavailable." });
+  if (_req.header("x-migration-token") !== TEMP_MIGRATION_TOKEN) return res.status(403).json({ error: "Forbidden." });
+  try {
+    await db.execute(sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "username" varchar(64)`);
+    await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "users_username_key" ON "users" ("username")`);
+    const check = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'username'`);
+    return res.status(200).json({ success: true, columnPresent: check.rows.length > 0 });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Migration failed." });
+  }
+});
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));

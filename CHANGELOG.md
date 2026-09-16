@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-16 — Landing page: agent-action feature card replaces Conversations
+
+- `client/src/pages/Home.tsx`: the middle feature card on the landing page no longer pitches conversations ("Useful help, in context") — it now positions Nova as *An agent that takes action*: "Instead of just chatting, Nova does the work — creating files, sending messages, and carrying jobs through to done." Icon swapped from MessageSquareText to Bot (the old icon stays in use in the hero preview mock).
+- `client/src/pages/Home.render.test.tsx`: the landing test now asserts the new card copy and that the old Conversations copy is gone.
+
+
 ## 2026-09-16 — Landing-page workspace preview optimized for phones
 
 - `client/src/pages/Home.tsx`: the hero's mock workspace window now adapts to small screens. Phones get a single-pane preview — the decorative sidebar (previously a fixed 132px column, roughly a third of a phone viewport) is hidden below sm and the mock content gets the full card width. The card also scales down on phones: tighter corner radii and padding, a lighter shadow, a shorter min-height (300px vs 390px), comfier content padding, and slightly tighter vertical rhythm between the chat card and the "pick up where you left off" cards. From sm up the two-pane workspace looks exactly as before, and the whole mock is now aria-hidden since it is purely decorative.

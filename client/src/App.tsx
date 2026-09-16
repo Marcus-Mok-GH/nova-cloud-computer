@@ -14,6 +14,7 @@ import More from "./pages/More";
 import Profile from "./pages/Profile";
 import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
+import Admin from "./pages/Admin";
 
 function Router() {
   return (
@@ -27,6 +28,7 @@ function Router() {
       <Route path={"/app/profile"} component={Profile} />
       <Route path={"/app/settings"} component={WorkspaceSettings} />
       <Route path={"/app/more"} component={More} />
+      <Route path={"/app/admin"} component={Admin} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

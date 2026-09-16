@@ -1,4 +1,4 @@
-import { Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, type LucideIcon } from "lucide-react";
+import { Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, ShieldCheck, type LucideIcon } from "lucide-react";
 
 /** A single entry in Nova's primary dashboard navigation. */
 export type NavItem = { icon: LucideIcon; label: string; path: string; description?: string };
@@ -10,3 +10,6 @@ export const navItems: NavItem[] = [
   { icon: Rocket, label: "Deployments", path: "/app/deployments", description: "Manage your deployed apps and services" },
   { icon: Settings2, label: "Settings", path: "/app/settings", description: "Configure your workspace" },
 ];
+
+/** Shown in the sidebar only for accounts whose role is `admin`. */
+export const adminNavItem: NavItem = { icon: ShieldCheck, label: "Admin", path: "/app/admin", description: "System health and account management" };

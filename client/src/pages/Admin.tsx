@@ -1,6 +1,6 @@
 import React from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { BadgeCheck, Bot, Loader2, MessageSquareText, ShieldCheck, Users as UsersIcon, Zap } from "lucide-react";
+import { Ban, BadgeCheck, Bot, Loader2, MessageSquareText, RotateCcw, ShieldCheck, Trash2, Users as UsersIcon, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -21,21 +21,42 @@ export default function Admin() {
   const { loading, user } = useAuth();
   const utils = trpc.useUtils();
   const [pendingUserId, setPendingUserId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<"role" | "ban" | "delete" | null>(null);
 
   const overviewQuery = trpc.admin.overview.useQuery(undefined, { enabled: user?.role === "admin", retry: false });
   const usersQuery = trpc.admin.users.useQuery(undefined, { enabled: user?.role === "admin", retry: false });
 
+  const invalidateAdminData = async () => Promise.all([utils.admin.overview.invalidate(), utils.admin.users.invalidate()]);
+  const settlePending = () => { setPendingUserId(null); setPendingAction(null); };
+
   const setUserRole = trpc.admin.setUserRole.useMutation({
-    onMutate: variables => setPendingUserId(variables.userId),
+    onMutate: variables => { setPendingUserId(variables.userId); setPendingAction("role"); },
     onSuccess: async result => {
-      setPendingUserId(null);
-      await Promise.all([utils.admin.overview.invalidate(), utils.admin.users.invalidate()]);
+      settlePending();
+      await invalidateAdminData();
       toast.success(`${result.user.email ?? "That account"} is now ${result.user.role === "admin" ? "an admin" : "a standard user"}.`);
     },
-    onError: error => {
-      setPendingUserId(null);
-      toast.error(error.message || "Could not change that role.");
+    onError: error => { settlePending(); toast.error(error.message || "Could not change that role."); },
+  });
+
+  const setUserBanned = trpc.admin.setUserBanned.useMutation({
+    onMutate: variables => { setPendingUserId(variables.userId); setPendingAction("ban"); },
+    onSuccess: async result => {
+      settlePending();
+      await invalidateAdminData();
+      toast.success(result.user.bannedAt ? `${result.user.email ?? "That account"} is banned and has been signed out.` : `${result.user.email ?? "That account"} can sign in again.`);
     },
+    onError: error => { settlePending(); toast.error(error.message || "Could not update that ban."); },
+  });
+
+  const deleteUser = trpc.admin.deleteUser.useMutation({
+    onMutate: variables => { setPendingUserId(variables.userId); setPendingAction("delete"); },
+    onSuccess: async () => {
+      settlePending();
+      await invalidateAdminData();
+      toast.success("Account deleted along with its workspace data.");
+    },
+    onError: error => { settlePending(); toast.error(error.message || "Could not delete that account."); },
   });
 
   if (loading) return <DashboardLayout><div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div></DashboardLayout>;
@@ -96,19 +117,38 @@ export default function Admin() {
                         {account.email ?? account.name ?? `Account #${account.id}`}
                         {account.role === "admin" && <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">admin</span>}
                         {isSelf && <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">you</span>}
+                        {account.bannedAt && <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300">banned</span>}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className={`mt-1 text-xs text-muted-foreground ${account.bannedAt ? "line-through decoration-red-400/60" : ""}`}>
                         Joined {formatDay(account.createdAt)} · Last signed in {formatStamp(account.lastSignedIn)}
                       </p>
                     </div>
-                    <button
-                      onClick={() => setUserRole.mutate({ userId: account.id, role: account.role === "admin" ? "user" : "admin" })}
-                      disabled={isSelf || busy}
-                      title={isSelf ? "You cannot change your own role here." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
-                      className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 className="size-3.5 animate-spin" /> : account.role === "admin" ? "Demote" : "Promote"}
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        onClick={() => setUserRole.mutate({ userId: account.id, role: account.role === "admin" ? "user" : "admin" })}
+                        disabled={isSelf || busy}
+                        title={isSelf ? "You cannot change your own role here." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
+                        className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy && pendingAction === "role" ? <Loader2 className="size-3.5 animate-spin" /> : account.role === "admin" ? "Demote" : "Promote"}
+                      </button>
+                      <button
+                        onClick={() => setUserBanned.mutate({ userId: account.id, banned: !account.bannedAt })}
+                        disabled={isSelf || busy}
+                        title={isSelf ? "You cannot ban your own account here." : account.bannedAt ? "Unban this account" : "Ban this account and sign it out"}
+                        className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busy && pendingAction === "ban" ? <Loader2 className="size-3.5 animate-spin" /> : account.bannedAt ? <><RotateCcw className="size-3.5" /> Unban</> : <><Ban className="size-3.5" /> Ban</>}
+                      </button>
+                      <button
+                        onClick={() => { if (window.confirm(`Permanently delete ${account.email ?? "this account"} and all of its workspace data? This cannot be undone.`)) deleteUser.mutate({ userId: account.id }); }}
+                        disabled={isSelf || busy}
+                        title={isSelf ? "You cannot delete your own account here." : "Permanently delete this account"}
+                        className="pill-btn px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                      >
+                        {busy && pendingAction === "delete" ? <Loader2 className="size-3.5 animate-spin" /> : <><Trash2 className="size-3.5" /> Delete</>}
+                      </button>
+                    </div>
                   </li>
                 );
               })}

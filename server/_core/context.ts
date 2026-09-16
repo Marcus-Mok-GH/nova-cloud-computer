@@ -50,6 +50,7 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
     if (!identity) return null;
     await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
     const user = await getUserByOpenId(identity.openId);
+    if (user?.bannedAt) return null; // Banned accounts cannot sign in, even with a valid Neon token.
     if (user) void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
     return user ? { user, identity } : null;
   } catch (error) {
@@ -65,7 +66,7 @@ async function authenticateFirstPartySession(cookieHeader: string | undefined): 
   const session = await sdk.verifySession(sessionToken);
   if (!session) return null;
   const user = await getUserByOpenId(session.openId);
-  if (!user) return null;
+  if (!user || user.bannedAt) return null; // Banned accounts are treated as signed out.
   void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
   return {
     user,

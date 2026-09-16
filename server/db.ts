@@ -84,6 +84,15 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
   return !!deleted;
 }
 
+/** True when an admin has banned this account. Banned accounts cannot sign in
+ * or use the Telegram bot; the ban is a first-party Nova state, independent of
+ * the Neon Auth identity. */
+export async function isUserBanned(userId: number): Promise<boolean> {
+  const db = await requireDb();
+  const [row] = await db.select({ bannedAt: users.bannedAt }).from(users).where(eq(users.id, userId)).limit(1);
+  return Boolean(row?.bannedAt);
+}
+
 
 /**
  * Ensures that a user's durable E2B sandbox exists and that Nova retains

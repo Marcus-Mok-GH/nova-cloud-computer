@@ -1,5 +1,5 @@
 import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
-import { searchWeb } from "./webSearch";
+import { runResearch } from "./researcher";
 import { startAgentVmRun } from "./agentVm";
 import {
   appendChatMessageForUser,
@@ -364,22 +364,22 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "web_search",
+      name: "research_web",
       description:
-        "Search the live public web and return the top results with titles, URLs and snippets. Use this for anything current or factual you do not already know: news, prices, release versions, library docs, error messages, specific facts about people, places or products. Never guess what a search can answer. Cite the result URL when a result drives your answer.",
+        "Delegate deep research to a specialized researcher sub-agent. It plans and runs several live web searches (powered by Exa AI), cross-reads the sources, and returns a full research report with inline citations and a numbered source list. Use it for anything that needs more than a quick fact: in-depth questions, comparisons, current events, technical investigations, prices, versions, docs. It can take up to a minute — use it deliberately, not for simple lookups inside your own workspace.",
       parameters: {
         type: "object",
         properties: {
-          query: {
+          topic: {
             type: "string",
-            description: "The search query — keywords work best.",
+            description: "The topic or question to research.",
           },
-          max_results: {
-            type: "number",
-            description: "How many results to return (default 5, max 8).",
+          instructions: {
+            type: "string",
+            description: "Optional focus, constraints or specific questions the research should answer.",
           },
         },
-        required: ["query"],
+        required: ["topic"],
       },
     },
   },
@@ -520,7 +520,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Search before you guess. Use web_search for anything current or factual you do not know for certain — prices, versions, news, docs, specific facts. A quick search beats a confident-sounding wrong answer; cite the result URL for facts that came from a result.
+- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from a specialized sub-agent. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Assume instead of asking. When a request is underspecified, choose sensible defaults (names, structure, wording, formatting) and state the choice in one line. Ask a question only when no reasonable interpretation exists at all.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
@@ -834,19 +834,20 @@ async function executeWorkspaceTool(
         };
       }
     }
-    case "web_search": {
-      const query = str(args.query);
-      if (!query) return { ok: false, result: "A search query is required." };
-      const maxResults = Math.min(Math.max(Number(args.max_results) || 5, 1), 8);
+    case "research_web": {
+      const topic = str(args.topic);
+      if (!topic) return { ok: false, result: "A research topic is required." };
+      const instructions = str(args.instructions) || undefined;
       try {
-        const results = await searchWeb(query, maxResults);
-        if (!results.length) return { ok: true, result: `No results found for "${query}".` };
-        const body = results
-          .map((result, index) => `${index + 1}. ${result.title}\n   ${result.url}\n   ${result.snippet}`)
-          .join("\n");
-        return { ok: true, result: body };
+        const research = await runResearch(ownerId, topic, instructions);
+        const sourcesBlock = research.sources.length
+          ? `\n\nAll sources consulted by the researcher:\n${research.sources
+              .map((source, index) => `${index + 1}. ${source.title || source.url} — ${source.url}`)
+              .join("\n")}`
+          : "";
+        return { ok: true, result: research.report + sourcesBlock };
       } catch (error) {
-        return { ok: false, result: `Web search failed: ${error instanceof Error ? error.message : "unknown error"}.` };
+        return { ok: false, result: `Web research failed: ${error instanceof Error ? error.message : "unknown error"}.` };
       }
     }
     case "run_vm_task": {

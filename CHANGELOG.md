@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-16 — /stop now stops the response in flight
+
+- `server/app.ts`: the Telegram webhook now acknowledges every update instantly and processes it in the background. Telegram delivers updates one at a time and waits for each ack, so a handler that awaited a full agent run was queuing /stop (and every later update) until the response completed. The /stop confirmation copy now says replies stop almost immediately.
+- `server/workspaceAgent.ts`: runs own an `AbortController` — the streamed chunk flow polls the stop flag (throttled to every 250ms) and aborts the in-flight completion mid-response instead of waiting for the round to finish. Stop checks remain at round boundaries and between tool calls; aborted requests are never retried.
+- `server/nvidiaGateway.ts`: `chatWithNvidiaGateway` accepts a `signal`, `gatewayFetch` links it to the request (a user stop aborts the in-flight fetch like the timeout does), and aborted requests raise a `stopped` error kind that is excluded from retries.
+- Tests: webhook integration test proves /stop is handled while a run is still pending; agent unit test proves a long streamed reply aborts mid-response when the stop flag appears.
+
+
 ## 2026-09-16 — Hide the model ID and provider from users
 
 - `server/app.ts`: removed the Telegram `/models` and `/model` commands and the `nova_model_` button callback — no model ids, no "Current model", no provider names reach the chat. `/models` now simply goes to the agent like any other text.

@@ -70,7 +70,11 @@ export class NvidiaGatewayClientError extends Error {
   constructor(
     message: string,
     public readonly kind:
-      "configuration" | "unavailable" | "rate_limit" | "invalid_response"
+      | "configuration"
+      | "unavailable"
+      | "rate_limit"
+      | "invalid_response"
+      | "stopped"
   ) {
     super(message);
     this.name = "NvidiaGatewayClientError";
@@ -161,7 +165,12 @@ function serviceHeaders(token: string) {
   };
 }
 
-async function gatewayFetch(path: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function gatewayFetch(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  externalSignal?: AbortSignal
+) {
   const baseUrl = configuredGatewayUrl();
   const token = configuredGatewayToken();
   if (!baseUrl || !token)
@@ -170,6 +179,10 @@ async function gatewayFetch(path: string, init: RequestInit = {}, timeoutMs = RE
       "configuration"
     );
   const controller = new AbortController();
+  // A user's /stop aborts the in-flight request just like the timeout does.
+  const abortWithStop = () => controller.abort();
+  externalSignal?.addEventListener("abort", abortWithStop, { once: true });
+  if (externalSignal?.aborted) controller.abort();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(`${baseUrl}${path}`, {
@@ -179,11 +192,14 @@ async function gatewayFetch(path: string, init: RequestInit = {}, timeoutMs = RE
     });
   } catch (error) {
     throw new NvidiaGatewayClientError(
-      sanitizeGatewayError(error),
-      "unavailable"
+      externalSignal?.aborted
+        ? "This reply was stopped with /stop."
+        : sanitizeGatewayError(error),
+      "stopped"
     );
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortWithStop);
   }
 }
 
@@ -897,6 +913,8 @@ export async function chatWithNvidiaGateway(
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
+    /** Abort in-flight completions when the user stops the run (/stop). */
+    signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
   const status = await getNvidiaGatewayStatus(ownerId);
@@ -940,7 +958,8 @@ export async function chatWithNvidiaGateway(
           ...(options.onChunk ? { stream: true } : {}),
         }),
       },
-      CHAT_REQUEST_TIMEOUT_MS
+      CHAT_REQUEST_TIMEOUT_MS,
+      options.signal
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";

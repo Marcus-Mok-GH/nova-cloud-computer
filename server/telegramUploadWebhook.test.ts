@@ -113,6 +113,16 @@ describe("Telegram upload webhook (full handler)", () => {
     return { status: response.status, body: await response.json().catch(() => undefined) };
   }
 
+  // The webhook acknowledges instantly and processes the update in the
+  // background, so tests poll for the side effects instead of the response.
+  async function waitFor(predicate: () => boolean, timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error("timed out waiting for the webhook's background processing");
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+
   it("saves an uploaded photo, attaches it as vision input, and replies in chat", async () => {
     // Telegram API: getFile for the download path, then the file bytes.
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -138,7 +148,8 @@ describe("Telegram upload webhook (full handler)", () => {
     });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ ok: true });
+    expect(body).toEqual({ ok: true, accepted: true });
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
 
     // The largest photo size was downloaded from Telegram.
     const getFileCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -193,6 +204,7 @@ describe("Telegram upload webhook (full handler)", () => {
     });
 
     expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length >= 1);
     expect(spies.createWorkspaceFileForUser).toHaveBeenCalledWith(7, {
       name: "notes.txt",
       content: "shopping list",
@@ -222,6 +234,7 @@ describe("Telegram upload webhook (full handler)", () => {
         document: { file_id: "pdf1", file_name: "report.pdf", mime_type: "application/pdf" },
       },
     });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length >= 1);
 
     let [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0];
     expect(agentContent).toContain("run_vm_task");
@@ -245,6 +258,7 @@ describe("Telegram upload webhook (full handler)", () => {
     });
 
     expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length >= 2);
     expect(spies.createWorkspaceFileForUser).toHaveBeenCalledTimes(1);
     [, , agentContent] = spies.runWorkspaceAgent.mock.calls[1];
     expect(agentContent).toContain("saving it to the workspace failed");
@@ -262,13 +276,47 @@ describe("Telegram upload webhook (full handler)", () => {
     });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ ok: true });
+    expect(body).toEqual({ ok: true, accepted: true });
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
     expect(spies.runWorkspaceAgent).toHaveBeenCalledTimes(1);
     // The only Telegram message is the agent's own reply — no model list.
     expect(spies.sendTelegramMessage).toHaveBeenCalledTimes(1);
     expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "It's a corgi!");
     const sent = spies.sendTelegramMessage.mock.calls[0][2] as string;
     expect(sent).not.toMatch(/moonshotai|nvidia|kimi|nemotron/i);
+  });
+
+  it("processes /stop while an agent run is still in flight", async () => {
+    let resolveRun!: (value: { message: { content: string }; actions: unknown[] }) => void;
+    spies.runWorkspaceAgent.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveRun = resolve;
+        })
+    );
+
+    await postUpdate({
+      update_id: 507,
+      message: { message_id: 16, chat: { id: 42 }, text: "write a very long essay" },
+    });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length >= 1);
+
+    // The run is still pending, yet /stop is handled right away.
+    await postUpdate({
+      update_id: 508,
+      message: { message_id: 17, chat: { id: 42 }, text: "/stop" },
+    });
+    await waitFor(() =>
+      spies.sendTelegramMessage.mock.calls.some(call =>
+        String(call[2]).includes("Stopping all running agent processes")
+      )
+    );
+    const { requestAgentStopForUser } = await import("./db");
+    expect(requestAgentStopForUser).toHaveBeenCalledWith(7);
+    expect(spies.runWorkspaceAgent).toHaveBeenCalledTimes(1);
+
+    resolveRun({ message: { content: "the essay anyway" }, actions: [] });
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "the essay anyway"));
   });
 
   it("still rejects uploads from chats that are not linked", async () => {
@@ -284,7 +332,8 @@ describe("Telegram upload webhook (full handler)", () => {
     });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ ok: true, skipped: "unlinked-shared-bot" });
+    expect(body).toEqual({ ok: true, accepted: true });
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => String(call[2]).includes("not yet linked")));
     expect(spies.createWorkspaceFileForUser).not.toHaveBeenCalled();
     expect(spies.runWorkspaceAgent).not.toHaveBeenCalled();
     expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "999", expect.stringContaining("not yet linked"));

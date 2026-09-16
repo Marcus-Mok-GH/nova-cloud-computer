@@ -173,6 +173,8 @@ describe("Nova tool-calling workspace agent", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    // Streaming runs now poll the stop flag mid-response: keep the default.
+    hasAgentStopAfter.mockImplementation(async () => false);
   });
 
   it("runs every message through the model with workspace tools exposed", async () => {
@@ -604,6 +606,32 @@ describe("Nova tool-calling workspace agent", () => {
     expect(createFile).toHaveBeenCalledTimes(1);
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
+    expect(result.message.content).toContain("/stop");
+    chatWithNvidiaGateway.mockReset();
+    hasAgentStopAfter.mockReset();
+  });
+
+  it("aborts a long streamed reply mid-response when /stop arrives", async () => {
+    chatWithNvidiaGateway.mockReset().mockImplementation(
+      (_ownerId: number, _messages: unknown, gatewayOptions: { onChunk?: (chunk: string) => void; signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const emit = () => {
+            gatewayOptions?.onChunk?.("more text");
+            if (gatewayOptions?.signal?.aborted) {
+              reject(new Error("request aborted"));
+              return;
+            }
+            setTimeout(emit, 1);
+          };
+          emit();
+        })
+    );
+    hasAgentStopAfter.mockReset().mockImplementation(async () => true);
+
+    const result = await runWorkspaceAgent(1, 3, "write a very long essay", {
+      onChunk: () => {},
+    });
+    expect(result.message.content).toContain("\u23f9\ufe0f Stopped");
     expect(result.message.content).toContain("/stop");
     chatWithNvidiaGateway.mockReset();
     hasAgentStopAfter.mockReset();

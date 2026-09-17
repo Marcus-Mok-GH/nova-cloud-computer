@@ -49,7 +49,7 @@ The approved Guerrilla Mail inbox received the new Neon Auth “Sign In to nova-
 
 The raw Neon verification URL completed successfully in the same clean browser session. Nova redirected to the canonical `/app` route, exchanged the callback verifier, obtained an authenticated API identity, and rendered the workspace with `y92f9y+7krswzvcqk2fg@sharklasers.com` in the sidebar. This confirms that the deployed `authClient.token()` JWT path authorizes a newly created Neon session end-to-end.
 
-Vercel production logs were queried during the post-deployment verification window (09:38:18–09:43:18) for `Invalid Compact JWS`; no matching log entries were returned. Earlier matching warnings at 09:33 originated from the superseded deployment and were excluded from the clean verification result.
+Vercel production logs were queried during the post-deployment verification window (09:38:18-09:43:18) for `Invalid Compact JWS`; no matching log entries were returned. Earlier matching warnings at 09:33 originated from the superseded deployment and were excluded from the clean verification result.
 
 **Verification record:** the successful clean-session production run was performed against Vercel deployment `dpl_DAxVosXcwJgvTr2Zjbvz6E1wp31V`, which deployed Git commit `0c51929` (“Use Neon JWT for authenticated API requests”). It completed before any subsequent documentation or Vitest-configuration commit. Vitest discovery now includes `client/src/**/*.test.ts`; the full suite executed 15 passing tests across six files, with two pre-existing integration tests skipped, and the subsequent production build completed successfully.
 

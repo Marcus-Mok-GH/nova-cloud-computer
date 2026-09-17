@@ -18,7 +18,7 @@ This project is an original Nova-branded implementation inspired by the public Z
 
 **Interaction Philosophy.** Controls respond with measured physicality: dark pills deepen slightly on hover, segmented options swap the content inside the workspace scene, carousel arrows move the discovery rail, and FAQ rows unfold inline. Navigation highlights are intentionally quiet. Every interaction remains keyboard accessible and announces a clear visible state.
 
-**Animation.** Atmospheric color blooms drift slowly only when reduced motion is not requested. Product scenes rise a few pixels and settle on viewport entry. Tabs and controls transition within 160–220 milliseconds using a crisp ease-out curve. The display shadow has no continuous animation; it is a typographic material effect, not spectacle.
+**Animation.** Atmospheric color blooms drift slowly only when reduced motion is not requested. Product scenes rise a few pixels and settle on viewport entry. Tabs and controls transition within 160-220 milliseconds using a crisp ease-out curve. The display shadow has no continuous animation; it is a typographic material effect, not spectacle.
 
 **Typography System.** `DM Serif Display` carries hero, section headlines, and selected quoted lines. `Manrope` supplies all navigational, product UI, button, and body copy. Display type uses tight optical spacing and generous line-height at smaller sizes; interface labels stay compact, tracking slightly positive, and avoid all-caps overload.
 

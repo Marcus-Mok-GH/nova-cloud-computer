@@ -366,6 +366,64 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
+  it("interrupts a tool that outlasts the run deadline and still persists a closing reply", async () => {
+    // A single long call (a VM task, a deploy) used to blow straight past
+    // the 285s budget between the round-level checks: Vercel killed the
+    // function mid-tool and the user never saw a reply. The race stops
+    // waiting on the call and closes the run instead.
+    deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
+    chatWithNvidiaGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      onChunk,
+      deadlineAtMs: Date.now() + 25,
+    });
+    // No second model round — the run closed at the deadline.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    const reply = result.message.content;
+    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain("deploy_website");
+    expect(reply).toContain("interrupted mid-flight");
+    // The interrupted call is recorded as failed activity, not left "running".
+    const persistedToolActivities = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    expect(
+      persistedToolActivities.some(activity =>
+        activity.content.includes("was interrupted")
+      )
+    ).toBe(true);
+    // The closing reply streams to the client like any other reply.
+    expect(onChunk).toHaveBeenCalledWith(reply);
+  });
+
+  it("closes immediately when the deadline has already passed when a tool starts", async () => {
+    chatWithNvidiaGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      onChunk,
+      deadlineAtMs: Date.now() - 1_000,
+    });
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    const reply = result.message.content;
+    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain("deploy_website");
+    expect(reply).toContain("interrupted mid-flight");
+    expect(onChunk).toHaveBeenCalledWith(reply);
+  });
+
   it("relays the reason back to the model when a deployment fails", async () => {
     deployWebsite.mockResolvedValueOnce({
       ok: false,

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-17 — Removed the hardcoded "Working on it" fallback: the model owns all messaging
+
+- Owner decision: no hardcoded canned messages from the Telegram webhook — the AI does the sending itself. The system prompt already instructs the model to open with an honest ETA via `send_progress_update` on medium-to-long tasks (and just answer short ones directly), and that is now the only acknowledgment mechanism.
+- `server/app.ts`: removed the deterministic 8s fallback timer, its "Working on it — I'll keep you posted if this takes a bit." message, the `acknowledged` tracking flag, and the `onEvent` handler that existed solely to detect model-sent notes. The typing indicator (refreshed every 4.5s until the reply lands) remains the only built-in feedback.
+- `server/_core/env.ts`: removed the now-unused `TELEGRAM_ACK_FALLBACK_DELAY_MS` / `telegramAckFallbackDelayMs` env knob.
+- Deleted `server/telegramAckFallback.test.ts` (the fallback no longer exists; the tests for the removed behavior went with it).
+
+## 2026-09-17 — Telegram bot now remembers the conversation
 ## 2026-09-17 — Telegram bot now remembers the conversation
 
 - `server/workspaceAgent.ts`: `runWorkspaceAgent` built the model prompt from only the system message plus the *current* turn — no prior chat history was ever loaded. Every incoming Telegram message was a brand-new conversation to the model, with zero memory of anything said moments earlier; continuity only ever came from whatever the model could re-derive by reading workspace files. Reported live: "Add a game history" was followed 8 minutes later by "Are you done?", and the bot replied "I don't have an active task right now... this looks like the start of a new conversation." Now the last up-to-60 real turns (tool-activity bookkeeping rows filtered out) are loaded from the chat's history and fed to the model ahead of the current turn, so it actually remembers what was just discussed.

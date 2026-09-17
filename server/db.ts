@@ -295,6 +295,23 @@ export async function listProjectsForUser(ownerId: number) {
   return db.select().from(projects).where(eq(projects.workspaceId, workspace.id)).orderBy(asc(projects.createdAt));
 }
 
+/** The user's saved communication-style preference, injected into every agent run. */
+export async function getCommunicationStyleForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [row] = await db.select({ communicationStyle: workspaceSettings.communicationStyle }).from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspace.id)).limit(1);
+  return row?.communicationStyle ?? null;
+}
+
+/** Persists the user's communication-style preference (set by the agent via its tool). */
+export async function setCommunicationStyleForUser(ownerId: number, style: string) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const trimmed = style.trim().slice(0, 500);
+  await db.update(workspaceSettings).set({ communicationStyle: trimmed, updatedAt: new Date() }).where(eq(workspaceSettings.workspaceId, workspace.id));
+  return trimmed;
+}
+
 export async function createProjectForUser(ownerId: number, input: { name: string; description?: string | null }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);

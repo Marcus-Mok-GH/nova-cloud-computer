@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-17 — Manus-style: voice notes, persistent style preference
+
+Research-driven parity pass with Manus's Telegram bot (three requested capabilities; the file-deliverable one turned out to already exist via present_file).
+- *Voice messages* (`server/transcription.ts`, new): Telegram voice notes are now transcribed webhook-side through an OpenAI-compatible `/audio/transcriptions` endpoint and the transcript becomes the user's turn — the agent acts on it as if typed. Env-configured: `TRANSCRIPTION_API_KEY` (required), `TRANSCRIPTION_API_BASE_URL` (default `https://api.openai.com/v1`; set to e.g. `https://api.groq.com/openai/v1` for Groq), `TRANSCRIPTION_MODEL` (default `whisper-1`). Unconfigured or failing transcription degrades gracefully: the agent is told to ask the user to type instead, and the audio file is still saved to the workspace.
+- *Persistent communication style* (`set_communication_style` tool + `workspace_settings.communicationStyle`): the user tells the bot how to communicate ("keep it short", "be structured", "reply in French") and the model persists it; the saved style is injected into every future system prompt across all chats and sessions. Migration `0020` adds the column (the migration chain's snapshot gap — hand-written 0009–0019 had no snapshots — is also healed: generate diffs against a correct full-schema snapshot again).
+- *File deliverables in chat*: no change needed — `present_file` already sends images inline and documents as downloadable Telegram files.
+
+## 2026-09-17 — The model now chooses: update the existing site, or create a new one
 ## 2026-09-17 — The model now chooses: update the existing site, or create a new one
 
 - Owner request: let the AI decide whether a deploy updates the existing live site or spins up a new one, to reduce complexity between site versions. Previously every deploy overwrote the single workspace Netlify site — a brand-new, completely different project would clobber the URL the user already shared, and there was no way to have two sites.

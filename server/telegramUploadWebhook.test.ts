@@ -14,6 +14,7 @@ const spies = vi.hoisted(() => ({
   createChatForUser: vi.fn(async () => ({ id: 3 })),
   deleteChatForUser: vi.fn(async () => true),
   runWorkspaceAgent: vi.fn(async () => ({ message: { content: "It's a corgi!" }, actions: [] })),
+  transcribeAudio: vi.fn(async () => null),
   autoTitleChatForUser: vi.fn(async () => true),
 }));
 
@@ -33,6 +34,7 @@ vi.mock("./db", () => ({
   claimTelegramUpdate: spies.claimTelegramUpdate,
 }));
 
+vi.mock("./transcription", () => ({ transcribeAudio: spies.transcribeAudio }));
 vi.mock("./workspaceAgent", () => ({
   runWorkspaceAgent: spies.runWorkspaceAgent,
   autoTitleChatForUser: spies.autoTitleChatForUser,
@@ -370,5 +372,65 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(spies.createWorkspaceFileForUser).not.toHaveBeenCalled();
     expect(spies.runWorkspaceAgent).not.toHaveBeenCalled();
     expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "999", expect.stringContaining("not yet linked"));
+  });
+
+  it("transcribes a voice note and hands the transcript to the agent as the user's turn", async () => {
+    spies.transcribeAudio.mockResolvedValue("remind me to water the plants at 6pm");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "voice/note.ogg" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([9, 9, 9]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const { status } = await postUpdate({
+      update_id: 506,
+      message: {
+        message_id: 15,
+        chat: { id: 42 },
+        voice: { file_id: "voice-1", mime_type: "audio/ogg", duration: 4 },
+      },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    // The saved audio was decoded and sent to the transcription provider.
+    const [bytes, mimeType, fileName] = spies.transcribeAudio.mock.calls[0] as [Buffer, string, string];
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(mimeType).toBe("audio/ogg");
+    expect(String(fileName)).toMatch(/\.ogg$/);
+
+    // The transcript became the user's turn, with a voice-note context line.
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent.startsWith("remind me to water the plants at 6pm")).toBe(true);
+    expect(agentContent).toContain("voice message");
+  });
+
+  it("tells the model to ask the user to type when transcription is not configured", async () => {
+    spies.transcribeAudio.mockResolvedValue(null);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "voice/note.ogg" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([9, 9, 9]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await postUpdate({
+      update_id: 507,
+      message: {
+        message_id: 16,
+        chat: { id: 42 },
+        voice: { file_id: "voice-2", mime_type: "audio/ogg", duration: 4 },
+      },
+    });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent).toContain("TRANSCRIPTION_API_KEY");
+    expect(agentContent).toContain("voice message");
   });
 });

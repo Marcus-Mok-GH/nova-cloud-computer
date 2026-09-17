@@ -1266,6 +1266,26 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
 const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
 let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
+/**
+ * NVIDIA's free tier rate limits (~40 RPM) apply per minute, but once a 429
+ * lockout starts it lasts roughly 30-60 minutes — and every request sent
+ * during the lockout can extend it. So upstream rate limits get ONE patient
+ * retry (transient 429s under load do clear in seconds), never the fast
+ * retry loop, and only when the run budget can absorb the wait.
+ */
+const RATE_LIMIT_RETRY_DELAY_MS = 45_000;
+/** The patient retry only runs with this much run budget left afterwards. */
+const RATE_LIMIT_RETRY_MIN_REMAINING_MS = 60_000;
+let gatewayRateLimitRetryDelayMs: number | null = null;
+
+/** Test hook: shrink the patient rate-limit wait so suites stay fast. */
+export function setGatewayRateLimitRetryDelayForTests(ms: number | null) {
+  gatewayRateLimitRetryDelayMs = ms;
+}
+
+/** Run-scoped retry bookkeeping shared across gateway rounds. */
+type GatewayRetryState = { rateLimitRetryUsed: boolean };
+
 /** Test hook: zero the retry backoff so suites stay fast. */
 export function setGatewayRetryDelaysForTests(delays: number[]) {
   gatewayRetryDelaysMs = delays;
@@ -1285,6 +1305,10 @@ async function chatWithGatewayRetry(
     tools?: GatewayToolDefinition[];
     onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
+    /** Run deadline (epoch ms) — the patient rate-limit wait must fit. */
+    deadlineAtMs?: number;
+    /** Run-scoped state: the patient wait happens at most once per run. */
+    retryState?: GatewayRetryState;
   }
 ) {
   const maxAttempts = gatewayRetryDelaysMs.length + 1;
@@ -1310,6 +1334,22 @@ async function chatWithGatewayRetry(
       const retryable =
         error instanceof NvidiaGatewayClientError &&
         GATEWAY_RETRY_KINDS.has(error.kind);
+      // Upstream 429: one patient retry, deadline-gated, once per run. The
+      // fast loop must never hammer a lockout — that only extends it.
+      const isUpstreamRateLimit =
+        error instanceof NvidiaGatewayClientError && error.kind === "rate_limit";
+      const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
+      if (
+        isUpstreamRateLimit &&
+        streamedChars === 0 &&
+        !(options.retryState?.rateLimitRetryUsed ?? false) &&
+        options.deadlineAtMs !== undefined &&
+        Date.now() + waitMs + RATE_LIMIT_RETRY_MIN_REMAINING_MS <= options.deadlineAtMs
+      ) {
+        if (options.retryState) options.retryState.rateLimitRetryUsed = true;
+        await waitFor(waitMs);
+        continue;
+      }
       if (
         streamedChars > 0 ||
         !retryable ||
@@ -1363,6 +1403,7 @@ export async function runWorkspaceAgent(
 
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
+  const retryState: GatewayRetryState = { rateLimitRetryUsed: false };
   // Summaries of the tool calls in the current round — used to synthesize a
   // closing reply when the run runs out of time before the final model round.
   let lastRoundSummaries: string[] = [];
@@ -1504,6 +1545,8 @@ export async function runWorkspaceAgent(
           tools: agentTools,
           ...(emitChunk ? { onChunk: emitChunk } : {}),
           signal: stopController.signal,
+          deadlineAtMs,
+          retryState,
         });
       } catch (error) {
         if (
@@ -1525,6 +1568,8 @@ export async function runWorkspaceAgent(
           tools: agentTools,
           ...(emitChunk ? { onChunk: emitChunk } : {}),
           signal: stopController.signal,
+          deadlineAtMs,
+          retryState,
         });
       }
       // Recover a tool call the model wrote out as text: run it as a real
@@ -1640,9 +1685,12 @@ export async function runWorkspaceAgent(
     if (kind === "configuration") {
       reply =
         "NVIDIA inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
-    } else if (kind === "rate_limit") {
+    } else if (kind === "allowance_reached") {
       reply =
         "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
+    } else if (kind === "rate_limit") {
+      reply =
+        "NVIDIA's free-tier rate limit was hit (about 40 requests per minute). Their lockouts can last 30-60 minutes, and retrying during one only extends it — so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails

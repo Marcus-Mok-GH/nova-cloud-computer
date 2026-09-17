@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-17 — Rate-limit-aware gateway retries
+
+- `server/nvidiaGateway.ts`: the workspace request-allowance cap now raises a distinct `allowance_reached` error kind, separate from upstream NVIDIA 429s (still `rate_limit`). They need opposite handling — the cap never resets on its own, an upstream 429 sometimes clears in seconds.
+- `server/workspaceAgent.ts`: upstream 429s get ONE patient retry per run after a 45s cooldown — never the fast 400ms/1.2s/5s loop, which per NVIDIA forum reports extends 429 lockouts that last 30-60 minutes. The wait only runs when nothing has streamed and the run deadline can absorb it (45s + a 60s margin), otherwise the run fails immediately. The failure reply now explains the free-tier lockout instead of wrongly blaming the workspace allowance. Transient failures (network, 5xx, empty completions) keep the existing fast retry schedule (3 retries, 400ms-5s backoff); the workspace allowance cap is never retried.
+- Tests: upstream 429 retried once then recovered; a second 429 stops without hammering; a near deadline skips the wait; the allowance cap surfaces its own message.
+
 ## 2026-09-17 — Nova picks the stack automatically when none was specified
 
 - `server/workspaceAgent.ts`: when the user asks for a site or app without naming a stack, Nova now chooses the best fit itself instead of asking back — prompted to prefer 'static' for content sites, 'react' for interactive apps, 'next' only on explicit request, and to mention the chosen stack in its reply. The `create_project_template` tool's `template` argument is now optional; omitting it scaffolds the deploy-safe 'static' template, while an invalid stack name is still rejected (not improvised).

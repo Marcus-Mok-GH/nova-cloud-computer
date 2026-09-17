@@ -114,3 +114,6 @@ client/public/__manus__/version.json
 .project-config.json
 .vercel
 .env*
+reviews.json
+comments.json
+issue_comments.json

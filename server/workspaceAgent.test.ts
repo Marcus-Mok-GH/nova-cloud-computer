@@ -390,6 +390,9 @@ describe("Nova tool-calling workspace agent", () => {
     expect(reply).toContain("ran out of processing time");
     expect(reply).toContain("deploy_website");
     expect(reply).toContain("interrupted mid-flight");
+    // The interrupted step is named as unfinished, never as completed work.
+    expect(reply).toContain("it is not finished");
+    expect(reply).not.toContain("I completed the steps");
     // The interrupted call is recorded as failed activity, not left "running".
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])
@@ -403,7 +406,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(onChunk).toHaveBeenCalledWith(reply);
   });
 
-  it("closes immediately when the deadline has already passed when a tool starts", async () => {
+  it("skips a tool without starting it when the budget is already gone when the call begins", async () => {
     chatWithNvidiaGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
@@ -417,10 +420,21 @@ describe("Nova tool-calling workspace agent", () => {
       deadlineAtMs: Date.now() - 1_000,
     });
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    // The call's side effects never began — nothing deployed after closing.
+    expect(deployWebsite).not.toHaveBeenCalled();
     const reply = result.message.content;
     expect(reply).toContain("ran out of processing time");
     expect(reply).toContain("deploy_website");
-    expect(reply).toContain("interrupted mid-flight");
+    expect(reply).toContain("was skipped");
+    // The skipped call is recorded as failed activity with the reason.
+    const persistedToolActivities = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    expect(
+      persistedToolActivities.some(activity =>
+        activity.content.includes("was skipped")
+      )
+    ).toBe(true);
     expect(onChunk).toHaveBeenCalledWith(reply);
   });
 

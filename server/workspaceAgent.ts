@@ -96,12 +96,15 @@ class RunDeadlineExceeded extends Error {
 /**
  * Race a tool call against the run deadline. A single long call (a VM task,
  * a deploy) can outlast the 285s budget between the round-level checks, so
- * Vercel killed the function mid-tool with no closing reply. Losing the
- * race stops *waiting*, not the tool — its side effects continue, and the
- * caller closes the run so the reply persists in the remaining margin.
+ * Vercel killed the function mid-tool with no closing reply. The work is a
+ * factory so an already-expired deadline never starts the call at all —
+ * its side effects must not begin once the run has effectively ended.
+ * Losing the race stops *waiting*, not the tool — side effects already in
+ * flight continue, and the caller closes the run so the reply persists in
+ * the remaining margin.
  */
 async function raceToolDeadline<T>(
-  work: Promise<T>,
+  work: () => Promise<T>,
   deadlineAtMs: number
 ): Promise<T> {
   const remainingMs = deadlineAtMs - Date.now();
@@ -109,7 +112,7 @@ async function raceToolDeadline<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      work,
+      work(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new RunDeadlineExceeded()), remainingMs);
       }),
@@ -1443,18 +1446,27 @@ export async function runWorkspaceAgent(
   let lastRoundSummaries: string[] = [];
   /**
    * Closing reply for a run that hits its time budget: built from the last
-   * round's tool summaries so the user still hears where things stand, and
-   * naming the step that was cut short when one was interrupted mid-flight.
+   * round's completed tool summaries so the user still hears where things
+   * stand, and naming the step that was cut short — skipped or interrupted —
+   * instead of counting it among the completed work.
    */
-  const synthesizeDeadlineReply = (interruptedTool: string | null = null) => {
+  const synthesizeDeadlineReply = (
+    unfinishedTool: string | null = null,
+    unfinishedToolStarted = true
+  ) => {
+    const summaryLines = lastRoundSummaries
+      .map(summary => `- ${summary}`)
+      .join("\n");
     const base = lastRoundSummaries.length
-      ? `I completed the steps in this task, but ran out of processing time to write a full summary. Here is where things stand:\n${lastRoundSummaries
-          .map(summary => `- ${summary}`)
-          .join("\n")}`
+      ? unfinishedTool
+        ? `I ran out of processing time to finish this task. Here is where the completed steps stand:\n${summaryLines}`
+        : `I completed the steps in this task, but ran out of processing time to write a full summary. Here is where things stand:\n${summaryLines}`
       : "I ran out of processing time for this task. Everything so far is saved — send another message and I will continue from here.";
-    return interruptedTool
-      ? `${base}\n\n⏱️ The \`${interruptedTool}\` step was still running when time ran out and was interrupted mid-flight. Whatever it finished is saved — send another message and I will continue from here.`
-      : base;
+    if (!unfinishedTool) return base;
+    const note = unfinishedToolStarted
+      ? `⏱️ The \`${unfinishedTool}\` step was still running when time ran out and was interrupted mid-flight — it is not finished. Send another message and I will continue from where it stopped.`
+      : `⏱️ Time ran out before the \`${unfinishedTool}\` step could start, so it was skipped. Send another message and I will pick this task back up.`;
+    return `${base}\n\n${note}`;
   };
   // Everything streamed to the client during this run — needed by the catch
   // below to keep the partial reply when the gateway fails mid-run.
@@ -1659,6 +1671,23 @@ export async function runWorkspaceAgent(
       lastRoundSummaries = [];
       for (const call of calls) {
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
+        // The budget is already gone: starting the call would begin its side
+        // effects (a file write, a deploy) after the run has effectively
+        // ended. Skip it, record why, and close the run instead.
+        if (Date.now() >= deadlineAtMs) {
+          const skipped = `${call.name} was skipped because the request budget ran out before it could start.`;
+          await emitTool({
+            id: call.id,
+            name: call.name,
+            state: "failed",
+            args: { arguments: call.arguments.slice(0, 500) },
+            summary: skipped,
+          });
+          reply = synthesizeDeadlineReply(call.name, false);
+          streamedReplyChars = 0;
+          closedByDeadline = true;
+          break;
+        }
         await emitTool({
           id: call.id,
           name: call.name,
@@ -1668,7 +1697,8 @@ export async function runWorkspaceAgent(
         let execution: ToolExecution;
         try {
           execution = await raceToolDeadline(
-            executeWorkspaceTool(ownerId, computer, call, detail => {
+            () =>
+              executeWorkspaceTool(ownerId, computer, call, detail => {
               // Progress updates stream live to the open chat only — they are
               // not persisted, so long research runs don't flood the archive.
               Promise.resolve(
@@ -1691,17 +1721,16 @@ export async function runWorkspaceAgent(
             // A VM task or deploy outlasted the request budget between the
             // round-level checks: stop waiting, record the interruption, and
             // close the run so the reply persists inside the remaining
-            // maxDuration margin.
-            const interrupted = `${call.name} was still running when the request budget ran out and was interrupted.`;
-            lastRoundSummaries.push(interrupted);
+            // maxDuration margin. The interrupted step is reported as
+            // unfinished, not counted among the completed summaries.
             await emitTool({
               id: call.id,
               name: call.name,
               state: "failed",
               args: { arguments: call.arguments.slice(0, 500) },
-              summary: interrupted,
+              summary: `${call.name} was still running when the request budget ran out and was interrupted mid-flight.`,
             });
-            reply = synthesizeDeadlineReply(call.name);
+            reply = synthesizeDeadlineReply(call.name, true);
             streamedReplyChars = 0;
             closedByDeadline = true;
             break;

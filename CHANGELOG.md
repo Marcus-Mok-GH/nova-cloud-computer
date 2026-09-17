@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-17 — Deterministic "working on it" fallback for silent Telegram runs
+
+- `server/app.ts` (with `server/_core/env.ts`): the model is *instructed* to send an opening ETA over Telegram via `send_progress_update`, but that is not guaranteed — a run can go from request to final reply leaving the user with only the typing indicator for as long as the task takes. The webhook now starts a deterministic fallback timer alongside the typing indicator: if no user-visible note (a `send_progress_update` or `send_telegram_message` tool call) has started within `TELEGRAM_ACK_FALLBACK_DELAY_MS` (default 8s, env-overridable), it sends one plain "Working on it — I'll keep you posted if this takes a bit." message. The moment the model sends its own note the fallback stands down, the timer is always cleared when the run ends, and the note is skipped entirely for command replies (/start, /new, /stop) and uploads resolved before the timer starts.
+- `server/telegramAckFallback.test.ts`: covers all three paths — silent model gets the fallback note, fast run never sees it, and a model that sends its own progress update in time suppresses it.
 ## 2026-09-17 — Friendlier end-of-budget replies
 
 - `server/workspaceAgent.ts`: the synthesized closing reply for a run that hits its time budget no longer talks about "processing time" — the user-facing wording is now "I've reached the end of what I can do in one go", a plain statement of where things stand, and an explicit cue: send "continue" and the bot picks up right where it left off. The interrupted/skipped step note keeps its ⏱️ marker and remains separate from completed steps.

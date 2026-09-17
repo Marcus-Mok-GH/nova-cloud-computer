@@ -67,15 +67,19 @@ describe("Deployments page", () => {
     state.query = { isError: false, isLoading: false, errorMessage: null };
   });
 
-  it("shows the live website with its URL, redeploy control, and history", () => {
+  it("shows the live website with its URL and history, but no publish button", () => {
     const markup = renderToStaticMarkup(<Deployments />);
     expect(markup).toContain("Your live website");
     expect(markup).toContain("nova-live-site.netlify.app");
     expect(markup).toContain("Live 24/7");
-    expect(markup).toContain("Deploy latest changes");
     expect(markup).toContain("Copy URL");
     expect(markup).toContain("Deployment history");
     expect(markup).toContain("Open website");
+    // Publishing is AI-only: the button must be gone, replaced by the ask-Nova hint.
+    expect(markup).not.toContain("Publish my workspace");
+    expect(markup).not.toContain("Deploy latest changes");
+    expect(markup).toContain("Publishing is Nova&#x27;s job");
+    expect(markup).toContain("deploy my latest changes");
   });
 
   it("asks the operator for the Netlify token when deployments are not configured", () => {
@@ -101,6 +105,7 @@ describe("Deployments page", () => {
     };
     const markup = renderToStaticMarkup(<Deployments />);
     expect(markup).toContain("Last deployment failed: status 500");
-    expect(markup).toContain("Publish my workspace");
+    expect(markup).toContain("Publishing is Nova&#x27;s job");
+    expect(markup).not.toContain("Publish my workspace");
   });
 });

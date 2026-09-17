@@ -17,27 +17,13 @@ type DeploymentRow = {
 };
 
 export default function Deployments() {
-  const utils = trpc.useUtils();
   const status = trpc.deployments.status.useQuery(undefined, { retry: false, refetchInterval: 30_000 });
-  const deploy = trpc.deployments.deploy.useMutation({
-    onSuccess: async result => {
-      await utils.deployments.status.invalidate();
-      if (result.ok) {
-        toast.success(`Website is live at ${result.deployment.siteUrl}`);
-        window.open(result.deployment.siteUrl, "_blank", "noopener");
-      } else {
-        toast.error(result.message);
-      }
-    },
-    onError: error => toast.error(error.message),
-  });
 
   const configured = Boolean(status.data?.configured);
   const latest = (status.data?.latest ?? null) as unknown as DeploymentRow | null;
   const history = (status.data?.history ?? []) as unknown as DeploymentRow[];
   const live = latest?.status === "live";
-  const deploying = deploy.isPending || latest?.status === "deploying";
-  const busy = deploy.isPending;
+  const deploying = latest?.status === "deploying";
 
   const copyUrl = async () => {
     if (!latest?.siteUrl || !navigator.clipboard) return;
@@ -60,7 +46,7 @@ export default function Deployments() {
           Deployments
         </h1>
         <p className="rise-in-delay-1 mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">
-          Publish your workspace as a live website — free hosting, always on, with SSL.
+          Your live website, published by Nova on Netlify's free hosting — always on, with SSL.
         </p>
 
         {status.isLoading ? (
@@ -121,21 +107,27 @@ export default function Deployments() {
                 ) : (
                   <>
                     <p className="leading-6">
-                      Every file in your workspace is published to Netlify's free hosting under its
-                      folder path — index.html is the entry page, and subfolders keep their
-                      structure. The first deploy creates your permanent subdomain; later deploys
-                      update the same live URL.
+                      Nova publishes your workspace to Netlify's free hosting under its folder
+                      path — index.html is the entry page, and subfolders keep their structure.
+                      The first deploy creates your permanent subdomain; later deploys update the
+                      same live URL. Nova can publish anything static hosting serves: plain
+                      HTML/CSS/JS sites, React apps, statically exported Next.js projects, and
+                      more.
                     </p>
                     {latest?.status === "failed" && latest.error && (
                       <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs leading-5 text-red-700 dark:text-red-300">
                         Last deployment failed: {latest.error}
                       </p>
                     )}
-                    <div className="mt-5 flex flex-wrap gap-2">
-                      <Button onClick={() => deploy.mutate()} disabled={busy}>
-                        {busy && <Loader2 className="animate-spin" size={15} />}
-                        <Rocket size={15} /> {live ? "Deploy latest changes" : "Publish my workspace"}
-                      </Button>
+                    <div className="mt-5 flex flex-wrap items-center gap-2">
+                      <div className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/[0.045] px-3.5 py-2.5 text-xs leading-5 dark:bg-primary/[0.07]">
+                        <Rocket size={14} className="mt-0.5 shrink-0 text-primary" />
+                        <p>
+                          <span className="font-bold">Publishing is Nova's job.</span> Ask Nova in
+                          chat — "publish my website" or "deploy my latest changes" — and it
+                          handles the rest, end to end.
+                        </p>
+                      </div>
                       {latest?.siteUrl && (
                         <>
                           <Button variant="outline" asChild>
@@ -149,10 +141,10 @@ export default function Deployments() {
                         </>
                       )}
                     </div>
-                    {busy && (
+                    {deploying && (
                       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                        Uploading your files and waiting for Netlify to finish — this usually takes
-                        under a minute.
+                        Nova is deploying — uploading your files and waiting for Netlify to
+                        finish. This usually takes under a minute.
                       </p>
                     )}
                   </>

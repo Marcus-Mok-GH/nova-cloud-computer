@@ -1,8 +1,8 @@
-/** One-off live E2E: run the real workspace agent against production —
+/** One-off live E2E: run the real workspace agent against production -
  *  scaffold a React project template and publish it live. Not committed. */
 import { readFileSync } from "node:fs";
 
-// Load production env first — module imports read process.env at import time.
+// Load production env first - module imports read process.env at import time.
 for (const line of readFileSync(".env.production", "utf8").split("\n")) {
   const match = /^([A-Z_0-9]+)=(.*)$/.exec(line.trim());
   if (match) {
@@ -37,7 +37,7 @@ if (ownerId === undefined) throw new Error("no owner found");
 
 const chat = await createChatForUser(ownerId, "React template E2E");
 const prompt = "Make me a small React demo landing page called React Demo and publish it live.";
-console.log("chat id:", chat.id, "— running agent…");
+console.log("chat id:", chat.id, "- running agent…");
 
 const started = Date.now();
 const result = await runWorkspaceAgent(ownerId, chat.id, prompt, {

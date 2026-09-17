@@ -29,7 +29,7 @@ export const adminRouter = router({
         if (otherAdmins === 0) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "You are the only active admin — promote someone else before demoting yourself.",
+            message: "You are the only active admin - promote someone else before demoting yourself.",
           });
         }
       }

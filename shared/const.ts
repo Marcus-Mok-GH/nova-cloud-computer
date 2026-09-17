@@ -25,7 +25,7 @@ export const decodeOAuthState = (state: string): OAuthState => {
     decoded = atob(state);
   } catch {
     // Malformed base64 (e.g. attacker-supplied garbage). Return no nonce so the
-    // callback's CSRF guard rejects it with 403 — never throw, since the caller
+    // callback's CSRF guard rejects it with 403 - never throw, since the caller
     // runs outside the request handler's try/catch.
     return { redirectUri: "" };
   }

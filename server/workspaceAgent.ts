@@ -66,13 +66,13 @@ type WorkspaceAgentOptions = {
     tool: WorkspaceToolActivity;
   }) => void | Promise<void>;
   onChunk?: (chunk: string) => void | Promise<void>;
-  /** Where the request came from — shapes how the model keeps the user posted. */
+  /** Where the request came from - shapes how the model keeps the user posted. */
   channel?: "telegram" | "web";
   /** Data-URI images attached to this turn, sent to the model as vision input. */
   imageAttachments?: string[];
   /**
    * When this run must be finished by (epoch ms). Defaults to a budget just
-   * under the Vercel maxDuration so the final reply is always persisted —
+   * under the Vercel maxDuration so the final reply is always persisted -
    * a gateway round started too close to the limit would be killed with the
    * function before the reply could be saved.
    */
@@ -99,9 +99,9 @@ class RunDeadlineExceeded extends Error {
  * Race a tool call against the run deadline. A single long call (a VM task,
  * a deploy) can outlast the 285s budget between the round-level checks, so
  * Vercel killed the function mid-tool with no closing reply. The work is a
- * factory so an already-expired deadline never starts the call at all —
+ * factory so an already-expired deadline never starts the call at all -
  * its side effects must not begin once the run has effectively ended.
- * Losing the race stops *waiting*, not the tool — side effects already in
+ * Losing the race stops *waiting*, not the tool - side effects already in
  * flight continue, and the caller closes the run so the reply persists in
  * the remaining margin.
  */
@@ -149,7 +149,7 @@ export async function autoTitleChatForUser(
     );
     if (!firstUser || !firstAssistant) return;
     const prompt = [
-      "Generate a concise 3-6 word title for this conversation. Reply with the title only — no quotes, no trailing punctuation.",
+      "Generate a concise 3-6 word title for this conversation. Reply with the title only - no quotes, no trailing punctuation.",
       firstUser.content,
       firstAssistant.content,
     ].join("\n");
@@ -395,7 +395,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "present_file",
       description:
-        "Present a workspace file to the user over Telegram so they can view or download it: images are shown inline for viewing, other files arrive as a downloadable document. Use it when you create or meaningfully update a file the user asked for — over Telegram they cannot browse the workspace themselves. Only available on Telegram requests. Requires Telegram to be connected.",
+        "Present a workspace file to the user over Telegram so they can view or download it: images are shown inline for viewing, other files arrive as a downloadable document. Use it when you create or meaningfully update a file the user asked for - over Telegram they cannot browse the workspace themselves. Only available on Telegram requests. Requires Telegram to be connected.",
       parameters: {
         type: "object",
         properties: {
@@ -411,13 +411,13 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "set_communication_style",
       description:
-        "Save the user's preferred communication style so every future reply follows it, across all chats and sessions. Use it whenever the user states or changes how they want you to communicate — e.g. 'keep replies short', 'be structured with headings', 'more conversational', 'always reply in French'. Distill their words into a concise style description (one or two sentences). Also call it with an empty style to clear the preference.",
+        "Save the user's preferred communication style so every future reply follows it, across all chats and sessions. Use it whenever the user states or changes how they want you to communicate - e.g. 'keep replies short', 'be structured with headings', 'more conversational', 'always reply in French'. Distill their words into a concise style description (one or two sentences). Also call it with an empty style to clear the preference.",
       parameters: {
         type: "object",
         properties: {
           style: {
             type: "string",
-            description: "Concise description of how the user wants you to communicate, e.g. 'Short, direct replies. No filler.' — or an empty string to clear the saved style.",
+            description: "Concise description of how the user wants you to communicate, e.g. 'Short, direct replies. No filler.' - or an empty string to clear the saved style.",
           },
         },
         required: ["style"],
@@ -444,7 +444,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "deploy_website",
       description:
-        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting — always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files — pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the site target: 'update' (default) replaces the content of the workspace's existing live site — its URL stays the same; 'new' creates a fresh site with its own URL, for when the user wants a separate site or a distinctly different project, so different sites never pile onto one URL. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
+        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting - always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files - pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the site target: 'update' (default) replaces the content of the workspace's existing live site - its URL stays the same; 'new' creates a fresh site with its own URL, for when the user wants a separate site or a distinctly different project, so different sites never pile onto one URL. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
       parameters: {
         type: "object",
         properties: {
@@ -457,7 +457,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             enum: ["update", "new"],
             description:
-              "Which site to publish to: 'update' (default) replaces the existing live site's content and keeps its URL — use it whenever the user is iterating on the same site; 'new' creates a brand-new site with its own URL — use it when the user asks for a separate site or a distinctly different project, so versions of different sites don't tangle onto one URL.",
+              "Which site to publish to: 'update' (default) replaces the existing live site's content and keeps its URL - use it whenever the user is iterating on the same site; 'new' creates a brand-new site with its own URL - use it when the user asks for a separate site or a distinctly different project, so versions of different sites don't tangle onto one URL.",
           },
         },
         required: ["directory"],
@@ -469,13 +469,13 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "create_project_template",
       description:
-        "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser — no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean — deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live. If the user did not ask for a specific stack, do not ask them — pick the best fit yourself and say which stack you chose.",
+        "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser - no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean - deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live. If the user did not ask for a specific stack, do not ask them - pick the best fit yourself and say which stack you chose.",
       parameters: {
         type: "object",
         properties: {
           name: {
             type: "string",
-            description: "Project name — becomes the folder name (e.g. 'My Portfolio' -> 'my-portfolio').",
+            description: "Project name - becomes the folder name (e.g. 'My Portfolio' -> 'my-portfolio').",
           },
           template: {
             type: "string",
@@ -492,7 +492,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "list_connector_tools",
       description:
-        "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
+        "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes - never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
       parameters: {
         type: "object",
         properties: {
@@ -509,7 +509,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "use_connector_tool",
       description:
-        "Execute a GitHub or Gmail action on the user's behalf through the connector — e.g. list or star repositories, create issues, open pull requests; search, send or reply to Gmail; draft and manage emails. The action slug must come from list_connector_tools with exactly the parameters it declares. Requires the connector to be connected (Settings).",
+        "Execute a GitHub or Gmail action on the user's behalf through the connector - e.g. list or star repositories, create issues, open pull requests; search, send or reply to Gmail; draft and manage emails. The action slug must come from list_connector_tools with exactly the parameters it declares. Requires the connector to be connected (Settings).",
       parameters: {
         type: "object",
         properties: {
@@ -526,7 +526,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "research_web",
       description:
-        "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling — never omit it, never default lazily. Say nothing about the choice unless asked.",
+        "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling - never omit it, never default lazily. Say nothing about the choice unless asked.",
       parameters: {
         type: "object",
         properties: {
@@ -537,7 +537,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           difficulty: {
             type: "string",
             enum: ["deep-lite", "deep", "deep-reasoning"],
-            description: "The research depth you estimate this question needs — decide deliberately every call. deep-lite (~10 seconds): a single factual lookup with one clear answer — current versions, prices, release dates, simple facts, definitions. deep: questions needing multiple searches or several sources synthesized — comparisons, how things work, market overviews, current events with context, anything with 2-3 facets. deep-reasoning: the deepest level — complex investigations with many facets, conflicting or hard-to-find evidence, technical analysis, forecasts, or multi-hop questions where the answer depends on other answers. Calibrate: most questions land on deep; only unambiguous single-fact lookups justify deep-lite; escalate to deep-reasoning when evidence conflicts or the question has 4+ facets.",
+            description: "The research depth you estimate this question needs - decide deliberately every call. deep-lite (~10 seconds): a single factual lookup with one clear answer - current versions, prices, release dates, simple facts, definitions. deep: questions needing multiple searches or several sources synthesized - comparisons, how things work, market overviews, current events with context, anything with 2-3 facets. deep-reasoning: the deepest level - complex investigations with many facets, conflicting or hard-to-find evidence, technical analysis, forecasts, or multi-hop questions where the answer depends on other answers. Calibrate: most questions land on deep; only unambiguous single-fact lookups justify deep-lite; escalate to deep-reasoning when evidence conflicts or the question has 4+ facets.",
           },
           instructions: {
             type: "string",
@@ -553,7 +553,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "run_vm_task",
       description:
-        "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management — use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` — `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py — the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
+        "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management - use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` - `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py - the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
       parameters: {
         type: "object",
         properties: {
@@ -687,30 +687,30 @@ export function connectorStatusLine(connected: ComposioToolkit[]): string {
   return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
 }
 
-const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how — you decide how, then act.
+const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
 
 Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
-- Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission — the user sees your tool activity as it runs.
-- Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do — dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate — under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
-- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
-- Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
-- Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish — the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same — use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL — use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
-- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking — and mention the stack you chose. 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
+- Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission - the user sees your tool activity as it runs.
+- Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
+- Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
+- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
+- Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
+- Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
-- Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
-- Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send — none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"). From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work — after each meaningful step completes, and never let more than a minute or so pass in silence on a long run — and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected — about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker — saying whether you are solving it yourself or need something from them — and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
-- Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style — it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
+- Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play.
+- Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send - none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"). From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work - after each meaningful step completes, and never let more than a minute or so pass in silence on a long run - and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected - about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker - saying whether you are solving it yourself or need something from them - and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
+- Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
 
-Formatting: render replies in Markdown when it helps readability — **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
+Formatting: render replies in Markdown when it helps readability - **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 
 Workspace rules:
 - Resolve files and folders by the exact names/ids listed below; if something is missing, list the workspace and act on what exists instead of guessing.
-- edit_file replaces the file's entire content — read it first when unsure.
+- edit_file replaces the file's entire content - read it first when unsure.
 - Keep tool arguments exact and minimal.
-- Invoke tools with real tool calls only — never write a tool call out as plain text (like {"name": ..., "parameters": ...}); the runtime only executes real tool calls.
+- Invoke tools with real tool calls only - never write a tool call out as plain text (like {"name": ..., "parameters": ...}); the runtime only executes real tool calls.
 - Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
 - Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
@@ -730,7 +730,7 @@ type ToolExecution = {
 };
 
 /**
- * Some models spell a tool call out as text instead of invoking it —
+ * Some models spell a tool call out as text instead of invoking it -
  * 'The function call that best answers the given prompt is {"name": "present_file", "parameters": {...}}'.
  * Recover the intent: extract the embedded JSON object and run it as a real
  * tool call so the action still executes and the raw JSON never reaches the user.
@@ -816,7 +816,7 @@ async function executeWorkspaceTool(
       if (!created)
         return {
           ok: false,
-          result: `Could not create the file — a file named ${name} may already exist.`,
+          result: `Could not create the file - a file named ${name} may already exist.`,
         };
       return {
         ok: true,
@@ -862,7 +862,7 @@ async function executeWorkspaceTool(
       if (!updated)
         return {
           ok: false,
-          result: `Could not rename ${file.name} — ${newName} may already exist.`,
+          result: `Could not rename ${file.name} - ${newName} may already exist.`,
         };
       return {
         ok: true,
@@ -919,7 +919,7 @@ async function executeWorkspaceTool(
       if (!created)
         return {
           ok: false,
-          result: `Could not create the folder — ${name} may already exist.`,
+          result: `Could not create the folder - ${name} may already exist.`,
         };
       return {
         ok: true,
@@ -940,7 +940,7 @@ async function executeWorkspaceTool(
       if (!updated)
         return {
           ok: false,
-          result: `Could not rename ${folder.name} — ${newName} may already exist.`,
+          result: `Could not rename ${folder.name} - ${newName} may already exist.`,
         };
       return {
         ok: true,
@@ -989,7 +989,7 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result:
-            "You must choose the directory to deploy. Pass '/' for the workspace root, or a workspace folder path like 'my-react-app' or 'my-next-app/out' — the directory whose contents are the site.",
+            "You must choose the directory to deploy. Pass '/' for the workspace root, or a workspace folder path like 'my-react-app' or 'my-next-app/out' - the directory whose contents are the site.",
         };
       const siteMode = args.site === "new" ? "new" : "update";
       const outcome = await deployWorkspaceSite(
@@ -1008,8 +1008,8 @@ async function executeWorkspaceTool(
         ok: true,
         result:
           siteMode === "new"
-            ? `A brand-new site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`} onto a fresh site with its own URL. Any earlier site keeps its old URL untouched; future 'update' deploys will now target this new site.`
-            : `The site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL — it stays the same on every future 'update' deploy.`,
+            ? `A brand-new site is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`} onto a fresh site with its own URL. Any earlier site keeps its old URL untouched; future 'update' deploys will now target this new site.`
+            : `The site is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL - it stays the same on every future 'update' deploy.`,
         action: {
           kind: "deployment",
           name: outcome.deployment.siteUrl,
@@ -1031,7 +1031,7 @@ async function executeWorkspaceTool(
       const projectName = slugifyProjectName(rawName);
       const rendered = renderProjectTemplate(template, rawName);
 
-      // Project folder at the workspace root — reuse it if it already exists.
+      // Project folder at the workspace root - reuse it if it already exists.
       const existingProject = computer.folders.find(
         folder => folder.parentId === null && folder.name.toLowerCase() === projectName.toLowerCase()
       );
@@ -1044,7 +1044,7 @@ async function executeWorkspaceTool(
       if (!projectFolder)
         return {
           ok: false,
-          result: `Could not create the ${projectName} folder — it may already exist.`,
+          result: `Could not create the ${projectName} folder - it may already exist.`,
         };
 
       // Folder cache: relative path inside the project -> folder id.
@@ -1096,7 +1096,7 @@ async function executeWorkspaceTool(
         if (!created)
           return {
             ok: false,
-            result: `Could not create ${file.path} in the ${projectName} folder — a file with that name may already exist.`,
+            result: `Could not create ${file.path} in the ${projectName} folder - a file with that name may already exist.`,
           };
         createdPaths.push(file.path);
       }
@@ -1105,7 +1105,7 @@ async function executeWorkspaceTool(
         rendered.deployRoot === "." ? projectName : `${projectName}/${rendered.deployRoot}`;
       return {
         ok: true,
-        result: `Scaffolded the ${rawName} project (${template} template): ${createdPaths.length} files in the ${projectName} folder — ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
+        result: `Scaffolded the ${rawName} project (${template} template): ${createdPaths.length} files in the ${projectName} folder - ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
         action: { kind: "project", name: projectName, operation: "created" },
       };
     }
@@ -1158,8 +1158,8 @@ async function executeWorkspaceTool(
         return {
           ok: true,
           result: saved
-            ? `Saved the user's preferred communication style: "${saved}" — follow it in every reply from now on, on every channel and in every chat.`
-            : "Cleared the saved communication-style preference — your default style applies from now on.",
+            ? `Saved the user's preferred communication style: "${saved}" - follow it in every reply from now on, on every channel and in every chat.`
+            : "Cleared the saved communication-style preference - your default style applies from now on.",
         };
       } catch (error) {
         return {
@@ -1192,7 +1192,7 @@ async function executeWorkspaceTool(
         );
         return {
           ok: true,
-          result: `Presented ${file.name} to the user as a ${presented.as} (message #${presented.messageId}) — they can view or download it in the chat.`,
+          result: `Presented ${file.name} to the user as a ${presented.as} (message #${presented.messageId}) - they can view or download it in the chat.`,
           action: { kind: "file", name: file.name, operation: "presented" },
         };
       } catch (error) {
@@ -1221,7 +1221,7 @@ async function executeWorkspaceTool(
                 return `${name}${spec?.type ? ` (${spec.type})` : ""}: ${spec?.description ?? ""}`;
               })
               .join("; ");
-            return `${tool.slug} — ${tool.description}${params ? ` Parameters: ${params}` : ""}`;
+            return `${tool.slug} - ${tool.description}${params ? ` Parameters: ${params}` : ""}`;
           })
           .join("\n");
         return {
@@ -1273,7 +1273,7 @@ async function executeWorkspaceTool(
       const progressTimer = onProgress
         ? setInterval(() => {
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
-            onProgress(`Exa deep research (${level}) is reading the live web — ${elapsed}s elapsed…`);
+            onProgress(`Exa deep research (${level}) is reading the live web - ${elapsed}s elapsed…`);
           }, 10000)
         : undefined;
       if (onProgress)
@@ -1282,7 +1282,7 @@ async function executeWorkspaceTool(
         const research = await runResearch(topic, difficulty, instructions);
         const sourcesBlock = research.sources.length
           ? `\n\nAll sources consulted by the researcher:\n${research.sources
-              .map((source, index) => `${index + 1}. ${source.title || source.url} — ${source.url}`)
+              .map((source, index) => `${index + 1}. ${source.title || source.url} - ${source.url}`)
               .join("\n")}`
           : "";
         return {
@@ -1355,7 +1355,7 @@ let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
 /**
  * NVIDIA's free tier rate limits (~40 RPM) apply per minute, but once a 429
- * lockout starts it lasts roughly 30-60 minutes — and every request sent
+ * lockout starts it lasts roughly 30-60 minutes - and every request sent
  * during the lockout can extend it. So upstream rate limits get ONE patient
  * retry (transient 429s under load do clear in seconds), never the fast
  * retry loop, and only when the run budget can absorb the wait.
@@ -1392,7 +1392,7 @@ async function chatWithGatewayRetry(
     tools?: GatewayToolDefinition[];
     onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
-    /** Run deadline (epoch ms) — the patient rate-limit wait must fit. */
+    /** Run deadline (epoch ms) - the patient rate-limit wait must fit. */
     deadlineAtMs?: number;
     /** Run-scoped state: the patient wait happens at most once per run. */
     retryState?: GatewayRetryState;
@@ -1422,7 +1422,7 @@ async function chatWithGatewayRetry(
         error instanceof NvidiaGatewayClientError &&
         GATEWAY_RETRY_KINDS.has(error.kind);
       // Upstream 429: one patient retry, deadline-gated, once per run. The
-      // fast loop must never hammer a lockout — that only extends it.
+      // fast loop must never hammer a lockout - that only extends it.
       const isUpstreamRateLimit =
         error instanceof NvidiaGatewayClientError && error.kind === "rate_limit";
       const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
@@ -1491,13 +1491,13 @@ export async function runWorkspaceAgent(
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
   const retryState: GatewayRetryState = { rateLimitRetryUsed: false };
-  // Summaries of the tool calls in the current round — used to synthesize a
+  // Summaries of the tool calls in the current round - used to synthesize a
   // closing reply when the run runs out of time before the final model round.
   let lastRoundSummaries: string[] = [];
   /**
    * Closing reply for a run that hits its time budget: built from the last
    * round's completed tool summaries so the user still hears where things
-   * stand, and naming the step that was cut short — skipped or interrupted —
+   * stand, and naming the step that was cut short - skipped or interrupted -
    * instead of counting it among the completed work.
    */
   const synthesizeDeadlineReply = (
@@ -1522,7 +1522,7 @@ export async function runWorkspaceAgent(
     parts.push('Send "continue" and I\'ll pick up right where I left off.');
     return parts.join("\n\n");
   };
-  // Everything streamed to the client during this run — needed by the catch
+  // Everything streamed to the client during this run - needed by the catch
   // below to keep the partial reply when the gateway fails mid-run.
   let streamedRunText = "";
 
@@ -1575,15 +1575,15 @@ export async function runWorkspaceAgent(
           .replace(
             "{{style}}",
             communicationStyle
-              ? `The user's saved preferred communication style: "${communicationStyle}" — follow it in every reply.`
+              ? `The user's saved preferred communication style: "${communicationStyle}" - follow it in every reply.`
               : ""
           )
           .replace("{{user}}", userLine)
           .replace(
             "{{channel}}",
             options.channel === "telegram"
-              ? "Telegram — the user only sees the messages you send, not your tool activity"
-              : "the Nova web app — the user sees your tool activity live as you work"
+              ? "Telegram - the user only sees the messages you send, not your tool activity"
+              : "the Nova web app - the user sees your tool activity live as you work"
           ),
       };
     };
@@ -1606,7 +1606,7 @@ export async function runWorkspaceAgent(
     };
     /**
      * Give the model the conversation so far. Without this, every incoming
-     * message started a brand-new chat from the model's point of view — no
+     * message started a brand-new chat from the model's point of view - no
      * memory of anything said a moment earlier, only whatever it could infer
      * by re-reading the workspace. The current turn's user message was
      * already persisted above, so history already ends with it as the last
@@ -1630,7 +1630,7 @@ export async function runWorkspaceAgent(
     // run at the next safe point (round boundary or between tool calls).
     const runStartedAt = await getDatabaseTime();
     const stopRun = async () => {
-      const stoppedReply = "⏹️ Stopped — this run was cancelled with /stop.";
+      const stoppedReply = "⏹️ Stopped - this run was cancelled with /stop.";
       await options.onChunk?.(stoppedReply);
       const message = await persistAssistant(stoppedReply);
       return { message, actions: [] };
@@ -1662,7 +1662,7 @@ export async function runWorkspaceAgent(
       if (round > 0 && (await hasAgentStopAfter(ownerId, runStartedAt))) return stopRun();
       // A deploy or long research can consume nearly the whole request
       // budget. Starting another gateway round this close to the maxDuration
-      // limit risks the function being killed before the reply persists —
+      // limit risks the function being killed before the reply persists -
       // close the run with a synthesized status instead.
       if (round > 0 && Date.now() + FINAL_ROUND_MIN_REMAINING_MS > deadlineAtMs) {
         reply = synthesizeDeadlineReply();
@@ -1698,13 +1698,13 @@ export async function runWorkspaceAgent(
         // attachment instead of failing the run, and let the model say so.
         visionActive = false;
         // The current turn's user message is not necessarily messages[1]
-        // any more — prior chat history can add earlier "user" rows before
+        // any more - prior chat history can add earlier "user" rows before
         // it, so target the *last* user turn, not the first.
         const userIndex = messages.findLastIndex(m => m.role === "user");
         if (userIndex >= 0)
           messages[userIndex] = {
             role: "user",
-            content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here — it is still saved in the workspace. Say so plainly and work from what the user says.)`,
+            content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
           };
         result = await chatWithGatewayRetry(ownerId, messages, {
           tools: agentTools,
@@ -1781,7 +1781,7 @@ export async function runWorkspaceAgent(
           execution = await raceToolDeadline(
             () =>
               executeWorkspaceTool(ownerId, computer, call, detail => {
-              // Progress updates stream live to the open chat only — they are
+              // Progress updates stream live to the open chat only - they are
               // not persisted, so long research runs don't flood the archive.
               Promise.resolve(
                 options.onEvent?.({
@@ -1841,7 +1841,7 @@ export async function runWorkspaceAgent(
           content: execution.result,
         });
       }
-      // The deadline hit mid-tool: the closing reply is already set — leave
+      // The deadline hit mid-tool: the closing reply is already set - leave
       // the round loop without refreshing state or starting a new round.
       if (closedByDeadline) break;
       // Refresh workspace state so later rounds resolve names/ids created
@@ -1864,7 +1864,7 @@ export async function runWorkspaceAgent(
     const kind =
       error instanceof NvidiaGatewayClientError ? error.kind : "unavailable";
     const failureNote =
-      "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved — send another message and I will continue from here.";
+      "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
     let reply: string;
     if (kind === "configuration") {
       reply =
@@ -1874,7 +1874,7 @@ export async function runWorkspaceAgent(
         "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
     } else if (kind === "rate_limit") {
       reply =
-        "NVIDIA's free-tier rate limit was hit (about 40 requests per minute). Their lockouts can last 30-60 minutes, and retrying during one only extends it — so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
+        "NVIDIA's free-tier rate limit was hit (about 40 requests per minute). Their lockouts can last 30-60 minutes, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails

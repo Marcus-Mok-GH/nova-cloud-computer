@@ -24,7 +24,7 @@ Daytona is a strong technical fit and materially better than GitHub Actions for 
 | --- | --- | --- |
 | Agent control | The TypeScript SDK/API can create sandboxes and execute processes and code, with filesystem, PTY, Git, log-streaming, and MCP-adjacent capabilities | **Strong fit** for Nova’s server-side agent orchestration |
 | Isolation | Daytona documents dedicated kernel, filesystem, network stack, and allocated compute per sandbox; VM sandboxes offer a dedicated Linux VM | **Strong fit** for running agent-provided commands away from Nova’s web server |
-| Workspace durability | Sandboxes, snapshots, volumes, and external storage mounts are available, but Nova must remain the workspace’s source of truth | **Good fit**, provided files are synchronized by scoped bundle or storage mount—not treated as the only copy inside a sandbox |
+| Workspace durability | Sandboxes, snapshots, volumes, and external storage mounts are available, but Nova must remain the workspace’s source of truth | **Good fit**, provided files are synchronized by scoped bundle or storage mount-not treated as the only copy inside a sandbox |
 | Human hand-off | Web terminal, SSH, VNC, preview, and computer-use tools are described | **Useful later** for a supervised workspace/terminal experience, but keep it out of the first agent-only release |
 | Operations | Lifecycle controls include auto-stop, auto-pause, archiving, auto-delete, TTL, labels, webhooks, secrets, and audit-related controls | **Strong fit** for quotas, cleanup, and observability |
 | Commercial model | The no-card trial includes $200 compute, then is usage-based | **Not a permanent free platform**; enforce a zero-spend policy and visibly exhaust the credit rather than converting users to paid usage |

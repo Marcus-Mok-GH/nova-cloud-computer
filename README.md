@@ -2,7 +2,7 @@
 
 A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent personal workspace with an AI agent that can chat, run tasks, manage files, and spin up sandboxed execution environments.
 
-> **Deployment note:** The production deployment is **Vercel** — live at [https://nova-cloud-computer.vercel.app](https://nova-cloud-computer.vercel.app). This repository is deployed via the Vercel project linked in `.vercel/`. Do **not** deploy this repo as a Zo service or any other hosting platform; Vercel is the single source of truth for production.
+> **Deployment note:** The production deployment is **Vercel** - live at [https://nova-cloud-computer.vercel.app](https://nova-cloud-computer.vercel.app). This repository is deployed via the Vercel project linked in `.vercel/`. Do **not** deploy this repo as a Zo service or any other hosting platform; Vercel is the single source of truth for production.
 
 ---
 
@@ -43,12 +43,12 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
         • Neon Postgres
 ```
 
-- **Client** — React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
-- **Server** — Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
-- **Database** — Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
-- **Agent** — Conversational workspace work and automation planning run through the NVIDIA NIM gateway.
-- **Inference** — A server-to-server NVIDIA NIM gateway provides AI-agent inference.
-- **Agent VMs** — E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
+- **Client** - React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
+- **Server** - Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
+- **Database** - Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
+- **Agent** - Conversational workspace work and automation planning run through the NVIDIA NIM gateway.
+- **Inference** - A server-to-server NVIDIA NIM gateway provides AI-agent inference.
+- **Agent VMs** - E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
 
 ---
 
@@ -56,7 +56,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 
 ```
 .
-├── api/                  # Vercel serverless entry (api/[...path].ts) — mounts the Express app
+├── api/                  # Vercel serverless entry (api/[...path].ts) - mounts the Express app
 ├── client/src/           # React SPA
 │   ├── pages/            # Home, SignIn, Workspace, Files, Chats, Deployments, Settings
 │   ├── components/       # DashboardLayout, NovaMark, ui/ (Radix + shadcn)
@@ -102,13 +102,13 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 
 Core Drizzle tables (see `drizzle/schema.ts`):
 
-- **workspaces** — one per user; holds model settings, persistent sandbox ID, Telegram settings.
-- **users / sessions** — authentication.
-- **chats / chat_messages** — conversations with the AI agent.
-- **folders / files** — the user's workspace file tree.
-- **automations / automation_runs** — scheduled tasks.
-- **projects / tasks** — project & task management.
-- **model_provider / model_secrets** — per-workspace LLM configuration.
+- **workspaces** - one per user; holds model settings, persistent sandbox ID, Telegram settings.
+- **users / sessions** - authentication.
+- **chats / chat_messages** - conversations with the AI agent.
+- **folders / files** - the user's workspace file tree.
+- **automations / automation_runs** - scheduled tasks.
+- **projects / tasks** - project & task management.
+- **model_provider / model_secrets** - per-workspace LLM configuration.
 
 ---
 

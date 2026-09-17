@@ -89,7 +89,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         if (await isUsernameTaken(input.username)) {
-          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken — try another." });
+          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken - try another." });
         }
         try {
           const updated = await setUsernameForUser(ctx.user.id, input.username);
@@ -98,7 +98,7 @@ export const appRouter = router({
         } catch (error) {
           if (error instanceof TRPCError) throw error;
           // Two simultaneous claims can race past the pre-check onto the unique index.
-          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken — try another." });
+          throw new TRPCError({ code: "CONFLICT", message: "That username is already taken - try another." });
         }
       }),
   }),
@@ -135,7 +135,7 @@ export const appRouter = router({
         try {
           return [toolkit, await getComposioConnectionStatus(ctx.user.id, toolkit)] as const;
         } catch (error) {
-          // Composio rejected the request (bad key, network, etc.) — surface that
+          // Composio rejected the request (bad key, network, etc.) - surface that
           // instead of letting the client render "key missing" for a key that exists.
           return [toolkit, { configured: keyLength > 0, connected: false, status: "error", connectedAccountId: null, error: error instanceof Error ? error.message : "Composio request failed" }] as const;
         }
@@ -181,7 +181,7 @@ export const appRouter = router({
   }),
   nvidia: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listNvidiaModels(input?.forceRefresh); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithNvidiaGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof NvidiaGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached"].includes(error.kind) ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." }); } }) }),
   deployments: router({
-    /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only — the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
+    /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only - the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
     status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),
   }),
   agentVm: router({

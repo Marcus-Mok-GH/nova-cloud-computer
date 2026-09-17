@@ -206,7 +206,7 @@ export default function Workspace() {
     { name: "Telegram", icon: Send, available: telegramLinked, detail: "Delivers messages and routine updates straight to your Telegram chat." },
     { name: "GitHub", icon: Github, available: githubConnected, detail: "Star repos, file issues and open pull requests from a task. Connect it in Settings." },
     { name: "Gmail", icon: Mail, available: gmailConnected, detail: "Search, send and reply to email from a task. Connect it in Settings." },
-    { name: "More connectors", icon: CircleDashed, available: false, detail: "Slack and Notion are on the roadmap — tell Nova what you need next." },
+    { name: "More connectors", icon: CircleDashed, available: false, detail: "Slack and Notion are on the roadmap - tell Nova what you need next." },
   ];
 
   return (

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Deployments from "./Deployments";
 
 const state = vi.hoisted(() => ({
+  query: { isError: false, isLoading: false, errorMessage: null as string | null },
   data: {
     configured: true,
     latest: {
@@ -50,7 +51,7 @@ vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { child
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     deployments: {
-      status: { useQuery: () => ({ data: state.data, isLoading: false, isError: false, refetch: vi.fn(), isFetching: false }) },
+      status: { useQuery: () => ({ data: state.data, isLoading: state.query.isLoading, isError: state.query.isError, error: state.query.errorMessage ? { message: state.query.errorMessage } : null, refetch: vi.fn(), isFetching: false }) },
       deploy: { useMutation: () => mutation },
     },
     useUtils: () => ({ deployments: { status: { invalidate: vi.fn() } } }),
@@ -63,6 +64,7 @@ describe("Deployments page", () => {
       ...state.data,
       configured: true,
     };
+    state.query = { isError: false, isLoading: false, errorMessage: null };
   });
 
   it("shows the live website with its URL, redeploy control, and history", () => {
@@ -82,6 +84,14 @@ describe("Deployments page", () => {
     expect(markup).toContain("NETLIFY_API_TOKEN");
     expect(markup).toContain("Nothing deployed yet");
     expect(markup).not.toContain("Deploy latest changes");
+  });
+
+  it("explains why deployments could not load", () => {
+    state.query = { isError: true, isLoading: false, errorMessage: "The Nova database is unavailable." };
+    const markup = renderToStaticMarkup(<Deployments />);
+    expect(markup).toContain("Deployments could not load.");
+    expect(markup).toContain("The Nova database is unavailable.");
+    expect(markup).toContain("Try again");
   });
 
   it("surfaces the failure of the latest deployment", () => {

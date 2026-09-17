@@ -350,7 +350,9 @@ describe("Nova tool-calling workspace agent", () => {
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     // The closing reply is persisted from the tool summary, not lost.
     const reply = result.message.content;
-    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain("end of what I can do in one go");
+    expect(reply).toContain("Here is where things stand");
+    expect(reply).toContain('Send "continue"');
     expect(reply).toContain(
       "Deployed the website: https://nova-live-site.netlify.app"
     );
@@ -387,12 +389,13 @@ describe("Nova tool-calling workspace agent", () => {
     // No second model round — the run closed at the deadline.
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     const reply = result.message.content;
-    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain("end of what I can do in one go");
     expect(reply).toContain("deploy_website");
-    expect(reply).toContain("interrupted mid-flight");
-    // The interrupted step is named as unfinished, never as completed work.
-    expect(reply).toContain("it is not finished");
-    expect(reply).not.toContain("I completed the steps");
+    expect(reply).toContain("interrupted and is not finished");
+    // The interrupted step is named as unfinished, never as completed work,
+    // and the reply tells the user how to keep going.
+    expect(reply).toContain('Send "continue"');
+    expect(reply).not.toContain("Here is where things stand");
     // The interrupted call is recorded as failed activity, not left "running".
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])
@@ -423,9 +426,10 @@ describe("Nova tool-calling workspace agent", () => {
     // The call's side effects never began — nothing deployed after closing.
     expect(deployWebsite).not.toHaveBeenCalled();
     const reply = result.message.content;
-    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain("end of what I can do in one go");
     expect(reply).toContain("deploy_website");
     expect(reply).toContain("was skipped");
+    expect(reply).toContain('Send "continue"');
     // The skipped call is recorded as failed activity with the reason.
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])

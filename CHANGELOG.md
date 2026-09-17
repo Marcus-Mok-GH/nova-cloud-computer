@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-17 — Voice notes now transcribe via the Pollinations AI unified API
+
+- Owner request: the AI voice-note feature (Telegram voice-message transcription) now uses the Pollinations AI unified API (https://gen.pollinations.ai) instead of defaulting to OpenAI.
+- `server/_core/env.ts`: new `resolveTranscriptionConfig()` selects the provider coherently — setting `POLLINATIONS_API_KEY` opts into Pollinations (`https://gen.pollinations.ai/v1`, model `openai/whisper-large-v3`), while a legacy bare `TRANSCRIPTION_API_KEY` (in existing deployments an OpenAI credential) keeps the former OpenAI defaults so that key is never sent to Pollinations. `TRANSCRIPTION_API_BASE_URL` still overrides the endpoint for any OpenAI-compatible provider; `TRANSCRIPTION_API_KEY` takes precedence over `POLLINATIONS_API_KEY`. Five new `env` tests pin these selection rules (review hardening from Codex's P1).
+- `server/transcription.ts`: the request/response shapes stay as-is — Pollinations' `/v1/audio/transcriptions` endpoint is OpenAI/Whisper-compatible. But Pollinations documents only mp3/mp4/mpeg/mpga/m4a/wav/webm, not Telegram's OGG/Opus voice notes (CodeRabbit Major), so when the target provider is Pollinations, OGG audio is decoded in-process with the WASM `ogg-opus-decoder` package and repackaged as 16-bit mono WAV before upload; other providers keep the original bytes. Docs updated to describe the new defaults; the provider stays env-configurable (point `TRANSCRIPTION_API_BASE_URL` at OpenAI, Groq, or any other OpenAI-compatible provider to switch back).
+- Tests: five new `env` tests pin the provider-selection rules; three new `transcription` tests cover the OGG→WAV conversion using a real OGG/Opus fixture (WAV repackaging for Pollinations, byte passthrough for other providers, clear error on undecodable audio). Full suite: 351 passed.
+- `server/app.ts`: the not-configured hint the model relays to users now names `POLLINATIONS_API_KEY` (or `TRANSCRIPTION_API_KEY`).
+
 ## 2026-09-17 — Manus-style: voice notes, persistent style preference
 
 Research-driven parity pass with Manus's Telegram bot (three requested capabilities; the file-deliverable one turned out to already exist via present_file).

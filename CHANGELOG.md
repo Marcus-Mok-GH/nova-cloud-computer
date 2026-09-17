@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-17 — The model now chooses: update the existing site, or create a new one
+
+- Owner request: let the AI decide whether a deploy updates the existing live site or spins up a new one, to reduce complexity between site versions. Previously every deploy overwrote the single workspace Netlify site — a brand-new, completely different project would clobber the URL the user already shared, and there was no way to have two sites.
+- `server/workspaceAgent.ts`: the `deploy_website` tool gained a `site` parameter (`"update"` default / `"new"`). The tool description and the system-prompt publishing guidance now both instruct the model to choose deliberately: `update` keeps the existing site's URL while replacing its content (iterating on the same site); `new` creates a fresh site with its own URL (user asks for a separate site, or pivots to a distinctly different project) so versions of different sites never tangle onto one URL. The tool result tells the model which URL is live and, for `new`, that future `update` deploys now target the new site.
+- `server/siteDeploy.ts`: `deployWorkspaceSite` takes `options.site`; `"new"` always provisions a fresh Netlify site even when one exists, `"update"`/default keeps today's reuse-the-latest-site behavior. First deploys create regardless.
+- Tests: two new `siteDeploy` cases (new site created despite an existing one; explicit `update` still reuses), and the two agent-level deploy assertions now verify the mode is passed through. Full suite: 335 passed.
+
+## 2026-09-17 — Removed the hardcoded "Working on it" fallback: the model owns all messaging
 ## 2026-09-17 — Removed the hardcoded "Working on it" fallback: the model owns all messaging
 
 - Owner decision: no hardcoded canned messages from the Telegram webhook — the AI does the sending itself. The system prompt already instructs the model to open with an honest ETA via `send_progress_update` on medium-to-long tasks (and just answer short ones directly), and that is now the only acknowledgment mechanism.

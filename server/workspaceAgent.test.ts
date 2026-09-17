@@ -318,7 +318,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", { onChunk });
-    expect(deployWebsite).toHaveBeenCalledWith(1, null);
+    expect(deployWebsite).toHaveBeenCalledWith(1, null, { site: "update" });
     expect(result.actions).toEqual([
       {
         kind: "deployment",
@@ -504,7 +504,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Deployed the my-react-app folder — your site is live." })
       );
     const result = await runWorkspaceAgent(1, 3, "publish my portfolio app");
-    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app");
+    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { site: "update" });
     expect(result.actions).toEqual([
       {
         kind: "deployment",

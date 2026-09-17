@@ -96,6 +96,36 @@ describe("Workspace website deployer", () => {
     });
   });
 
+  it("creates a brand-new site when the model chooses site: 'new', leaving the old site untouched", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.getLatestSiteDeploymentForUser.mockResolvedValue({
+      id: 30, siteId: "site-old", siteName: "nova-old-site", siteUrl: "https://nova-old-site.netlify.app",
+      status: "live", fileCount: 2, error: null, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const result = await deployWorkspaceSite(1, null, { site: "new" });
+    expect(result.ok).toBe(true);
+    expect(spies.createNetlifySite).toHaveBeenCalledTimes(1);
+    expect(spies.deployFilesToNetlifySite).toHaveBeenCalledWith("site-new", expect.anything());
+    expect(spies.recordSiteDeployment.mock.calls[0][1]).toMatchObject({
+      siteId: "site-new",
+      siteUrl: "https://nova-fresh-site.netlify.app",
+    });
+  });
+
+  it("still reuses the existing site when the model explicitly chooses site: 'update'", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.getLatestSiteDeploymentForUser.mockResolvedValue({
+      id: 30, siteId: "site-old", siteName: "nova-old-site", siteUrl: "https://nova-old-site.netlify.app",
+      status: "live", fileCount: 2, error: null, createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const result = await deployWorkspaceSite(1, null, { site: "update" });
+    expect(result.ok).toBe(true);
+    expect(spies.createNetlifySite).not.toHaveBeenCalled();
+    expect(spies.deployFilesToNetlifySite).toHaveBeenCalledWith("site-old", expect.anything());
+  });
+
   it("decodes binary data-URI files into their real bytes", async () => {
     spies.listWorkspaceFilesForUser.mockResolvedValue([
       indexFile,

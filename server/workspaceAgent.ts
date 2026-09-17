@@ -406,7 +406,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "create_project_template",
       description:
-        "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser — no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean — deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live.",
+        "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser — no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean — deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live. If the user did not ask for a specific stack, do not ask them — pick the best fit yourself and say which stack you chose.",
       parameters: {
         type: "object",
         properties: {
@@ -417,10 +417,10 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           template: {
             type: "string",
             enum: ["static", "react", "next"],
-            description: "The project type to scaffold.",
+            description: "The project type to scaffold. If the user did not specify a stack, choose the best fit for their request: 'static' for content sites and landing pages, 'react' for interactive apps and demos, 'next' only when they explicitly want Next.js. Omitting it scaffolds 'static'.",
           },
         },
-        required: ["name", "template"],
+        required: ["name"],
       },
     },
   },
@@ -634,7 +634,7 @@ Operating principles:
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish — the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. The first deploy creates the permanent live URL; later deploys update that same URL. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
-- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files: 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
+- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking — and mention the stack you chose. 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
@@ -950,13 +950,16 @@ async function executeWorkspaceTool(
     case "create_project_template": {
       const rawName = str(args.name);
       if (!rawName) return { ok: false, result: "A project name is required." };
-      if (!isProjectTemplateKey(args.template))
+      // No stack specified: the model decides, but if it omitted the template
+      // entirely, scaffold the safe default that deploys without a build.
+      const template = str(args.template).trim() === "" ? "static" : args.template;
+      if (!isProjectTemplateKey(template))
         return {
           ok: false,
           result: `Unknown template: ${str(args.template)}. Supported templates: ${PROJECT_TEMPLATE_KEYS.join(", ")}.`,
         };
       const projectName = slugifyProjectName(rawName);
-      const rendered = renderProjectTemplate(args.template, rawName);
+      const rendered = renderProjectTemplate(template, rawName);
 
       // Project folder at the workspace root — reuse it if it already exists.
       const existingProject = computer.folders.find(
@@ -1032,7 +1035,7 @@ async function executeWorkspaceTool(
         rendered.deployRoot === "." ? projectName : `${projectName}/${rendered.deployRoot}`;
       return {
         ok: true,
-        result: `Scaffolded the ${rawName} project (${args.template} template): ${createdPaths.length} files in the ${projectName} folder — ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
+        result: `Scaffolded the ${rawName} project (${template} template): ${createdPaths.length} files in the ${projectName} folder — ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
         action: { kind: "project", name: projectName, operation: "created" },
       };
     }

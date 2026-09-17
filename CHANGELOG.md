@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-17 — Nova picks the stack automatically when none was specified
+
+- `server/workspaceAgent.ts`: when the user asks for a site or app without naming a stack, Nova now chooses the best fit itself instead of asking back — prompted to prefer 'static' for content sites, 'react' for interactive apps, 'next' only on explicit request, and to mention the chosen stack in its reply. The `create_project_template` tool's `template` argument is now optional; omitting it scaffolds the deploy-safe 'static' template, while an invalid stack name is still rejected (not improvised).
+- Tests: omitted template scaffolds 'static' and the tool result names the template used.
+
 ## 2026-09-17 — Long runs always leave a closing reply (deadline-aware finish)
 
 - `server/workspaceAgent.ts`: an agent run that spends nearly the whole 300s request budget on tools (e.g. a Netlify deploy) used to lose its final reply — the closing gateway round was still in flight when Vercel killed the function, so the chat ended with tool activity but no message. Runs now track a deadline (285s budget): when a follow-up round would start with less than 45s left, the run skips it and persists a synthesized status reply built from the last round's tool summaries. Found during end-to-end browser validation of the full scaffold → publish flow.

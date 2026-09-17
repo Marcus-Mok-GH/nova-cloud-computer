@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-17 — deploy_website agent tool: publish the workspace from chat
+
+- `server/workspaceAgent.ts`: new `deploy_website` tool for the Nova agent. When the user asks to put their site/workspace online, the agent (checks for an index.html and) calls the same deploy service the Deployments page uses, then reports the permanent live URL. Failures — missing index.html, unconfigured NETLIFY_API_TOKEN, Netlify errors — are relayed to the model so it can explain them to the user. Adds a "deployment" action kind with deployed/failed operations and a matching tool-activity summary, plus a system-prompt line teaching when to use it.
+- Tests: deploy success (URL reaches the model, action + activity summary recorded) and failure relay.
+
+
 ## 2026-09-17 — Deployments page: show why it could not load
 
 - `client/src/pages/Deployments.tsx`: the error card now includes the underlying query error message, so issues like a pending database migration are diagnosable instead of a dead end.

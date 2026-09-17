@@ -129,6 +129,21 @@ vi.mock("./e2b", () => ({
   withE2BWorkspaceLock: vi.fn(),
 }));
 
+const deployWebsite = vi.fn(async () => ({
+  ok: true,
+  deployment: {
+    id: 5,
+    siteId: "site-1",
+    siteName: "nova-live-site",
+    siteUrl: "https://nova-live-site.netlify.app",
+    fileCount: 3,
+    status: "live",
+  },
+}));
+vi.mock("./siteDeploy", () => ({
+  deployWorkspaceSite: deployWebsite,
+}));
+
 vi.mock("./workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),
   restoreWorkspaceToE2B: vi.fn(async () => 0),
@@ -260,6 +275,78 @@ describe("Nova tool-calling workspace agent", () => {
     expect(persistedToolActivity.content).toContain("create_file");
     expect(onChunk).toHaveBeenCalledWith("Created notes.txt for you.");
     expect(result.message.content).toBe("Created notes.txt for you.");
+  });
+
+  it("deploys the workspace website when the model calls deploy_website", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "deploy_website", arguments: "{}" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Your site is live at https://nova-live-site.netlify.app" })
+      );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "publish my site", { onChunk });
+    expect(deployWebsite).toHaveBeenCalledWith(1);
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app",
+        operation: "deployed",
+      },
+    ]);
+    // The tool result fed the live URL back to the model.
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-1",
+    });
+    expect(secondCallMessages.at(-1).content).toContain("https://nova-live-site.netlify.app");
+    expect(onChunk).toHaveBeenCalledWith(
+      "Your site is live at https://nova-live-site.netlify.app"
+    );
+    // Tool activity names the deployment in its summary record.
+    const persistedToolActivities = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    expect(persistedToolActivities.some(activity => activity.content.includes("deploy_website"))).toBe(true);
+    expect(
+      persistedToolActivities.some(activity =>
+        activity.content.includes(
+          "Deployed the workspace website: https://nova-live-site.netlify.app."
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("relays the reason back to the model when a deployment fails", async () => {
+    deployWebsite.mockResolvedValueOnce({
+      ok: false,
+      message: "Add an index.html file to your workspace first — it is your website's entry page.",
+    });
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "deploy_website", arguments: "{}" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "I could not deploy: an index.html is missing." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "publish my site");
+    expect(result.actions).toEqual([
+      { kind: "deployment", name: "", operation: "failed" },
+    ]);
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1).content).toContain("The website was not deployed");
+    expect(secondCallMessages.at(-1).content).toContain("index.html");
+    expect(result.message.content).toBe("I could not deploy: an index.html is missing.");
   });
 
   it("sends a model-driven progress update when the model calls send_progress_update", async () => {

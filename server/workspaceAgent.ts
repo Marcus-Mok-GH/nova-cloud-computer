@@ -1457,16 +1457,20 @@ export async function runWorkspaceAgent(
     const summaryLines = lastRoundSummaries
       .map(summary => `- ${summary}`)
       .join("\n");
-    const base = lastRoundSummaries.length
-      ? unfinishedTool
-        ? `I ran out of processing time to finish this task. Here is where the completed steps stand:\n${summaryLines}`
-        : `I completed the steps in this task, but ran out of processing time to write a full summary. Here is where things stand:\n${summaryLines}`
-      : "I ran out of processing time for this task. Everything so far is saved — send another message and I will continue from here.";
-    if (!unfinishedTool) return base;
-    const note = unfinishedToolStarted
-      ? `⏱️ The \`${unfinishedTool}\` step was still running when time ran out and was interrupted mid-flight — it is not finished. Send another message and I will continue from where it stopped.`
-      : `⏱️ Time ran out before the \`${unfinishedTool}\` step could start, so it was skipped. Send another message and I will pick this task back up.`;
-    return `${base}\n\n${note}`;
+    const parts: string[] = [
+      lastRoundSummaries.length
+        ? `I've reached the end of what I can do in one go. Here is where things stand:\n${summaryLines}`
+        : "I've reached the end of what I can do in one go on this task.",
+    ];
+    if (unfinishedTool) {
+      parts.push(
+        unfinishedToolStarted
+          ? `⏱️ The \`${unfinishedTool}\` step was still running when time ran out, so it was interrupted and is not finished.`
+          : `⏱️ Time ran out before the \`${unfinishedTool}\` step could start, so it was skipped.`
+      );
+    }
+    parts.push('Send "continue" and I\'ll pick up right where I left off.');
+    return parts.join("\n\n");
   };
   // Everything streamed to the client during this run — needed by the catch
   // below to keep the partial reply when the gateway fails mid-run.

@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-17 — Friendlier end-of-budget replies
+
+- `server/workspaceAgent.ts`: the synthesized closing reply for a run that hits its time budget no longer talks about "processing time" — the user-facing wording is now "I've reached the end of what I can do in one go", a plain statement of where things stand, and an explicit cue: send "continue" and the bot picks up right where it left off. The interrupted/skipped step note keeps its ⏱️ marker and remains separate from completed steps.
 ## 2026-09-17 — No single tool call can outlast the request budget
 
 - `server/workspaceAgent.ts`: the deadline-aware finish only checked the remaining budget *between* tool rounds — a single long call (a VM task, a deploy) could run straight past the 285s budget, so Vercel killed the function mid-tool and the user never saw a closing reply. Tool executions are now raced against the run deadline: losing the race stops waiting on the call, records it as interrupted tool activity, and persists the synthesized closing reply inside the remaining maxDuration margin. Losing the race stops the wait, not the tool — side effects already in flight continue server-side.

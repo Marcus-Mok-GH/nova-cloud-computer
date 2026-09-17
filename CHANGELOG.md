@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-17 — Long runs always leave a closing reply (deadline-aware finish)
+
+- `server/workspaceAgent.ts`: an agent run that spends nearly the whole 300s request budget on tools (e.g. a Netlify deploy) used to lose its final reply — the closing gateway round was still in flight when Vercel killed the function, so the chat ended with tool activity but no message. Runs now track a deadline (285s budget): when a follow-up round would start with less than 45s left, the run skips it and persists a synthesized status reply built from the last round's tool summaries. Found during end-to-end browser validation of the full scaffold → publish flow.
+- Tests: a near-expired deadline skips the second model round and still persists the deployment URL.
+
 ## 2026-09-17 — create_project_template tool + AI-chosen deploy directory
 
 - `server/projectTemplates.ts`: new module. Three scaffolds — `static` (plain HTML/CSS/JS), `react` (React SPA that runs in the browser: React from a CDN, Babel standalone compiles the JSX, no build step), and `next` (Next.js App Router configured for `output: "export"`). Each template declares its `deployRoot` and summary so the agent knows exactly which folder to publish.

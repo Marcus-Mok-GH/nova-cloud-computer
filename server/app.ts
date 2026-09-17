@@ -1,4 +1,5 @@
 import express from "express";
+import { sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers";
@@ -46,4 +47,33 @@ async function handleTelegramUpdate(token: string, req: express.Request, res: We
   if (text === "/start" || text.toLowerCase() === "start" || text.toLowerCase().startsWith("/start ")) { const startMessage = "👋 Welcome to Nova Cloud Computer!\n\n" + "I'm your AI assistant inside this workspace. You can ask me to:\n" + "• Create, rename, move, or delete files\n" + "• Run a VM or sandbox when you ask\n" + "• Send Telegram messages on your behalf\n\n" + (isAppLink ? "✅ This chat is now linked to your Nova workspace. Just send me a message to get started." : "Just send me a message to get started."); await sendTelegramMessage(token, chatId, startMessage); res.status(200).json({ ok: true, replied: "start", linked: isAppLink }); return; } if (text === "/new") { const chat = await createChatForUser(ownerId, "Telegram Chat"); void pruneChatsIfNeeded(ownerId); await sendTelegramMessage(token, chatId, `New chat created (ID: ${chat.id}). Ask me anything!`); res.status(200).json({ ok: true }); return; } if (text === "/stop" || text.toLowerCase() === "stop") { const vmCancelled = await cancelActiveAgentVmRunsForUser(ownerId); await requestAgentStopForUser(ownerId); const vmLine = vmCancelled ? `\n• Cancelled ${vmCancelled} VM task${vmCancelled === 1 ? "" : "s"}.` : ""; await sendTelegramMessage(token, chatId, `⏹️ Stopping all running agent processes.\n• In-flight agent replies stop almost immediately.${vmLine}`); res.status(200).json({ ok: true, replied: "stop" }); return; } let uploadContext = ""; let imageAttachment; if (uploaded) { try { const payload = await downloadTelegramUpload(token, uploaded); const saved = await createWorkspaceFileForUser(ownerId, payload); if (!saved) throw new Error("the workspace could not store that file"); const isDataUri = payload.content.startsWith("data:"); if (isDataUri && payload.mimeType.startsWith("image/")) { imageAttachment = payload.content; uploadContext = `\n\n📎 (Attachment: the user uploaded "${saved.name}" (${payload.mimeType}) over Telegram, saved in their workspace as file id ${saved.id}. The image is attached to this message — you can see it directly. Acknowledge it briefly and work with it as the conversation requires.)`; } else if (isDataUri) { uploadContext = `\n\n📎 (Attachment: the user uploaded "${saved.name}" (${payload.mimeType}) over Telegram, saved in their workspace as file id ${saved.id} with its bytes stored as a base64 data URI. To read its contents, run a short Python task with run_vm_task that decodes the data URI and parses the format — for example pypdf for PDFs.)`; } else { uploadContext = `\n\n📎 (Attachment: the user uploaded "${saved.name}" (${payload.mimeType}) over Telegram, saved in their workspace as file id ${saved.id}. Read its contents with read_file and work with it as the conversation requires.)`; } } catch (error) { uploadContext = `\n\n⚠️ (The user tried to upload a file, but saving it to the workspace failed: ${error instanceof Error ? error.message : String(error)} — tell them what happened and suggest sending it again.)`; } } const chatId_num = await getOrCreateLatestTelegramChat(ownerId); void pruneChatsIfNeeded(ownerId); await sendChatAction(token, chatId, "typing"); const TELEGRAM_MESSAGE_LIMIT = 4096; let streamedText = ""; /* No "Thinking..." placeholder: a placeholder became a permanent orphan bubble whenever its final edit failed, and streaming edits collided with Telegram's per-second edit limit during long runs. A typing action refreshed until the reply lands keeps the chat clean. */ const typingTimer = setInterval(() => { void sendChatAction(token, chatId, "typing").catch(() => {}); }, 4500); try { const result = await runWorkspaceAgent(ownerId, chatId_num, text + uploadContext, { channel: "telegram", imageAttachments: imageAttachment ? [imageAttachment] : undefined, onChunk: async (chunk: string) => { streamedText += chunk; } }); const reply = String(result.message?.content ?? streamedText ?? "I\'m ready to help with this workspace.").trim(); if (!reply) { await sendTelegramMessage(token, chatId, "Nova could not finish that reply. Please try again shortly."); res.status(200).json({ ok: true }); return; } let delivered = false; for (let offset = 0; offset < reply.length; offset += TELEGRAM_MESSAGE_LIMIT) { try { await sendTelegramMessage(token, chatId, reply.slice(offset, offset + TELEGRAM_MESSAGE_LIMIT)); delivered = true; } catch { break; } } if (!delivered) { await sendTelegramMessage(token, chatId, "Nova could not deliver that reply to Telegram. Please try again shortly."); } void autoTitleChatForUser(ownerId, chatId_num).catch(() => {}); res.status(200).json({ ok: true }); return; } catch (error) { console.error("[Telegram webhook] agent run failed", error); try { await sendTelegramMessage(token, chatId, "⚠️ Nova hit an error handling that message. Please try again shortly."); } catch {} res.status(200).json({ ok: true, error: "agent-failed" }); return; } finally { clearInterval(typingTimer); } } catch (error) { console.error("[Telegram webhook] failed", error); res.status(500).json({ error: "webhook-failed" }); return; } }
 app.post("/api/telegram/webhook/default", (req, res) => { const token = ENV.defaultTelegramBotToken; if (!token) return res.status(404).json({ error: "bot-not-configured" }); res.status(200).json({ ok: true, accepted: true }); void handleTelegramUpdate(token, req, backgroundWebhookSink()).catch(error => console.error("[Telegram webhook] background processing failed", error)); });
 app.post("/api/telegram/webhook/:token", (req, res) => { const token = req.params.token; if (!token) return res.status(400).json({ error: "missing-token" }); res.status(200).json({ ok: true, accepted: true }); void handleTelegramUpdate(token, req, backgroundWebhookSink()).catch(error => console.error("[Telegram webhook] background processing failed", error)); });
+
+// TEMPORARY one-shot migration route (removed immediately after use).
+const TEMP_MIGRATION_TOKEN = "bbf75b48-3d47-4d63-a33f-4df5e27ebb61";
+app.post("/api/__apply_site_deployments_migration", async (_req: express.Request, res: express.Response) => {
+  const db = await getDb();
+  if (!db) return res.status(503).json({ error: "Database unavailable." });
+  if (_req.header("x-migration-token") !== TEMP_MIGRATION_TOKEN) return res.status(403).json({ error: "Forbidden." });
+  try {
+    await db.execute(sql`DO $$ BEGIN CREATE TYPE "site_deployment_status" AS ENUM ('deploying', 'live', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS "site_deployments" (
+      "id" serial PRIMARY KEY,
+      "workspaceId" integer NOT NULL REFERENCES "workspaces" ("id") ON DELETE CASCADE,
+      "siteId" varchar(64) NOT NULL,
+      "siteName" varchar(160),
+      "siteUrl" varchar(512) NOT NULL,
+      "status" "site_deployment_status" DEFAULT 'deploying' NOT NULL,
+      "fileCount" integer DEFAULT 0 NOT NULL,
+      "error" varchar(1200),
+      "createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+      "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+    )`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "site_deployments_workspace_created_idx" ON "site_deployments" ("workspaceId", "createdAt")`);
+    const check = await db.execute(sql`SELECT table_name FROM information_schema.tables WHERE table_name = 'site_deployments'`);
+    return res.status(200).json({ success: true, tablePresent: check.rows.length > 0 });
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Migration failed." });
+  }
+});
+
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));

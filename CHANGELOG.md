@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-17 — Publishing is AI-only: Deployments page shows, Nova publishes
+
+- `client/src/pages/Deployments.tsx`: removed the "Publish my workspace" / "Deploy latest changes" button and the deploy mutation behind it. The page is now a read-only view (status, URL, history, open/copy) with a hint telling users to ask Nova in chat to publish or redeploy. The "Deploying" badge still appears live while Nova runs a deploy.
+- `server/routers.ts`: the `deployments.deploy` tRPC mutation is gone — the `deploy_website` agent tool is now the single path to a deploy, so publishing can only happen through the AI.
+- `server/workspaceAgent.ts`: broadened `deploy_website`'s description and the system-prompt teaching. Nova can publish anything Netlify's static hosting serves — plain HTML/CSS/JS, React apps, statically exported Next.js projects, SPAs, portfolios — and it now knows to structure the workspace so an index.html sits at the root (e.g. place build output at the root, or write a root index.html that loads the app / imports React from a CDN).
+- Tests: page render tests assert the publish button is gone and the ask-Nova hint is present.
+
 ## 2026-09-17 — Telegram replies no longer freeze: waitUntil keeps background work alive after the instant ack
 
 - Root cause of the 5–10-minute reply delays: Vercel suspends a function the instant its HTTP response is delivered. The webhook acked Telegram immediately and left the agent run as a floating `void` promise — the run froze with the instance and only resumed when unrelated traffic later landed on the same container. Verified live: a synthetic update produced zero background logs, and unrelated requests thawed nothing for minutes.

@@ -63,6 +63,33 @@ export function resolvePublicBaseUrl() {
   return url.toString().replace(/\/+$/, "");
 }
 
+
+/**
+ * Voice-note transcription provider selection. Pollinations' unified API
+ * (https://gen.pollinations.ai) is the default, but only when a Pollinations
+ * key is present: setting POLLINATIONS_API_KEY (and no explicit
+ * TRANSCRIPTION_API_BASE_URL / TRANSCRIPTION_API_KEY) opts into Pollinations,
+ * while a legacy TRANSCRIPTION_API_KEY — which in existing deployments is an
+ * OpenAI credential — keeps the former OpenAI endpoint and model, so that key
+ * is never sent to Pollinations. TRANSCRIPTION_API_BASE_URL overrides the
+ * endpoint for any OpenAI-compatible provider (OpenAI, Groq, Pollinations,
+ * ...); TRANSCRIPTION_MODEL overrides the model; TRANSCRIPTION_API_KEY takes
+ * precedence over POLLINATIONS_API_KEY.
+ */
+export function resolveTranscriptionConfig() {
+  const pollinationsKey = (process.env.POLLINATIONS_API_KEY ?? "").trim();
+  const explicitKey = (process.env.TRANSCRIPTION_API_KEY ?? "").trim();
+  const explicitBaseUrl = (process.env.TRANSCRIPTION_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  const explicitModel = (process.env.TRANSCRIPTION_MODEL ?? "").trim();
+  const usePollinations = !explicitBaseUrl && !!pollinationsKey && !explicitKey;
+  const apiBaseUrl = explicitBaseUrl || (usePollinations ? "https://gen.pollinations.ai/v1" : "https://api.openai.com/v1");
+  return {
+    transcriptionApiBaseUrl: apiBaseUrl,
+    transcriptionApiKey: explicitKey || pollinationsKey,
+    transcriptionModel: explicitModel || (apiBaseUrl.includes("gen.pollinations.ai") ? "openai/whisper-large-v3" : "whisper-1"),
+  };
+}
+
 export const ENV = {
   // Retained for optional legacy modules that are not part of the Vercel runtime.
   appId: process.env.VITE_APP_ID ?? "",
@@ -90,10 +117,8 @@ export const ENV = {
   exaApiKey: process.env.EXA_API_KEY ?? "",
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
-  /** Voice-note transcription provider (Pollinations unified API by default). Accepts any OpenAI-compatible /audio/transcriptions endpoint. */
-  transcriptionApiBaseUrl: (process.env.TRANSCRIPTION_API_BASE_URL ?? "https://gen.pollinations.ai/v1").replace(/\/$/, ""),
-  transcriptionApiKey: process.env.TRANSCRIPTION_API_KEY ?? process.env.POLLINATIONS_API_KEY ?? "",
-  transcriptionModel: process.env.TRANSCRIPTION_MODEL ?? "openai/whisper-large-v3",
+  /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */
+  ...resolveTranscriptionConfig(),
   /** Composio REST base URL (defaults to the hosted v3.1 API). */
   composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev",
   /** How long the Telegram webhook waits for the model's own send_progress_update before sending a deterministic "still working" fallback note. Overridable so tests do not wait the real delay. */

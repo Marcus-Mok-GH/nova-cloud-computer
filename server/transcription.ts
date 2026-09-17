@@ -5,15 +5,12 @@
  * endpoint so the agent can act on what was said, Manus-style — the
  * transcription becomes the user's turn. The default provider is the
  * Pollinations AI unified API (https://gen.pollinations.ai), whose
- * /v1/audio/transcriptions endpoint is Whisper-compatible; any other
- * OpenAI-compatible provider (OpenAI, Groq, ...) still works by changing
- * the env. The provider is env-configured: TRANSCRIPTION_API_KEY
- * (required; POLLINATIONS_API_KEY is accepted as a fallback name),
- * TRANSCRIPTION_API_BASE_URL (default https://gen.pollinations.ai/v1 —
- * set to e.g. https://api.openai.com/v1 for OpenAI, or
- * https://api.groq.com/openai/v1 for Groq), and TRANSCRIPTION_MODEL
- * (default openai/whisper-large-v3 — Pollinations model IDs; the alias
- * "whisper-1" also routes to the same model on Pollinations). */
+ * /v1/audio/transcriptions endpoint is Whisper-compatible — activated by
+ * setting POLLINATIONS_API_KEY. A legacy TRANSCRIPTION_API_KEY (in existing
+ * deployments an OpenAI credential) keeps the former OpenAI defaults so that
+ * key is never sent to Pollinations. Any OpenAI-compatible provider (OpenAI,
+ * Groq, ...) still works by setting TRANSCRIPTION_API_BASE_URL (and optionally
+ * TRANSCRIPTION_MODEL). See resolveTranscriptionConfig in server/_core/env. */
 
 import { ENV } from "./_core/env";
 

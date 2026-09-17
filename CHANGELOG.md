@@ -3,9 +3,9 @@
 ## 2026-09-17 — Voice notes now transcribe via the Pollinations AI unified API
 
 - Owner request: the AI voice-note feature (Telegram voice-message transcription) now uses the Pollinations AI unified API (https://gen.pollinations.ai) instead of defaulting to OpenAI.
-- `server/_core/env.ts`: `TRANSCRIPTION_API_BASE_URL` now defaults to `https://gen.pollinations.ai/v1` and `TRANSCRIPTION_MODEL` to `openai/whisper-large-v3` (Pollinations' Whisper-compatible model; its `whisper-1` alias also routes there). `TRANSCRIPTION_API_KEY` falls back to `POLLINATIONS_API_KEY` when unset, so a Pollinations `sk_` key can be set under either name.
+- `server/_core/env.ts`: new `resolveTranscriptionConfig()` selects the provider coherently — setting `POLLINATIONS_API_KEY` opts into Pollinations (`https://gen.pollinations.ai/v1`, model `openai/whisper-large-v3`), while a legacy bare `TRANSCRIPTION_API_KEY` (in existing deployments an OpenAI credential) keeps the former OpenAI defaults so that key is never sent to Pollinations. `TRANSCRIPTION_API_BASE_URL` still overrides the endpoint for any OpenAI-compatible provider; `TRANSCRIPTION_API_KEY` takes precedence over `POLLINATIONS_API_KEY`. Five new `env` tests pin these selection rules (review hardening from Codex's P1).
 - `server/transcription.ts`: no wire-format change needed — Pollinations' `/v1/audio/transcriptions` endpoint is OpenAI/Whisper-compatible, so the existing request and response shapes work as-is. Docs updated to describe the new defaults; the provider stays env-configurable (point `TRANSCRIPTION_API_BASE_URL` at OpenAI, Groq, or any other OpenAI-compatible provider to switch back).
-- `server/app.ts`: the not-configured hint the model relays to users now says the operator must set `TRANSCRIPTION_API_KEY` to a Pollinations `sk_` key.
+- `server/app.ts`: the not-configured hint the model relays to users now names `POLLINATIONS_API_KEY` (or `TRANSCRIPTION_API_KEY`).
 
 ## 2026-09-17 — Manus-style: voice notes, persistent style preference
 

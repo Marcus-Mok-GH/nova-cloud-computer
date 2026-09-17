@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-17 — Live website deployments on the Deployments page (Netlify free tier, via API)
+
+- `client/src/pages/Deployments.tsx`: the page is now a real deploy surface. It shows your live website with its permanent URL, a "Publish my workspace"/"Deploy latest changes" button, open/copy URL controls, live/deploying/failed status badges, and a deployment history list. A notice tells the operator to set NETLIFY_API_TOKEN when deployments are not configured.
+- `server/netlify.ts`: new Netlify API client. Creates free sites (auto-generated `<name>.netlify.app` subdomain, SSL, live 24/7) and deploys via the file-digest method: SHA1 digests for every file, uploading only what Netlify requires, then polling until the deploy is live.
+- `server/siteDeploy.ts`: new deploy service. Publishes the entire workspace with folder paths intact (index.html is the entry page; binary data-URI files decode to their real bytes), reuses the existing Netlify site so the URL stays stable across deploys, and records every run.
+- `server/db.ts` + `drizzle/schema.ts` + `drizzle/neon/0019_site_deployments.sql`: new `site_deployments` table (site id/name/URL, status, file count, error) with owner-scoped persistence and a hand-written migration.
+- `server/routers.ts`: new `deployments` tRPC router — `status` (config + live site + history) and `deploy`.
+- Tests: `server/netlify.test.ts`, `server/siteDeploy.test.ts`, `client/src/pages/Deployments.render.test.tsx`. The site-deploy tests caught a real path bug (root folders dropped their name) which is fixed.
+
+
 ## 2026-09-16 — Disconnect Telegram, mirroring the GitHub/Gmail connectors
 
 - `client/src/pages/WorkspaceSettings.tsx`: while Telegram is connected, the connection card now flips to "Disconnect your Telegram account" with a full-width destructive "Disconnect Telegram" button (confirmation dialog included), the same pattern as the GitHub and Gmail connector cards. The small trash icon and "Check connection" row stay only for the not-yet-connected states; the disconnect toast uses the same copy style as the connectors ("Telegram disconnected. Nova lost access until you connect again.").

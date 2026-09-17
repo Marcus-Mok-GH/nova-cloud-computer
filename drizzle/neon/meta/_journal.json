@@ -134,6 +134,13 @@
       "when": 1789704000000,
       "tag": "0018_telegram_update_log",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790044800000,
+      "tag": "0019_site_deployments",
+      "breakpoints": true
     }
   ]
 }

@@ -30,7 +30,7 @@ import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research";
+  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment";
   name: string;
   operation?:
     | "created"
@@ -44,6 +44,7 @@ export type AgentAction = {
     | "disabled"
     | "listed"
     | "executed"
+    | "deployed"
     | "failed";
 };
 
@@ -369,6 +370,18 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "deploy_website",
+      description:
+        "Publish the user's entire workspace as a live website — free hosting, always on, with SSL. Every file goes out under its folder path and index.html is the entry page. The first deploy creates a permanent URL; later deploys update that same URL. Requires an index.html in the workspace root. Call this when the user wants their site, page, or workspace online, live, hosted, or published. A deploy can take up to a minute.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_connector_tools",
       description:
         "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes — never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
@@ -499,6 +512,8 @@ function describeWorkspace(computer: Computer) {
   return { folders, files };
 }
 
+import { deployWorkspaceSite } from "./siteDeploy";
+
 const CONNECTOR_TOOL_NAMES = new Set(["list_connector_tools", "use_connector_tool"]);
 
 /** Resolves which connector toolkits the user has actually connected. Failures degrade to "not connected". */
@@ -567,6 +582,7 @@ Operating principles:
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate — under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
+- Publish websites with deploy_website. When the user wants their workspace, site, or page online (\"put this online\", \"go live\", \"host my site\"), make sure an index.html exists in the workspace root first (create one from the current files if needed), then call deploy_website — it publishes every file under its folder path to free 24/7 SSL hosting and returns the permanent live URL, which stays stable across future deploys. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
@@ -850,6 +866,25 @@ async function executeWorkspaceTool(
         action: { kind: "folder", name: folder.name, operation: "deleted" },
       };
     }
+    case "deploy_website": {
+      const outcome = await deployWorkspaceSite(ownerId);
+      if (!outcome.ok)
+        return {
+          ok: false,
+          result: `The website was not deployed: ${outcome.message}`,
+          action: { kind: "deployment", name: "", operation: "failed" },
+        };
+      const fileCount = outcome.deployment.fileCount;
+      return {
+        ok: true,
+        result: `The workspace is live at ${outcome.deployment.siteUrl} (${fileCount} file${fileCount === 1 ? "" : "s"} published). Share that URL — it stays the same on every future deploy.`,
+        action: {
+          kind: "deployment",
+          name: outcome.deployment.siteUrl,
+          operation: "deployed",
+        },
+      };
+    }
     case "send_telegram_message": {
       const text = str(args.text);
       if (!text) return { ok: false, result: "Message text is required." };
@@ -1062,6 +1097,10 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
     return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
   if (action.operation === "presented")
     return `Presented ${action.name} to the user.`;
+  if (action.kind === "deployment")
+    return action.operation === "failed"
+      ? "Failed deploying the workspace website."
+      : `Deployed the workspace website: ${action.name}.`;
   if (action.kind === "connector")
     return action.operation === "listed"
       ? `Listed ${action.name}.`

@@ -71,6 +71,11 @@ export default function Deployments() {
           <div className="rise-in-delay-2 mt-8 rounded-2xl border bg-card p-8 text-center">
             <AlertTriangle className="mx-auto text-primary" size={24} />
             <h2 className="mt-4 text-xl font-bold">Deployments could not load.</h2>
+            {status.error?.message && (
+              <p className="mx-auto mt-2 max-w-md break-words text-xs leading-5 text-muted-foreground">
+                {status.error.message}
+              </p>
+            )}
             <Button className="mt-5" variant="outline" onClick={() => status.refetch()}>Try again</Button>
           </div>
         ) : (

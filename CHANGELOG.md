@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-17 — Deployments page: show why it could not load
+
+- `client/src/pages/Deployments.tsx`: the error card now includes the underlying query error message, so issues like a pending database migration are diagnosable instead of a dead end.
+
+
 ## 2026-09-17 — Live website deployments on the Deployments page (Netlify free tier, via API)
 
 - `client/src/pages/Deployments.tsx`: the page is now a real deploy surface. It shows your live website with its permanent URL, a "Publish my workspace"/"Deploy latest changes" button, open/copy URL controls, live/deploying/failed status badges, and a deployment history list. A notice tells the operator to set NETLIFY_API_TOKEN when deployments are not configured.

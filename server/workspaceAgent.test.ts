@@ -323,6 +323,41 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe(true);
   });
 
+  it("closes with a synthesized reply when the run budget runs out before the final model round", async () => {
+    // The deploy consumed the request budget: the next gateway round would
+    // be killed by maxDuration before the reply could persist.
+    chatWithNvidiaGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      onChunk,
+      deadlineAtMs: Date.now() + 1_000,
+    });
+    // No second model round was started.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    // The closing reply is persisted from the tool summary, not lost.
+    const reply = result.message.content;
+    expect(reply).toContain("ran out of processing time");
+    expect(reply).toContain(
+      "Deployed the website: https://nova-live-site.netlify.app"
+    );
+    // It streams to the client like any other reply.
+    expect(onChunk).toHaveBeenCalledWith(reply);
+    // The deployment action still counts as completed work.
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app",
+        operation: "deployed",
+      },
+    ]);
+  });
+
   it("relays the reason back to the model when a deployment fails", async () => {
     deployWebsite.mockResolvedValueOnce({
       ok: false,

@@ -68,7 +68,22 @@ type WorkspaceAgentOptions = {
   channel?: "telegram" | "web";
   /** Data-URI images attached to this turn, sent to the model as vision input. */
   imageAttachments?: string[];
+  /**
+   * When this run must be finished by (epoch ms). Defaults to a budget just
+   * under the Vercel maxDuration so the final reply is always persisted —
+   * a gateway round started too close to the limit would be killed with the
+   * function before the reply could be saved.
+   */
+  deadlineAtMs?: number;
 };
+
+/**
+ * Vercel caps functions at 300s; leave a safety margin so the closing reply
+ * is persisted well before the instance can be frozen or killed.
+ */
+const MAX_RUN_BUDGET_MS = 285_000;
+/** Skip the final model round when less than this remains. */
+const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 
@@ -1344,6 +1359,10 @@ export async function runWorkspaceAgent(
     });
 
   const actions: AgentAction[] = [];
+  const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
+  // Summaries of the tool calls in the current round — used to synthesize a
+  // closing reply when the run runs out of time before the final model round.
+  let lastRoundSummaries: string[] = [];
   // Everything streamed to the client during this run — needed by the catch
   // below to keep the partial reply when the gateway fails mid-run.
   let streamedRunText = "";
@@ -1454,6 +1473,19 @@ export async function runWorkspaceAgent(
     let recoveredCallCount = 0;
     for (let round = 0; ; round += 1) {
       if (round > 0 && (await hasAgentStopAfter(ownerId, runStartedAt))) return stopRun();
+      // A deploy or long research can consume nearly the whole request
+      // budget. Starting another gateway round this close to the maxDuration
+      // limit risks the function being killed before the reply persists —
+      // close the run with a synthesized status instead.
+      if (round > 0 && Date.now() + FINAL_ROUND_MIN_REMAINING_MS > deadlineAtMs) {
+        reply = lastRoundSummaries.length
+          ? `I completed the steps in this task, but ran out of processing time to write a full summary. Here is where things stand:\n${lastRoundSummaries
+              .map(summary => `- ${summary}`)
+              .join("\n")}`
+          : "I ran out of processing time for this task. Everything so far is saved — send another message and I will continue from here.";
+        streamedReplyChars = 0;
+        break;
+      }
       let streamedThisRound = 0;
       const emitChunk = options.onChunk
         ? (chunk: string) => {
@@ -1528,6 +1560,7 @@ export async function runWorkspaceAgent(
           function: { name: call.name, arguments: call.arguments },
         })),
       });
+      lastRoundSummaries = [];
       for (const call of calls) {
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         await emitTool({
@@ -1562,6 +1595,7 @@ export async function runWorkspaceAgent(
           };
         }
         if (execution.action) actions.push(execution.action);
+        lastRoundSummaries.push(toolSummary(call, execution));
         await emitTool({
           id: call.id,
           name: call.name,

@@ -21,6 +21,7 @@ import {
   telegramUpdateLog,
   automations,
   automationRuns,
+  siteDeployments,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { getTelegramWebhookInfo } from "./telegram";
@@ -1023,4 +1024,63 @@ export async function deleteChatForUser(ownerId: number, chatId: number) {
   if (!chat) return false;
   await db.delete(chats).where(eq(chats.id, chat.id));
   return true;
+}
+
+
+export type SiteDeploymentRow = typeof siteDeployments.$inferSelect;
+
+/** Latest website deployment for the workspace (any status), for site reuse and the live URL. */
+export async function getLatestSiteDeploymentForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [latest] = await db.select().from(siteDeployments)
+    .where(eq(siteDeployments.workspaceId, workspace.id))
+    .orderBy(desc(siteDeployments.createdAt))
+    .limit(1);
+  return latest ?? null;
+}
+
+/** Recent website deployments, newest first. */
+export async function listSiteDeploymentsForUser(ownerId: number, limit = 10) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return db.select().from(siteDeployments)
+    .where(eq(siteDeployments.workspaceId, workspace.id))
+    .orderBy(desc(siteDeployments.createdAt))
+    .limit(limit);
+}
+
+/** Records the start of a website deployment. */
+export async function recordSiteDeployment(
+  ownerId: number,
+  input: { siteId: string; siteName: string | null; siteUrl: string; fileCount: number; status: "deploying" | "live" | "failed"; error?: string }
+) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [row] = await db.insert(siteDeployments).values({
+    workspaceId: workspace.id,
+    siteId: input.siteId,
+    siteName: input.siteName,
+    siteUrl: input.siteUrl,
+    fileCount: input.fileCount,
+    status: input.status,
+    ...(input.error ? { error: input.error.slice(0, 1200) } : {}),
+  }).returning();
+  return row;
+}
+
+/** Marks a website deployment live or failed once Netlify finishes processing. */
+export async function updateSiteDeploymentStatusForUser(
+  ownerId: number,
+  deploymentId: number,
+  status: "live" | "failed",
+  error?: string
+) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [row] = await db.update(siteDeployments)
+    .set({ status, ...(error ? { error: error.slice(0, 1200) } : {}), updatedAt: new Date() })
+    .where(and(eq(siteDeployments.id, deploymentId), eq(siteDeployments.workspaceId, workspace.id)))
+    .returning();
+  return row ?? null;
 }

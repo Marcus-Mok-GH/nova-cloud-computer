@@ -41,6 +41,7 @@ import {
   updateAutomationForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { deployWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
@@ -179,6 +180,12 @@ export const appRouter = router({
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
   nvidia: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listNvidiaModels(input?.forceRefresh); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithNvidiaGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof NvidiaGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." }); } }) }),
+  deployments: router({
+    /** Live website deployments: configuration, the current live site, and recent history. */
+    status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),
+    /** Publishes the entire workspace as a live website on Netlify's free tier. */
+    deploy: protectedProcedure.mutation(({ ctx }) => deployWorkspaceSite(ctx.user.id)),
+  }),
   agentVm: router({
     status: protectedProcedure.query(({ ctx }) => getAgentVmStatus(ctx.user.id)), list: protectedProcedure.query(({ ctx }) => listAgentVmRuns(ctx.user.id)),
     start: protectedProcedure.input(agentVmRunInput).mutation(async ({ ctx, input }) => { try { return await startAgentVmRun(ctx.user.id, input); } catch (error) { const message = error instanceof Error ? error.message : "Nova could not start that agent VM run."; const code = /active agent VM run/i.test(message) ? "PRECONDITION_FAILED" : /blocked|limits/i.test(message) ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message }); } }),

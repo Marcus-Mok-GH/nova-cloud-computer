@@ -88,6 +88,8 @@ export const ENV = {
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Exa AI API key powering the researcher sub-agent's deep web search. Empty string when unset. */
   exaApiKey: process.env.EXA_API_KEY ?? "",
+  /** Netlify personal access token powering free live website deployments. Empty string when unset. */
+  netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
   /** Composio REST base URL (defaults to the hosted v3.1 API). */
   composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev",
 };

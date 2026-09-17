@@ -10,7 +10,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:migrate:deploy": "if [ \"$VERCEL_ENV\" = \"production\" ]; then pnpm run db:migrate; else echo \"Skipping migrations ($VERCEL_ENV build)\"; fi"
   },
   "dependencies": {
     "@neondatabase/neon-js": "0.7.0-beta",

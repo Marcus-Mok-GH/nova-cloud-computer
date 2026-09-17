@@ -103,12 +103,16 @@ function fileBody(content: string): Buffer {
  * Deploys the chosen directory as a live website — the directory's contents
  * become the site and its index.html is the entry page. `directory` is a
  * workspace-relative folder path; null/empty means the workspace root.
- * Reuses the workspace's Netlify site when one exists, so the public URL
- * never changes between deploys.
+ * `options.site` is the deliberate target choice made by the model:
+ * "update" (default) reuses the workspace's existing Netlify site so its
+ * public URL never changes while the content updates; "new" creates a
+ * fresh site with its own URL, for a distinctly different project, so
+ * separate sites never pile onto one URL.
  */
 export async function deployWorkspaceSite(
   ownerId: number,
-  directory?: string | null
+  directory?: string | null,
+  options?: { site?: "update" | "new" }
 ): Promise<DeployResult> {
   if (!isNetlifyConfigured()) {
     return { ok: false, message: "Live deployments are not configured yet — the Nova operator needs to set NETLIFY_API_TOKEN." };
@@ -153,10 +157,13 @@ export async function deployWorkspaceSite(
 
   try {
     const previous = await getLatestSiteDeploymentForUser(ownerId);
-    // Reuse the existing site so the live URL is stable across deploys.
-    const site = previous
-      ? { id: previous.siteId, name: previous.siteName, url: previous.siteUrl }
-      : await createNetlifySite();
+    // The model's deliberate choice: update the existing site (stable URL) or
+    // spin up a fresh site with its own URL. A first deploy always creates.
+    const mode = options?.site ?? "update";
+    const site =
+      mode === "update" && previous
+        ? { id: previous.siteId, name: previous.siteName, url: previous.siteUrl }
+        : await createNetlifySite();
     if (!site.url) throw new Error("Netlify did not return a URL for the new site.");
 
     const deployment = await recordSiteDeployment(ownerId, {

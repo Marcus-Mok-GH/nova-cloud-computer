@@ -424,7 +424,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "deploy_website",
       description:
-        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting — always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page; the first deploy creates a permanent URL, later deploys update that same URL. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files — pass '/' only when the site genuinely lives at the workspace root. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
+        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting — always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files — pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the site target: 'update' (default) replaces the content of the workspace's existing live site — its URL stays the same; 'new' creates a fresh site with its own URL, for when the user wants a separate site or a distinctly different project, so different sites never pile onto one URL. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
       parameters: {
         type: "object",
         properties: {
@@ -432,6 +432,12 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             description:
               "Workspace-relative directory to publish, e.g. 'my-react-app' or 'my-next-app/out'. Pass '/' for the workspace root. Its index.html becomes the entry page.",
+          },
+          site: {
+            type: "string",
+            enum: ["update", "new"],
+            description:
+              "Which site to publish to: 'update' (default) replaces the existing live site's content and keeps its URL — use it whenever the user is iterating on the same site; 'new' creates a brand-new site with its own URL — use it when the user asks for a separate site or a distinctly different project, so versions of different sites don't tangle onto one URL.",
           },
         },
         required: ["directory"],
@@ -670,7 +676,7 @@ Operating principles:
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate — under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
-- Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish — the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. The first deploy creates the permanent live URL; later deploys update that same URL. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish — the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same — use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL — use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
 - Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking — and mention the stack you chose. 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
@@ -963,9 +969,11 @@ async function executeWorkspaceTool(
           result:
             "You must choose the directory to deploy. Pass '/' for the workspace root, or a workspace folder path like 'my-react-app' or 'my-next-app/out' — the directory whose contents are the site.",
         };
+      const siteMode = args.site === "new" ? "new" : "update";
       const outcome = await deployWorkspaceSite(
         ownerId,
-        directory === "/" ? null : directory
+        directory === "/" ? null : directory,
+        { site: siteMode }
       );
       if (!outcome.ok)
         return {
@@ -976,7 +984,10 @@ async function executeWorkspaceTool(
       const fileCount = outcome.deployment.fileCount;
       return {
         ok: true,
-        result: `The site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL — it stays the same on every future deploy.`,
+        result:
+          siteMode === "new"
+            ? `A brand-new site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`} onto a fresh site with its own URL. Any earlier site keeps its old URL untouched; future 'update' deploys will now target this new site.`
+            : `The site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL — it stays the same on every future 'update' deploy.`,
         action: {
           kind: "deployment",
           name: outcome.deployment.siteUrl,

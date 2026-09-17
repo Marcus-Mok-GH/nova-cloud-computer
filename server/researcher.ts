@@ -3,8 +3,8 @@
  * The heavy lifting is done by Exa AI's deep research models via the Deep
  * Search API: one request fans out into iterative live web searches, reads
  * and cross-checks the evidence, and returns one grounded, cited report. The
- * caller picks the research difficulty — the AI agent decides the level that
- * fits the question — and the chosen model ID is passed straight through. */
+ * caller picks the research difficulty - the AI agent decides the level that
+ * fits the question - and the chosen model ID is passed straight through. */
 
 import { ENV } from "./_core/env";
 import {
@@ -20,7 +20,7 @@ Write the final report as a structured research brief with:
 - A short executive summary answering the topic directly.
 - The findings, organized under clear headings.
 - Inline citations in [1], [2] format for every factual claim, where the numbers map to the sources you actually used.
-- A "Sources:" list at the end mapping every number to "Title — URL".
+- A "Sources:" list at the end mapping every number to "Title - URL".
 - Open questions and conflicting evidence, if any.
 
 Rules:
@@ -33,7 +33,7 @@ export type ResearchResult = {
   sources: ExaCitation[];
 };
 
-/** The difficulty of a research run — Exa's deep research model IDs, shallowest to deepest. */
+/** The difficulty of a research run - Exa's deep research model IDs, shallowest to deepest. */
 export type ResearchDifficulty = ExaDeepSearchType;
 
 /**
@@ -52,7 +52,7 @@ export async function runResearch(
   instructions?: string,
 ): Promise<ResearchResult> {
   if (!ENV.exaApiKey.trim()) {
-    throw new Error("Web research is not configured yet — the Nova operator needs to set EXA_API_KEY.");
+    throw new Error("Web research is not configured yet - the Nova operator needs to set EXA_API_KEY.");
   }
 
   const ask = `${topic.trim()}${

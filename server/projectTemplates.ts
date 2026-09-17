@@ -3,7 +3,7 @@
  * Each template renders a self-contained project folder the agent (or the
  * user) can build on, and every template is deployable through
  * deploy_website on Netlify's free static hosting. `deployRoot` tells the
- * agent which subdirectory contains the publishable site — for static and
+ * agent which subdirectory contains the publishable site - for static and
  * react that is the project folder itself (they run straight in the browser),
  * while a next.js project needs `next build` in the agent VM first and its
  * static `out/` folder is what gets published. */
@@ -119,7 +119,7 @@ const button = document.getElementById("ping");
 const greeting = document.getElementById("greeting");
 button.addEventListener("click", () => {
   clicks += 1;
-  greeting.textContent = clicks === 1 ? "Nice — it works!" : \`Clicked \${clicks} times.\`;
+  greeting.textContent = clicks === 1 ? "Nice - it works!" : \`Clicked \${clicks} times.\`;
 });
 `,
       },
@@ -132,7 +132,7 @@ function reactTemplate(name: string): RenderedProjectTemplate {
   return {
     deployRoot: ".",
     summary:
-      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone — no build step needed). It deploys as-is with deploy_website (choose this project folder).",
+      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone - no build step needed). It deploys as-is with deploy_website (choose this project folder).",
     files: [
       {
         path: "index.html",

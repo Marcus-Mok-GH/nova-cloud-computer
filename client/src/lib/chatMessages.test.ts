@@ -186,7 +186,7 @@ describe("reconcileChatMessages", () => {
         state: "completed",
         args: { arguments: "{}" },
         summary: "Researched: topic.",
-        detail: "Full report body…\n\nAll sources consulted by the researcher:\n1. src — https://src",
+        detail: "Full report body…\n\nAll sources consulted by the researcher:\n1. src - https://src",
       })}`
     );
     expect(withDetail?.detail).toContain("Full report body");

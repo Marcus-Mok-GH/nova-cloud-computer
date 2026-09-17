@@ -4,7 +4,7 @@ import { waitUntil } from "@vercel/functions";
  * Vercel's serverless runtime suspends a function the moment its HTTP response
  * has been delivered. Any promise left floating with `void work` freezes with
  * the invocation and only resumes if a later request happens to land on the
- * same instance — which is why Telegram replies used to arrive many minutes
+ * same instance - which is why Telegram replies used to arrive many minutes
  * late: the webhook acked instantly, the agent run froze, and the reply only
  * completed when unrelated traffic thawed the container.
  *

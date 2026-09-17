@@ -126,7 +126,7 @@ export async function setUserRoleForAdmin(userId: number, role: "user" | "admin"
   return updated as AdminManagedUser | undefined;
 }
 
-/** Number of other admins who could keep the console running — admins that are
+/** Number of other admins who could keep the console running - admins that are
  * currently banned do not count, since they cannot sign in to help. */
 export async function countOtherActiveAdmins(userId: number): Promise<number> {
   const db = await requireDb();

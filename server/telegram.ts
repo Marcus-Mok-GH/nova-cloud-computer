@@ -77,7 +77,7 @@ export async function sendTelegramMessage(token: string, chatId: string, text: s
   }, fetchImpl);
 }
 
-/** A file a Telegram user sent the bot: photos, documents, voice notes, media — any upload. */
+/** A file a Telegram user sent the bot: photos, documents, voice notes, media - any upload. */
 export type TelegramUpload = {
   kind: "photo" | "document" | "voice" | "audio" | "video" | "video_note" | "sticker";
   fileId: string;

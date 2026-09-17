@@ -344,7 +344,7 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: Kimi K3 — verified available on NVIDIA NIM
+ * Default chat model: Kimi K3 - verified available on NVIDIA NIM
  * (build.nvidia.com/moonshotai/kimi-k3). A heavyweight native-multimodal MoE:
  * 2.8T total parameters (104B active), RGB image input, function/tool calling,
  * and a 1M-token context, served over the OpenAI-compatible chat API.
@@ -793,7 +793,7 @@ async function readGatewayStreamedChatResult(
       const read = await readWithStallGuard(reader);
       if (!read) {
         // The gateway went silent mid-stream (proxy timeout, dropped
-        // connection) instead of throwing — cancel and fail as unavailable so
+        // connection) instead of throwing - cancel and fail as unavailable so
         // the agent loop can retry instead of hanging forever.
         await reader.cancel().catch(() => {});
         throw new NvidiaGatewayClientError(

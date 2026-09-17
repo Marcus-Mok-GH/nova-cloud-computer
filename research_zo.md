@@ -1,4 +1,4 @@
-# Zo Computer Research Notes — August 2026
+# Zo Computer Research Notes - August 2026
 
 ## What Zo Computer is
 

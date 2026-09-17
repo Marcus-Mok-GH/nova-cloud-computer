@@ -1,5 +1,5 @@
 /**
- * Nova mark — a four-point "nova" starburst rendered inline so the
+ * Nova mark - a four-point "nova" starburst rendered inline so the
  * brand mark never depends on a remote image.
  */
 import React from "react";

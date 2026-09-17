@@ -152,7 +152,7 @@ describe("Workspace website deployer", () => {
     const projectFolder = { id: 9, parentId: null, name: "my-react-app" };
     const srcFolder = { id: 10, parentId: 9, name: "src" };
     spies.listWorkspaceFilesForUser.mockResolvedValue([
-      indexFile, // workspace root — must NOT be part of this deploy
+      indexFile, // workspace root - must NOT be part of this deploy
       { id: 3, folderId: 9, name: "index.html", content: "<html>app</html>" },
       { id: 4, folderId: 10, name: "styles.css", content: "body{}" },
       { id: 5, folderId: 10, name: "main.jsx", content: "export {}" },
@@ -196,7 +196,7 @@ describe("Workspace website deployer", () => {
   it("requires the index.html at the root of the chosen directory, not elsewhere", async () => {
     const projectFolder = { id: 9, parentId: null, name: "my-react-app" };
     spies.listWorkspaceFilesForUser.mockResolvedValue([
-      indexFile, // at the workspace root — does not count for a directory deploy
+      indexFile, // at the workspace root - does not count for a directory deploy
       { id: 3, folderId: 9, name: "styles.css", content: "body{}" },
     ]);
     spies.listWorkspaceFoldersForUser.mockResolvedValue([folders[0], projectFolder]);

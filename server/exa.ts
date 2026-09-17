@@ -34,7 +34,7 @@ export type ExaDeepResearchResult = {
 };
 
 export type ExaDeepResearchOptions = {
-  /** The research query — the task the deep research model works on. */
+  /** The research query - the task the deep research model works on. */
   query: string;
   /** The research model / difficulty. Defaults to `deep`. */
   type?: ExaDeepSearchType;
@@ -95,7 +95,7 @@ function fallbackSources(results: { url?: string; title?: string }[] | undefined
  */
 export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promise<ExaDeepResearchResult> {
   if (!isExaConfigured()) {
-    throw new Error("Exa deep research is not configured — set EXA_API_KEY to enable web research.");
+    throw new Error("Exa deep research is not configured - set EXA_API_KEY to enable web research.");
   }
   const type = normalizeExaDeepSearchType(options.type);
   const response = await fetch("https://api.exa.ai/search", {
@@ -111,7 +111,7 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
       outputSchema: {
         type: "text",
         description:
-          "The complete research report: an executive summary, findings organized under clear headings, inline [1]-style citations, and a final Sources list mapping every number to Title — URL.",
+          "The complete research report: an executive summary, findings organized under clear headings, inline [1]-style citations, and a final Sources list mapping every number to Title - URL.",
       },
     }),
     signal: AbortSignal.timeout(options.timeoutMs ?? 270_000),

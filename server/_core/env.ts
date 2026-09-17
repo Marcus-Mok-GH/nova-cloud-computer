@@ -69,8 +69,8 @@ export function resolvePublicBaseUrl() {
  * (https://gen.pollinations.ai) is the default, but only when a Pollinations
  * key is present: setting POLLINATIONS_API_KEY (and no explicit
  * TRANSCRIPTION_API_BASE_URL / TRANSCRIPTION_API_KEY) opts into Pollinations,
- * while a legacy TRANSCRIPTION_API_KEY — which in existing deployments is an
- * OpenAI credential — keeps the former OpenAI endpoint and model, so that key
+ * while a legacy TRANSCRIPTION_API_KEY - which in existing deployments is an
+ * OpenAI credential - keeps the former OpenAI endpoint and model, so that key
  * is never sent to Pollinations. TRANSCRIPTION_API_BASE_URL overrides the
  * endpoint for any OpenAI-compatible provider (OpenAI, Groq, Pollinations,
  * ...); TRANSCRIPTION_MODEL overrides the model; TRANSCRIPTION_API_KEY takes

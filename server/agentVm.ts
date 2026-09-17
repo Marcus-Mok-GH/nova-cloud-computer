@@ -129,7 +129,7 @@ export async function startAgentVmRun(
         const output = result.output?.trim();
         const outputExcerpt = output
           ? `\n\nTask output:\n${output.slice(0, 2000)}${output.length > 2000 ? "\n…(truncated)" : ""}`
-          : "\n\nTask output: (nothing was printed — use print() in the code to report results.)";
+          : "\n\nTask output: (nothing was printed - use print() in the code to report results.)";
         // Tell the model the exact mounted paths of workspace files so it can
         // open/exec them on the first try instead of probing the filesystem.
         const bundle = buildE2BWorkspaceBundle(

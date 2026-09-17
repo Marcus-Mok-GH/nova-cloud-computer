@@ -204,7 +204,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("runs every message through the model with workspace tools exposed", async () => {
     chatWithNvidiaGateway.mockResolvedValueOnce(
-      chatResult({ text: "Sure — what should it contain?" })
+      chatResult({ text: "Sure - what should it contain?" })
     );
     await runWorkspaceAgent(1, 3, "hi");
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
@@ -407,7 +407,7 @@ describe("Nova tool-calling workspace agent", () => {
       onChunk,
       deadlineAtMs: Date.now() + 25,
     });
-    // No second model round — the run closed at the deadline.
+    // No second model round - the run closed at the deadline.
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     const reply = result.message.content;
     expect(reply).toContain("end of what I can do in one go");
@@ -444,7 +444,7 @@ describe("Nova tool-calling workspace agent", () => {
       deadlineAtMs: Date.now() - 1_000,
     });
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
-    // The call's side effects never began — nothing deployed after closing.
+    // The call's side effects never began - nothing deployed after closing.
     expect(deployWebsite).not.toHaveBeenCalled();
     const reply = result.message.content;
     expect(reply).toContain("end of what I can do in one go");
@@ -466,7 +466,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("relays the reason back to the model when a deployment fails", async () => {
     deployWebsite.mockResolvedValueOnce({
       ok: false,
-      message: "Add an index.html file to your workspace first — it is your website's entry page.",
+      message: "Add an index.html file to your workspace first - it is your website's entry page.",
     });
     chatWithNvidiaGateway
       .mockResolvedValueOnce(
@@ -498,7 +498,7 @@ describe("Nova tool-calling workspace agent", () => {
           ],
         })
       )
-      .mockResolvedValueOnce(chatResult({ text: "Got it — short and direct from now on." }));
+      .mockResolvedValueOnce(chatResult({ text: "Got it - short and direct from now on." }));
 
     const result = await runWorkspaceAgent(1, 3, "keep replies short please", {});
     const { setCommunicationStyleForUser } = await import("./db");
@@ -536,7 +536,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockResolvedValueOnce(
-        chatResult({ text: "Deployed the my-react-app folder — your site is live." })
+        chatResult({ text: "Deployed the my-react-app folder - your site is live." })
       );
     const result = await runWorkspaceAgent(1, 3, "publish my portfolio app");
     expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { site: "update" });
@@ -582,7 +582,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockResolvedValueOnce(
-        chatResult({ text: "Scaffolded your React portfolio — want me to deploy it?" })
+        chatResult({ text: "Scaffolded your React portfolio - want me to deploy it?" })
       );
     const result = await runWorkspaceAgent(1, 3, "make me a react portfolio");
     // Project folder at the workspace root with a slugified name.
@@ -621,7 +621,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockResolvedValueOnce(
-        chatResult({ text: "I started you on a static site — ready to deploy whenever you are." })
+        chatResult({ text: "I started you on a static site - ready to deploy whenever you are." })
       );
     const result = await runWorkspaceAgent(1, 3, "make me a landing page");
     expect(createFolder).toHaveBeenCalledWith(1, { name: "my-landing-page", parentId: null });
@@ -761,7 +761,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(secondCallMessages.at(-1)).toMatchObject({
       role: "tool",
       tool_call_id: "call-present",
-      content: "Presented welcome.md to the user as a document (message #78) — they can view or download it in the chat.",
+      content: "Presented welcome.md to the user as a document (message #78) - they can view or download it in the chat.",
     });
     expect(result.actions).toEqual([
       { kind: "file", name: "welcome.md", operation: "presented" },
@@ -781,7 +781,7 @@ describe("Nova tool-calling workspace agent", () => {
           ],
         })
       )
-      .mockResolvedValueOnce(chatResult({ text: "Sorry — Telegram is not connected." }));
+      .mockResolvedValueOnce(chatResult({ text: "Sorry - Telegram is not connected." }));
     await runWorkspaceAgent(1, 3, "send me the file", { channel: "telegram" });
     expect(presentTelegramFile).not.toHaveBeenCalled();
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
@@ -1177,7 +1177,7 @@ describe("Nova tool-calling workspace agent", () => {
       .mockRejectedValueOnce(
         new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
       )
-      .mockResolvedValueOnce(chatResult({ text: "Back online — here is your answer." }));
+      .mockResolvedValueOnce(chatResult({ text: "Back online - here is your answer." }));
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // One patient retry, then the reply.
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
@@ -1258,17 +1258,17 @@ describe("Nova tool-calling workspace agent", () => {
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith("Partial ");
     // The partial reply the user already watched is kept, with a note that the
-    // gateway dropped — not replaced by a bare error notice.
+    // gateway dropped - not replaced by a bare error notice.
     expect(result.message.content).toContain("Partial");
     expect(result.message.content).toContain("lost the connection");
     // The streamed partial is not re-emitted; only the failure note follows.
     const emitted = onChunk.mock.calls.map(call => call[0]).join("");
-    expect(emitted).toBe("Partial " + "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved — send another message and I will continue from here.");
+    expect(emitted).toBe("Partial " + "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.");
   });
 
   it("keeps tool-narration text streamed in earlier rounds when the final round fails", async () => {
     // Round 1 streams "Checking your files" and requests a tool; round 2
-    // fails with nothing streamed — the user still keeps what they watched.
+    // fails with nothing streamed - the user still keeps what they watched.
     chatWithNvidiaGateway
       .mockImplementationOnce(async (owner, messages, options) => {
         options?.onChunk?.("Checking your files. ");

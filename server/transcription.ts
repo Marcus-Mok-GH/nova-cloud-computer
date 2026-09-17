@@ -2,10 +2,10 @@
  *
  * Telegram voice notes (and audio files) arrive as OGG/Opus uploads. The
  * webhook transcribes them with an OpenAI-compatible /audio/transcriptions
- * endpoint so the agent can act on what was said, Manus-style — the
+ * endpoint so the agent can act on what was said, Manus-style - the
  * transcription becomes the user's turn. The default provider is the
  * Pollinations AI unified API (https://gen.pollinations.ai), whose
- * /v1/audio/transcriptions endpoint is Whisper-compatible — activated by
+ * /v1/audio/transcriptions endpoint is Whisper-compatible - activated by
  * setting POLLINATIONS_API_KEY. A legacy TRANSCRIPTION_API_KEY (in existing
  * deployments an OpenAI credential) keeps the former OpenAI defaults so that
  * key is never sent to Pollinations. Any OpenAI-compatible provider (OpenAI,
@@ -13,7 +13,7 @@
  * TRANSCRIPTION_MODEL). See resolveTranscriptionConfig in server/_core/env.
  *
  * Pollinations' transcription endpoint documents only mp3, mp4, mpeg, mpga,
- * m4a, wav and webm — Telegram voice notes are OGG/Opus. When the target
+ * m4a, wav and webm - Telegram voice notes are OGG/Opus. When the target
  * provider is Pollinations, OGG audio is decoded in-process (WASM) and
  * repackaged as 16-bit mono WAV at this boundary before upload. */
 

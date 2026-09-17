@@ -175,7 +175,7 @@ describe("NVIDIA gateway client", () => {
       { id: "nvidia/canary-asr", modalities: ["audio"] },
       { id: "black-forest-labs/flux.1-dev", task: "image-generation" },
       { id: "nvidia/nv-rerankqa-mistral-4b-v3", task: "rerank" },
-      // Omni models understand audio and video alongside text and images —
+      // Omni models understand audio and video alongside text and images -
       // they stay eligible as vision chat models.
       { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", modalities: ["text", "image", "audio", "video"] },
     ] }), { status: 200 }));

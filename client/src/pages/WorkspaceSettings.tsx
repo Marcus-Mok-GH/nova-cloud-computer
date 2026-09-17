@@ -85,7 +85,7 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
   const keyLength = status.data?.keyLength ?? 0;
   const label = toolkit === "github" ? "GitHub" : "Gmail";
   const blurb = toolkit === "github"
-    ? "Connect GitHub through Composio and Nova can work with your repositories, issues and pull requests straight from chat — starred repos, filed issues, opened PRs."
+    ? "Connect GitHub through Composio and Nova can work with your repositories, issues and pull requests straight from chat - starred repos, filed issues, opened PRs."
     : "Connect Gmail through Composio and Nova can search your inbox, draft, send and reply to email straight from chat.";
   const hint = toolkit === "github"
     ? "Try asking Nova to star a repo or file an issue."
@@ -108,11 +108,11 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
           <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">{connected ? `Disconnect your ${label} account` : `Connect your ${label} account`}</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
             {errored
-              ? `The server has a ${keyLength}-character COMPOSIO_API_KEY, but Composio refused it. If the key was pasted in its masked form it will be far too short — paste the full key from the Composio API-keys screen.`
+              ? `The server has a ${keyLength}-character COMPOSIO_API_KEY, but Composio refused it. If the key was pasted in its masked form it will be far too short - paste the full key from the Composio API-keys screen.`
               : connected
-                ? `${label} is connected. Disconnecting removes Nova's access and deletes the stored credentials — you can connect again any time.`
+                ? `${label} is connected. Disconnecting removes Nova's access and deletes the stored credentials - you can connect again any time.`
                 : configured
-                  ? `Authorization runs through Composio's secure hosted page — your ${label} credentials never touch Nova's servers.`
+                  ? `Authorization runs through Composio's secure hosted page - your ${label} credentials never touch Nova's servers.`
                   : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
           </p>
           {connected ? (
@@ -136,7 +136,7 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
         <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
           <div className="flex items-center gap-2"><RefreshCw className="size-4 text-[#638f84]" /><p className="text-sm font-bold">Check status</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
-            {connected ? `${label} is connected — Nova can use it right now. ${hint}` : "After you finish the authorization in the other tab, the status here updates automatically."}
+            {connected ? `${label} is connected - Nova can use it right now. ${hint}` : "After you finish the authorization in the other tab, the status here updates automatically."}
           </p>
           <Button variant="outline" className="w-full" onClick={() => void status.refetch()} disabled={status.isFetching}>
             {status.isFetching && <Loader2 className="animate-spin" size={15} />} Refresh status

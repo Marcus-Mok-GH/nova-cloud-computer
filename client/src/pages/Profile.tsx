@@ -57,7 +57,7 @@ export default function Profile() {
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><AtSign size={18} /></span>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-foreground dark:text-foreground">Username</p>
-                  <p className="truncate text-sm text-muted-foreground dark:text-muted-foreground">{user?.username ? `@${user.username}` : "Not chosen yet — pick one so your AI agent knows what to call you."}</p>
+                  <p className="truncate text-sm text-muted-foreground dark:text-muted-foreground">{user?.username ? `@${user.username}` : "Not chosen yet - pick one so your AI agent knows what to call you."}</p>
                 </div>
               </div>
               <Button variant="outline" size="sm" className="gap-2 self-start sm:self-auto" onClick={() => setUsernamePromptOpen(true)} disabled={changeUsername.isPending}>{changeUsername.isPending ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />} {user?.username ? "Change" : "Choose"}</Button>

@@ -13,7 +13,7 @@ export function toolLineText(activity: ToolActivity): string {
     try {
       const parsed = JSON.parse(activity.args.arguments);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed as Record<string, unknown>;
-    } catch { /* truncated or malformed — fall back to the tool name */ }
+    } catch { /* truncated or malformed - fall back to the tool name */ }
   }
   const s = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : "");
   const topic = s(args.topic);

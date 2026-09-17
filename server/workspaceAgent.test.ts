@@ -84,6 +84,8 @@ vi.mock("./db", () => ({
   deleteWorkspaceFolderForUser: deleteFolder,
   getTelegramCredentialsForUser: telegramCredentials,
   getUserIdentityForUser: async () => ({ username: null, name: "Test User", email: "test@example.com" }),
+  getCommunicationStyleForUser: vi.fn(async () => null),
+  setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) => style.trim().slice(0, 500)),
   getDatabaseTime,
   hasAgentStopAfter,
 }));
@@ -485,6 +487,39 @@ describe("Nova tool-calling workspace agent", () => {
     expect(secondCallMessages.at(-1).content).toContain("The website was not deployed");
     expect(secondCallMessages.at(-1).content).toContain("index.html");
     expect(result.message.content).toBe("I could not deploy: an index.html is missing.");
+  });
+
+  it("saves the communication style when the model calls set_communication_style", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-style", name: "set_communication_style", arguments: JSON.stringify({ style: "Keep replies short and direct." }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Got it — short and direct from now on." }));
+
+    const result = await runWorkspaceAgent(1, 3, "keep replies short please", {});
+    const { setCommunicationStyleForUser } = await import("./db");
+    expect(setCommunicationStyleForUser).toHaveBeenCalledWith(1, "Keep replies short and direct.");
+    // The tool result confirmed the save back to the model.
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "call-style" });
+    expect(secondCallMessages.at(-1).content).toContain("Saved the user's preferred communication style");
+    expect(String(result.message?.content)).toContain("short and direct");
+  });
+
+  it("injects the saved communication style into the system prompt", async () => {
+    const { getCommunicationStyleForUser } = await import("./db");
+    vi.mocked(getCommunicationStyleForUser).mockResolvedValueOnce("Short, direct replies. No filler.");
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithNvidiaGateway.mock.calls[0][1] as Array<{ role: string; content: string }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain("The user's saved preferred communication style");
+    expect(system?.content).toContain("Short, direct replies. No filler.");
   });
 
   it("deploys a chosen directory when the model passes one", async () => {

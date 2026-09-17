@@ -9,11 +9,13 @@ import {
   deleteWorkspaceFileForUser,
   deleteWorkspaceFolderForUser,
   getChatForUser,
+  getCommunicationStyleForUser,
   getTelegramCredentialsForUser,
   getUserIdentityForUser,
   getWorkspaceComputer,
   listChatMessagesForUser,
   renameChatIfDefaultForUser,
+  setCommunicationStyleForUser,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
 } from "./db";
@@ -407,6 +409,24 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "set_communication_style",
+      description:
+        "Save the user's preferred communication style so every future reply follows it, across all chats and sessions. Use it whenever the user states or changes how they want you to communicate — e.g. 'keep replies short', 'be structured with headings', 'more conversational', 'always reply in French'. Distill their words into a concise style description (one or two sentences). Also call it with an empty style to clear the preference.",
+      parameters: {
+        type: "object",
+        properties: {
+          style: {
+            type: "string",
+            description: "Concise description of how the user wants you to communicate, e.g. 'Short, direct replies. No filler.' — or an empty string to clear the saved style.",
+          },
+        },
+        required: ["style"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "send_progress_update",
       description:
         "Send the user a brief mid-task progress note over Telegram (opening ETA, revised ETA, interim status, or a blocker notice). Use this while working on a request; use send_telegram_message when sending a message is itself the task. Requires Telegram to be connected.",
@@ -682,6 +702,7 @@ Operating principles:
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
 - Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send — none of your tool activity. So for any task that will take more than a few seconds, send a first progress note right away with an honest time estimate ("I'll get this done within about 30 seconds", "…within 1–2 minutes"). From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work — after each meaningful step completes, and never let more than a minute or so pass in silence on a long run — and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected — about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker — saying whether you are solving it yourself or need something from them — and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
+- Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style — it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
 
 Formatting: render replies in Markdown when it helps readability — **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 
@@ -694,6 +715,7 @@ Workspace rules:
 - Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
+{{style}}
 This request arrived via: {{channel}}.
 
 Current folders: {{folders}}
@@ -1129,6 +1151,23 @@ async function executeWorkspaceTool(
         action: { kind: "telegram", name: text, operation: "sent" },
       };
     }
+    case "set_communication_style": {
+      const style = (str(args.style) ?? "").trim();
+      try {
+        const saved = await setCommunicationStyleForUser(ownerId, style);
+        return {
+          ok: true,
+          result: saved
+            ? `Saved the user's preferred communication style: "${saved}" — follow it in every reply from now on, on every channel and in every chat.`
+            : "Cleared the saved communication-style preference — your default style applies from now on.",
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: `Could not save the style preference: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
     case "present_file": {
       const file = resolveFile(computer, args.file);
       if (!file)
@@ -1518,6 +1557,7 @@ export async function runWorkspaceAgent(
     let computer = await getWorkspaceComputer(ownerId);
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
+    const communicationStyle = await getCommunicationStyleForUser(ownerId);
     const userLine = identity.username
       ? `@${identity.username}${identity.name ? ` (${identity.name})` : ""}`
       : identity.name || identity.email || "the user";
@@ -1532,6 +1572,12 @@ export async function runWorkspaceAgent(
           "{{files}}",
           files
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
+          .replace(
+            "{{style}}",
+            communicationStyle
+              ? `The user's saved preferred communication style: "${communicationStyle}" — follow it in every reply.`
+              : ""
+          )
           .replace("{{user}}", userLine)
           .replace(
             "{{channel}}",

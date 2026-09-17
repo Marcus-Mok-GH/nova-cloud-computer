@@ -90,6 +90,9 @@ export const ENV = {
   exaApiKey: process.env.EXA_API_KEY ?? "",
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
+  transcriptionApiBaseUrl: (process.env.TRANSCRIPTION_API_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, ""),
+  transcriptionApiKey: process.env.TRANSCRIPTION_API_KEY ?? "",
+  transcriptionModel: process.env.TRANSCRIPTION_MODEL ?? "whisper-1",
   /** Composio REST base URL (defaults to the hosted v3.1 API). */
   composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev",
   /** How long the Telegram webhook waits for the model's own send_progress_update before sending a deterministic "still working" fallback note. Overridable so tests do not wait the real delay. */

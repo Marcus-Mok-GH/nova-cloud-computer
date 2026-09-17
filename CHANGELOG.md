@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-17 — Telegram replies no longer freeze: waitUntil keeps background work alive after the instant ack
+
+- Root cause of the 5–10-minute reply delays: Vercel suspends a function the instant its HTTP response is delivered. The webhook acked Telegram immediately and left the agent run as a floating `void` promise — the run froze with the instance and only resumed when unrelated traffic later landed on the same container. Verified live: a synthetic update produced zero background logs, and unrelated requests thawed nothing for minutes.
+- `server/backgroundWork.ts`: new `trackBackgroundWork()` helper wrapping `@vercel/functions` `waitUntil`, so post-response work stays bound to the invocation (bounded by maxDuration = 300s). Outside Vercel (local dev, tests) it degrades to fire-and-forget.
+- `server/app.ts`: the webhook background processing, chat auto-title after `res.end()` in the SSE stream, Telegram chat-id sync, chat pruning, and Telegram auto-title all go through `trackBackgroundWork` instead of bare `void`.
+- Tests: `server/backgroundWork.test.ts` (context binding, no-context fallback) and a full-webhook regression test asserting the background run is handed to the runtime's request context; also fixed an ordering leak where the deferred `runWorkspaceAgent` implementation from the /stop test poisoned later tests.
+
 ## 2026-09-17 — deploy_website agent tool: publish the workspace from chat
 
 - `server/workspaceAgent.ts`: new `deploy_website` tool for the Nova agent. When the user asks to put their site/workspace online, the agent (checks for an index.html and) calls the same deploy service the Deployments page uses, then reports the permanent live URL. Failures — missing index.html, unconfigured NETLIFY_API_TOKEN, Netlify errors — are relayed to the model so it can explain them to the user. Adds a "deployment" action kind with deployed/failed operations and a matching tool-activity summary, plus a system-prompt line teaching when to use it.

@@ -317,6 +317,39 @@ describe("Telegram upload webhook (full handler)", () => {
 
     resolveRun({ message: { content: "the essay anyway" }, actions: [] });
     await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "the essay anyway"));
+    // Restore the default implementation: clearAllMocks does not reset
+    // mockImplementation, and a deferred impl leaks into later tests.
+    spies.runWorkspaceAgent.mockImplementation(async () => ({ message: { content: "It's a corgi!" }, actions: [] }));
+  });
+
+  it("binds the background agent run to the invocation with waitUntil (Vercel freeze regression)", async () => {
+    // Regression: on Vercel, a plain `void` promise froze with the instance the
+    // moment the ack response was sent, and replies only landed when unrelated
+    // traffic later thawed the same container. The handler must hand its
+    // background work to the runtime's request context instead.
+    spies.runWorkspaceAgent.mockImplementation(async () => ({ message: { content: "It's a corgi!" }, actions: [] }));
+    const requestContextSymbol = Symbol.for("@vercel/request-context");
+    const tracked: Promise<unknown>[] = [];
+    const originalContext = (globalThis as Record<symbol, unknown>)[requestContextSymbol];
+    (globalThis as Record<symbol, unknown>)[requestContextSymbol] = {
+      get: () => ({ waitUntil: (promise: Promise<unknown>) => { tracked.push(promise); } }),
+    };
+    try {
+      const { status, body } = await postUpdate({
+        update_id: 506,
+        message: { message_id: 15, chat: { id: 42 }, text: "bind me" },
+      });
+      expect(status).toBe(200);
+      expect(body).toEqual({ ok: true, accepted: true });
+      expect(tracked.length).toBeGreaterThanOrEqual(1);
+      // Every tracked promise must settle (the wrapped work plus side tasks).
+      await Promise.all(tracked.map(promise => promise.then(() => {}, () => {})));
+    } finally {
+      if (originalContext === undefined) Reflect.deleteProperty(globalThis, requestContextSymbol as symbol);
+      else (globalThis as Record<symbol, unknown>)[requestContextSymbol] = originalContext;
+    }
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.some(call => call[2] === "bind me"));
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
   });
 
   it("still rejects uploads from chats that are not linked", async () => {

@@ -282,7 +282,7 @@ describe("Nova tool-calling workspace agent", () => {
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
-            { id: "call-1", name: "deploy_website", arguments: "{}" },
+            { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
           ],
         })
       )
@@ -291,7 +291,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", { onChunk });
-    expect(deployWebsite).toHaveBeenCalledWith(1);
+    expect(deployWebsite).toHaveBeenCalledWith(1, null);
     expect(result.actions).toEqual([
       {
         kind: "deployment",
@@ -317,7 +317,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(
       persistedToolActivities.some(activity =>
         activity.content.includes(
-          "Deployed the workspace website: https://nova-live-site.netlify.app."
+          "Deployed the website: https://nova-live-site.netlify.app."
         )
       )
     ).toBe(true);
@@ -332,7 +332,7 @@ describe("Nova tool-calling workspace agent", () => {
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
-            { id: "call-1", name: "deploy_website", arguments: "{}" },
+            { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
           ],
         })
       )
@@ -347,6 +347,115 @@ describe("Nova tool-calling workspace agent", () => {
     expect(secondCallMessages.at(-1).content).toContain("The website was not deployed");
     expect(secondCallMessages.at(-1).content).toContain("index.html");
     expect(result.message.content).toBe("I could not deploy: an index.html is missing.");
+  });
+
+  it("deploys a chosen directory when the model passes one", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "deploy_website",
+              arguments: JSON.stringify({ directory: "my-react-app" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Deployed the my-react-app folder — your site is live." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "publish my portfolio app");
+    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app");
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app",
+        operation: "deployed",
+      },
+    ]);
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1).content).toContain("published from /my-react-app");
+  });
+
+  it("refuses to deploy when the model does not choose a directory", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "deploy_website", arguments: "{}" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Which directory should I deploy?" }));
+    const result = await runWorkspaceAgent(1, 3, "put my site online");
+    expect(deployWebsite).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1).content).toContain("You must choose the directory to deploy");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("scaffolds a project template when the model calls create_project_template", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "My Portfolio", template: "react" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Scaffolded your React portfolio — want me to deploy it?" })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a react portfolio");
+    // Project folder at the workspace root with a slugified name.
+    expect(createFolder).toHaveBeenCalledWith(1, { name: "my-portfolio", parentId: null });
+    // Every template file is created, nested folders included.
+    const createdFiles = createFile.mock.calls.map(call => call[1].name);
+    expect(createdFiles).toEqual(expect.arrayContaining(["index.html", "main.jsx", "App.jsx", "styles.css"]));
+    expect(createFile.mock.calls.some(call => call[1].content.includes("My Portfolio"))).toBe(true);
+    expect(result.actions).toEqual([
+      { kind: "project", name: "my-portfolio", operation: "created" },
+    ]);
+    // The tool result teaches the model where to point deploy_website.
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1).content).toContain("deploy_website");
+    expect(secondCallMessages.at(-1).content).toContain("my-portfolio");
+    // Tool activity summary names the scaffolded project.
+    const persistedToolActivities = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    expect(
+      persistedToolActivities.some(activity =>
+        activity.content.includes("Created project: my-portfolio.")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects an unknown template instead of improvising one", async () => {
+    chatWithNvidiaGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "Blog", template: "svelte" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "I can scaffold static, react, or next templates." }));
+    const result = await runWorkspaceAgent(1, 3, "make me a svelte blog");
+    expect(createFolder).not.toHaveBeenCalled();
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
+    expect(secondCallMessages.at(-1).content).toContain("Unknown template: svelte");
+    expect(result.actions).toEqual([]);
   });
 
   it("sends a model-driven progress update when the model calls send_progress_update", async () => {

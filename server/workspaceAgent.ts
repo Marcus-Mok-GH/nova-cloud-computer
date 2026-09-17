@@ -30,7 +30,7 @@ import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment";
+  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment" | "project";
   name: string;
   operation?:
     | "created"
@@ -372,10 +372,40 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "deploy_website",
       description:
-        "Publish the user's entire workspace as a live website on Netlify's free static hosting — always on, with SSL. Every file goes out under its folder path and index.html is the entry page; the first deploy creates a permanent URL, later deploys update that same URL. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, prebuilt React apps (e.g. Vite or CRA build output), statically exported Next.js projects, single-page apps, portfolios, and so on. Requires an index.html in the workspace root — structure the workspace so the entry page lands there (e.g. put build output files at the root, or add a root index.html that loads them). Call this when the user wants their site, page, app, or workspace online, live, hosted, or published. A deploy can take up to a minute.",
+        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting — always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page; the first deploy creates a permanent URL, later deploys update that same URL. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files — pass '/' only when the site genuinely lives at the workspace root. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          directory: {
+            type: "string",
+            description:
+              "Workspace-relative directory to publish, e.g. 'my-react-app' or 'my-next-app/out'. Pass '/' for the workspace root. Its index.html becomes the entry page.",
+          },
+        },
+        required: ["directory"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_project_template",
+      description:
+        "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser — no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean — deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Project name — becomes the folder name (e.g. 'My Portfolio' -> 'my-portfolio').",
+          },
+          template: {
+            type: "string",
+            enum: ["static", "react", "next"],
+            description: "The project type to scaffold.",
+          },
+        },
+        required: ["name", "template"],
       },
     },
   },
@@ -513,6 +543,12 @@ function describeWorkspace(computer: Computer) {
 }
 
 import { deployWorkspaceSite } from "./siteDeploy";
+import {
+  isProjectTemplateKey,
+  PROJECT_TEMPLATE_KEYS,
+  renderProjectTemplate,
+  slugifyProjectName,
+} from "./projectTemplates";
 
 const CONNECTOR_TOOL_NAMES = new Set(["list_connector_tools", "use_connector_tool"]);
 
@@ -582,7 +618,8 @@ Operating principles:
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain — it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate — under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected — current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative — pause and ask one focused question — when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
-- Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make the workspace deployable: it must be static (anything Netlify's static hosting serves — plain HTML/CSS/JS sites, React apps, statically exported Next.js, SPAs) with an index.html at the workspace root. If the project is a React or similar app, either place its build output so the entry HTML sits at the root, or write a root index.html that loads the app (a bundler-free React page can import React from a CDN via <script> tags). Create or reshape index.html from the current files when needed. Then call deploy_website — it publishes every file under its folder path to free 24/7 SSL hosting and returns the permanent live URL, which stays stable across future deploys. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Publish websites with deploy_website — publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish — the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. The first deploy creates the permanent live URL; later deploys update that same URL. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files: 'static' for a plain HTML/CSS/JS site, 'react' for a React SPA that runs in the browser (React from a CDN, no build step), 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) — not a play-by-play.
@@ -867,7 +904,17 @@ async function executeWorkspaceTool(
       };
     }
     case "deploy_website": {
-      const outcome = await deployWorkspaceSite(ownerId);
+      const directory = str(args.directory);
+      if (!directory)
+        return {
+          ok: false,
+          result:
+            "You must choose the directory to deploy. Pass '/' for the workspace root, or a workspace folder path like 'my-react-app' or 'my-next-app/out' — the directory whose contents are the site.",
+        };
+      const outcome = await deployWorkspaceSite(
+        ownerId,
+        directory === "/" ? null : directory
+      );
       if (!outcome.ok)
         return {
           ok: false,
@@ -877,12 +924,101 @@ async function executeWorkspaceTool(
       const fileCount = outcome.deployment.fileCount;
       return {
         ok: true,
-        result: `The workspace is live at ${outcome.deployment.siteUrl} (${fileCount} file${fileCount === 1 ? "" : "s"} published). Share that URL — it stays the same on every future deploy.`,
+        result: `The site is live at ${outcome.deployment.siteUrl} — ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL — it stays the same on every future deploy.`,
         action: {
           kind: "deployment",
           name: outcome.deployment.siteUrl,
           operation: "deployed",
         },
+      };
+    }
+    case "create_project_template": {
+      const rawName = str(args.name);
+      if (!rawName) return { ok: false, result: "A project name is required." };
+      if (!isProjectTemplateKey(args.template))
+        return {
+          ok: false,
+          result: `Unknown template: ${str(args.template)}. Supported templates: ${PROJECT_TEMPLATE_KEYS.join(", ")}.`,
+        };
+      const projectName = slugifyProjectName(rawName);
+      const rendered = renderProjectTemplate(args.template, rawName);
+
+      // Project folder at the workspace root — reuse it if it already exists.
+      const existingProject = computer.folders.find(
+        folder => folder.parentId === null && folder.name.toLowerCase() === projectName.toLowerCase()
+      );
+      const projectFolder =
+        existingProject ??
+        (await createWorkspaceFolderForUser(ownerId, {
+          name: projectName,
+          parentId: null,
+        }));
+      if (!projectFolder)
+        return {
+          ok: false,
+          result: `Could not create the ${projectName} folder — it may already exist.`,
+        };
+
+      // Folder cache: relative path inside the project -> folder id.
+      const folderIds = new Map<string, number>([["", projectFolder.id]]);
+      const ensureFolder = async (relativePath: string): Promise<number | null> => {
+        let parentId = projectFolder.id;
+        let pathSoFar = "";
+        for (const segment of relativePath.split("/")) {
+          pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+          const cached = folderIds.get(pathSoFar);
+          if (cached) {
+            parentId = cached;
+            continue;
+          }
+          const existing = computer.folders.find(
+            folder =>
+              folder.parentId === parentId && folder.name.toLowerCase() === segment.toLowerCase()
+          );
+          const folder =
+            existing ??
+            (await createWorkspaceFolderForUser(ownerId, {
+              name: segment,
+              parentId,
+            }));
+          if (!folder) return null;
+          folderIds.set(pathSoFar, folder.id);
+          parentId = folder.id;
+        }
+        return parentId;
+      };
+
+      const createdPaths: string[] = [];
+      for (const file of rendered.files) {
+        const lastSlash = file.path.lastIndexOf("/");
+        const folderPath = lastSlash === -1 ? "" : file.path.slice(0, lastSlash);
+        const fileName = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
+        const folderId = await ensureFolder(folderPath);
+        if (folderId === null)
+          return {
+            ok: false,
+            result: `Could not create the folders for ${file.path} in ${projectName}.`,
+          };
+        const created = await createWorkspaceFileForUser(ownerId, {
+          name: fileName,
+          content: file.content,
+          mimeType: file.mimeType,
+          folderId,
+        });
+        if (!created)
+          return {
+            ok: false,
+            result: `Could not create ${file.path} in the ${projectName} folder — a file with that name may already exist.`,
+          };
+        createdPaths.push(file.path);
+      }
+
+      const deployDirectory =
+        rendered.deployRoot === "." ? projectName : `${projectName}/${rendered.deployRoot}`;
+      return {
+        ok: true,
+        result: `Scaffolded the ${rawName} project (${args.template} template): ${createdPaths.length} files in the ${projectName} folder — ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
+        action: { kind: "project", name: projectName, operation: "created" },
       };
     }
     case "send_telegram_message": {
@@ -1099,8 +1235,8 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
     return `Presented ${action.name} to the user.`;
   if (action.kind === "deployment")
     return action.operation === "failed"
-      ? "Failed deploying the workspace website."
-      : `Deployed the workspace website: ${action.name}.`;
+      ? "Failed deploying the website."
+      : `Deployed the website: ${action.name}.`;
   if (action.kind === "connector")
     return action.operation === "listed"
       ? `Listed ${action.name}.`

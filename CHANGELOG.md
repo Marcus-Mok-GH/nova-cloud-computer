@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-17 — create_project_template tool + AI-chosen deploy directory
+
+- `server/projectTemplates.ts`: new module. Three scaffolds — `static` (plain HTML/CSS/JS), `react` (React SPA that runs in the browser: React from a CDN, Babel standalone compiles the JSX, no build step), and `next` (Next.js App Router configured for `output: "export"`). Each template declares its `deployRoot` and summary so the agent knows exactly which folder to publish.
+- `server/workspaceAgent.ts`: new `create_project_template` tool (name + template). It scaffolds the project in its own workspace folder (slugified name, nested folders created on demand, existing files reused), returns the exact directory to pass to `deploy_website`, and records a new "project" action kind. `deploy_website` now requires a `directory` argument — the AI must deliberately choose which folder to publish ('/' for the workspace root); the handler refuses to run without it. System prompt teaches both tools, including the Next.js flow: build in the agent VM, copy `out/` into the workspace, deploy that folder.
+- `server/siteDeploy.ts`: `deployWorkspaceSite(ownerId, directory?)` — the chosen directory's contents become the site (paths re-rooted relative to it, matched case-insensitively, tolerant of leading/trailing slashes), its index.html is the entry page, and files outside the directory are ignored. Clear errors for empty/unknown directories and missing index.html at the directory root.
+- Tests: `server/projectTemplates.test.ts` (slugs, key validation, all three templates), directory-deploy cases in `server/siteDeploy.test.ts` (re-rooting, case-insensitive match, unknown dir, index.html at dir root), and agent tests for the new tool, the enforced directory choice, and unknown-template rejection.
+
 ## 2026-09-17 — Publishing is AI-only: Deployments page shows, Nova publishes
 
 - `client/src/pages/Deployments.tsx`: removed the "Publish my workspace" / "Deploy latest changes" button and the deploy mutation behind it. The page is now a read-only view (status, URL, history, open/copy) with a hint telling users to ask Nova in chat to publish or redeploy. The "Deploying" badge still appears live while Nova runs a deploy.

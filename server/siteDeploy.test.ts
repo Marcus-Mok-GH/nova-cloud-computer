@@ -118,6 +118,66 @@ describe("Workspace website deployer", () => {
     expect(spies.updateSiteDeploymentStatusForUser).toHaveBeenCalledWith(1, 31, "failed", "status 429: slow down");
   });
 
+  it("deploys a chosen directory, re-rooting its paths and ignoring everything outside it", async () => {
+    const projectFolder = { id: 9, parentId: null, name: "my-react-app" };
+    const srcFolder = { id: 10, parentId: 9, name: "src" };
+    spies.listWorkspaceFilesForUser.mockResolvedValue([
+      indexFile, // workspace root — must NOT be part of this deploy
+      { id: 3, folderId: 9, name: "index.html", content: "<html>app</html>" },
+      { id: 4, folderId: 10, name: "styles.css", content: "body{}" },
+      { id: 5, folderId: 10, name: "main.jsx", content: "export {}" },
+    ]);
+    spies.listWorkspaceFoldersForUser.mockResolvedValue([folders[0], projectFolder, srcFolder]);
+
+    const result = await deployWorkspaceSite(1, "my-react-app");
+    expect(result.ok).toBe(true);
+    const [siteId, files] = spies.deployFilesToNetlifySite.mock.calls[0];
+    expect(siteId).toBe("site-new");
+    expect(files.map((file: { path: string }) => file.path).sort()).toEqual(
+      ["/index.html", "/src/styles.css", "/src/main.jsx"].sort()
+    );
+    const [owner, record] = spies.recordSiteDeployment.mock.calls[0];
+    expect(record).toMatchObject({ fileCount: 3, status: "deploying" });
+  });
+
+  it("matches the chosen directory case-insensitively and tolerates surrounding slashes", async () => {
+    const projectFolder = { id: 9, parentId: null, name: "My-React-App" };
+    spies.listWorkspaceFilesForUser.mockResolvedValue([
+      { id: 3, folderId: 9, name: "index.html", content: "<html>app</html>" },
+    ]);
+    spies.listWorkspaceFoldersForUser.mockResolvedValue([folders[0], projectFolder]);
+
+    const result = await deployWorkspaceSite(1, "/my-react-app/");
+    expect(result.ok).toBe(true);
+    const files = spies.deployFilesToNetlifySite.mock.calls[0][1];
+    expect(files.map((file: { path: string }) => file.path)).toEqual(["/index.html"]);
+  });
+
+  it("refuses an empty or unknown directory with a clear message", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile, nestedFile]);
+    spies.listWorkspaceFoldersForUser.mockResolvedValue(folders);
+
+    const result = await deployWorkspaceSite(1, "ghost-folder");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("nothing to deploy in /ghost-folder");
+    expect(spies.createNetlifySite).not.toHaveBeenCalled();
+  });
+
+  it("requires the index.html at the root of the chosen directory, not elsewhere", async () => {
+    const projectFolder = { id: 9, parentId: null, name: "my-react-app" };
+    spies.listWorkspaceFilesForUser.mockResolvedValue([
+      indexFile, // at the workspace root — does not count for a directory deploy
+      { id: 3, folderId: 9, name: "styles.css", content: "body{}" },
+    ]);
+    spies.listWorkspaceFoldersForUser.mockResolvedValue([folders[0], projectFolder]);
+
+    const result = await deployWorkspaceSite(1, "my-react-app");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("index.html");
+    if (!result.ok) expect(result.message).toContain("my-react-app");
+    expect(spies.createNetlifySite).not.toHaveBeenCalled();
+  });
+
   it("surfaces configuration and history for the deployments page", async () => {
     spies.listSiteDeploymentsForUser.mockResolvedValue([{ id: 30, status: "live" }]);
     const status = await getDeploymentStatusForUser(1);

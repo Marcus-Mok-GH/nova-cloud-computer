@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-17 — No single tool call can outlast the request budget
+
+- `server/workspaceAgent.ts`: the deadline-aware finish only checked the remaining budget *between* tool rounds — a single long call (a VM task, a deploy) could run straight past the 285s budget, so Vercel killed the function mid-tool and the user never saw a closing reply. Tool executions are now raced against the run deadline: losing the race stops waiting on the call, records it as interrupted tool activity, and persists the synthesized closing reply inside the remaining maxDuration margin. Losing the race stops the wait, not the tool — side effects already in flight continue server-side.
+- `server/workspaceAgent.ts` (review feedback): the race takes a work *factory*, and the tool loop checks the budget before starting a call — an expired deadline never begins a call's side effects (a late file write, deploy, or connector action), it skips the call and says so. The synthesized reply also no longer counts an interrupted or skipped step among the completed summaries: it reports it as unfinished and tells the user to continue with a follow-up message.
+- Tests: a tool that outlasts the deadline closes the run with a persisted reply and no second model round; a call arriving after the budget is gone is skipped without ever starting; the interrupted step is reported as unfinished, not completed.
+
 ## 2026-09-17 — Rate-limit-aware gateway retries
 
 - `server/nvidiaGateway.ts`: the workspace request-allowance cap now raises a distinct `allowance_reached` error kind, separate from upstream NVIDIA 429s (still `rate_limit`). They need opposite handling — the cap never resets on its own, an upstream 429 sometimes clears in seconds.

@@ -230,6 +230,25 @@ describe("Nova tool-calling workspace agent", () => {
     expect(computer).toHaveBeenCalled();
   });
 
+  it("gives the model the prior conversation instead of starting fresh every turn", async () => {
+    // Chat history has an earlier exchange plus a tool-activity row (raw
+    // JSON bookkeeping) that must never reach the model as a real turn.
+    chatMessages.mockResolvedValueOnce([
+      { id: 1, role: "user", content: "Add a game history feature." },
+      { id: 2, role: "assistant", content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}{"name":"create_file"}` },
+      { id: 3, role: "assistant", content: "Added a local high-score history to the game." },
+      { id: 4, role: "user", content: "Are you done?" },
+    ]);
+    chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Yep, all set!" }));
+    await runWorkspaceAgent(1, 3, "Are you done?");
+    const messages = chatWithNvidiaGateway.mock.calls[0][1];
+    expect(messages.slice(1)).toEqual([
+      { role: "user", content: "Add a game history feature." },
+      { role: "assistant", content: "Added a local high-score history to the game." },
+      { role: "user", content: "Are you done?" },
+    ]);
+  });
+
   it("creates a file when the model calls create_file, then finishes with a reply", async () => {
     chatWithNvidiaGateway
       .mockResolvedValueOnce(

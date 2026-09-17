@@ -1535,21 +1535,39 @@ export async function runWorkspaceAgent(
       uri.startsWith("data:image/")
     );
     let visionActive = imageParts.length > 0;
-    const messages: GatewayChatMessage[] = [
-      systemMessage(),
-      {
-        role: "user",
-        content: visionActive
-          ? [
-              { type: "text" as const, text: content },
-              ...imageParts.map(uri => ({
-                type: "image_url" as const,
-                image_url: { url: uri },
-              })),
-            ]
-          : content,
-      },
-    ];
+    const currentTurn: GatewayChatMessage = {
+      role: "user",
+      content: visionActive
+        ? [
+            { type: "text" as const, text: content },
+            ...imageParts.map(uri => ({
+              type: "image_url" as const,
+              image_url: { url: uri },
+            })),
+          ]
+        : content,
+    };
+    /**
+     * Give the model the conversation so far. Without this, every incoming
+     * message started a brand-new chat from the model's point of view — no
+     * memory of anything said a moment earlier, only whatever it could infer
+     * by re-reading the workspace. The current turn's user message was
+     * already persisted above, so history already ends with it as the last
+     * row; that last row is swapped out below for the vision-aware version
+     * when images are attached. Tool-activity rows are internal bookkeeping
+     * (raw JSON, re-emitted per state change) and are never real turns, so
+     * they're filtered out; the count is capped so very long chats don't
+     * blow the model's context window.
+     */
+    const MAX_HISTORY_MESSAGES = 60;
+    const priorMessages = (await listChatMessagesForUser(ownerId, chatId)) ?? [];
+    const historyTurns: GatewayChatMessage[] = priorMessages
+      .filter(m => !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX))
+      .slice(-MAX_HISTORY_MESSAGES)
+      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+    if (historyTurns.length) historyTurns[historyTurns.length - 1] = currentTurn;
+    else historyTurns.push(currentTurn);
+    const messages: GatewayChatMessage[] = [systemMessage(), ...historyTurns];
 
     // /stop support: a stop request recorded after the run started aborts the
     // run at the next safe point (round boundary or between tool calls).
@@ -1622,7 +1640,10 @@ export async function runWorkspaceAgent(
         // A model without vision rejects image parts outright: drop the
         // attachment instead of failing the run, and let the model say so.
         visionActive = false;
-        const userIndex = messages.findIndex(m => m.role === "user");
+        // The current turn's user message is not necessarily messages[1]
+        // any more — prior chat history can add earlier "user" rows before
+        // it, so target the *last* user turn, not the first.
+        const userIndex = messages.findLastIndex(m => m.role === "user");
         if (userIndex >= 0)
           messages[userIndex] = {
             role: "user",

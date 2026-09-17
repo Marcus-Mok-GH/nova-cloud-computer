@@ -609,9 +609,9 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe(true);
   });
 
-  it("scaffolds the static template when the model omits the stack", async () => {
-    // No template argument at all: the safe default (deploys without a build)
-    // is used instead of failing the call.
+  it("scaffolds the react template when the model omits the stack", async () => {
+    // No template argument at all: the default stack is a real React project,
+    // not a loose HTML file, and it is used instead of failing the call.
     chatWithNvidiaGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -627,7 +627,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(createFolder).toHaveBeenCalledWith(1, { name: "my-landing-page", parentId: null });
     // The tool result names the template that was used so the model can say so.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("(static template)");
+    expect(secondCallMessages.at(-1).content).toContain("(react template)");
     expect(result.actions).toEqual([
       { kind: "project", name: "my-landing-page", operation: "created" },
     ]);

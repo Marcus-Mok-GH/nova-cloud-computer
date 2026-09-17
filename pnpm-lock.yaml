@@ -9,7 +9,7 @@ overrides:
 
 patchedDependencies:
   wouter@3.7.1:
-    hash: 4utoqymkqegp7ldbtu4ndzqvum
+    hash: 4e16e6ff3fde7d6c1024d3e0c8605dc9eb6afb690d0d49958c2f449091813072
     path: patches/wouter@3.7.1.patch
 
 importers:
@@ -18,7 +18,7 @@ importers:
     dependencies:
       '@neondatabase/neon-js':
         specifier: 0.7.0-beta
-        version: 0.7.0-beta(quxzm3ktpou5h4oa4icoux7ehq)
+        version: 0.7.0-beta(c09be659edb2dff32a34d391f1de25be)
       '@neondatabase/serverless':
         specifier: ^1.1.0
         version: 1.1.0
@@ -132,7 +132,7 @@ importers:
         version: 3.3.1
       wouter:
         specifier: ^3.3.5
-        version: 3.7.1(patch_hash=4utoqymkqegp7ldbtu4ndzqvum)(react@19.2.1)
+        version: 3.7.1(patch_hash=4e16e6ff3fde7d6c1024d3e0c8605dc9eb6afb690d0d49958c2f449091813072)(react@19.2.1)
       zod:
         specifier: ^4.1.12
         version: 4.1.12
@@ -4700,7 +4700,7 @@ snapshots:
       '@better-fetch/fetch': 1.3.1
       '@opentelemetry/semantic-conventions': 1.43.0
       '@standard-schema/spec': 1.1.0
-      better-call: 1.3.7(zod@4.1.12)
+      better-call: 1.3.7(zod@4.3.6)
       jose: 6.1.0
       kysely: 0.29.5
       nanostores: 1.4.2
@@ -4714,7 +4714,7 @@ snapshots:
       '@better-fetch/fetch': 1.3.1
       '@opentelemetry/semantic-conventions': 1.43.0
       '@standard-schema/spec': 1.1.0
-      better-call: 1.3.7(zod@4.1.12)
+      better-call: 1.3.7(zod@4.3.6)
       jose: 6.2.5
       kysely: 0.29.5
       nanostores: 1.4.2
@@ -4754,7 +4754,7 @@ snapshots:
       '@simplewebauthn/browser': 13.3.0
       '@simplewebauthn/server': 13.3.2
       better-auth: 1.6.23(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0))(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.7.0)(lightningcss@1.30.1))
-      better-call: 1.3.7(zod@4.1.12)
+      better-call: 1.3.7(zod@4.3.6)
       nanostores: 1.4.2
       zod: 4.3.6
 
@@ -4817,7 +4817,7 @@ snapshots:
       react: 19.2.1
       react-dom: 19.2.1(react@19.2.1)
 
-  '@daveyplate/better-auth-ui@3.4.0(vqmjtillcmop4sh7jw2urovwtm)':
+  '@daveyplate/better-auth-ui@3.4.0(ffdbdf0eb6bf41f9c183a5b6278915cf)':
     dependencies:
       '@better-auth/api-key': 1.6.28(@better-auth/core@1.6.23(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.1.12))(jose@6.1.0)(kysely@0.29.5)(nanostores@1.4.2))(@better-auth/utils@0.4.2)(better-auth@1.6.23(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0))(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.7.0)(lightningcss@1.30.1)))(better-call@2.0.2(zod@4.3.6))
       '@better-auth/passkey': 1.6.23(@better-auth/core@1.6.23(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.1.12))(jose@6.1.0)(kysely@0.29.5)(nanostores@1.4.2))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.6.23(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0))(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.7.0)(lightningcss@1.30.1)))(better-call@1.3.7(zod@4.1.12))(nanostores@1.4.2)
@@ -5376,15 +5376,15 @@ snapshots:
 
   '@medv/finder@4.0.2': {}
 
-  '@neondatabase/auth-ui@0.3.0-beta(izitbnepkirsiijaabmhn4nofu)':
+  '@neondatabase/auth-ui@0.3.0-beta(535c48f90ef9734223f75aa6e9e653fa)':
     dependencies:
       '@better-auth/passkey': 1.6.23(@better-auth/core@1.6.23(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.1.12))(jose@6.1.0)(kysely@0.29.5)(nanostores@1.4.2))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.6.23(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0))(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.7.0)(lightningcss@1.30.1)))(better-call@1.3.7(zod@4.1.12))(nanostores@1.4.2)
       '@captchafox/react': 1.13.0(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
-      '@daveyplate/better-auth-ui': 3.4.0(vqmjtillcmop4sh7jw2urovwtm)
+      '@daveyplate/better-auth-ui': 3.4.0(ffdbdf0eb6bf41f9c183a5b6278915cf)
       '@hcaptcha/react-hcaptcha': 1.17.4(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       '@hookform/resolvers': 5.2.2(react-hook-form@7.85.0(react@19.2.1))
       '@marsidev/react-turnstile': 1.6.0(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
-      '@neondatabase/auth': 0.5.0-beta(txpsh37mvnfbdllom6sjnvrvxa)
+      '@neondatabase/auth': 0.5.0-beta(6e103f58449f018e1cdb469650fb6c58)
       '@radix-ui/react-avatar': 1.2.6(@types/react-dom@19.2.1(@types/react@19.2.1))(@types/react@19.2.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       '@radix-ui/react-checkbox': 1.3.3(@types/react-dom@19.2.1(@types/react@19.2.1))(@types/react@19.2.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       '@radix-ui/react-context': 1.2.2(@types/react@19.2.1)(react@19.2.1)
@@ -5451,10 +5451,10 @@ snapshots:
       - vitest
       - vue
 
-  '@neondatabase/auth@0.5.0-beta(txpsh37mvnfbdllom6sjnvrvxa)':
+  '@neondatabase/auth@0.5.0-beta(6e103f58449f018e1cdb469650fb6c58)':
     dependencies:
       '@better-fetch/fetch': 1.3.1
-      '@neondatabase/auth-ui': 0.3.0-beta(izitbnepkirsiijaabmhn4nofu)
+      '@neondatabase/auth-ui': 0.3.0-beta(535c48f90ef9734223f75aa6e9e653fa)
       '@supabase/auth-js': 2.79.0
       better-auth: 1.6.23(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.44.7(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0))(mysql2@3.23.3(@types/node@24.7.0))(pg@8.23.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.7.0)(lightningcss@1.30.1))
       jose: 6.2.5
@@ -5493,9 +5493,9 @@ snapshots:
       - vitest
       - vue
 
-  '@neondatabase/neon-js@0.7.0-beta(quxzm3ktpou5h4oa4icoux7ehq)':
+  '@neondatabase/neon-js@0.7.0-beta(c09be659edb2dff32a34d391f1de25be)':
     dependencies:
-      '@neondatabase/auth': 0.5.0-beta(txpsh37mvnfbdllom6sjnvrvxa)
+      '@neondatabase/auth': 0.5.0-beta(6e103f58449f018e1cdb469650fb6c58)
       '@neondatabase/postgrest-js': 0.2.0-beta
       meow: 14.0.0
       pg: 8.23.0
@@ -6932,15 +6932,6 @@ snapshots:
     transitivePeerDependencies:
       - '@cloudflare/workers-types'
       - '@opentelemetry/api'
-
-  better-call@1.3.7(zod@4.1.12):
-    dependencies:
-      '@better-auth/utils': 0.4.2
-      '@better-fetch/fetch': 1.3.1
-      rou3: 0.7.12
-      set-cookie-parser: 3.1.2
-    optionalDependencies:
-      zod: 4.1.12
 
   better-call@1.3.7(zod@4.3.6):
     dependencies:
@@ -8548,7 +8539,7 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  wouter@3.7.1(patch_hash=4utoqymkqegp7ldbtu4ndzqvum)(react@19.2.1):
+  wouter@3.7.1(patch_hash=4e16e6ff3fde7d6c1024d3e0c8605dc9eb6afb690d0d49958c2f449091813072)(react@19.2.1):
     dependencies:
       mitt: 3.0.1
       react: 19.2.1

@@ -2,12 +2,18 @@
  *
  * Telegram voice notes (and audio files) arrive as OGG/Opus uploads. The
  * webhook transcribes them with an OpenAI-compatible /audio/transcriptions
- * endpoint (OpenAI, Groq, and other compatible providers all speak it) so
- * the agent can act on what was said, Manus-style — the transcription
- * becomes the user's turn. The provider is env-configured:
- * TRANSCRIPTION_API_KEY (required), TRANSCRIPTION_API_BASE_URL (default
- * https://api.openai.com/v1 — set to e.g. https://api.groq.com/openai/v1
- * for Groq), and TRANSCRIPTION_MODEL (default whisper-1). */
+ * endpoint so the agent can act on what was said, Manus-style — the
+ * transcription becomes the user's turn. The default provider is the
+ * Pollinations AI unified API (https://gen.pollinations.ai), whose
+ * /v1/audio/transcriptions endpoint is Whisper-compatible; any other
+ * OpenAI-compatible provider (OpenAI, Groq, ...) still works by changing
+ * the env. The provider is env-configured: TRANSCRIPTION_API_KEY
+ * (required; POLLINATIONS_API_KEY is accepted as a fallback name),
+ * TRANSCRIPTION_API_BASE_URL (default https://gen.pollinations.ai/v1 —
+ * set to e.g. https://api.openai.com/v1 for OpenAI, or
+ * https://api.groq.com/openai/v1 for Groq), and TRANSCRIPTION_MODEL
+ * (default openai/whisper-large-v3 — Pollinations model IDs; the alias
+ * "whisper-1" also routes to the same model on Pollinations). */
 
 import { ENV } from "./_core/env";
 

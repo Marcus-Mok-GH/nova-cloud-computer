@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-17 — Voice notes now transcribe via the Pollinations AI unified API
+
+- Owner request: the AI voice-note feature (Telegram voice-message transcription) now uses the Pollinations AI unified API (https://gen.pollinations.ai) instead of defaulting to OpenAI.
+- `server/_core/env.ts`: `TRANSCRIPTION_API_BASE_URL` now defaults to `https://gen.pollinations.ai/v1` and `TRANSCRIPTION_MODEL` to `openai/whisper-large-v3` (Pollinations' Whisper-compatible model; its `whisper-1` alias also routes there). `TRANSCRIPTION_API_KEY` falls back to `POLLINATIONS_API_KEY` when unset, so a Pollinations `sk_` key can be set under either name.
+- `server/transcription.ts`: no wire-format change needed — Pollinations' `/v1/audio/transcriptions` endpoint is OpenAI/Whisper-compatible, so the existing request and response shapes work as-is. Docs updated to describe the new defaults; the provider stays env-configurable (point `TRANSCRIPTION_API_BASE_URL` at OpenAI, Groq, or any other OpenAI-compatible provider to switch back).
+- `server/app.ts`: the not-configured hint the model relays to users now says the operator must set `TRANSCRIPTION_API_KEY` to a Pollinations `sk_` key.
+
 ## 2026-09-17 — Manus-style: voice notes, persistent style preference
 
 Research-driven parity pass with Manus's Telegram bot (three requested capabilities; the file-deliverable one turned out to already exist via present_file).

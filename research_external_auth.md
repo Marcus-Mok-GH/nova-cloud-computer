@@ -1,4 +1,4 @@
-# External Hosting and Authentication Assessment — August 2026
+# External Hosting and Authentication Assessment - August 2026
 
 ## Finding
 
@@ -103,14 +103,14 @@ Nova’s public repository, [`Marcus-Mok-GH/nova-cloud-computer`](https://github
 
 ## Sources
 
-[1] [Manus Website Builder — Getting started](https://manus.im/docs/website-builder/getting-started)
+[1] [Manus Website Builder - Getting started](https://manus.im/docs/website-builder/getting-started)
 
-[2] [Manus Website Builder — Access control](https://manus.im/docs/website-builder/access-control)
+[2] [Manus Website Builder - Access control](https://manus.im/docs/website-builder/access-control)
 
-[3] [Neon — Vercel-Managed Integration](https://neon.com/docs/guides/vercel-managed-integration)
+[3] [Neon - Vercel-Managed Integration](https://neon.com/docs/guides/vercel-managed-integration)
 
-[4] [Neon Auth — Magic Link](https://neon.com/docs/auth/guides/plugins/magic-link)
+[4] [Neon Auth - Magic Link](https://neon.com/docs/auth/guides/plugins/magic-link)
 
-[5] [Neon Auth — JWT](https://neon.com/docs/auth/guides/plugins/jwt)
+[5] [Neon Auth - JWT](https://neon.com/docs/auth/guides/plugins/jwt)
 
-[6] [Neon Auth — Production checklist](https://neon.com/docs/auth/production-checklist)
+[6] [Neon Auth - Production checklist](https://neon.com/docs/auth/production-checklist)

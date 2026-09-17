@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // These tests exercise the raw gateway stream handling in chatWithNvidiaGateway
-// with a stubbed global fetch — the paths that turn a long tool-calling reply
+// with a stubbed global fetch - the paths that turn a long tool-calling reply
 // into "NVIDIA returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({

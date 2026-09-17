@@ -281,7 +281,7 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(body).toEqual({ ok: true, accepted: true });
     await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
     expect(spies.runWorkspaceAgent).toHaveBeenCalledTimes(1);
-    // The only Telegram message is the agent's own reply — no model list.
+    // The only Telegram message is the agent's own reply - no model list.
     expect(spies.sendTelegramMessage).toHaveBeenCalledTimes(1);
     expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "It's a corgi!");
     const sent = spies.sendTelegramMessage.mock.calls[0][2] as string;

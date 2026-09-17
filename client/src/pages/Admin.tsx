@@ -8,12 +8,12 @@ import { trpc } from "@/lib/trpc";
 import NotFound from "./NotFound";
 
 function formatDay(value: Date | string | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function formatStamp(value: Date | string | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
@@ -129,7 +129,7 @@ export default function Admin() {
                       <button
                         onClick={() => setUserRole.mutate({ userId: account.id, role: account.role === "admin" ? "user" : "admin" })}
                         disabled={!canChangeRole || busy}
-                        title={!canChangeRole && isSelf ? "You are the only active admin — promote someone else before demoting yourself." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
+                        title={!canChangeRole && isSelf ? "You are the only active admin - promote someone else before demoting yourself." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
                         className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {busy && pendingAction === "role" ? <Loader2 className="size-3.5 animate-spin" /> : account.role === "admin" ? "Demote" : "Promote"}

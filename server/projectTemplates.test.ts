@@ -34,7 +34,7 @@ describe("Project templates", () => {
     expect(index.content).toContain("styles.css");
   });
 
-  it("react template: runs in the browser — React from a CDN, JSX compiled by Babel standalone", () => {
+  it("react template: runs in the browser - React from a CDN, JSX compiled by Babel standalone", () => {
     const project = renderProjectTemplate("react", "My React App");
     expect(project.deployRoot).toBe(".");
     const paths = project.files.map(file => file.path);

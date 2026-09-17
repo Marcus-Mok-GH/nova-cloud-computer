@@ -51,14 +51,14 @@ describe("ResearchToolActivity", () => {
     ({ id: "r1", name: "research_web", state, args: { arguments: '{"topic":"python versions","difficulty":"deep-lite"}' }, detail });
 
   it("starts open while running and streams the live progress note", () => {
-    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research("running", "Exa deep research (deep) is reading the live web — 20s elapsed…") }));
+    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research("running", "Exa deep research (deep) is reading the live web - 20s elapsed…") }));
     expect(html).toContain("research-detail-panel");
     expect(html).toContain("20s elapsed");
     expect(html).toContain("Deep Research: python versions");
   });
 
   it("renders collapsed with a chevron once completed, ready to reveal the report", () => {
-    const completed = research("completed", "The report says Python 3.14.7 is latest.\n\nAll sources consulted by the researcher:\n1. python.org — https://python.org");
+    const completed = research("completed", "The report says Python 3.14.7 is latest.\n\nAll sources consulted by the researcher:\n1. python.org - https://python.org");
     const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: completed }));
     expect(html).not.toContain("research-detail-panel"); // default closed, toggleable via the chevron
     expect(html).toContain("Deep Research: python versions");

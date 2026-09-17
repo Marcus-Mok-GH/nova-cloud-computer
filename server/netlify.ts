@@ -93,5 +93,5 @@ export async function deployFilesToNetlifySite(
     if (state?.state === "error") throw new Error("Netlify could not finish processing this deployment.");
     await sleep(2000);
   }
-  throw new Error("Netlify is still processing this deployment — check back in a minute.");
+  throw new Error("Netlify is still processing this deployment - check back in a minute.");
 }

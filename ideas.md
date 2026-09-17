@@ -1,4 +1,4 @@
-# Nova Cloud Computer — Ground-Truth Reference Direction
+# Nova Cloud Computer - Ground-Truth Reference Direction
 
 ## Reference fidelity
 

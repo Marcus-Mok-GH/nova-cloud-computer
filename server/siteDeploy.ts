@@ -100,7 +100,7 @@ function fileBody(content: string): Buffer {
 }
 
 /**
- * Deploys the chosen directory as a live website — the directory's contents
+ * Deploys the chosen directory as a live website - the directory's contents
  * become the site and its index.html is the entry page. `directory` is a
  * workspace-relative folder path; null/empty means the workspace root.
  * `options.site` is the deliberate target choice made by the model:
@@ -115,7 +115,7 @@ export async function deployWorkspaceSite(
   options?: { site?: "update" | "new" }
 ): Promise<DeployResult> {
   if (!isNetlifyConfigured()) {
-    return { ok: false, message: "Live deployments are not configured yet — the Nova operator needs to set NETLIFY_API_TOKEN." };
+    return { ok: false, message: "Live deployments are not configured yet - the Nova operator needs to set NETLIFY_API_TOKEN." };
   }
 
   const [files, folders] = await Promise.all([
@@ -123,7 +123,7 @@ export async function deployWorkspaceSite(
     listWorkspaceFoldersForUser(ownerId),
   ]);
   if (files.length === 0) {
-    return { ok: false, message: "Your workspace is empty — create some files first (index.html is a good start)." };
+    return { ok: false, message: "Your workspace is empty - create some files first (index.html is a good start)." };
   }
   const dirSegments = directorySegments(directory);
   const segments = buildFileSegments(folders as FolderRow[], files as FileRow[]);
@@ -140,13 +140,13 @@ export async function deployWorkspaceSite(
   if (selected.length === 0) {
     return {
       ok: false,
-      message: `There is nothing to deploy in ${dirLabel} — choose a directory that contains the site files.`,
+      message: `There is nothing to deploy in ${dirLabel} - choose a directory that contains the site files.`,
     };
   }
   if (!selected.some(entry => sitePath(entry.siteSegments) === "/index.html")) {
     return {
       ok: false,
-      message: `Add an index.html at the root of ${dirLabel} first — it is your website's entry page.`,
+      message: `Add an index.html at the root of ${dirLabel} first - it is your website's entry page.`,
     };
   }
 

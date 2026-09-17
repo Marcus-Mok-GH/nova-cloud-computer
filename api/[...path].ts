@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
  * Lazily loads the bundled Express app from `dist/server/app.cjs`. Deferred
  * until the first co-deployed request instead of at module import time, so
  * unit tests can import this module's pure helpers (path parsing, header
- * forwarding, etc.) without needing a production build on disk first — the
+ * forwarding, etc.) without needing a production build on disk first - the
  * CI pipeline still runs `pnpm run build` before `pnpm test` for the real
  * request-dispatch coverage.
  */

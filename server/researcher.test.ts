@@ -22,7 +22,7 @@ beforeEach(() => {
 describe("runResearch", () => {
   it("delegates to Exa deep research with the report-style system prompt", async () => {
     runExaDeepResearch.mockResolvedValueOnce({
-      report: "Nova is a workspace agent [1].\n\nSources:\n1. Nova docs — https://nova.example/docs",
+      report: "Nova is a workspace agent [1].\n\nSources:\n1. Nova docs - https://nova.example/docs",
       sources: [
         { url: "https://nova.example/docs", title: "Nova docs" },
         { url: "https://exa.ai/blog", title: "Exa blog" },

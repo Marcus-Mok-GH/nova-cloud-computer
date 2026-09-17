@@ -46,7 +46,7 @@ export default function Deployments() {
           Deployments
         </h1>
         <p className="rise-in-delay-1 mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">
-          Your live website, published by Nova on Netlify's free hosting — always on, with SSL.
+          Your live website, published by Nova on Netlify's free hosting - always on, with SSL.
         </p>
 
         {status.isLoading ? (
@@ -100,7 +100,7 @@ export default function Deployments() {
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
                     <p>
-                      Live deployments are not configured yet — the Nova operator needs to set
+                      Live deployments are not configured yet - the Nova operator needs to set
                       NETLIFY_API_TOKEN (a free Netlify personal access token) on the server.
                     </p>
                   </div>
@@ -108,7 +108,7 @@ export default function Deployments() {
                   <>
                     <p className="leading-6">
                       Nova publishes your workspace to Netlify's free hosting under its folder
-                      path — index.html is the entry page, and subfolders keep their structure.
+                      path - index.html is the entry page, and subfolders keep their structure.
                       The first deploy creates your permanent subdomain; later deploys update the
                       same live URL. Nova can publish anything static hosting serves: plain
                       HTML/CSS/JS sites, React apps, statically exported Next.js projects, and
@@ -124,7 +124,7 @@ export default function Deployments() {
                         <Rocket size={14} className="mt-0.5 shrink-0 text-primary" />
                         <p>
                           <span className="font-bold">Publishing is Nova's job.</span> Ask Nova in
-                          chat — "publish my website" or "deploy my latest changes" — and it
+                          chat - "publish my website" or "deploy my latest changes" - and it
                           handles the rest, end to end.
                         </p>
                       </div>
@@ -143,7 +143,7 @@ export default function Deployments() {
                     </div>
                     {deploying && (
                       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                        Nova is deploying — uploading your files and waiting for Netlify to
+                        Nova is deploying - uploading your files and waiting for Netlify to
                         finish. This usually takes under a minute.
                       </p>
                     )}
@@ -171,7 +171,7 @@ export default function Deployments() {
               </div>
               {history.length === 0 ? (
                 <p className="p-5 text-sm text-muted-foreground">
-                  Nothing deployed yet — your deployments will appear here.
+                  Nothing deployed yet - your deployments will appear here.
                 </p>
               ) : (
                 <ul className="divide-y divide-border dark:divide-white/5">

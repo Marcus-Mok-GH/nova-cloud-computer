@@ -137,7 +137,7 @@ async function ensureWorkspacePersistentVm<T extends typeof workspaces.$inferSel
   if (claimed) {
     return { ...workspace, persistentSandboxId: sandboxId };
   }
-  // Another process won the race — re-read the winner's sandbox ID
+  // Another process won the race - re-read the winner's sandbox ID
   const db2 = await requireDb();
   const [winner] = await db2
     .select({ persistentSandboxId: workspaces.persistentSandboxId })
@@ -667,7 +667,7 @@ export async function deleteTelegramSettingsForUser(ownerId: number) {
 
 export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: string) {
   const db = await requireDb();
-  // Shared (default) bot: isolate by Telegram chatId — each Telegram user is
+  // Shared (default) bot: isolate by Telegram chatId - each Telegram user is
   // bound to exactly one workspace via telegramBotSettings.chatId. This prevents
   // cross-tenant message leakage when many users share the same bot.
   if (ENV.defaultTelegramBotToken && token === ENV.defaultTelegramBotToken) {
@@ -678,7 +678,7 @@ export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: 
         if (ws) return ws.ownerId;
       }
     }
-    // Unlinked chat: do not attribute to oldest workspace — caller must handle null (ask to link).
+    // Unlinked chat: do not attribute to oldest workspace - caller must handle null (ask to link).
     return null;
   }
   const rows = await db.select().from(telegramBotSettings);
@@ -765,7 +765,7 @@ export async function createAgentVmRunForUser(ownerId: number, input: { task: st
   return toSafeAgentVmRun(created);
 }
 
-/** Current database server time — used so stop requests and run starts are compared on one clock. */
+/** Current database server time - used so stop requests and run starts are compared on one clock. */
 export async function getDatabaseTime(): Promise<Date> {
   const db = await requireDb();
   const result = (await db.execute(sql`select now() as now`)) as unknown as { rows?: Array<{ now: string | Date }> } | Array<{ now: string | Date }>;
@@ -779,7 +779,7 @@ export async function getDatabaseTime(): Promise<Date> {
  * Atomically claims a Telegram webhook update id. Returns true when this call
  * is the first to see the update, false when Telegram is redelivering an
  * update Nova already handled (the webhook holds the HTTP connection open for
- * the whole agent run, so Telegram re-sends updates it saw time out — without
+ * the whole agent run, so Telegram re-sends updates it saw time out - without
  * this claim every redelivery would re-run the agent and duplicate replies).
  * Old rows are pruned opportunistically; a database error fails open so the
  * bot keeps working even if the log table is unavailable.

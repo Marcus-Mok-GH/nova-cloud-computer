@@ -104,7 +104,12 @@ const getNvidiaGatewayStatus = vi.fn(() => ({
   },
 }));
 class NvidiaGatewayClientError extends Error {
-  kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response";
+  kind:
+    | "configuration"
+    | "unavailable"
+    | "rate_limit"
+    | "allowance_reached"
+    | "invalid_response";
   constructor(message, kind) {
     super(message);
     this.name = "NvidiaGatewayClientError";
@@ -158,6 +163,7 @@ const {
   runWorkspaceAgent,
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
+  setGatewayRateLimitRetryDelayForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   workspaceToolsForConnectors,
   getConnectedConnectorToolkits,
@@ -184,10 +190,12 @@ const chatResult = (
 describe("Nova tool-calling workspace agent", () => {
   beforeEach(() => {
     setGatewayRetryDelaysForTests([0, 0]);
+    setGatewayRateLimitRetryDelayForTests(0);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    setGatewayRateLimitRetryDelayForTests(null);
     // Streaming runs now poll the stop flag mid-response: keep the default.
     hasAgentStopAfter.mockImplementation(async () => false);
   });
@@ -1025,13 +1033,55 @@ describe("Nova tool-calling workspace agent", () => {
     expect(chatWithNvidiaGateway).not.toHaveBeenCalled();
   });
 
-  it("returns rate-limit message when the chat throws a rate_limit error", async () => {
+  it("returns the allowance message when the workspace cap is reached", async () => {
     chatWithNvidiaGateway.mockRejectedValueOnce(
-      new NvidiaGatewayClientError("cap", "rate_limit")
+      new NvidiaGatewayClientError("cap", "allowance_reached")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("allowance");
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits once and retries an upstream 429 instead of failing", async () => {
+    chatWithNvidiaGateway
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Back online — here is your answer." }));
+    const result = await runWorkspaceAgent(1, 3, "hello?");
+    // One patient retry, then the reply.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
+    expect(result.message.content).toContain("Back online");
+  });
+
+  it("stops after one patient 429 retry and explains the lockout", async () => {
+    chatWithNvidiaGateway
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
+      );
+    const result = await runWorkspaceAgent(1, 3, "hello?");
+    // The wait happens once per run, never as a fast-retry hammer.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
+    expect(result.message.content).toContain("free-tier rate limit");
+    expect(result.message.content).toContain("30-60 minutes");
+  });
+
+  it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
+    chatWithNvidiaGateway.mockRejectedValue(
+      new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
+    );
+    const result = await runWorkspaceAgent(1, 3, "hello?", {
+      deadlineAtMs: Date.now() + 10_000,
+    });
+    // No time for the wait: fail immediately with the explanation.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    expect(result.message.content).toContain("free-tier rate limit");
   });
 
   it("returns configuration message when the chat throws a configuration error", async () => {

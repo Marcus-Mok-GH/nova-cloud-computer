@@ -73,6 +73,7 @@ export class NvidiaGatewayClientError extends Error {
       | "configuration"
       | "unavailable"
       | "rate_limit"
+      | "allowance_reached"
       | "invalid_response"
       | "stopped"
   ) {
@@ -545,7 +546,7 @@ export async function completeWithNvidiaGateway(
   if (!claim) {
     throw new NvidiaGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
-      "rate_limit"
+      "allowance_reached"
     );
   }
   const resolvedModel = modelId?.trim() || status.model;
@@ -935,7 +936,7 @@ export async function chatWithNvidiaGateway(
   if (!claim) {
     throw new NvidiaGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
-      "rate_limit"
+      "allowance_reached"
     );
   }
   const resolvedModel = options.model?.trim() || status.model;

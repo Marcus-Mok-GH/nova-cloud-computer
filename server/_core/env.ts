@@ -92,4 +92,6 @@ export const ENV = {
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
   /** Composio REST base URL (defaults to the hosted v3.1 API). */
   composioApiUrl: process.env.COMPOSIO_API_URL ?? "https://backend.composio.dev",
+  /** How long the Telegram webhook waits for the model's own send_progress_update before sending a deterministic "still working" fallback note. Overridable so tests do not wait the real delay. */
+  telegramAckFallbackDelayMs: Number(process.env.TELEGRAM_ACK_FALLBACK_DELAY_MS) || 8000,
 };

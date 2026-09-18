@@ -2,12 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Workspace, { TypingIndicator } from "./Workspace";
-import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 
 const state = vi.hoisted(() => ({
   computer: { data: undefined as unknown, isError: false, isLoading: false, refetch: vi.fn() },
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false },
-  nvidiaStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3.5-lightning-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
+  mistralStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
   chatMessages: [] as Array<{ id: number; role: "user" | "assistant"; content: string }>,
   composioStatus: {
     data: {
@@ -35,12 +35,12 @@ vi.mock("@/lib/trpc", () => ({
     agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => ({ data: [] }) } },
     composio: { status: { useQuery: () => state.composioStatus } },
     telegram: { status: { useQuery: () => state.telegramStatus } },
-    nvidia: { status: { useQuery: () => state.nvidiaStatus }, models: { useQuery: () => ({ data: [] }) } },
+    mistral: { status: { useQuery: () => state.mistralStatus }, models: { useQuery: () => ({ data: [] }) } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, send: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [] }) } },
-    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, nvidia: { status: { invalidate } } }),
+    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, mistral: { status: { invalidate } } }),
   },
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()] }));
@@ -57,7 +57,7 @@ describe("Workspace rendered browser states", () => {
   beforeEach(() => {
     state.computer = { data: undefined, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
-    state.nvidiaStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "nvidia-nim", model: "nvidia/nemotron-3.5-lightning-30b-a3b", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
+    state.mistralStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
     state.chatMessages = [];
     state.composioStatus = {
       data: {
@@ -102,7 +102,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("Pick up where you left off");
     expect(markup).not.toContain("Plans");
     expect(markup).not.toContain("Workspace folders");
-    expect(markup).not.toContain("Ask NVIDIA");
+    expect(markup).not.toContain("Ask Mistral");
     expect(markup).not.toContain("Run in agent VM");
     expect(markup).not.toContain("Codebuff");
   });
@@ -158,24 +158,24 @@ describe("Workspace rendered browser states", () => {
   it("renders the overview home without execution controls", () => {
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
     state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 7, maxRuns: 50, remainingRuns: 43, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
-    state.nvidiaStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "nvidia-nim", model: "nvidia/nemotron-3.5-lightning-30b-a3b", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
+    state.mistralStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
     expect(markup).toContain("Start a chat");
     expect(markup).toContain("Connectors Nova can use");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");
-    expect(markup).not.toContain("Ask NVIDIA");
+    expect(markup).not.toContain("Ask Mistral");
     expect(markup).not.toContain("Run in agent VM");
     expect(markup).not.toContain("Codebuff");
   });
 
   it("renders an unavailable-AI persisted message as an explicit error", () => {
-    state.chatMessages = [{ id: 1, role: "assistant", content: NVIDIA_UNAVAILABLE_MESSAGE }];
+    state.chatMessages = [{ id: 1, role: "assistant", content: MISTRAL_UNAVAILABLE_MESSAGE }];
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
     expect(markup).toContain("Nova is offline");
-    expect(markup).toContain(NVIDIA_UNAVAILABLE_MESSAGE);
+    expect(markup).toContain(MISTRAL_UNAVAILABLE_MESSAGE);
   });
 
   it("renders a normal persisted assistant message as a regular bubble with exactly one label", () => {

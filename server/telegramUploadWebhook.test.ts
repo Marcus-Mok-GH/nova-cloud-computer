@@ -296,7 +296,7 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(finalDelivery?.[0]).toBe("bot-token");
     expect(finalDelivery?.[1]).toBe("42");
     const sent = spies.sendTelegramMessage.mock.calls[0][2] as string;
-    expect(sent).not.toMatch(/moonshotai|nvidia|kimi|nemotron/i);
+    expect(sent).not.toMatch(/mistral|kimi|nemotron|moonshotai|nvidia/i);
   });
 
   it("processes /stop while an agent run is still in flight", async () => {

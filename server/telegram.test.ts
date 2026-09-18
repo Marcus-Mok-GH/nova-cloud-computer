@@ -25,6 +25,19 @@ describe("Telegram Bot API client", () => {
     await expect(sendTelegramMessage("token", "42", "Hello", failureFetch)).rejects.toThrow("chat not found");
   });
 
+  it("attaches inline keyboards with URL buttons to the message payload", async () => {
+    const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: { message_id: 11 } }));
+    await sendTelegramMessage("token", "42", "Here is your answer", fetchImpl, {
+      inlineKeyboard: [[{ text: "🪐 View this run in Nova", url: "https://nova-cloud-computer.vercel.app/app?chatId=3" }]],
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/sendMessage"),
+      expect.objectContaining({
+        body: expect.stringContaining('"reply_markup":{"inline_keyboard":[[{"text":"🪐 View this run in Nova","url":"https://nova-cloud-computer.vercel.app/app?chatId=3"}]]}'),
+      })
+    );
+  });
+
   it("registers an HTTPS callback that embeds the bot token without exposing it in the result", async () => {
     const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: true }));
     const result = await configureTelegramWebhook("123:secret", "https://nova.example.com", fetchImpl);

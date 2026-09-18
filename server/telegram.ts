@@ -80,7 +80,7 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
   return String(chat.id);
 }
 
-export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data: string }>> }) {
+export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>> }) {
   return telegramRequest<{ message_id: number }>(token, "sendMessage", {
     chat_id: chatId,
     text,

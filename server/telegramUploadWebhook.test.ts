@@ -187,7 +187,9 @@ describe("Telegram upload webhook (full handler)", () => {
     ]);
 
     // The agent's reply reached the Telegram chat.
-    expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "It's a corgi!");
+    const finalDelivery = spies.sendTelegramMessage.mock.calls.find(call => call[2] === "It's a corgi!");
+    expect(finalDelivery?.[0]).toBe("bot-token");
+    expect(finalDelivery?.[1]).toBe("42");
   });
 
   it("routes a text file upload to read_file without image attachments", async () => {
@@ -286,7 +288,9 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(spies.runWorkspaceAgent).toHaveBeenCalledTimes(1);
     // The only Telegram message is the agent's own reply - no model list.
     expect(spies.sendTelegramMessage).toHaveBeenCalledTimes(1);
-    expect(spies.sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "It's a corgi!");
+    const finalDelivery = spies.sendTelegramMessage.mock.calls.find(call => call[2] === "It's a corgi!");
+    expect(finalDelivery?.[0]).toBe("bot-token");
+    expect(finalDelivery?.[1]).toBe("42");
     const sent = spies.sendTelegramMessage.mock.calls[0][2] as string;
     expect(sent).not.toMatch(/moonshotai|nvidia|kimi|nemotron/i);
   });
@@ -345,6 +349,22 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(
       spies.sendTelegramWorkStartedAck.mock.invocationCallOrder[0]
     ).toBeLessThan(spies.runWorkspaceAgent.mock.invocationCallOrder[0]);
+  });
+
+  it("attaches a View run deep-link button to the final reply", async () => {
+    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "All done - here is your summary." }, actions: [] });
+    const { status } = await postUpdate({
+      update_id: 603,
+      message: { message_id: 22, chat: { id: 42 }, text: "summarize my files" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "All done - here is your summary."));
+    const finalCall = spies.sendTelegramMessage.mock.calls.find(call => call[2] === "All done - here is your summary.");
+    // The deep link points at the workspace chat this run belongs to, so the
+    // web app opens the full tool-activity replay of the Telegram run.
+    expect(finalCall?.[4]).toEqual({
+      inlineKeyboard: [[{ text: "🪐 View this run in Nova", url: "https://nova-cloud-computer.vercel.app/app?chatId=3" }]],
+    });
   });
 
   it("still runs and replies when the work confirmation itself fails", async () => {

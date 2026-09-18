@@ -1542,46 +1542,25 @@ export async function runWorkspaceAgent(
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
   const retryState: GatewayRetryState = { rateLimitRetryUsed: false };
-  // Summaries of the tool calls in the current round - used to synthesize a
-  // closing reply when the run runs out of time before the final model round.
+  // Summaries of the tool calls in the current round - they brief the model
+  // on the closing reply when the run runs out of time before the final round.
   let lastRoundSummaries: string[] = [];
   /**
-   * Closing reply for a run that hits its time budget: built from the last
-   * round's completed tool summaries so the user still hears where things
+   * Closing reply for a run that hits its time budget: the last round's
+   * completed tool summaries brief the model that writes it, so the user still
+   * hears where things
    * stand, and naming the step that was cut short - skipped or interrupted -
    * instead of counting it among the completed work.
    */
-  const synthesizeDeadlineReply = (
-    unfinishedTool: string | null = null,
-    unfinishedToolStarted = true
-  ) => {
-    const summaryLines = lastRoundSummaries
-      .map(summary => `- ${summary}`)
-      .join("\n");
-    const parts: string[] = [
-      lastRoundSummaries.length
-        ? `I've reached the end of what I can do in one go. Here is where things stand:\n${summaryLines}`
-        : "I've reached the end of what I can do in one go on this task.",
-    ];
-    if (unfinishedTool) {
-      parts.push(
-        unfinishedToolStarted
-          ? `⏱️ The \`${unfinishedTool}\` step was still running when time ran out, so it was interrupted and is not finished.`
-          : `⏱️ Time ran out before the \`${unfinishedTool}\` step could start, so it was skipped.`
-      );
-    }
-    parts.push('Send "continue" and I\'ll pick up right where I left off.');
-    return parts.join("\n\n");
-  };
   /** The closing status when the run budget runs out is written by the model
-   * when the gateway answers quickly - honest, specific, in Nova's own words
-   * - and falls back to the synthesized template on any failure or slowness.
-   * The race cap keeps the closing reply inside the request budget. */
+   * - honest, specific, in Nova's own words. There is deliberately no canned
+   * fallback: if the gateway will not answer in time, the run falls through
+   * to the ordinary empty-reply handling instead of pretending with template
+   * text. The race cap keeps the closing reply inside the request budget. */
   const composeDeadlineClose = async (
     unfinishedTool: string | null = null,
     unfinishedToolStarted = true
   ): Promise<string> => {
-    const template = synthesizeDeadlineReply(unfinishedTool, unfinishedToolStarted);
     const summaries = lastRoundSummaries.map(summary => `- ${summary}`).join("\n");
     try {
       const completion = await Promise.race([
@@ -1598,9 +1577,9 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
         waitFor(DEADLINE_CLOSE_MODEL_CAP_MS),
       ]) as { text?: unknown } | null | undefined;
       const text = typeof completion?.text === "string" ? completion.text.trim() : "";
-      return text && text.length <= 800 ? text : template;
+      return text && text.length <= 800 ? text : "";
     } catch {
-      return template;
+      return "";
     }
   };
   // Everything streamed to the client during this run - needed by the catch
@@ -1744,7 +1723,7 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       // A deploy or long research can consume nearly the whole request
       // budget. Starting another gateway round this close to the maxDuration
       // limit risks the function being killed before the reply persists -
-      // close the run with a synthesized status instead.
+      // close the run with a model-written status instead.
       if (round > 0 && Date.now() + FINAL_ROUND_MIN_REMAINING_MS > deadlineAtMs) {
         reply = await composeDeadlineClose();
         streamedReplyChars = 0;

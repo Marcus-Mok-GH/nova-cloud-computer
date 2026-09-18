@@ -87,10 +87,15 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
  * left alone deliberately: file names and identifiers use single underscores.
  */
 export function stripMarkdownEmphasis(text: string) {
-  return text
-    .replace(/\*\*(\S(?:[^*\n]*\S)?)\*\*/g, "$1")
-    .replace(/__(\S(?:[^_\n]*\S)?)__/g, "$1")
-    .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)(?!\w)/g, "$1$2");
+  let result = text;
+  while (true) {
+    const stripped = result
+      .replace(/\*\*(\S(?:[^*\n]*\S)?)\*\*/g, "$1")
+      .replace(/__(\S(?:[^_\n]*\S)?)__/g, "$1")
+      .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)(?!\w)/g, "$1$2");
+    if (stripped === result) return result;
+    result = stripped;
+  }
 }
 
 export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>> }) {

@@ -24,6 +24,9 @@ describe("Telegram Bot API client", () => {
     // Single underscores are identifiers, never emphasis: they must survive.
     expect(stripMarkdownEmphasis("open nova_app_link and file_2")).toBe("open nova_app_link and file_2");
     expect(stripMarkdownEmphasis("3 * 4 and 2*3 stay math")).toBe("3 * 4 and 2*3 stay math");
+    // Nested emphasis needs repeated passes to strip the outer pair too.
+    expect(stripMarkdownEmphasis("**bold *light* text**")).toBe("bold light text");
+    expect(stripMarkdownEmphasis("__dunder and *star* mix__")).toBe("dunder and star mix");
     const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: { message_id: 9 } }));
     await sendTelegramMessage("token", "42", "expect a reply in **under a minute**", fetchImpl);
     expect(fetchImpl).toHaveBeenCalledWith(

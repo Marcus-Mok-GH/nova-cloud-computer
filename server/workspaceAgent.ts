@@ -11,6 +11,7 @@ import {
   workspaceRelativePathOf,
   folderPathOf,
 } from "./sandboxWorkspace";
+import { runBrowserCommand } from "./agentBrowser";
 import { evaluate } from "mathjs";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
@@ -44,7 +45,7 @@ import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment" | "project" | "tool";
+  kind: "folder" | "file" | "telegram" | "vm" | "browser" | "connector" | "research" | "deployment" | "project" | "tool";
   name: string;
   operation?:
     | "created"
@@ -655,6 +656,24 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "browse",
+      description:
+        "Drive a real headless Chrome browser in the workspace sandbox through the agent-browser CLI - open pages, read rendered text, click, fill forms, scroll, screenshot pages into workspace files, and take the accessibility snapshot with element refs. Give the agent-browser command WITHOUT the binary name, e.g. 'open https://example.com', 'snapshot', 'read', 'click @e2', 'fill @e3 \"test@example.com\"', 'screenshot page.png'. The first call in a sandbox does a one-time Chrome install that takes a couple of minutes; later calls are fast. Prefer research_web for deep open-ended research; use browse when you need to interact with a specific page.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "The agent-browser command to run, without the binary, e.g. 'open https://example.com' or 'snapshot'.",
+          },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_vm_task",
       description:
         "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management - use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` - `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py - the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
@@ -799,6 +818,7 @@ Operating principles:
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
 - Never do mental arithmetic. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Doing arithmetic in your head is the fastest way to give the user a confidently wrong number; one tool call costs a fraction of a second.
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
+- Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. The first browse call in a sandbox installs Chrome (about two minutes, one-time); tell the user it is a one-time setup if it takes long. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Delegate heavy coding to code_task. When the user wants substantial code written, refactored, or debugged - whole files, components, scripts, algorithms, tricky bugs - hand it to the coding specialist: describe the goal and constraints, include the relevant existing code or the exact error in context, and it returns complete working code from DeepSeek V4 Pro on NVIDIA NIM. Place that code into the workspace with your file tools and verify it. For one-liners and small edits write the code yourself - a specialist round-trip is slower than writing a few lines directly. If it reports that the specialist is not configured yet (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
@@ -1564,6 +1584,29 @@ async function executeWorkspaceTool(
         action: { kind: "vm", name: "bash", operation: bash.ok ? "completed" : "failed" },
       };
     }
+    case "browse": {
+      const command = str(args.command);
+      if (!command)
+        return { ok: false, result: "An agent-browser command is required." };
+      if (!sandbox)
+        return {
+          ok: false,
+          result:
+            "The workspace sandbox is not available right now - it either failed to wake or the server's E2B_API_KEY is not configured, and the browser runs inside that sandbox. Tell the user if the sandbox needs the E2B key.",
+          action: { kind: "browser", name: "browser", operation: "disabled" },
+        };
+      const browse = await runBrowserCommand(sandbox, command);
+      return {
+        ok: browse.ok,
+        result: browse.result,
+        detail: browse.result.slice(0, 16000),
+        action: {
+          kind: "browser",
+          name: command.trim().replace(/^agent-browser\s+/, "").split(/\s+/)[0].slice(0, 45) || "browser",
+          operation: browse.ok ? "completed" : "failed",
+        },
+      };
+    }
     case "run_vm_task": {
       const task = str(args.task);
       if (!task) return { ok: false, result: "A task is required." };
@@ -1606,6 +1649,8 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
     return `${action.operation === "failed" ? "Failed solving" : "Solved"}: ${action.name}.`;
   if (action.kind === "vm" && action.name === "bash")
     return `${action.operation === "failed" ? "Failed running" : "Ran"} a bash command in the sandbox.`;
+  if (action.kind === "browser")
+    return `${action.operation === "failed" ? "Failed running" : "Ran"} a browser command: ${action.name}.`;
   if (action.kind === "research")
     return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
   if (action.operation === "presented")

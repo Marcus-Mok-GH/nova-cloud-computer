@@ -36,6 +36,10 @@ export function toolLineText(activity: ToolActivity): string {
     case "run_vm_task": return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
     case "research_web": return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
     case "code_task": return task ? `Code Task: ${brief(task)}` : "Code Task";
+    case "browse": {
+      const cleaned = s(args.command).replace(/^agent-browser\s+/, "");
+      return cleaned ? `Browse: ${brief(cleaned)}` : "Browse";
+    }
     default: return activity.name;
   }
 }

@@ -32,6 +32,12 @@ describe("toolLineText", () => {
     expect(toolLineText(activity("code_task", "{}"))).toBe("Code Task");
   });
 
+  it("formats browse one-liners with the command", () => {
+    expect(toolLineText(activity("browse", '{"command":"open https://example.com"}'))).toBe("Browse: open https://example.com");
+    expect(toolLineText(activity("browse", '{"command":"agent-browser snapshot"}'))).toBe("Browse: snapshot");
+    expect(toolLineText(activity("browse", "{}"))).toBe("Browse");
+  });
+
   it("falls back gracefully on unknown names and malformed args", () => {
     expect(toolLineText(activity("mystery_tool", '{"x":1}'))).toBe("mystery_tool");
     expect(toolLineText(activity("read_file", '{"file":"notes.txt"'))).toBe("Read File");

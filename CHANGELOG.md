@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-18 - Browser use: drive a real headless Chrome via agent-browser
+
+- New `browse` tool: the agent drives a real headless Chrome in the live workspace sandbox through the agent-browser CLI (vercel-labs/agent-browser) - `open <url>`, `snapshot` for the accessibility tree with element refs, `click @e2` / `fill @e3 "text"` for interaction, `read` for rendered text, `screenshot page.png` saved as a regular workspace file.
+- `server/agentBrowser.ts` (new): `runBrowserCommand()` runs an idempotent per-sandbox bootstrap first - installs the CLI (npm) and Chrome for Testing with its Linux deps (`agent-browser install --with-deps`) behind a marker file - then executes the command (120s timeout; setup gets 240s). Persistent sandboxes pause/resume with their disk, so the heavy install is a one-time cost per sandbox, not per run. Failed bootstrap, nonzero exits, and sandbox transport errors all come back as model-ready retry guidance; it never throws.
+- `server/workspaceAgent.ts`: new `browser` action kind (activity feed shows "Ran a browser command: <subcommand>"), the `browse` tool with a no-sandbox fallback message, and system-prompt guidance (snapshot-act-snapshot loop, when to prefer `research_web`, telling the user the first call is a one-time Chrome install).
+- `client/src/lib/toolActivityLine.tsx`: "Browse: open https://…" one-liner in the chat activity feed.
+- Tests: six new `agentBrowser` tests (bootstrap-then-command, prefix stripping, setup failure, nonzero exit, empty command, transport error), two workspace-agent dispatch tests, one UI test. Full suite: 412 passed.
+
 ## 2026-09-17 - Voice notes now transcribe via the Pollinations AI unified API
 
 - Owner request: the AI voice-note feature (Telegram voice-message transcription) now uses the Pollinations AI unified API (https://gen.pollinations.ai) instead of defaulting to OpenAI.

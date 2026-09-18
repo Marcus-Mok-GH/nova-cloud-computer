@@ -7,7 +7,6 @@ const spies = vi.hoisted(() => ({
   isUserBanned: vi.fn(async () => false),
   getTelegramCredentialsForUser: vi.fn(async () => ({ token: "bot-token", chatId: "42" })),
   listChatsForUser: vi.fn(async () => [{ id: 3 }]),
-  sendTelegramWorkStartedAck: vi.fn(async () => {}),
   sendTelegramMessage: vi.fn(async () => ({ message_id: 77 })),
   sendChatAction: vi.fn(async () => true),
   startAgentRunForUser: vi.fn(async () => ({ id: 501, segment: 0 })),
@@ -48,7 +47,6 @@ vi.mock("./db", () => ({
 
 vi.mock("./workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
-  sendTelegramWorkStartedAck: spies.sendTelegramWorkStartedAck,
   runWorkspaceAgent: spies.runWorkspaceAgent,
   autoTitleChatForUser: spies.autoTitleChatForUser,
 }));
@@ -187,8 +185,6 @@ describe("Agent continuation endpoint", () => {
       expect.objectContaining({ channel: "telegram" })
     );
     await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
-    // Continuations never re-ack, never re-title, and never open a new ledger row.
-    expect(spies.sendTelegramWorkStartedAck).not.toHaveBeenCalled();
     expect(spies.autoTitleChatForUser).not.toHaveBeenCalled();
     expect(spies.startAgentRunForUser).not.toHaveBeenCalled();
     expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "completed", undefined);
@@ -296,7 +292,6 @@ describe("Segment chaining inside the runner", () => {
       token: "bot-token",
       telegramChatId: "42",
     });
-    // This test drives the endpoint directly, so it needs the real fetch back:
     // the describe-level stub would fake the endpoint's own response.
     globalThis.fetch = realFetch as unknown as typeof fetch;
     try {

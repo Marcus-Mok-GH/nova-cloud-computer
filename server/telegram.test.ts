@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, downloadTelegramUpload, presentTelegramFile, sendTelegramMessage, telegramUploadFromMessage, validateTelegramBotToken } from "./telegram";
+import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, downloadTelegramUpload, presentTelegramFile, sendTelegramMessage, stripMarkdownEmphasis, telegramUploadFromMessage, validateTelegramBotToken } from "./telegram";
 
 function telegramResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -15,6 +15,25 @@ describe("Telegram Bot API client", () => {
   it("discovers the most recent private or channel destination from updates", async () => {
     const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: [{ message: { chat: { id: 42 } } }, { channel_post: { chat: { id: -10077 } } }] }));
     await expect(discoverTelegramChat("token", fetchImpl)).resolves.toBe("-10077");
+  });
+
+  it("strips markdown emphasis so raw asterisks never reach the Telegram chat", async () => {
+    expect(stripMarkdownEmphasis("Got it - expect a reply in **under a minute**")).toBe("Got it - expect a reply in under a minute");
+    expect(stripMarkdownEmphasis("**Bold** start and *light* middle")).toBe("Bold start and light middle");
+    expect(stripMarkdownEmphasis("__dunder__ is unwrapped too")).toBe("dunder is unwrapped too");
+    // Single underscores are identifiers, never emphasis: they must survive.
+    expect(stripMarkdownEmphasis("open nova_app_link and file_2")).toBe("open nova_app_link and file_2");
+    expect(stripMarkdownEmphasis("3 * 4 and 2*3 stay math")).toBe("3 * 4 and 2*3 stay math");
+    const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: { message_id: 9 } }));
+    await sendTelegramMessage("token", "42", "expect a reply in **under a minute**", fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/sendMessage"),
+      expect.objectContaining({ body: expect.stringContaining("under a minute") })
+    );
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ body: expect.stringContaining("**") })
+    );
   });
 
   it("sends a bounded message to the configured chat and reports Telegram failures", async () => {

@@ -10,7 +10,7 @@ A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent
 
 Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated E2B sandboxes.
 
-The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an NVIDIA NIM-powered AI agent. A server-to-server NVIDIA NIM gateway powers AI-agent inference, while E2B sandboxes handle autonomous task execution.
+The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and a Mistral AI-powered agent. A server-to-server Mistral AI gateway powers AI-agent inference, while E2B sandboxes handle autonomous task execution.
 
 ---
 
@@ -32,7 +32,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
         │                              │
 ┌───────▼──────────┐          ┌────────▼─────────────────────┐
 │  Neon Postgres    │          │  Agent / inference backends │
-│  (Drizzle ORM)    │          │  • NVIDIA NIM (AI agent)    │
+│  (Drizzle ORM)    │          │  • Mistral AI (AI agent)    │
 │  workspaces,      │          │  • E2B Sandbox (task exec)  │
 │  chats, files,    │          │  • Server-only credentials    │
 │  automations,     │          └────────────────────────────┘
@@ -46,8 +46,8 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 - **Client** - React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
 - **Server** - Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
 - **Database** - Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
-- **Agent** - Conversational workspace work and automation planning run through the NVIDIA NIM gateway.
-- **Inference** - A server-to-server NVIDIA NIM gateway provides AI-agent inference.
+- **Agent** - Conversational workspace work and automation planning run through the Mistral AI gateway.
+- **Inference** - A server-to-server Mistral AI gateway provides AI-agent inference.
 - **Agent VMs** - E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
 
 ---
@@ -67,18 +67,18 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── _core/            # env, context, sdk, llm, cookies, trpc, etc.
 │   ├── app.ts            # Express app, route mounting
 │   ├── index.ts          # HTTP server bootstrap + static SPA fallback
-│   ├── routers.ts        # tRPC router (auth, workspace, telegram, nvidia, agentVm, automations, files, chats, models, projects, tasks)
+│   ├── routers.ts        # tRPC router (auth, workspace, telegram, mistral, agentVm, automations, files, chats, models, projects, tasks)
 │   ├── db.ts             # Data-access layer
 │   ├── telegram.ts       # Telegram bot helpers
 │   ├── agentVm.ts        # E2B agent VM orchestration
 │   ├── automations.ts    # Scheduled automation runner
 │   ├── e2b.ts            # E2B SDK wrapper
 │   ├── modelSecrets.ts   # Per-workspace model credentials
-│   ├── nvidiaGateway.ts  # Optional NVIDIA NIM gateway client
+│   ├── mistralGateway.ts  # Optional Mistral AI gateway client
 │   └── workspaceAgent.ts # Runs the agent against a workspace
 ├── shared/               # Shared types & constants (client + server)
 ├── drizzle/              # Drizzle schema + Neon migrations
-├── docs/                 # Research & design notes (agent VMs, NVIDIA gateway)
+├── docs/                 # Research & design notes (agent VMs, Mistral gateway)
 ├── dist/                 # Build output (server bundle + public SPA)
 └── vercel.json           # Vercel build/routing config
 ```
@@ -92,7 +92,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 | Frontend       | React 19, Vite 7, Tailwind CSS 4, Radix UI, wouter, TanStack Query, tRPC client |
 | Backend        | Node/Express, tRPC v11, superjson                                               |
 | Database       | Neon (Postgres), Drizzle ORM                                                    |
-| Agent          | NVIDIA NIM gateway (server-to-server)                                          |
+| Agent          | Mistral AI gateway (server-to-server)                                          |
 | Agent VMs      | E2B Sandbox SDK                                                                 |
 | Deployment     | Vercel                                                                          |
 
@@ -121,10 +121,10 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `DATABASE_URL`               | Neon Postgres connection string                                                 |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `NVIDIA_API_KEY`             | Server-only NVIDIA NIM API key (`nvapi-...`) from build.nvidia.com; powers chat  |
-| `NVIDIA_GATEWAY_URL`         | Optional HTTPS override for the NVIDIA inference base URL (defaults to NIM)     |
-| `NOVA_NVIDIA_GATEWAY_TOKEN`  | Legacy fallback credential if `NVIDIA_API_KEY` is not set                       |
-| `NVIDIA_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace NVIDIA request cap; defaults to `50`             |
+| `MISTRAL_API_KEY`             | Server-only Mistral AI API key from console.mistral.ai; powers chat              |
+| `MISTRAL_GATEWAY_URL`         | Optional HTTPS override for the Mistral inference base URL (defaults to api.mistral.ai) |
+| `NOVA_MISTRAL_GATEWAY_TOKEN`  | Legacy fallback credential if `MISTRAL_API_KEY` is not set                       |
+| `MISTRAL_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace Mistral request cap; defaults to `50`             |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |

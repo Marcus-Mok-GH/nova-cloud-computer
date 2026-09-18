@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { completeWithNvidiaGateway } from "./nvidiaGateway";
+import { completeWithMistralGateway } from "./mistralGateway";
 
 export type PlannedAutomation = {
   name: string;
@@ -125,7 +125,7 @@ export async function planAutomation(
     `Convert this automation request into the requested JSON object.\n${cleaned}`,
   ].join("\n");
 
-  // NVIDIA NIM returns free-form text. Instruct it to emit the plan as a single
+  // Mistral AI returns free-form text. Instruct it to emit the plan as a single
   // JSON object and retry only when parsing/sanitizing the returned plan fails,
   // so model output quirks cannot break automation creation. Gateway failures
   // (configuration, rate limit, unreachable) must propagate immediately: every
@@ -133,7 +133,7 @@ export async function planAutomation(
   // burn up to three allowances for a single request.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await completeWithNvidiaGateway(
+    const result = await completeWithMistralGateway(
       ownerId,
       `${prompt}\n\nReply with ONLY the JSON object.`
     );

@@ -116,18 +116,18 @@ describe("Mistral gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "mistral-large-latest", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
-  it("defaults to the hardcoded Pixtral Large vision model whenever it is served", async () => {
+  it("defaults to the hardcoded Mistral Medium 3.5 vision model whenever it is served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "mistral-large-latest", modalities: ["text"] },
-      { id: "pixtral-large-latest", modalities: ["text", "image"] },
+      { id: "mistral-medium-3-5", modalities: ["text", "image"] },
       { id: "mistral-omni-latest", modalities: ["text", "image", "audio", "video"] },
     ] }), { status: 200 }));
     const status = await getMistralGatewayStatus(7);
-    expect(status).toMatchObject({ model: "pixtral-large-latest", reachable: true });
-    expect(defaultMistralModel()).toBe("pixtral-large-latest");
+    expect(status).toMatchObject({ model: "mistral-medium-3-5", reachable: true });
+    expect(defaultMistralModel()).toBe("mistral-medium-3-5");
   });
 
-  it("degrades to another vision model when Pixtral Large is not served", async () => {
+  it("degrades to another vision model when Mistral Medium 3.5 is not served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "mistral-medium-latest", modalities: ["text"] },
       { id: "mistral-omni-latest", modalities: ["text", "image", "audio", "video"] },
@@ -136,21 +136,24 @@ describe("Mistral gateway client", () => {
     expect(status.model).toBe("mistral-omni-latest");
   });
 
-  it("prefers a pixtral vision model when the hardcoded default is not served", async () => {
+  it("prefers a medium-family vision model over the deprecated pixtral family", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
-      { id: "mistral-omni-latest", modalities: ["text", "image", "audio", "video"] },
       { id: "pixtral-12b-2409", modalities: ["text", "image"] },
+      { id: "mistral-medium-3-1", modalities: ["text", "image", "audio", "video"] },
     ] }), { status: 200 }));
     await getMistralGatewayStatus(7);
-    expect(defaultMistralModel()).toBe("pixtral-12b-2409");
+    expect(defaultMistralModel()).toBe("mistral-medium-3-1");
   });
 
-  it("falls back to the text model when no vision model is available", async () => {
+  it("falls back to a discovered text model when no vision model is available", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "mistral-medium-latest", modalities: ["text"] },
       { id: "mistral-large-latest", modalities: ["text"] },
-      { id: "mistral-small-latest", modalities: ["text"] },
     ] }), { status: 200 }));
     const status = await getMistralGatewayStatus(7);
+    // Discovery sorts alphabetically, and neither fixture is the hardcoded
+    // text fallback (mistral-small-latest), so the first discovered text model
+    // is chosen instead of the unserved hardcoded fallback.
     expect(status.model).toBe("mistral-large-latest");
   });
 
@@ -161,6 +164,48 @@ describe("Mistral gateway client", () => {
     ] }), { status: 200 }));
     const status = await getMistralGatewayStatus(7);
     expect(status.model).toBe("pixtral-12b-2409");
+  });
+
+  it("maps permanent 4xx completion failures to a non-retryable client error", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "mistral-medium-3-5", modalities: ["text", "image"] }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Model not found" } }), { status: 400 }));
+    await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({
+      kind: "client_error",
+      message: "Model not found",
+    });
+  });
+
+  it("maps oversized-prompt failures (413) to a non-retryable client error", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "mistral-medium-3-5", modalities: ["text", "image"] }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Payload too large" } }), { status: 413 }));
+    await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({
+      kind: "client_error",
+      message: "Payload too large",
+    });
+  });
+
+  it("keeps 5xx completion failures retryable as unavailable", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "mistral-medium-3-5", modalities: ["text", "image"] }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }));
+    await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({
+      kind: "unavailable",
+      message: "upstream exploded",
+    });
+  });
+
+  it("reports a 401 from model discovery as a provider configuration problem", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "Unauthorized" } }), { status: 401 }));
+    // The status call must not reject: it reports the broken credential as
+    // flags so the UI can say the gateway needs an administrator fix.
+    const status = await getMistralGatewayStatus(7);
+    expect(status).toMatchObject({
+      reachable: false,
+      providerConfigurationKnown: true,
+      providerConfigured: false,
+    });
   });
 
   it("discovers only text and vision-language models from Mistral", async () => {

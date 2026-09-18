@@ -2047,6 +2047,9 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     } else if (kind === "rate_limit") {
       reply =
         "Mistral AI's rate limit was hit. Their lockouts can persist for a while, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
+    } else if (kind === "client_error") {
+      reply =
+        "Mistral AI rejected this request (for example an unsupported model or an oversized prompt). Retrying cannot fix that, so I stopped. Please adjust the request and try again; everything so far is saved.";
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails

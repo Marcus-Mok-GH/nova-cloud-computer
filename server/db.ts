@@ -22,6 +22,7 @@ import {
   automations,
   automationRuns,
   siteDeployments,
+  agentRuns,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { getTelegramWebhookInfo } from "./telegram";
@@ -806,6 +807,36 @@ export async function requestAgentStopForUser(ownerId: number) {
 }
 
 /** True when a stop request was recorded after `startedAt` for this workspace owner. */
+/** Starts a segmented agent run ledger row: one row per user message that begins agent work. */
+export async function startAgentRunForUser(ownerId: number, input: { chatId: number; channel?: string; notifyChatId?: string }) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, input.chatId);
+  if (!chat) return undefined;
+  const [run] = await db.insert(agentRuns).values({
+    workspaceId: chat.workspaceId,
+    chatId: chat.id,
+    channel: input.channel ?? "telegram",
+    notifyChatId: input.notifyChatId ?? null,
+  }).returning();
+  return run;
+}
+
+/** Closes a run ledger row (completed/stopped/failed); only live rows can be closed. */
+export async function finishAgentRunForUser(ownerId: number, runId: number, status: "completed" | "stopped" | "failed", errorMessage?: string) {
+  const db = await requireDb();
+  const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
+  if (!run) return undefined;
+  const chat = await getChatForUser(ownerId, run.chatId);
+  if (!chat) return undefined;
+  const [updated] = await db.update(agentRuns).set({
+    status,
+    errorMessage: errorMessage ?? null,
+    completedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(and(eq(agentRuns.id, run.id), inArray(agentRuns.status, ["running", "awaiting_continue"]))).returning();
+  return updated;
+}
+
 export async function hasAgentStopAfter(ownerId: number, startedAt: Date) {
   const db = await requireDb();
   const rows = await db

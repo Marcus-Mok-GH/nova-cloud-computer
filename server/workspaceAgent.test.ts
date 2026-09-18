@@ -91,7 +91,37 @@ vi.mock("./db", () => ({
 }));
 
 const completeWithNvidiaGateway = vi.fn();
-const chatWithNvidiaGateway = vi.fn();
+// A plain reply no longer ends the run: when the loop sends its end-turn
+// control nudge, this default mock impl answers the way a well-behaved
+// model does - end_turn echoing the last assistant text - so existing
+// flows finish in one extra round. Tests that mockReset() restore it.
+const endTurnEchoOnNudge = (
+  _owner: number,
+  messages: Array<{ role: string; content: unknown }>
+) => {
+  const last = messages?.[messages.length - 1];
+  if (
+    last &&
+    last.role === "user" &&
+    typeof last.content === "string" &&
+    last.content.startsWith(END_TURN_NUDGE_PREFIX)
+  ) {
+    const lastAssistant = [...messages]
+      .reverse()
+      .find(m => m.role === "assistant" && typeof m.content === "string" && m.content);
+    return chatResult({
+      toolCalls: [
+        {
+          id: "call-end",
+          name: "end_turn",
+          arguments: JSON.stringify({ reply: lastAssistant?.content ?? "" }),
+        },
+      ],
+    });
+  }
+  return undefined;
+};
+const chatWithNvidiaGateway = vi.fn(endTurnEchoOnNudge);
 const getNvidiaGatewayStatus = vi.fn(() => ({
   configured: true,
   reachable: true,
@@ -164,6 +194,7 @@ vi.mock("./telegram", () => ({
 const {
   runWorkspaceAgent,
   sendTelegramWorkStartedAck,
+  END_TURN_NUDGE_PREFIX,
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
   setGatewayRateLimitRetryDelayForTests,
@@ -171,6 +202,20 @@ const {
   workspaceToolsForConnectors,
   getConnectedConnectorToolkits,
 } = await import("./workspaceAgent");
+
+// A well-formed end_turn tool call carrying the final reply.
+const endTurnCall = (reply: string) => ({
+  id: "call-end",
+  name: "end_turn",
+  arguments: JSON.stringify({ reply }),
+});
+
+// The run mutates its messages array in place across rounds (draft + nudge
+// + end_turn rows keep landing after the first call), so tool-result
+// assertions look the row up instead of relying on its position.
+const lastToolResult = (
+  messages: Array<{ role: string; content?: unknown; tool_call_id?: string }>
+) => [...messages].reverse().find(m => m.role === "tool");
 
 const chatResult = (
   overrides: Partial<{
@@ -208,7 +253,9 @@ describe("Nova tool-calling workspace agent", () => {
       chatResult({ text: "Sure - what should it contain?" })
     );
     await runWorkspaceAgent(1, 3, "hi");
-    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
+    // A plain reply no longer ends the run: the answer is followed by the
+    // end-turn nudge, which the model answers with end_turn.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
     const [owner, messages, options] = chatWithNvidiaGateway.mock.calls[0];
     expect(owner).toBe(1);
     expect(options.tools.length).toBeGreaterThan(10);
@@ -229,7 +276,9 @@ describe("Nova tool-calling workspace agent", () => {
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("Notes");
     expect(messages[0].content).toContain("welcome.md");
-    expect(messages.at(-1)).toEqual({ role: "user", content: "hi" });
+    expect(messages).toEqual(
+      expect.arrayContaining([{ role: "user", content: "hi" }])
+    );
     expect(computer).toHaveBeenCalled();
   });
 
@@ -245,7 +294,10 @@ describe("Nova tool-calling workspace agent", () => {
     chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Yep, all set!" }));
     await runWorkspaceAgent(1, 3, "Are you done?");
     const messages = chatWithNvidiaGateway.mock.calls[0][1];
-    expect(messages.slice(1)).toEqual([
+    // The messages array is mutated in place across rounds (draft + end-turn
+    // nudge rows land after the first call), so the prior conversation is
+    // asserted as the leading rows, in order, without the tool-activity row.
+    expect(messages.slice(1, 4)).toEqual([
       { role: "user", content: "Add a game history feature." },
       { role: "assistant", content: "Added a local high-score history to the game." },
       { role: "user", content: "Are you done?" },
@@ -290,13 +342,18 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([
       { kind: "file", name: "notes.txt", operation: "created" },
     ]);
-    // The tool loop fed the tool result back to the model.
+    // The tool loop fed the tool result back to the model (the messages
+    // array is mutated in place across rounds, so assert membership).
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({
-      role: "tool",
-      tool_call_id: "call-1",
-      content: "Created notes.txt (id 2).",
-    });
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-1",
+          content: "Created notes.txt (id 2).",
+        }),
+      ])
+    );
     // Tool activity is emitted and persisted, then the final reply.
     expect(onEvent).toHaveBeenCalled();
     const persistedToolActivity = append.mock.calls
@@ -329,13 +386,18 @@ describe("Nova tool-calling workspace agent", () => {
         operation: "deployed",
       },
     ]);
-    // The tool result fed the live URL back to the model.
+    // The tool result fed the live URL back to the model (the messages
+    // array is mutated in place across rounds, so assert membership).
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({
-      role: "tool",
-      tool_call_id: "call-1",
-    });
-    expect(secondCallMessages.at(-1).content).toContain("https://nova-live-site.netlify.app");
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-1",
+          content: expect.stringContaining("https://nova-live-site.netlify.app"),
+        }),
+      ])
+    );
     expect(onChunk).toHaveBeenCalledWith(
       "Your site is live at https://nova-live-site.netlify.app"
     );
@@ -589,8 +651,8 @@ describe("Nova tool-calling workspace agent", () => {
       { kind: "deployment", name: "", operation: "failed" },
     ]);
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("The website was not deployed");
-    expect(secondCallMessages.at(-1).content).toContain("index.html");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("The website was not deployed");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("index.html");
     expect(result.message.content).toBe("I could not deploy: an index.html is missing.");
   });
 
@@ -610,8 +672,8 @@ describe("Nova tool-calling workspace agent", () => {
     expect(setCommunicationStyleForUser).toHaveBeenCalledWith(1, "Keep replies short and direct.");
     // The tool result confirmed the save back to the model.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "call-style" });
-    expect(secondCallMessages.at(-1).content).toContain("Saved the user's preferred communication style");
+    expect(lastToolResult(secondCallMessages)).toMatchObject({ role: "tool", tool_call_id: "call-style" });
+    expect(lastToolResult(secondCallMessages)!.content).toContain("Saved the user's preferred communication style");
     expect(String(result.message?.content)).toContain("short and direct");
   });
 
@@ -653,7 +715,7 @@ describe("Nova tool-calling workspace agent", () => {
       },
     ]);
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("published from /my-react-app");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("published from /my-react-app");
   });
 
   it("refuses to deploy when the model does not choose a directory", async () => {
@@ -669,7 +731,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "put my site online");
     expect(deployWebsite).not.toHaveBeenCalled();
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("You must choose the directory to deploy");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("You must choose the directory to deploy");
     expect(result.actions).toEqual([]);
   });
 
@@ -701,8 +763,8 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
     // The tool result teaches the model where to point deploy_website.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("deploy_website");
-    expect(secondCallMessages.at(-1).content).toContain("my-portfolio");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("deploy_website");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("my-portfolio");
     // Tool activity summary names the scaffolded project.
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])
@@ -732,7 +794,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(createFolder).toHaveBeenCalledWith(1, { name: "my-landing-page", parentId: null });
     // The tool result names the template that was used so the model can say so.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("(react template)");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("(react template)");
     expect(result.actions).toEqual([
       { kind: "project", name: "my-landing-page", operation: "created" },
     ]);
@@ -756,7 +818,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(createFolder).not.toHaveBeenCalled();
     expect(createFile).not.toHaveBeenCalled();
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1).content).toContain("Unknown template: svelte");
+    expect(lastToolResult(secondCallMessages)!.content).toContain("Unknown template: svelte");
     expect(result.actions).toEqual([]);
   });
 
@@ -787,7 +849,7 @@ describe("Nova tool-calling workspace agent", () => {
     );
     // The tool result confirms delivery back to the model.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({
+    expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-progress",
       content: "Sent the progress update (message #77).",
@@ -809,7 +871,11 @@ describe("Nova tool-calling workspace agent", () => {
       imageAttachments: [dataUri],
     });
     const messages = chatWithNvidiaGateway.mock.calls[0][1];
-    expect(messages.at(-1)).toEqual({
+    expect(
+      messages.find(
+        m => m.role === "user" && Array.isArray(m.content)
+      )
+    ).toMatchObject({
       role: "user",
       content: [
         { type: "text", text: "what is in this picture?" },
@@ -820,21 +886,39 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("drops the attachment instead of failing when the model cannot see images", async () => {
     const dataUri = "data:image/png;base64,aGVsbG8=";
-    chatWithNvidiaGateway.mockImplementation(async (_owner, messages) => {
-      const last = messages.at(-1);
-      if (Array.isArray(last.content)) throw new NvidiaGatewayClientError("image input is not supported by this model", "unavailable");
-      return chatResult({ text: "I cannot see that image." });
-    });
+    chatWithNvidiaGateway
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError(
+          "image input is not supported by this model",
+          "unavailable"
+        )
+      )
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError(
+          "image input is not supported by this model",
+          "unavailable"
+        )
+      )
+      .mockRejectedValueOnce(
+        new NvidiaGatewayClientError(
+          "image input is not supported by this model",
+          "unavailable"
+        )
+      )
+      .mockResolvedValueOnce(chatResult({ text: "I cannot see that image." }))
+      .mockResolvedValueOnce(chatResult({ toolCalls: [endTurnCall("I cannot see that image.")] }));
     const result = await runWorkspaceAgent(1, 3, "describe this", {
       channel: "telegram",
       imageAttachments: [dataUri],
     });
-    const plainCalls = chatWithNvidiaGateway.mock.calls.filter(
-      call => typeof call[1].at(-1).content === "string"
-    );
-    expect(plainCalls.length).toBeGreaterThan(0);
-    const retriedContent = plainCalls.at(-1)[1].at(-1).content;
-    expect(retriedContent).toContain("cannot view image attachments");
+    const retriedContent = chatWithNvidiaGateway.mock.calls
+      .flatMap(call => call[1])
+      .find(
+        message =>
+          typeof message.content === "string" &&
+          message.content.includes("cannot view image attachments")
+      )?.content;
+    expect(retriedContent).toBeDefined();
     expect(result.message.content).toContain("I cannot see that image.");
   });
 
@@ -863,7 +947,7 @@ describe("Nova tool-calling workspace agent", () => {
       "Your file"
     );
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({
+    expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-present",
       content: "Presented welcome.md to the user as a document (message #78) - they can view or download it in the chat.",
@@ -890,7 +974,7 @@ describe("Nova tool-calling workspace agent", () => {
     await runWorkspaceAgent(1, 3, "send me the file", { channel: "telegram" });
     expect(presentTelegramFile).not.toHaveBeenCalled();
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-1)).toMatchObject({
+    expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       content: expect.stringContaining("Telegram is not connected"),
     });
@@ -917,7 +1001,9 @@ describe("Nova tool-calling workspace agent", () => {
     );
     // The gateway saw a genuine assistant tool call and its tool result.
     const secondCallMessages = chatWithNvidiaGateway.mock.calls[1][1];
-    expect(secondCallMessages.at(-2)).toMatchObject({
+    expect(
+      secondCallMessages.find(m => m.role === "assistant" && Array.isArray(m.tool_calls))
+    ).toMatchObject({
       role: "assistant",
       tool_calls: [
         {
@@ -928,7 +1014,7 @@ describe("Nova tool-calling workspace agent", () => {
         },
       ],
     });
-    expect(secondCallMessages.at(-1)).toMatchObject({
+    expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       content: expect.stringContaining("Presented welcome.md"),
     });
@@ -956,7 +1042,7 @@ describe("Nova tool-calling workspace agent", () => {
     const telegramTools = chatWithNvidiaGateway.mock.calls[0][2].tools.map(
       tool => tool.function.name
     );
-    const webTools = chatWithNvidiaGateway.mock.calls[1][2].tools.map(
+    const webTools = chatWithNvidiaGateway.mock.calls[2][2].tools.map(
       tool => tool.function.name
     );
     expect(telegramTools).toContain("present_file");
@@ -980,12 +1066,12 @@ describe("Nova tool-calling workspace agent", () => {
 
     chatWithNvidiaGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
     await runWorkspaceAgent(1, 3, "hi");
-    const webPrompt = chatWithNvidiaGateway.mock.calls[1][1][0].content;
+    const webPrompt = chatWithNvidiaGateway.mock.calls[2][1][0].content;
     expect(webPrompt).toContain("the Nova web app");
     expect(webPrompt).toContain("the user sees your tool activity live");
 
     // The progress tool is exposed to the model either way.
-    const tools = chatWithNvidiaGateway.mock.calls[1][2].tools;
+    const tools = chatWithNvidiaGateway.mock.calls[2][2].tools;
     expect(tools.map(tool => tool.function.name)).toContain(
       "send_progress_update"
     );
@@ -1066,7 +1152,12 @@ describe("Nova tool-calling workspace agent", () => {
     // The old 8-round cap would have stopped it; the agent now keeps going.
     chatWithNvidiaGateway.mockImplementation(async () => {
       const calls = chatWithNvidiaGateway.mock.calls.length;
-      if (calls >= 12) return chatResult({ text: "Done after 12 rounds." });
+      if (calls >= 12)
+        return chatResult({
+          toolCalls: [
+            { id: "call-end", name: "end_turn", arguments: JSON.stringify({ reply: "Done after 12 rounds." }) },
+          ],
+        });
       return chatResult({
         toolCalls: [
           {
@@ -1105,7 +1196,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
     expect(result.message.content).toContain("/stop");
-    chatWithNvidiaGateway.mockReset();
+    chatWithNvidiaGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
@@ -1131,7 +1222,7 @@ describe("Nova tool-calling workspace agent", () => {
     });
     expect(result.message.content).toContain("\u23f9\ufe0f Stopped");
     expect(result.message.content).toContain("/stop");
-    chatWithNvidiaGateway.mockReset();
+    chatWithNvidiaGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
@@ -1152,7 +1243,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "two tools", {});
     expect(createFile).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
-    chatWithNvidiaGateway.mockReset();
+    chatWithNvidiaGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
@@ -1178,17 +1269,19 @@ describe("Nova tool-calling workspace agent", () => {
       "send a telegram message saying ping"
     );
     expect(result.actions).toEqual([]);
-    const toolMessage = chatWithNvidiaGateway.mock.calls[1][1].at(-1);
-    expect(toolMessage.content).toContain("Telegram is not connected");
+    const toolMessage = lastToolResult(chatWithNvidiaGateway.mock.calls[1][1]);
+    expect(toolMessage!.content).toContain("Telegram is not connected");
     expect(result.message.content).toBe("Connect Telegram in Settings first.");
   });
 
   it("streams reply chunks to onChunk as the model produces them", async () => {
-    chatWithNvidiaGateway.mockImplementationOnce(async (owner, messages, options) => {
-      options?.onChunk?.("Hello");
-      options?.onChunk?.(" world");
-      return chatResult({ text: "Hello world" });
-    });
+    chatWithNvidiaGateway
+      .mockImplementationOnce(async (owner, messages, options) => {
+        options?.onChunk?.("Hello");
+        options?.onChunk?.(" world");
+        return chatResult({ text: "Hello world" });
+      })
+      .mockResolvedValueOnce(chatResult({ toolCalls: [endTurnCall("Hello world")] }));
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "tell me a story", {
       onChunk,
@@ -1282,10 +1375,11 @@ describe("Nova tool-calling workspace agent", () => {
       .mockRejectedValueOnce(
         new NvidiaGatewayClientError("Too Many Requests", "rate_limit")
       )
-      .mockResolvedValueOnce(chatResult({ text: "Back online - here is your answer." }));
+      .mockResolvedValueOnce(chatResult({ text: "Back online - here is your answer." }))
+      .mockResolvedValueOnce(chatResult({ toolCalls: [endTurnCall("Back online - here is your answer.")] }));
     const result = await runWorkspaceAgent(1, 3, "hello?");
-    // One patient retry, then the reply.
-    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
+    // One patient retry, then the reply, then the explicit end_turn round.
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(3);
     expect(result.message.content).toContain("Back online");
   });
 
@@ -1341,10 +1435,11 @@ describe("Nova tool-calling workspace agent", () => {
       .mockRejectedValueOnce(
         new NvidiaGatewayClientError("blip", "unavailable")
       )
-      .mockResolvedValueOnce(chatResult({ text: "All good." }));
+      .mockResolvedValueOnce(chatResult({ text: "All good." }))
+      .mockResolvedValueOnce(chatResult({ toolCalls: [endTurnCall("All good.")] }));
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(2);
+    expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(3);
     expect(result.message.content).toBe("All good.");
     expect(onChunk).toHaveBeenCalledWith("All good.");
   });

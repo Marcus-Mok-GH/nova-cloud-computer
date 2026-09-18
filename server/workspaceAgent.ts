@@ -185,7 +185,32 @@ export async function autoTitleChatForUser(
 }
 
 /** Tool schemas exposed to the model on every message. */
+/**
+ * Prefix of the control message that follows a text-only round. The run does
+ * not end until the model explicitly calls end_turn, so a plain reply is
+ * followed by this nudge until the model finishes or the budget closes it.
+ */
+export const END_TURN_NUDGE_PREFIX = "[end-turn control]";
+
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
+  {
+    type: "function",
+    function: {
+      name: "end_turn",
+      description:
+        "End your turn and deliver the final reply. This is the ONLY way your turn ends: writing text without calling a tool does NOT finish the run. When everything the user asked for is complete, call end_turn with your complete final reply to the user in the 'reply' argument - mid-run notes to the user go through send_progress_update instead, and plain text answers keep the run going.",
+      parameters: {
+        type: "object",
+        properties: {
+          reply: {
+            type: "string",
+            description: "Your complete final reply to the user.",
+          },
+        },
+        required: ["reply"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -709,7 +734,8 @@ Operating principles:
 - Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
-- Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play.
+- Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn.
+- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools and send_progress_update; never write the final answer as plain text.
 - Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send - none of your tool activity. A brief confirmation with a time estimate is sent to the user automatically the moment their message arrives, so never send your own first acknowledgment - go straight to work. From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work - after each meaningful step completes, and never let more than a minute or so pass in silence on a long run - and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected - about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker - saying whether you are solving it yourself or need something from them - and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
 
@@ -1545,6 +1571,13 @@ export async function runWorkspaceAgent(
   // Summaries of the tool calls in the current round - they brief the model
   // on the closing reply when the run runs out of time before the final round.
   let lastRoundSummaries: string[] = [];
+  // The run ends ONLY when the model calls end_turn. A text-only round is
+  // kept as the running draft reply and nudged, so the final answer is never
+  // lost if the model forgets the explicit end. The chars companion records
+  // how much of that draft already streamed to the client.
+  let draftReply = "";
+  let draftStreamedChars = 0;
+  let endTurnCalled = false;
   /**
    * Closing reply for a run that hits its time budget: the last round's
    * completed tool summaries brief the model that writes it, so the user still
@@ -1816,9 +1849,20 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
         );
       }
       if (result.toolCalls.length === 0 && !recoveredCall) {
+        // A plain reply does NOT end the run - only end_turn does. Keep the
+        // text as the running draft (it may still become the final reply if
+        // the model ends without one) and nudge the model to either finish
+        // explicitly or keep working.
         reply = result.text || "";
         streamedReplyChars = streamedThisRound;
-        break;
+        draftReply = result.text || "";
+        draftStreamedChars = streamedThisRound;
+        messages.push({ role: "assistant", content: result.text || null });
+        messages.push({
+          role: "user",
+          content: `${END_TURN_NUDGE_PREFIX} Your turn has not ended: a plain reply does not finish this run. If the user's request is fully complete, call end_turn now with your complete final reply in the 'reply' argument. Otherwise continue the work with your next tool call - do not repeat your previous answer.`,
+        });
+        continue;
       }
       const calls = result.toolCalls.length > 0
         ? result.toolCalls
@@ -1840,6 +1884,43 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       });
       lastRoundSummaries = [];
       for (const call of calls) {
+        // The explicit end of the turn. It is a local control call - no side
+        // effects, no budget cost - so it is honored even when the run
+        // budget is gone; blocking it would lose the reply the model already
+        // wrote. The final reply prefers the explicit 'reply' argument, then
+        // the text of this round, then the last text-only draft.
+        if (call.name === "end_turn") {
+          let endTurnReply = "";
+          try {
+            const parsed = JSON.parse(call.arguments || "{}") as {
+              reply?: unknown;
+            };
+            if (typeof parsed?.reply === "string") endTurnReply = parsed.reply.trim();
+          } catch {
+            // Malformed arguments fall through to the streamed/draft text.
+          }
+          const roundText = (result.text || "").trim();
+          if (endTurnReply) {
+            reply = endTurnReply;
+            // The explicit reply may restate text that already streamed
+            // token-by-token (the draft the model echoed into end_turn) -
+            // re-emitting it would duplicate what the user watched appear.
+            streamedReplyChars = streamedRunText.endsWith(endTurnReply)
+              ? endTurnReply.length
+              : 0;
+          } else if (roundText) {
+            reply = roundText;
+            streamedReplyChars = streamedThisRound;
+          } else if (draftReply) {
+            reply = draftReply;
+            streamedReplyChars = draftStreamedChars;
+          } else {
+            reply = "";
+            streamedReplyChars = 0;
+          }
+          endTurnCalled = true;
+          break;
+        }
         if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
         // The budget is already gone: starting the call would begin its side
         // effects (a file write, a deploy) after the run has effectively
@@ -1932,6 +2013,9 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       // The deadline hit mid-tool: the closing reply is already set - leave
       // the round loop without refreshing state or starting a new round.
       if (closedByDeadline) break;
+      // The model explicitly ended its turn: the reply is final - persist it
+      // without refreshing state or starting another round.
+      if (endTurnCalled) break;
       // Refresh workspace state so later rounds resolve names/ids created
       // or removed by this round's tools.
       computer = await getWorkspaceComputer(ownerId);

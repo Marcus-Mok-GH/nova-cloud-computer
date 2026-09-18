@@ -362,18 +362,19 @@ function modelKind(model: MistralModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: Mistral Medium 3.5 - the frontier-class multimodal
- * replacement for the deprecated Pixtral Large (docs.mistral.ai/models).
- * Vision-capable with function/tool calling and a 256K-token context, served
+ * Default chat model: ministral-14b - the strongest model the free-tier
+ * Mistral subscription serves (verified 2026-09-18: medium/small/magistral
+ * families are all paid-tier-only and return misleading 429s on free keys).
+ * Text-only with function/tool calling and a 128K-token context, served
  * over the OpenAI-compatible chat API.
  */
-export const DEFAULT_MISTRAL_MODEL = "mistral-medium-3-5";
+export const DEFAULT_MISTRAL_MODEL = "ministral-14b-latest";
 
 /**
  * Text-only fallback if model discovery proves the default is not served here.
- * mistral-large is deprecated too, so the always-current small family stands in.
+ * ministral-8b is the next-strongest free-tier-served text model.
  */
-export const TEXT_FALLBACK_MODEL = "mistral-small-latest";
+export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 
 /** Test hook: drop the discovered-model cache between suites. */
 export function resetMistralModelCache() {

@@ -401,15 +401,17 @@ describe("Nova tool-calling workspace agent", () => {
     // could push the whole task past the runtime kill with no reply. It is
     // now raced whenever the budget is not already gone.
     chatWithNvidiaGateway.mockImplementationOnce(() => new Promise(() => {}));
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: 'I did not finish in time. Send "continue" and I will pick up right where I left off.',
+    });
     const result = await runWorkspaceAgent(1, 3, "publish my site", {
       deadlineAtMs: Date.now() + 100,
     });
     const reply = result.message.content;
-    expect(reply).toContain("end of what I can do in one go");
-    expect(reply).toContain('Send "continue"');
+    expect(reply).toBe('I did not finish in time. Send "continue" and I will pick up right where I left off.');
   });
 
-  it("closes with a synthesized reply when a later gateway round outlasts the deadline", async () => {
+  it("closes with a model-written reply when a later gateway round outlasts the deadline", async () => {
     // A stalled or slow LLM round can run up to the client\u2019s own 120s
     // timeout, which used to slip past the run budget between the
     // round-level checks until Vercel killed the whole background task with
@@ -427,6 +429,9 @@ describe("Nova tool-calling workspace agent", () => {
           })
         )
         .mockImplementationOnce(() => new Promise(() => {})); // hangs: never resolves
+      completeWithNvidiaGateway.mockResolvedValueOnce({
+        text: 'I read the file but ran out of time to finish the answer. Send "continue" and I will pick up right where I left off.',
+      });
       const run = runWorkspaceAgent(1, 3, "research this topic", {
         deadlineAtMs: Date.now() + 60_000,
       });
@@ -437,15 +442,15 @@ describe("Nova tool-calling workspace agent", () => {
       await vi.advanceTimersByTimeAsync(55_000);
       const result = await run;
       const reply = result.message.content;
-      expect(reply).toContain("end of what I can do in one go");
-      expect(reply).toContain("read_file");
+      // The close is model-written and briefed with the round's tool summary.
       expect(reply).toContain('Send "continue"');
+      expect(completeWithNvidiaGateway.mock.calls.at(-1)[1]).toContain("read_file");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("closes with a synthesized reply when the run budget runs out before the final model round", async () => {
+  it("closes with a model-written reply when the run budget runs out before the final model round", async () => {
     // The deploy consumed the request budget: the next gateway round would
     // be killed by maxDuration before the reply could persist.
     chatWithNvidiaGateway.mockResolvedValueOnce(
@@ -455,6 +460,9 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: 'The site is live at https://nova-live-site.netlify.app - I ran out of time for the last checks. Send "continue" and I will pick up right where I left off.',
+    });
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", {
       onChunk,
@@ -462,12 +470,11 @@ describe("Nova tool-calling workspace agent", () => {
     });
     // No second model round was started.
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
-    // The closing reply is persisted from the tool summary, not lost.
+    // The closing reply is model-written, briefed with the tool summary.
     const reply = result.message.content;
-    expect(reply).toContain("end of what I can do in one go");
-    expect(reply).toContain("Here is where things stand");
+    expect(reply).toContain("https://nova-live-site.netlify.app");
     expect(reply).toContain('Send "continue"');
-    expect(reply).toContain(
+    expect(completeWithNvidiaGateway.mock.calls.at(-1)[1]).toContain(
       "Deployed the website: https://nova-live-site.netlify.app"
     );
     // It streams to the client like any other reply.
@@ -495,6 +502,9 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: 'The deploy was still running when I ran out of time and did not finish. Send "continue" and I will pick up right where I left off.',
+    });
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", {
       onChunk,
@@ -503,13 +513,12 @@ describe("Nova tool-calling workspace agent", () => {
     // No second model round - the run closed at the deadline.
     expect(chatWithNvidiaGateway).toHaveBeenCalledTimes(1);
     const reply = result.message.content;
-    expect(reply).toContain("end of what I can do in one go");
-    expect(reply).toContain("deploy_website");
-    expect(reply).toContain("interrupted and is not finished");
-    // The interrupted step is named as unfinished, never as completed work,
-    // and the reply tells the user how to keep going.
+    // The closing reply is model-written; the interrupted step is briefed to
+    // it and the reply tells the user how to keep going.
     expect(reply).toContain('Send "continue"');
-    expect(reply).not.toContain("Here is where things stand");
+    const closePrompt = completeWithNvidiaGateway.mock.calls.at(-1)[1];
+    expect(closePrompt).toContain("deploy_website");
+    expect(closePrompt).toContain("interrupted, not finished");
     // The interrupted call is recorded as failed activity, not left "running".
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])
@@ -531,6 +540,9 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: 'I did not get to the deploy before time ran out, so it never started. Send "continue" and I will pick up right where I left off.',
+    });
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", {
       onChunk,
@@ -540,10 +552,10 @@ describe("Nova tool-calling workspace agent", () => {
     // The call's side effects never began - nothing deployed after closing.
     expect(deployWebsite).not.toHaveBeenCalled();
     const reply = result.message.content;
-    expect(reply).toContain("end of what I can do in one go");
-    expect(reply).toContain("deploy_website");
-    expect(reply).toContain("was skipped");
     expect(reply).toContain('Send "continue"');
+    const closePrompt = completeWithNvidiaGateway.mock.calls.at(-1)[1];
+    expect(closePrompt).toContain("deploy_website");
+    expect(closePrompt).toContain("skipped because time ran out");
     // The skipped call is recorded as failed activity with the reason.
     const persistedToolActivities = append.mock.calls
       .map(callArgs => callArgs[1])

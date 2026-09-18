@@ -111,8 +111,8 @@ export const ENV = {
   publicBaseUrl: resolvePublicBaseUrl(),
   /** Server-wide Telegram bot that works without any per-user configuration; the app auto-registers its webhook. Empty string when unset. */
   defaultTelegramBotToken: process.env.DEFAULT_TELEGRAM_BOT_TOKEN ?? "",
-  /** HMAC secret guarding the /api/agent/continue self-invocation endpoint that chains segmented runs past the 300s limit. Empty disables continuation chaining. */
-  agentContinueSecret: process.env.AGENT_CONTINUE_SECRET ?? "",
+  /** Prefer a dedicated HMAC secret for /api/agent/continue; existing server-only secrets provide a secure fallback so continuation chaining works without extra setup. Empty disables chaining. */
+  agentContinueSecret: process.env.AGENT_CONTINUE_SECRET ?? process.env.NOVA_SESSION_SECRET ?? process.env.POSTGRES_PASSWORD ?? process.env.DATABASE_URL ?? "",
   /** Composio project API key enabling connector toolkits (GitHub, etc.). Empty string when unset. */
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Exa AI API key powering the researcher sub-agent's deep web search. Empty string when unset. */

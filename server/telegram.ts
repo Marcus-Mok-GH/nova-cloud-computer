@@ -80,10 +80,34 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
   return String(chat.id);
 }
 
+/**
+ * Telegram messages are sent without a parse mode, so raw markdown emphasis
+ * would reach the user as literal asterisks and underscores ("**under a
+ * minute**" instead of an emphasised "under a minute"). Underscore pairs are
+ * left alone deliberately: file names and identifiers use single underscores.
+ */
+export function stripMarkdownEmphasis(text: string) {
+  let result = text;
+  while (true) {
+    const stripped = result
+      .replace(/\*\*(\S(?:[^*\n]*\S)?)\*\*/g, "$1")
+      .replace(/__(\S(?:[^_\n]*\S)?)__/g, "$1")
+      .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)(?!\w)/g, "$1$2");
+    if (stripped === result) return result;
+    result = stripped;
+  }
+}
+
+/**
+ * Sends a plain-text Telegram message. Emphasis markers are stripped first
+ * because no parse mode is set: Telegram would otherwise render them as
+ * literal asterisks and underscores. Throws the Telegram error description
+ * on failure so callers can surface the real cause.
+ */
 export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>> }) {
   return telegramRequest<{ message_id: number }>(token, "sendMessage", {
     chat_id: chatId,
-    text,
+    text: stripMarkdownEmphasis(text),
     disable_web_page_preview: true,
     ...(options?.inlineKeyboard ? { reply_markup: { inline_keyboard: options.inlineKeyboard } } : {}),
   }, fetchImpl);

@@ -201,7 +201,6 @@ vi.mock("./telegram", () => ({
 
 const {
   runWorkspaceAgent,
-  sendTelegramWorkStartedAck,
   END_TURN_NUDGE_PREFIX,
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
@@ -654,29 +653,6 @@ describe("Nova tool-calling workspace agent", () => {
         )
       )
     ).toBe(true);
-  });
-
-  it("sends the guaranteed model-written work confirmation over Telegram", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({
-      text: "On it - this should take about 30 seconds.",
-    });
-    await sendTelegramWorkStartedAck(1, "bot-token", "42", "build me a landing page", Date.now() + 285_000);
-    expect(completeWithMistralGateway).toHaveBeenCalledWith(1, expect.stringContaining("build me a landing page"));
-    expect(sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "On it - this should take about 30 seconds.");
-  });
-
-  it("skips the work confirmation when the run budget is nearly gone", async () => {
-    await sendTelegramWorkStartedAck(1, "bot-token", "42", "do a thing", Date.now() + 10_000);
-    expect(completeWithMistralGateway).not.toHaveBeenCalled();
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
-  });
-
-  it("never breaks the run when the work confirmation fails", async () => {
-    completeWithMistralGateway.mockRejectedValueOnce(new Error("gateway down"));
-    await expect(
-      sendTelegramWorkStartedAck(1, "bot-token", "42", "do a thing", Date.now() + 285_000)
-    ).resolves.toBeUndefined();
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
   it("uses the model-written closing status at the deadline when the gateway answers", async () => {

@@ -46,7 +46,7 @@ function extractText(content: unknown): string {
  */
 export async function runNimChat(options: NimChatOptions): Promise<string> {
   if (!isNimConfigured()) {
-    throw new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it.");
+    throw new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.");
   }
   const model = options.model ?? ENV.nimCoderModel;
   if (!model) {

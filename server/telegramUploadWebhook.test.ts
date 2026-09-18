@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const spies = vi.hoisted(() => ({
+  sendTelegramWorkStartedAck: vi.fn(async () => {}),
   sendTelegramMessage: vi.fn(async () => ({ message_id: 77 })),
   sendChatAction: vi.fn(async () => true),
   presentTelegramFile: vi.fn(async () => ({ messageId: 78, as: "document" })),
@@ -37,6 +38,7 @@ vi.mock("./db", () => ({
 vi.mock("./transcription", () => ({ transcribeAudio: spies.transcribeAudio }));
 vi.mock("./workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
+  sendTelegramWorkStartedAck: spies.sendTelegramWorkStartedAck,
   runWorkspaceAgent: spies.runWorkspaceAgent,
   autoTitleChatForUser: spies.autoTitleChatForUser,
 }));
@@ -323,6 +325,37 @@ describe("Telegram upload webhook (full handler)", () => {
     // Restore the default implementation: clearAllMocks does not reset
     // mockImplementation, and a deferred impl leaks into later tests.
     spies.runWorkspaceAgent.mockImplementation(async () => ({ message: { content: "It's a corgi!" }, actions: [] }));
+  });
+
+  it("sends the guaranteed work confirmation before the agent run starts", async () => {
+    const { status } = await postUpdate({
+      update_id: 601,
+      message: { message_id: 20, chat: { id: 42 }, text: "build me a dashboard" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.some(call => call[2] === "build me a dashboard"));
+    // The confirmation is attempted before the agent run begins, anchored to
+    // the request's own deadline so pre-run work cannot push past it.
+    const ackCall = spies.sendTelegramWorkStartedAck.mock.calls[0];
+    expect(ackCall[0]).toBe(7);
+    expect(ackCall[1]).toBe("bot-token");
+    expect(ackCall[2]).toBe("42");
+    expect(ackCall[3]).toBe("build me a dashboard");
+    expect(ackCall[4]).toBeGreaterThan(Date.now());
+    expect(
+      spies.sendTelegramWorkStartedAck.mock.invocationCallOrder[0]
+    ).toBeLessThan(spies.runWorkspaceAgent.mock.invocationCallOrder[0]);
+  });
+
+  it("still runs and replies when the work confirmation itself fails", async () => {
+    spies.sendTelegramWorkStartedAck.mockRejectedValueOnce(new Error("ack gateway down"));
+    const { status } = await postUpdate({
+      update_id: 602,
+      message: { message_id: 21, chat: { id: 42 }, text: "hello there" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.some(call => call[2] === "hello there"));
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
   });
 
   it("binds the background agent run to the invocation with waitUntil (Vercel freeze regression)", async () => {

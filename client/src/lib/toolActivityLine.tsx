@@ -35,6 +35,7 @@ export function toolLineText(activity: ToolActivity): string {
     case "send_telegram_message": return text ? `Send Telegram Message: ${brief(text)}` : "Send Telegram Message";
     case "run_vm_task": return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
     case "research_web": return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
+    case "code_task": return task ? `Code Task: ${brief(task)}` : "Code Task";
     default: return activity.name;
   }
 }

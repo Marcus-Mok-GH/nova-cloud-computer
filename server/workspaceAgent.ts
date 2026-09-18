@@ -1,5 +1,6 @@
 import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
+import { runCoderTask } from "./coder";
 import type { E2BSandboxLike } from "./e2b";
 import {
   type SandboxOp,
@@ -610,6 +611,32 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "code_task",
+      description:
+        "Delegate a non-trivial coding task to Nova's coding specialist sub-agent - a frontier coding model (DeepSeek V4 Pro) served through NVIDIA NIM. Use it when real code needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools. Not for tiny snippets you can write instantly, shell commands, or math - use your own tools for those.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description: "The coding task, described completely: what to build or fix, in which language or framework, and any constraints.",
+          },
+          context: {
+            type: "string",
+            description: "Optional supporting material: existing code to extend or fix, the exact error output, file or API layouts the code must fit.",
+          },
+          language: {
+            type: "string",
+            description: "Optional explicit target language or framework, e.g. 'Python', 'React SPA', 'plain HTML/CSS/JS'.",
+          },
+        },
+        required: ["task"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_bash",
       description:
         "Run a bash command in the live workspace sandbox and get its exit code, stdout and stderr. The sandbox is awake for the whole run and its working directory is your workspace: the same files and folders the file tools operate on, plus anything bash creates (synced to durable storage automatically). Use it for quick shell work - ls, grep, wc, head, chmod, git, tar - and prefer it over run_vm_task for anything that does not need Python. No sudo; 120-second timeout.",
@@ -773,6 +800,7 @@ Operating principles:
 - Never do mental arithmetic. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Doing arithmetic in your head is the fastest way to give the user a confidently wrong number; one tool call costs a fraction of a second.
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
+- Delegate heavy coding to code_task. When the user wants substantial code written, refactored, or debugged - whole files, components, scripts, algorithms, tricky bugs - hand it to the coding specialist: describe the goal and constraints, include the relevant existing code or the exact error in context, and it returns complete working code from DeepSeek V4 Pro on NVIDIA NIM. Place that code into the workspace with your file tools and verify it. For one-liners and small edits write the code yourself - a specialist round-trip is slower than writing a few lines directly. If it reports that the specialist is not configured yet (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -1476,6 +1504,42 @@ async function executeWorkspaceTool(
           result: message,
           detail: message,
           action: { kind: "research", name: topic.slice(0, 60), operation: "failed" },
+        };
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
+      }
+    }
+    case "code_task": {
+      const task = str(args.task).trim();
+      if (!task) return { ok: false, result: "A coding task is required." };
+      const context = str(args.context) || undefined;
+      const language = str(args.language) || undefined;
+      const startedAt = Date.now();
+      // A single long call to the coding specialist: the live progress
+      // stream reports elapsed time while the specialist works, mirroring
+      // research_web's panel.
+      const progressTimer = onProgress
+        ? setInterval(() => {
+            const elapsed = Math.round((Date.now() - startedAt) / 1000);
+            onProgress(`The coding specialist is working on your task - ${elapsed}s elapsed…`);
+          }, 10000)
+        : undefined;
+      if (onProgress) onProgress("The coding specialist is reading the task…");
+      try {
+        const coder = await runCoderTask(task, context, language);
+        return {
+          ok: true,
+          result: coder.code,
+          detail: coder.code.slice(0, 16000),
+          action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
+        };
+      } catch (error) {
+        const message = `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+        return {
+          ok: false,
+          result: message,
+          detail: message,
+          action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "failed" },
         };
       } finally {
         if (progressTimer) clearInterval(progressTimer);

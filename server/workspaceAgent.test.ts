@@ -189,6 +189,9 @@ vi.mock("./siteDeploy", () => ({
   deployWorkspaceSite: deployWebsite,
 }));
 
+const runCoderTaskMock = vi.hoisted(() => vi.fn());
+vi.mock("./coder", () => ({ runCoderTask: runCoderTaskMock }));
+
 vi.mock("./workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),
   restoreWorkspaceToE2B: vi.fn(async () => 0),
@@ -428,6 +431,74 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
     expect(onChunk).toHaveBeenCalledWith("You get $8.67 back.");
     expect(result.message.content).toBe("You get $8.67 back.");
+  });
+
+  it("delegates a coding task to the NIM coding specialist, then places the returned code", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockResolvedValueOnce({ code: "def add(a, b):\n    return a + b", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-code",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "write an add function", language: "Python" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Added calc.py with an add function." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "write me an add function");
+    // The specialist got the task and language exactly as the model sent them.
+    expect(runCoderTaskMock).toHaveBeenCalledWith("write an add function", undefined, "Python");
+    // Its code was fed back to the model as the tool result.
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-code",
+          content: "def add(a, b):\n    return a + b",
+        }),
+      ])
+    );
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "code_task: write an add function", operation: "completed" },
+    ]);
+    expect(result.message.content).toBe("Added calc.py with an add function.");
+  });
+
+  it("reports an unconfigured coding specialist back to the model instead of breaking the run", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockRejectedValueOnce(
+      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it.")
+    );
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-code-nc",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "build a todo app" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "The coding specialist is not configured yet - the server needs NVIDIA_NIM_API_KEY." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "build me a todo app");
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolRow = [...secondCallMessages].reverse().find(m => m.role === "tool");
+    expect(toolRow.tool_call_id).toBe("call-code-nc");
+    expect(toolRow.content).toContain("The coding specialist failed: NVIDIA NIM is not configured");
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "code_task: build a todo app", operation: "failed" },
+    ]);
   });
 
   it("reports a failed solve_equation call back to the model instead of breaking the run", async () => {

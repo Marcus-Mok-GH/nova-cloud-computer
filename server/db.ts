@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -807,6 +807,53 @@ export async function requestAgentStopForUser(ownerId: number) {
 }
 
 /** True when a stop request was recorded after `startedAt` for this workspace owner. */
+/** Total segments one user message may consume (the initial run plus continuations), bounding chained self-invocations. */
+export const MAX_RUN_SEGMENTS = 4;
+
+/** Moves a just-delivered run to awaiting_continue so a continuation endpoint can claim its next segment. */
+export async function holdAgentRunForContinue(ownerId: number, runId: number) {
+  const db = await requireDb();
+  const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
+  if (!run) return undefined;
+  const chat = await getChatForUser(ownerId, run.chatId);
+  if (!chat) return undefined;
+  const [updated] = await db.update(agentRuns).set({ status: "awaiting_continue", updatedAt: new Date() })
+    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "running"))).returning();
+  return updated;
+}
+
+export interface AgentRunContinuationClaim {
+  runId: number;
+  segment: number;
+  chatId: number;
+  ownerId: number;
+  token: string;
+  telegramChatId: string;
+}
+
+/**
+ * Atomically claims the next segment of a segmented run: only an
+ * awaiting_continue row at the expected segment flips back to running with
+ * segment + 1, so concurrent or redelivered continuation requests can never
+ * double-run a segment. Rows already at the segment limit cannot be claimed.
+ */
+export async function claimAgentRunContinuation(runId: number, expectedSegment: number) {
+  const db = await requireDb();
+  const [claimed] = await db.update(agentRuns).set({ status: "running", segment: sql`${agentRuns.segment} + 1`, updatedAt: new Date() })
+    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "awaiting_continue"), eq(agentRuns.segment, expectedSegment), lt(agentRuns.segment, MAX_RUN_SEGMENTS - 1)))
+    .returning();
+  if (!claimed) return undefined;
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, claimed.workspaceId));
+  if (!workspace) return undefined;
+  const credentials = await getTelegramCredentialsForUser(workspace.ownerId).catch(() => undefined);
+  if (!credentials?.token || !claimed.notifyChatId) {
+    // The continuation could never deliver its reply: close the run rather than leave it stuck awaiting_continue.
+    await db.update(agentRuns).set({ status: "failed", errorMessage: "continuation could not resolve its Telegram delivery target", completedAt: new Date(), updatedAt: new Date() }).where(eq(agentRuns.id, claimed.id));
+    return undefined;
+  }
+  return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, token: credentials.token, telegramChatId: claimed.notifyChatId } satisfies AgentRunContinuationClaim;
+}
+
 /** Starts a segmented agent run ledger row: one row per user message that begins agent work. */
 export async function startAgentRunForUser(ownerId: number, input: { chatId: number; channel?: string; notifyChatId?: string }) {
   const db = await requireDb();

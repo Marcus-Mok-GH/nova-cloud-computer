@@ -15,7 +15,7 @@ import {
   workspaceFolders,
   workspaceSettings,
   telegramBotSettings,
-  nvidiaInferenceAllowances,
+  mistralInferenceAllowances,
   agentVmRuns,
   agentStopRequests,
   telegramUpdateLog,
@@ -207,7 +207,7 @@ export async function getOrCreateWorkspace(ownerId: number) {
   }
 }
 
-type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom" | "nvidia-nim";
+type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom" | "mistral";
 type ModelCompatibility = "openai" | "anthropic";
 
 function toSafeCustomModel(model: typeof customModels.$inferSelect) {
@@ -697,10 +697,10 @@ export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: 
   return null;
 }
 
-export async function getNvidiaInferenceAllowanceForUser(ownerId: number) {
+export async function getMistralInferenceAllowanceForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const allowance = (await db.select().from(nvidiaInferenceAllowances).where(eq(nvidiaInferenceAllowances.workspaceId, workspace.id)).limit(1))[0];
+  const allowance = (await db.select().from(mistralInferenceAllowances).where(eq(mistralInferenceAllowances.workspaceId, workspace.id)).limit(1))[0];
   return {
     usedRequests: Number(allowance?.usedRequests ?? 0),
     updatedAt: allowance?.updatedAt ?? null,
@@ -708,17 +708,17 @@ export async function getNvidiaInferenceAllowanceForUser(ownerId: number) {
 }
 
 /** Atomically claim one workspace request only when its configured allowance remains available. */
-export async function claimNvidiaInferenceRequestForUser(ownerId: number, maxRequests: number | null) {
+export async function claimMistralInferenceRequestForUser(ownerId: number, maxRequests: number | null) {
   if (maxRequests !== null && (!Number.isInteger(maxRequests) || maxRequests < 1)) return undefined;
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const result = await db.execute(sql`
-    INSERT INTO "nvidia_inference_allowances" ("workspaceId", "usedRequests", "createdAt", "updatedAt")
+    INSERT INTO "mistral_inference_allowances" ("workspaceId", "usedRequests", "createdAt", "updatedAt")
     VALUES (${workspace.id}, 1, now(), now())
     ON CONFLICT ("workspaceId") DO UPDATE
-    SET "usedRequests" = "nvidia_inference_allowances"."usedRequests" + 1,
+    SET "usedRequests" = "mistral_inference_allowances"."usedRequests" + 1,
         "updatedAt" = now()
-    ${maxRequests === null ? sql`` : sql`WHERE "nvidia_inference_allowances"."usedRequests" < ${maxRequests}`}
+    ${maxRequests === null ? sql`` : sql`WHERE "mistral_inference_allowances"."usedRequests" < ${maxRequests}`}
     RETURNING "usedRequests"
   `) as unknown as { rows?: Array<{ usedRequests: number }> } | Array<{ usedRequests: number }>;
   const rows = Array.isArray(result) ? result : result.rows ?? [];

@@ -45,7 +45,7 @@ import { getDeploymentStatusForUser } from "./siteDeploy";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
-import { completeWithNvidiaGateway, getNvidiaGatewayStatus, listNvidiaModels, NvidiaGatewayClientError } from "./nvidiaGateway";
+import { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, MistralGatewayClientError } from "./mistralGateway";
 import { runWorkspaceAgent, autoTitleChatForUser } from "./workspaceAgent";
 import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
@@ -60,7 +60,7 @@ function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNul
 const projectInput = z.object({ name: z.string().trim().min(1, "A project needs a name.").max(160), description: z.string().trim().max(2000).nullable().optional() });
 const taskStatus = z.enum(["todo", "in_progress", "done"]);
 const projectStatus = z.enum(["active", "archived"]);
-const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "nvidia-nim"]);
+const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "mistral"]);
 const modelCompatibility = z.enum(["openai", "anthropic"]);
 const projectUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullable().optional(), status: projectStatus.optional() }).refine(input => input.name !== undefined || input.description !== undefined || input.status !== undefined, { message: "Provide at least one project change." });
 const customModelInput = z.object({ name: z.string().trim().min(1, "Give the model a name.").max(120), modelId: z.string().trim().min(1, "A model ID is required.").max(240), baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), compatibility: modelCompatibility, apiKey: z.string().trim().min(1, "An API key is required.").max(4096), supportsImageInput: z.boolean() });
@@ -70,7 +70,7 @@ const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.st
 const fileInput = z.object({ name: z.string().trim().min(1, "A file needs a name.").max(240), content: z.string().max(200000).optional(), mimeType: z.string().trim().min(1).max(120).optional(), folderId: z.number().int().positive().nullable().optional() });
 const fileUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(240).optional(), content: z.string().max(200000).optional(), folderId: z.number().int().positive().nullable().optional() }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide at least one file change." });
 const agentVmRunInput = z.object({ task: z.string().trim().min(3, "Describe the VM task.").max(1600), code: z.string().max(12000).optional() });
-const nvidiaCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want NVIDIA to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
+const mistralCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want Mistral to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
 
 export const appRouter = router({
   system: systemRouter,
@@ -113,13 +113,13 @@ export const appRouter = router({
           const current = await getWorkspaceModelSettingsForUser(ctx.user.id);
           const provider = input.activeProvider ?? current.activeProvider;
           const modelId = input.activeModelId ?? current.activeModelId;
-          if (provider === "nvidia-nim") {
-            const models = await listNvidiaModels(true);
-            if (!models.some(model => model.id === modelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That NVIDIA text or vision model is not currently available." });
+          if (provider === "mistral") {
+            const models = await listMistralModels(true);
+            if (!models.some(model => model.id === modelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That Mistral text or vision model is not currently available." });
           }
         } catch (error) {
           if (error instanceof TRPCError) throw error;
-          if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          if (error instanceof MistralGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
           throw error;
         }
       }
@@ -179,7 +179,7 @@ export const appRouter = router({
     sendTest: protectedProcedure.input(z.object({ text: z.string().trim().min(1).max(4096).default("Nova is connected to your Telegram bot.") })).mutation(async ({ ctx, input }) => { const credentials = await getTelegramCredentialsForUser(ctx.user.id); if (!credentials?.chatId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Send /start to your bot in Telegram, then discover its chat before sending a message." }); const sent = await sendTelegramMessage(credentials.token, credentials.chatId, input.text); return { success: true as const, messageId: sent.message_id }; }),
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
-  nvidia: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listNvidiaModels(input?.forceRefresh); } catch (error) { if (error instanceof NvidiaGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getNvidiaGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(nvidiaCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithNvidiaGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof NvidiaGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached"].includes(error.kind) ? "TOO_MANY_REQUESTS" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "NVIDIA inference is temporarily unavailable. Please retry shortly." }); } }) }),
+  mistral: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listMistralModels(input?.forceRefresh); } catch (error) { if (error instanceof MistralGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getMistralGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(mistralCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithMistralGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof MistralGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Mistral inference is temporarily unavailable. Please retry shortly." }); } }) }),
   deployments: router({
     /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only - the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
     status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),

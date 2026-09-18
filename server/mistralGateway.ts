@@ -1,6 +1,6 @@
 import {
-  claimNvidiaInferenceRequestForUser,
-  getNvidiaInferenceAllowanceForUser,
+  claimMistralInferenceRequestForUser,
+  getMistralInferenceAllowanceForUser,
 } from "./db";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
@@ -27,7 +27,7 @@ type GatewayCompletion = {
   };
 };
 
-type NvidiaModel = {
+type MistralModel = {
   id: string;
   object?: string;
   created?: number;
@@ -39,17 +39,17 @@ type NvidiaModel = {
   modalities?: string[];
 };
 
-type NvidiaModelsResponse = {
-  data?: NvidiaModel[];
+type MistralModelsResponse = {
+  data?: MistralModel[];
 };
 
-export type AvailableNvidiaModel = NvidiaModel & {
+export type AvailableMistralModel = MistralModel & {
   /** Models in the picker always support chat; vision models also accept image input. */
   kind: "text" | "vision";
 };
 
 let modelCache:
-  { models: AvailableNvidiaModel[]; expiresAt: number } | undefined;
+  { models: AvailableMistralModel[]; expiresAt: number } | undefined;
 
 type GatewayHealthFlags = {
   configured: boolean;
@@ -62,31 +62,49 @@ let gatewayHealthCache:
   { key: string; expiresAt: number; flags: GatewayHealthFlags } | undefined;
 
 /** Clears the in-process gateway health cache (used by tests between cases). */
-export function resetNvidiaGatewayHealthCache() {
+export function resetMistralGatewayHealthCache() {
   gatewayHealthCache = undefined;
 }
 
-export class NvidiaGatewayClientError extends Error {
+export type MistralGatewayClientErrorKind =
+  | "configuration"
+  | "unavailable"
+  | "rate_limit"
+  | "allowance_reached"
+  | "invalid_response"
+  | "client_error"
+  | "stopped";
+
+/**
+ * Maps an upstream HTTP status to the gateway error kind. 429 keeps its special
+ * rate-limit handling and 401/403 mean the configured credential is wrong, but
+ * other 4xx statuses (except the transient 408/425) are permanent request
+ * problems - a bad model id or an oversized prompt - that retrying cannot fix,
+ * so the workspace agent must not burn its retry budget on them.
+ */
+function classifyGatewayHttpError(status: number): MistralGatewayClientErrorKind {
+  if (status === 429) return "rate_limit";
+  if (status === 401 || status === 403) return "configuration";
+  if (status >= 400 && status < 500 && status !== 408 && status !== 425)
+    return "client_error";
+  return "unavailable";
+}
+
+export class MistralGatewayClientError extends Error {
   constructor(
     message: string,
-    public readonly kind:
-      | "configuration"
-      | "unavailable"
-      | "rate_limit"
-      | "allowance_reached"
-      | "invalid_response"
-      | "stopped"
+    public readonly kind: MistralGatewayClientErrorKind
   ) {
     super(message);
-    this.name = "NvidiaGatewayClientError";
+    this.name = "MistralGatewayClientError";
   }
 }
 
-/** Default transport: NVIDIA NIM's OpenAI-compatible hosted API. */
-const NVIDIA_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
+/** Default transport: Mistral AI's OpenAI-compatible hosted API. */
+const MISTRAL_API_BASE_URL = "https://api.mistral.ai/v1";
 
 function configuredGatewayUrl() {
-  const raw = process.env.NVIDIA_GATEWAY_URL?.trim() || NVIDIA_NIM_BASE_URL;
+  const raw = process.env.MISTRAL_GATEWAY_URL?.trim() || MISTRAL_API_BASE_URL;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return undefined;
@@ -98,13 +116,13 @@ function configuredGatewayUrl() {
 
 function configuredGatewayToken() {
   const token =
-    process.env.NVIDIA_API_KEY?.trim() ||
-    process.env.NOVA_NVIDIA_GATEWAY_TOKEN?.trim();
+    process.env.MISTRAL_API_KEY?.trim() ||
+    process.env.NOVA_MISTRAL_GATEWAY_TOKEN?.trim();
   return token && token.length >= 32 ? token : undefined;
 }
 
-/** Best-effort human-readable description of a failed NVIDIA HTTP response. */
-function describeNvidiaError(
+/** Best-effort human-readable description of a failed Mistral HTTP response. */
+function describeMistralError(
   payload: unknown,
   status: number
 ): string | undefined {
@@ -131,17 +149,17 @@ function describeNvidiaError(
   const message = raw ?? record?.message ?? detail ?? record?.title;
   if (message) parts.push(String(message).slice(0, 300));
   parts.push(`HTTP ${status}`);
-  return `NVIDIA request failed (${parts.join(" · ")})`;
+  return `Mistral request failed (${parts.join(" · ")})`;
 }
 
 /**
- * Daily NVIDIA inference request cap per workspace. Returns null (no cap) unless
- * NVIDIA_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * Daily Mistral inference request cap per workspace. Returns null (no cap) unless
+ * MISTRAL_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
   const raw =
-    process.env.NVIDIA_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+    process.env.MISTRAL_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed >= 1
@@ -175,7 +193,7 @@ async function gatewayFetch(
   const baseUrl = configuredGatewayUrl();
   const token = configuredGatewayToken();
   if (!baseUrl || !token)
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must configure the server-only gateway connection.",
       "configuration"
     );
@@ -192,7 +210,7 @@ async function gatewayFetch(
       signal: controller.signal,
     });
   } catch (error) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       externalSignal?.aborted
         ? "This reply was stopped with /stop."
         : sanitizeGatewayError(error),
@@ -204,17 +222,17 @@ async function gatewayFetch(
   }
 }
 
-export function isNvidiaGatewayConfigured() {
+export function isMistralGatewayConfigured() {
   return !!(configuredGatewayUrl() && configuredGatewayToken());
 }
 
-/** Returns cached or freshly-probed NVIDIA gateway health flags and the user's current allowance. */
-export async function getNvidiaGatewayStatus(ownerId: number) {
-  const allowance = await getNvidiaInferenceAllowanceForUser(ownerId);
+/** Returns cached or freshly-probed Mistral gateway health flags and the user's current allowance. */
+export async function getMistralGatewayStatus(ownerId: number) {
+  const allowance = await getMistralInferenceAllowanceForUser(ownerId);
   const maxRequests = getMaxRequests();
   const base = {
-    provider: "nvidia-nim" as const,
-    model: DEFAULT_NVIDIA_MODEL,
+    provider: "mistral" as const,
+    model: DEFAULT_MISTRAL_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -225,7 +243,7 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       exhausted: maxRequests !== null && allowance.usedRequests >= maxRequests,
     },
   };
-  if (!isNvidiaGatewayConfigured()) {
+  if (!isMistralGatewayConfigured()) {
     return {
       ...base,
       configured: false as const,
@@ -239,11 +257,11 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     gatewayHealthCache?.key === cacheKey &&
     gatewayHealthCache.expiresAt > Date.now()
   ) {
-    return { ...base, model: defaultNvidiaModel(), ...gatewayHealthCache.flags };
+    return { ...base, model: defaultMistralModel(), ...gatewayHealthCache.flags };
   }
   try {
     const response = await gatewayFetch("/models");
-    // NIM has no dedicated health route: a successful /models round-trip proves
+    // Mistral has no dedicated health route: a successful /models round-trip proves
     // both reachability and that the API key is accepted.
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -261,12 +279,12 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
     // model directly instead of hitting the no-vision fallback.
     if (response.ok) {
       const payload = (await response.json().catch(() => undefined)) as
-        | NvidiaModelsResponse
+        | MistralModelsResponse
         | undefined;
-      const models = parseNvidiaModels(payload);
-      if (models.length > 0) cacheNvidiaModels(models);
+      const models = parseMistralModels(payload);
+      if (models.length > 0) cacheMistralModels(models);
     }
-    return { ...base, model: defaultNvidiaModel(), ...flags };
+    return { ...base, model: defaultMistralModel(), ...flags };
   } catch {
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -279,11 +297,11 @@ export async function getNvidiaGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    return { ...base, model: defaultNvidiaModel(), ...flags };
+    return { ...base, model: defaultMistralModel(), ...flags };
   }
 }
 
-function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
+function modelKind(model: MistralModel): "text" | "vision" | undefined {
   const explicitTask = model.task?.toLowerCase().trim();
   if (
     explicitTask &&
@@ -330,13 +348,13 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
       ? "vision"
       : "text";
   }
-  // NVIDIA's OpenAI-compatible /v1/models response normally only includes the
+  // Mistral's OpenAI-compatible /v1/models response normally only includes the
   // model ID and ownership fields. Treat metadata-poor models as text chat models
   // unless their ID identifies a known non-chat model family; otherwise the picker
   // is empty even though the gateway successfully returned available models.
-  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id))
+  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|voxtral|ocr|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id))
     return undefined;
-  return /(^|[\/_-])(vision|vlm|multimodal|visual-language|omni)([\/_-]|$)/i.test(
+  return /(^|[\/_-])(vision|vlm|multimodal|visual-language|omni|pixtral)([\/_-]|$)/i.test(
     model.id
   )
     ? "vision"
@@ -344,18 +362,21 @@ function modelKind(model: NvidiaModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: Kimi K3 - verified available on NVIDIA NIM
- * (build.nvidia.com/moonshotai/kimi-k3). A heavyweight native-multimodal MoE:
- * 2.8T total parameters (104B active), RGB image input, function/tool calling,
- * and a 1M-token context, served over the OpenAI-compatible chat API.
+ * Default chat model: Mistral Medium 3.5 - the frontier-class multimodal
+ * replacement for the deprecated Pixtral Large (docs.mistral.ai/models).
+ * Vision-capable with function/tool calling and a 256K-token context, served
+ * over the OpenAI-compatible chat API.
  */
-export const DEFAULT_NVIDIA_MODEL = "moonshotai/kimi-k3";
+export const DEFAULT_MISTRAL_MODEL = "mistral-medium-3-5";
 
-/** Text-only fallback if model discovery proves the default is not served here. */
-export const TEXT_FALLBACK_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+/**
+ * Text-only fallback if model discovery proves the default is not served here.
+ * mistral-large is deprecated too, so the always-current small family stands in.
+ */
+export const TEXT_FALLBACK_MODEL = "mistral-small-latest";
 
 /** Test hook: drop the discovered-model cache between suites. */
-export function resetNvidiaModelCache() {
+export function resetMistralModelCache() {
   modelCache = undefined;
 }
 
@@ -364,37 +385,44 @@ export function resetNvidiaModelCache() {
  * reach the model directly. Falls back to the text default until discovery
  * finds a vision model.
  */
-export function defaultNvidiaModel(): string {
-  if (!modelCache || modelCache.expiresAt <= Date.now()) return DEFAULT_NVIDIA_MODEL;
+export function defaultMistralModel(): string {
+  if (!modelCache || modelCache.expiresAt <= Date.now()) return DEFAULT_MISTRAL_MODEL;
   // The hardcoded default is authoritative whenever this gateway serves it.
-  if (modelCache.models.some(model => model.id === DEFAULT_NVIDIA_MODEL))
-    return DEFAULT_NVIDIA_MODEL;
-  // This gateway does not serve the default: degrade to another vision model,
-  // and only then to the text fallback.
+  if (modelCache.models.some(model => model.id === DEFAULT_MISTRAL_MODEL))
+    return DEFAULT_MISTRAL_MODEL;
+  // This gateway does not serve the default: degrade to another vision model
+  // (preferring the current medium family over the deprecated pixtral one),
+  // then to a discovered text model. The hardcoded text fallback is only
+  // authoritative when this gateway actually serves it.
   const vision = modelCache.models.filter(model => model.kind === "vision");
+  const visionPick =
+    vision.find(model => model.id.includes("medium"))?.id ??
+    vision.find(model => model.id.includes("pixtral"))?.id ??
+    vision[0]?.id;
+  if (visionPick) return visionPick;
   return (
-    vision.find(model => model.id.includes("nemotron"))?.id ??
-    vision[0]?.id ??
+    modelCache.models.find(model => model.id === TEXT_FALLBACK_MODEL)?.id ??
+    modelCache.models.find(model => model.kind === "text")?.id ??
     TEXT_FALLBACK_MODEL
   );
 }
 
-function parseNvidiaModels(payload: NvidiaModelsResponse | undefined): AvailableNvidiaModel[] {
+function parseMistralModels(payload: MistralModelsResponse | undefined): AvailableMistralModel[] {
   const rawData = payload?.data;
   if (!Array.isArray(rawData)) return [];
   return rawData
     .filter(
-      (model): model is NvidiaModel =>
+      (model): model is MistralModel =>
         typeof model?.id === "string" && model.id.trim().length > 0
     )
     .map(model => ({ ...model, id: model.id.trim() }))
     .map(model => ({ ...model, kind: modelKind(model) }))
     .filter(
-      (model): model is AvailableNvidiaModel => model.kind !== undefined
+      (model): model is AvailableMistralModel => model.kind !== undefined
     );
 }
 
-function cacheNvidiaModels(models: AvailableNvidiaModel[]) {
+function cacheMistralModels(models: AvailableMistralModel[]) {
   const deduplicated = Array.from(
     new Map(models.map(model => [model.id, model])).values()
   ).sort((a, b) => a.id.localeCompare(b.id));
@@ -406,35 +434,35 @@ function cacheNvidiaModels(models: AvailableNvidiaModel[]) {
 }
 
 /**
- * Discovers chat-capable NVIDIA text/VLM models from the gateway's OpenAI-compatible
+ * Discovers chat-capable Mistral text/VLM models from the gateway's OpenAI-compatible
  * /v1/models endpoint. Vision-language models remain eligible because they accept text
  * chat as well as image input. Results are cached briefly for model pickers.
  */
-/** Returns the list of available NVIDIA models, cached for five minutes. */
-export async function listNvidiaModels(forceRefresh = false) {
+/** Returns the list of available Mistral models, cached for five minutes. */
+export async function listMistralModels(forceRefresh = false) {
   if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now())
     return modelCache.models;
   const response = await gatewayFetch("/models");
   const payload = (await response.json().catch(() => undefined)) as
-    NvidiaModelsResponse | { error?: { message?: string } } | undefined;
+    MistralModelsResponse | { error?: { message?: string } } | undefined;
   if (!response.ok) {
     const message =
       payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       message ??
-        describeNvidiaError(payload, response.status) ??
+        describeMistralError(payload, response.status) ??
         "AI model discovery is temporarily unavailable.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
-  const models = parseNvidiaModels(payload as NvidiaModelsResponse | undefined);
+  const models = parseMistralModels(payload as MistralModelsResponse | undefined);
   if (models.length === 0) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "The AI service returned no available chat models.",
       "invalid_response"
     );
   }
-  return cacheNvidiaModels(models);
+  return cacheMistralModels(models);
 }
 
 /**
@@ -498,11 +526,11 @@ async function readGatewayStreamedCompletion(
   if (!response.ok) {
     const message =
       payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       message ??
-        describeNvidiaError(payload, response.status) ??
+        describeMistralError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
   const bufferedText =
@@ -522,29 +550,29 @@ async function readGatewayStreamedCompletion(
   };
 }
 
-export async function completeWithNvidiaGateway(
+export async function completeWithMistralGateway(
   ownerId: number,
   prompt: string,
   modelId?: string,
   onChunk?: (chunk: string) => void
 ) {
-  const status = await getNvidiaGatewayStatus(ownerId);
+  const status = await getMistralGatewayStatus(ownerId);
   if (
     !status.configured ||
     !status.reachable ||
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
-  const claim = await claimNvidiaInferenceRequestForUser(
+  const claim = await claimMistralInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests
   );
   if (!claim) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "allowance_reached"
     );
@@ -562,7 +590,7 @@ export async function completeWithNvidiaGateway(
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
     if (!text) {
-      throw new NvidiaGatewayClientError(
+      throw new MistralGatewayClientError(
         "The AI service returned an invalid completion. Please retry shortly.",
         "invalid_response"
       );
@@ -596,11 +624,11 @@ export async function completeWithNvidiaGateway(
   if (!response.ok) {
     const message =
       payload && "error" in payload ? payload.error?.message : undefined;
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       message ??
-        describeNvidiaError(payload, response.status) ??
+        describeMistralError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
   const bufferedText =
@@ -611,7 +639,7 @@ export async function completeWithNvidiaGateway(
             { choices?: Array<{ message?: { content?: string } }> } | undefined
         )?.choices?.[0]?.message?.content ?? "");
   if (!bufferedText) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "The AI service returned an invalid completion. Please retry shortly.",
       "invalid_response"
     );
@@ -796,7 +824,7 @@ async function readGatewayStreamedChatResult(
         // connection) instead of throwing - cancel and fail as unavailable so
         // the agent loop can retry instead of hanging forever.
         await reader.cancel().catch(() => {});
-        throw new NvidiaGatewayClientError(
+        throw new MistralGatewayClientError(
           "The AI service stopped responding mid-stream. Please retry shortly.",
           "unavailable"
         );
@@ -882,8 +910,8 @@ async function readGatewayStreamedChatResult(
       }
     }
   } catch (error) {
-    if (error instanceof NvidiaGatewayClientError) throw error;
-    throw new NvidiaGatewayClientError(
+    if (error instanceof MistralGatewayClientError) throw error;
+    throw new MistralGatewayClientError(
       "The AI service interrupted the response stream. Please retry shortly.",
       "unavailable"
     );
@@ -906,7 +934,7 @@ async function readGatewayStreamedChatResult(
   };
 }
 
-export async function chatWithNvidiaGateway(
+export async function chatWithMistralGateway(
   ownerId: number,
   messages: GatewayChatMessage[],
   options: {
@@ -918,23 +946,23 @@ export async function chatWithNvidiaGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
-  const status = await getNvidiaGatewayStatus(ownerId);
+  const status = await getMistralGatewayStatus(ownerId);
   if (
     !status.configured ||
     !status.reachable ||
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
-  const claim = await claimNvidiaInferenceRequestForUser(
+  const claim = await claimMistralInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests
   );
   if (!claim) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "allowance_reached"
     );
@@ -965,7 +993,7 @@ export async function chatWithNvidiaGateway(
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";
     console.warn(
-      `[NVIDIA gateway] empty completion for model ${resolvedModel}${suffix}`
+      `[Mistral gateway] empty completion for model ${resolvedModel}${suffix}`
     );
   };
   if (options.onChunk) {
@@ -984,11 +1012,11 @@ export async function chatWithNvidiaGateway(
           | undefined;
         const message =
           payload && "error" in payload ? payload.error?.message : undefined;
-        throw new NvidiaGatewayClientError(
+        throw new MistralGatewayClientError(
           message ??
-            describeNvidiaError(payload, response.status) ??
+            describeMistralError(payload, response.status) ??
             "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-          response.status === 429 ? "rate_limit" : "unavailable"
+          classifyGatewayHttpError(response.status)
         );
       }
       const attemptResult = await readGatewayStreamedChatResult(
@@ -1015,7 +1043,7 @@ export async function chatWithNvidiaGateway(
       ]);
     }
     if (!streamed) {
-      throw new NvidiaGatewayClientError(
+      throw new MistralGatewayClientError(
         upstreamError
           ? `The AI service returned an error completion: ${upstreamError}`
           : "The AI service returned an invalid completion. Please retry shortly.",
@@ -1064,11 +1092,11 @@ export async function chatWithNvidiaGateway(
         errorPayload && "error" in errorPayload
           ? errorPayload.error?.message
           : undefined;
-      throw new NvidiaGatewayClientError(
+      throw new MistralGatewayClientError(
         message ??
-          describeNvidiaError(errorPayload, response.status) ??
+          describeMistralError(errorPayload, response.status) ??
           "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-        response.status === 429 ? "rate_limit" : "unavailable"
+        classifyGatewayHttpError(response.status)
       );
     }
     const payload = (await response.json().catch(() => undefined)) as
@@ -1129,7 +1157,7 @@ export async function chatWithNvidiaGateway(
     ]);
   }
   if (!buffered) {
-    throw new NvidiaGatewayClientError(
+    throw new MistralGatewayClientError(
       bufferedUpstreamError
         ? `The AI service returned an error completion: ${bufferedUpstreamError}`
         : "The AI service returned an invalid completion. Please retry shortly.",

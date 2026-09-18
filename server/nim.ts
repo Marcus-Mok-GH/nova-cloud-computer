@@ -48,14 +48,29 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
   if (!isNimConfigured()) {
     throw new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it.");
   }
-  const response = await fetch(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`, {
+  const model = options.model ?? ENV.nimCoderModel;
+  if (!model) {
+    throw new Error(
+      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'deepseek-ai/DeepSeek-V4-Pro-0813')."
+    );
+  }
+  const endpoint = new URL(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`);
+  const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(endpoint.hostname);
+  if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+    // The key travels in the Authorization header: refuse to send it over
+    // an unencrypted transport to anything that is not this machine.
+    throw new Error(
+      `Refusing to send the NVIDIA NIM API key over ${endpoint.protocol}//${endpoint.hostname} - set NVIDIA_NIM_API_URL to an HTTPS endpoint (or http on a loopback host).`
+    );
+  }
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${ENV.nimApiKey}`,
     },
     body: JSON.stringify({
-      model: options.model ?? ENV.nimCoderModel,
+      model,
       messages: [
         { role: "system", content: options.systemPrompt },
         { role: "user", content: options.prompt },

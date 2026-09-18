@@ -53,7 +53,8 @@ describe("runNimChat", () => {
 
     expect(text).toBe("print('hi')");
     const [url, init] = fetchStub.mock.calls[0];
-    expect(url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
+    expect(url).toBeInstanceOf(URL);
+    expect(url.href).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
     expect(init.method).toBe("POST");
     expect(init.headers.authorization).toBe("Bearer test-nim-key");
     const body = JSON.parse(init.body);
@@ -75,7 +76,14 @@ describe("runNimChat", () => {
     state.nimUrl = "http://localhost:8000/v1/";
     fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
     await runNimChat({ prompt: "p", systemPrompt: "s" });
-    expect(fetchStub.mock.calls[0][0]).toBe("http://localhost:8000/v1/chat/completions");
+    expect(fetchStub.mock.calls[0][0].href).toBe("http://localhost:8000/v1/chat/completions");
+  });
+
+  it("allows a custom HTTPS endpoint", async () => {
+    state.nimUrl = "https://nim.internal.example.com/v1";
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await runNimChat({ prompt: "p", systemPrompt: "s" });
+    expect(fetchStub.mock.calls[0][0].href).toBe("https://nim.internal.example.com/v1/chat/completions");
   });
 
   it("joins OpenAI-style content part arrays into one text", async () => {
@@ -83,6 +91,24 @@ describe("runNimChat", () => {
       jsonResponse({ choices: [{ message: { content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] } }] })
     );
     expect(await runNimChat({ prompt: "p", systemPrompt: "s" })).toBe("ab");
+  });
+
+  it("rejects an empty resolved model with the self-hosted operator hint", async () => {
+    state.nimUrl = "http://gpu-box.internal:8000/v1";
+    state.nimModel = ""; // custom endpoint without NVIDIA_NIM_CODER_MODEL set
+    await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
+      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint"
+    );
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("refuses to send the API key over plain HTTP to a non-loopback host", async () => {
+    state.nimUrl = "http://gpu-box.internal:8000/v1";
+    await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
+      "Refusing to send the NVIDIA NIM API key over http://gpu-box.internal"
+    );
+    // The key never left the process: no request was made at all.
+    expect(fetchStub).not.toHaveBeenCalled();
   });
 
   it("rejects when the key is missing, before any request is sent", async () => {

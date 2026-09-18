@@ -50,10 +50,10 @@ describe("runCoderTask", () => {
 
   it("propagates configuration errors verbatim, including the operator hint", async () => {
     runNimChatMock.mockRejectedValueOnce(
-      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it.")
+      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.")
     );
     await expect(runCoderTask("write tests")).rejects.toThrow(
-      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it."
+      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
     );
   });
 });

@@ -114,7 +114,7 @@ describe("runNimChat", () => {
   it("rejects when the key is missing, before any request is sent", async () => {
     state.nimKey = "";
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it."
+      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
     );
     expect(fetchStub).not.toHaveBeenCalled();
   });

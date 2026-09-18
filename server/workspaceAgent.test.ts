@@ -474,7 +474,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("reports an unconfigured coding specialist back to the model instead of breaking the run", async () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock.mockRejectedValueOnce(
-      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY to enable it.")
+      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.")
     );
     chatWithMistralGateway
       .mockResolvedValueOnce(

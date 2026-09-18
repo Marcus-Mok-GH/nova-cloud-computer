@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveNeonAuthVerificationConfig, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
+import { resolveNeonAuthVerificationConfig, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
 
 describe("resolveNeonAuthVerificationConfig", () => {
   const baseUrl = "https://ep-wispy-salad-au8m5tie.neonauth.c-10.us-east-1.aws.neon.tech/neondb/auth";
@@ -128,5 +128,26 @@ describe("resolveTranscriptionConfig", () => {
     process.env.TRANSCRIPTION_MODEL = "custom-model";
     expect(resolveTranscriptionConfig().transcriptionApiKey).toBe("sk-explicit");
     expect(resolveTranscriptionConfig().transcriptionModel).toBe("custom-model");
+  });
+});
+
+describe("resolveNimApiKey", () => {
+  it("prefers the dedicated NVIDIA_NIM_API_KEY name", () => {
+    expect(
+      resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: "nim-key",
+        NVIDIA_API_KEY: "legacy-key",
+        NOVA_NVIDIA_GATEWAY_TOKEN: "token",
+      } as NodeJS.ProcessEnv)
+    ).toBe("nim-key");
+  });
+
+  it("falls back to the deployment's legacy gateway key names on the same NIM endpoint", () => {
+    expect(resolveNimApiKey({ NVIDIA_API_KEY: "legacy-key" } as NodeJS.ProcessEnv)).toBe("legacy-key");
+    expect(resolveNimApiKey({ NOVA_NVIDIA_GATEWAY_TOKEN: "gateway-token" } as NodeJS.ProcessEnv)).toBe("gateway-token");
+  });
+
+  it("resolves to an empty string when no key is configured", () => {
+    expect(resolveNimApiKey({} as NodeJS.ProcessEnv)).toBe("");
   });
 });

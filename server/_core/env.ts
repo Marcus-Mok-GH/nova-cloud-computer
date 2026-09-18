@@ -90,6 +90,23 @@ export function resolveTranscriptionConfig() {
   };
 }
 
+/**
+ * Resolves the coder sub-agent's NVIDIA NIM API key. The dedicated
+ * NVIDIA_NIM_API_KEY wins; otherwise the deployment's pre-Mistral gateway
+ * names - NVIDIA_API_KEY or NOVA_NVIDIA_GATEWAY_TOKEN - work as fallbacks
+ * because they authenticate against the same hosted NIM endpoint, so an
+ * already-configured deployment needs no new secrets. Empty string when
+ * none is set.
+ */
+export function resolveNimApiKey(source: NodeJS.ProcessEnv = process.env) {
+  return (
+    source.NVIDIA_NIM_API_KEY ??
+    source.NVIDIA_API_KEY ??
+    source.NOVA_NVIDIA_GATEWAY_TOKEN ??
+    ""
+  );
+}
+
 export const ENV = {
   // Retained for optional legacy modules that are not part of the Vercel runtime.
   appId: process.env.VITE_APP_ID ?? "",
@@ -117,8 +134,8 @@ export const ENV = {
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Exa AI API key powering the researcher sub-agent's deep web search. Empty string when unset. */
   exaApiKey: process.env.EXA_API_KEY ?? "",
-  /** NVIDIA NIM API key powering the coder sub-agent's coding model. Empty string when unset. */
-  nimApiKey: process.env.NVIDIA_NIM_API_KEY ?? "",
+  /** Resolved by resolveNimApiKey: the dedicated name, then the legacy gateway names. */
+  nimApiKey: resolveNimApiKey(),
   /** NVIDIA NIM OpenAI-compatible base URL: the hosted NIM endpoint by default, a self-hosted NIM container works too. */
   nimApiUrl: process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1",
   /**

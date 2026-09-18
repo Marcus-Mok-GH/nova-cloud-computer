@@ -6,11 +6,23 @@ function telegramUrl(token: string, method: string) {
   return `https://api.telegram.org/bot${encodeURIComponent(token)}/${method}`;
 }
 
+/** Bot API calls must never hang the webhook: a stalled Telegram request used
+ * to freeze a background task until Vercel killed it at maxDuration, losing
+ * the reply. Thirty seconds is far beyond any normal API response. */
+const TELEGRAM_API_TIMEOUT_MS = 30_000;
+/** File downloads carry the audio bytes, so they get a more generous cap. */
+const TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS = 60_000;
+/** Presenting a file to the chat uploads its bytes, so same generous cap. */
+const TELEGRAM_FILE_PRESENT_TIMEOUT_MS = 60_000;
+
 async function telegramRequest<T>(token: string, method: string, payload: Record<string, unknown>, fetchImpl: typeof fetch = fetch) {
   const response = await fetchImpl(telegramUrl(token, method), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+  }).catch(error => {
+    throw new Error(error instanceof Error && /abort|time[d]?[\s-]?out/i.test(error.message) ? "Telegram did not answer in time." : error instanceof Error ? error.message : String(error));
   });
   const data = await response.json().catch(() => ({})) as TelegramResponse<T>;
   if (!response.ok || !data.ok || data.result === undefined) throw new Error(data.description || "Telegram could not complete that request.");
@@ -125,7 +137,7 @@ function telegramFileUrl(token: string, filePath: string) {
 export async function downloadTelegramUpload(token: string, upload: TelegramUpload, fetchImpl: typeof fetch = fetch): Promise<{ name: string; content: string; mimeType: string }> {
   const fileInfo = await telegramRequest<{ file_path?: string }>(token, "getFile", { file_id: upload.fileId }, fetchImpl);
   if (!fileInfo.file_path) throw new Error("Telegram did not return a download path for that file.");
-  const response = await fetchImpl(telegramFileUrl(token, fileInfo.file_path));
+  const response = await fetchImpl(telegramFileUrl(token, fileInfo.file_path), { signal: AbortSignal.timeout(TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS) });
   if (!response.ok) throw new Error("Telegram could not deliver that file.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   const stamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
@@ -159,7 +171,7 @@ export async function presentTelegramFile(
     form.append("chat_id", chatId);
     if (boundedCaption) form.append("caption", boundedCaption);
     form.append(part, blob, file.name);
-    const response = await fetchImpl(telegramUrl(token, method), { method: "POST", body: form });
+    const response = await fetchImpl(telegramUrl(token, method), { method: "POST", body: form, signal: AbortSignal.timeout(TELEGRAM_FILE_PRESENT_TIMEOUT_MS) });
     const data = await response.json().catch(() => ({})) as TelegramResponse<{ message_id: number }>;
     if (!response.ok || !data.ok || data.result === undefined)
       throw new Error(data.description || "Telegram could not complete that request.");
@@ -179,6 +191,7 @@ export async function presentTelegramFile(
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, photo: content.trim(), ...(boundedCaption ? { caption: boundedCaption } : {}) }),
+        signal: AbortSignal.timeout(TELEGRAM_FILE_PRESENT_TIMEOUT_MS),
       });
       const data = await response.json().catch(() => ({})) as TelegramResponse<{ message_id: number }>;
       if (!response.ok || !data.ok || data.result === undefined)

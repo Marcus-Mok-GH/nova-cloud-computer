@@ -352,6 +352,42 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe(true);
   });
 
+  it("closes with a synthesized reply when a later gateway round outlasts the deadline", async () => {
+    // A stalled or slow LLM round can run up to the client\u2019s own 120s
+    // timeout, which used to slip past the run budget between the
+    // round-level checks until Vercel killed the whole background task with
+    // no reply delivered. Rounds after the first are now raced against the
+    // deadline. Fake time: a new round only starts with more than the 45s
+    // final-round margin left, so the race must be observed on fast-forward.
+    vi.useFakeTimers();
+    try {
+      chatWithNvidiaGateway
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              { id: "call-1", name: "read_file", arguments: JSON.stringify({ path: "notes.txt" }) },
+            ],
+          })
+        )
+        .mockImplementationOnce(() => new Promise(() => {})); // hangs: never resolves
+      const run = runWorkspaceAgent(1, 3, "research this topic", {
+        deadlineAtMs: Date.now() + 60_000,
+      });
+      // Round 0 and its tool settle on microtasks; round 1 starts with the
+      // budget still healthy and arms the race timer.
+      await vi.advanceTimersByTimeAsync(10_000);
+      // The hung round 1 is abandoned at the deadline and the run closes.
+      await vi.advanceTimersByTimeAsync(55_000);
+      const result = await run;
+      const reply = result.message.content;
+      expect(reply).toContain("end of what I can do in one go");
+      expect(reply).toContain("read_file");
+      expect(reply).toContain('Send "continue"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("closes with a synthesized reply when the run budget runs out before the final model round", async () => {
     // The deploy consumed the request budget: the next gateway round would
     // be killed by maxDuration before the reply could persist.

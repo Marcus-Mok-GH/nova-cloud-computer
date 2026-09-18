@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
+import {
+  ensurePersistentSandbox,
+  getE2BClient,
+  isE2BConfigured,
+} from "./e2b";
+import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
 
 const append = vi.fn(
   async (_owner: number, input: { role: string; content: string }) => ({
@@ -88,6 +94,7 @@ vi.mock("./db", () => ({
   setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) => style.trim().slice(0, 500)),
   getDatabaseTime,
   hasAgentStopAfter,
+  updateWorkspacePersistentSandbox: vi.fn(async () => true),
 }));
 
 const completeWithMistralGateway = vi.fn();
@@ -163,7 +170,8 @@ vi.mock("./e2b", () => ({
   runE2BTaskInPersistentSandbox: vi.fn(),
   ensurePersistentSandbox: vi.fn(),
   getE2BSandboxStatus: vi.fn(),
-  withE2BWorkspaceLock: vi.fn(),
+  withE2BWorkspaceLock: vi.fn((_owner, _workspace, operation) => operation()),
+  E2B_WORKSPACE_DIR: "/home/user/workspace",
 }));
 
 const deployWebsite = vi.fn(async () => ({
@@ -234,6 +242,25 @@ const chatResult = (
     exhausted: false,
   },
 });
+
+// A fake live sandbox: records writes and commands, echoes back results.
+const fakeSandbox = () => {
+  const writes: Array<{ path: string; content: string }> = [];
+  return {
+    sandboxId: "sbx-vm",
+    writes,
+    files: {
+      write: vi.fn(async (path: string, data: unknown) =>
+        writes.push({ path, content: String(data) })
+      ),
+      read: vi.fn(async () => new Uint8Array()),
+      list: vi.fn(async () => []),
+    },
+    commands: {
+      run: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+    },
+  };
+};
 
 describe("Nova tool-calling workspace agent", () => {
   beforeEach(() => {
@@ -432,6 +459,150 @@ describe("Nova tool-calling workspace agent", () => {
       { kind: "tool", name: "2 +* 3", operation: "failed" },
     ]);
     expect(result.message.content).toBe("Sorry, that one was not solvable.");
+  });
+
+
+  describe("sandbox-first workspace", () => {
+    const enableSandbox = (sandbox: ReturnType<typeof fakeSandbox>) => {
+      vi.mocked(isE2BConfigured).mockReturnValue(true);
+      vi.mocked(getE2BClient).mockReturnValue({} as never);
+      vi.mocked(ensurePersistentSandbox).mockResolvedValue(sandbox as never);
+    };
+
+    beforeEach(() => {
+      vi.mocked(ensurePersistentSandbox).mockReset();
+      vi.mocked(restoreWorkspaceToE2B).mockReset();
+      vi.mocked(restoreWorkspaceToE2B).mockResolvedValue(1);
+      vi.mocked(persistE2BWorkspace).mockReset();
+      vi.mocked(persistE2BWorkspace).mockResolvedValue(0);
+    });
+
+    it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "All set." }));
+      await runWorkspaceAgent(1, 3, "hi");
+      expect(ensurePersistentSandbox).toHaveBeenCalledWith(expect.anything(), 41, 1, "sbx-vm");
+      expect(restoreWorkspaceToE2B).toHaveBeenCalledWith(1, sandbox);
+      expect(persistE2BWorkspace).toHaveBeenCalledWith(1, sandbox);
+    });
+
+    it("mirrors create_file onto the sandbox filesystem", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({ id: 2, name: "notes.txt", content: "hello world" });
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-sbx",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hello world" }),
+              },
+            ],
+          })
+        );
+      const result = await runWorkspaceAgent(1, 3, "create notes.txt");
+      expect(result.actions).toEqual([
+        { kind: "file", name: "notes.txt", operation: "created" },
+      ]);
+      expect(sandbox.files.write).toHaveBeenCalledWith(
+        "/home/user/workspace/notes.txt",
+        expect.any(Buffer)
+      );
+    });
+
+    it("runs a bash command on the sandbox via run_bash and feeds stdout back to the model", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      sandbox.commands.run.mockResolvedValue({
+        exitCode: 0,
+        stdout: "welcome.md",
+        stderr: "",
+      });
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-bash",
+                name: "run_bash",
+                arguments: JSON.stringify({ command: "ls" }),
+              },
+            ],
+          })
+        );
+      const result = await runWorkspaceAgent(1, 3, "list my files with bash");
+      expect(sandbox.commands.run).toHaveBeenCalledWith("ls", expect.objectContaining({ cwd: "/home/user/workspace" }));
+      expect(result.actions).toEqual([
+        { kind: "vm", name: "bash", operation: "completed" },
+      ]);
+      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      expect(secondCallMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "call-bash",
+            content: expect.stringContaining("Exit code 0."),
+          }),
+        ])
+      );
+      const fedBack = secondCallMessages.find(
+        (m: { role: string; tool_call_id?: string }) =>
+          m.role === "tool" && m.tool_call_id === "call-bash"
+      );
+      expect(fedBack.content).toContain("stdout:\nwelcome.md");
+    });
+
+    it("run_bash without a live sandbox reports the fallback to the model", async () => {
+      vi.mocked(isE2BConfigured).mockReturnValue(false);
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-bash-off",
+                name: "run_bash",
+                arguments: JSON.stringify({ command: "ls" }),
+              },
+            ],
+          })
+        );
+      const result = await runWorkspaceAgent(1, 3, "list my files with bash");
+      expect(result.actions).toEqual([
+        { kind: "vm", name: "bash", operation: "disabled" },
+      ]);
+      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const fedBack = secondCallMessages.find(
+        (m: { role: string; tool_call_id?: string }) =>
+          m.role === "tool" && m.tool_call_id === "call-bash-off"
+      );
+      expect(fedBack.content).toContain("sandbox is not available");
+      expect(fedBack.content).toContain("run_vm_task");
+    });
+
+    it("does not wake the sandbox when E2B is not configured", async () => {
+      vi.mocked(isE2BConfigured).mockReturnValue(false);
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "Hi." }));
+      await runWorkspaceAgent(1, 3, "hi");
+      expect(ensurePersistentSandbox).not.toHaveBeenCalled();
+      expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+    });
   });
 
   it("deploys the workspace website when the model calls deploy_website", async () => {

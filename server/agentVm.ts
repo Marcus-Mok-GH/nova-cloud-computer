@@ -63,7 +63,8 @@ export async function listAgentVmRuns(ownerId: number) {
 
 export async function startAgentVmRun(
   ownerId: number,
-  input: { task: string; code?: string }
+  input: { task: string; code?: string },
+  options: { skipRestore?: boolean } = {}
 ) {
   const client = getE2BClient();
   if (!client) {
@@ -89,7 +90,13 @@ export async function startAgentVmRun(
           ownerId,
           computer.workspace.persistentSandboxId
         );
-        await restoreWorkspaceToE2B(ownerId, sandbox);
+        // Workspace files stored in Neon Postgres are restored into the
+        // persistent E2B workspace before the task runs - unless the calling
+        // agent run already woke the sandbox and synced it this run (the
+        // restore wipes the workspace dir, which would lose files bash
+        // created earlier in the same run).
+        if (!options.skipRestore)
+          await restoreWorkspaceToE2B(ownerId, sandbox);
         const syncedComputer = await getWorkspaceComputer(ownerId);
 
         const result = await runE2BTaskInPersistentSandbox(client, {

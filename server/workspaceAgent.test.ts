@@ -192,6 +192,9 @@ vi.mock("./siteDeploy", () => ({
 const runCoderTaskMock = vi.hoisted(() => vi.fn());
 vi.mock("./coder", () => ({ runCoderTask: runCoderTaskMock }));
 
+const runBrowserCommandMock = vi.hoisted(() => vi.fn());
+vi.mock("./agentBrowser", () => ({ runBrowserCommand: runBrowserCommandMock }));
+
 vi.mock("./workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),
   restoreWorkspaceToE2B: vi.fn(async () => 0),
@@ -631,6 +634,70 @@ describe("Nova tool-calling workspace agent", () => {
           m.role === "tool" && m.tool_call_id === "call-bash"
       );
       expect(fedBack.content).toContain("stdout:\nwelcome.md");
+    });
+
+    it("drives the sandbox browser via browse and feeds the output back to the model", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runBrowserCommandMock.mockReset();
+      runBrowserCommandMock.mockResolvedValue({
+        ok: true,
+        result: "Exit code 0.\n\nstdout:\npage loaded",
+      });
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-browse",
+                name: "browse",
+                arguments: JSON.stringify({ command: "open https://example.com" }),
+              },
+            ],
+          })
+        );
+      const result = await runWorkspaceAgent(1, 3, "open example.com in a browser");
+      expect(runBrowserCommandMock).toHaveBeenCalledWith(sandbox, "open https://example.com");
+      expect(result.actions).toEqual([
+        { kind: "browser", name: "open", operation: "completed" },
+      ]);
+      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const fedBack = secondCallMessages.find(
+        (m: { role: string; tool_call_id?: string }) =>
+          m.role === "tool" && m.tool_call_id === "call-browse"
+      );
+      expect(fedBack.content).toContain("page loaded");
+    });
+
+    it("browse without a live sandbox reports the fallback to the model", async () => {
+      vi.mocked(isE2BConfigured).mockReturnValue(false);
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-browse-off",
+                name: "browse",
+                arguments: JSON.stringify({ command: "snapshot" }),
+              },
+            ],
+          })
+        );
+      const result = await runWorkspaceAgent(1, 3, "browse example.com");
+      expect(result.actions).toEqual([
+        { kind: "browser", name: "browser", operation: "disabled" },
+      ]);
+      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const fedBack = secondCallMessages.find(
+        (m: { role: string; tool_call_id?: string }) =>
+          m.role === "tool" && m.tool_call_id === "call-browse-off"
+      );
+      expect(fedBack.content).toContain("sandbox is not available");
+      expect(fedBack.content).toContain("E2B_API_KEY");
     });
 
     it("run_bash without a live sandbox reports the fallback to the model", async () => {

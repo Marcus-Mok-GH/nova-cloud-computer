@@ -117,6 +117,12 @@ export const ENV = {
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Exa AI API key powering the researcher sub-agent's deep web search. Empty string when unset. */
   exaApiKey: process.env.EXA_API_KEY ?? "",
+  /** NVIDIA NIM API key powering the coder sub-agent's coding model. Empty string when unset. */
+  nimApiKey: process.env.NVIDIA_NIM_API_KEY ?? "",
+  /** NVIDIA NIM OpenAI-compatible base URL: the hosted NIM endpoint by default, a self-hosted NIM container works too. */
+  nimApiUrl: process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1",
+  /** The coding model the coder sub-agent calls on NVIDIA NIM. Defaults to the strongest coding model NIM serves; deepseek-ai/deepseek-v4-flash is the faster, cheaper alternative. */
+  nimCoderModel: process.env.NVIDIA_NIM_CODER_MODEL ?? "deepseek-ai/deepseek-v4-pro-0813",
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
   /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */

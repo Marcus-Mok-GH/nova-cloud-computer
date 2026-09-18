@@ -27,6 +27,11 @@ describe("toolLineText", () => {
     expect(toolLineText(activity("run_vm_task", '{"task":"install deps"}'))).toBe("Run VM Task: install deps");
   });
 
+  it("formats code_task one-liners with the task", () => {
+    expect(toolLineText(activity("code_task", '{"task":"write a debounce helper"}'))).toBe("Code Task: write a debounce helper");
+    expect(toolLineText(activity("code_task", "{}"))).toBe("Code Task");
+  });
+
   it("falls back gracefully on unknown names and malformed args", () => {
     expect(toolLineText(activity("mystery_tool", '{"x":1}'))).toBe("mystery_tool");
     expect(toolLineText(activity("read_file", '{"file":"notes.txt"'))).toBe("Read File");

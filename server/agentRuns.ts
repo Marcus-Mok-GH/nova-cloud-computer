@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { ENV } from "./_core/env";
 import { startAgentRunForUser, finishAgentRunForUser, holdAgentRunForContinue, MAX_RUN_SEGMENTS } from "./db";
-import { autoTitleChatForUser, runWorkspaceAgent, sendTelegramWorkStartedAck, MAX_RUN_BUDGET_MS } from "./workspaceAgent";
+import { autoTitleChatForUser, runWorkspaceAgent, MAX_RUN_BUDGET_MS } from "./workspaceAgent";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
 
@@ -54,8 +54,6 @@ export async function executeTelegramAgentRun(input: ExecuteTelegramRunInput): P
   const typingTimer = setInterval(() => { void sendChatAction(token, telegramChatId, "typing").catch(() => {}); }, 4500);
   try {
     await sendChatAction(token, telegramChatId, "typing");
-    // Guaranteed work-started confirmation, written by the model: the user must never sit in silence wondering whether Nova is working. Bounded internally; it never stalls the agent run by more than a few seconds. Continuations skip it: the user already knows Nova is on the task.
-    if (!isContinuation) await sendTelegramWorkStartedAck(ownerId, token, telegramChatId, agentText, deadlineAtMs).catch(() => {});
     const result = await runWorkspaceAgent(ownerId, chatId, agentText + (uploadContext ?? ""), {
       channel: "telegram",
       imageAttachments,

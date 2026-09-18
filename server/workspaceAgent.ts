@@ -1628,7 +1628,7 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
         "NVIDIA inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
-      return { message, actions: [] };
+      return { message, actions: [], outOfBudget: false };
     }
     if (
       !status.reachable ||
@@ -1638,13 +1638,13 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
         "NVIDIA inference gateway is temporarily unreachable. Please try again shortly.";
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
-      return { message, actions: [] };
+      return { message, actions: [], outOfBudget: false };
     }
     if (status.allowance.exhausted) {
       const reply = `NVIDIA inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
-      return { message, actions: [] };
+      return { message, actions: [], outOfBudget: false };
     }
 
     let computer = await getWorkspaceComputer(ownerId);
@@ -1726,7 +1726,7 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       const stoppedReply = "⏹️ Stopped - this run was cancelled with /stop.";
       await options.onChunk?.(stoppedReply);
       const message = await persistAssistant(stoppedReply);
-      return { message, actions: [] };
+      return { message, actions: [], outOfBudget: false };
     };
 
     // /stop must be able to end a run mid-response, not only between rounds:
@@ -2030,7 +2030,7 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     // full text would duplicate what the user watched appear.
     if (streamedReplyChars === 0) await options.onChunk?.(reply);
     const message = await persistAssistant(reply);
-    return { message, actions };
+    return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
     console.error("[Chat] NVIDIA chat failed", error);
     const kind =
@@ -2064,6 +2064,6 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     // Only emit what the client has not already seen streamed live.
     await options.onChunk?.(streamedRunText.trim() ? failureNote : reply);
     const message = await persistAssistant(reply);
-    return { message, actions };
+    return { message, actions, outOfBudget: false };
   }
 }

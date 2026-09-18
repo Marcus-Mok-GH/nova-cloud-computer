@@ -23,6 +23,9 @@ import { OggOpusDecoder } from "ogg-opus-decoder";
 /** Telegram voice notes are OGG/Opus; the Pollinations transcription endpoint does not document OGG. */
 const POLLINATIONS_TRANSCRIPTION_HOST = "gen.pollinations.ai";
 
+/** Upper bound for one transcription request before the webhook gives up on it. */
+const TRANSCRIPTION_TIMEOUT_MS = 60_000;
+
 function isOggAudio(mimeType: string, fileName: string): boolean {
   const m = (mimeType || "").toLowerCase();
   const n = (fileName || "").toLowerCase();
@@ -99,10 +102,18 @@ export async function transcribeAudio(
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(payload)], { type: uploadMimeType }), uploadFileName);
   form.append("model", ENV.transcriptionModel);
+  // A stalled provider request must never hang the Telegram webhook: the
+  // background task only has the Vercel maxDuration to live, and an
+  // unanswered transcription used to hold it open until the runtime killed
+  // the whole task - reply lost. One minute covers every real Whisper call.
   const response = await fetch(`${ENV.transcriptionApiBaseUrl}/audio/transcriptions`, {
     method: "POST",
     headers: { authorization: `Bearer ${ENV.transcriptionApiKey}` },
     body: form,
+    signal: AbortSignal.timeout(TRANSCRIPTION_TIMEOUT_MS),
+  }).catch(error => {
+    const timedOut = error instanceof Error && /abort|time[d]?[\s-]?out/i.test(error.message);
+    throw new Error(timedOut ? "the transcription provider did not answer in time" : error instanceof Error ? error.message : String(error));
   });
   const data = await response.json().catch(() => ({})) as { text?: unknown; error?: { message?: unknown } | string };
   if (!response.ok) {

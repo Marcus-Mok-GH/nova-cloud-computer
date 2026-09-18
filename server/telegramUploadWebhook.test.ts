@@ -17,6 +17,8 @@ const spies = vi.hoisted(() => ({
   runWorkspaceAgent: vi.fn(async () => ({ message: { content: "It's a corgi!" }, actions: [] })),
   transcribeAudio: vi.fn(async () => null),
   autoTitleChatForUser: vi.fn(async () => true),
+  startAgentRunForUser: vi.fn(async () => ({ id: 501 })),
+  finishAgentRunForUser: vi.fn(async () => ({})),
 }));
 
 vi.mock("./db", () => ({
@@ -33,6 +35,8 @@ vi.mock("./db", () => ({
   cancelActiveAgentVmRunsForUser: vi.fn(async () => 0),
   requestAgentStopForUser: vi.fn(async () => true),
   claimTelegramUpdate: spies.claimTelegramUpdate,
+  startAgentRunForUser: spies.startAgentRunForUser,
+  finishAgentRunForUser: spies.finishAgentRunForUser,
 }));
 
 vi.mock("./transcription", () => ({ transcribeAudio: spies.transcribeAudio }));
@@ -349,6 +353,44 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(
       spies.sendTelegramWorkStartedAck.mock.invocationCallOrder[0]
     ).toBeLessThan(spies.runWorkspaceAgent.mock.invocationCallOrder[0]);
+  });
+
+  it("records the run in the ledger and closes it completed", async () => {
+    const { status } = await postUpdate({
+      update_id: 610,
+      message: { message_id: 23, chat: { id: 42 }, text: "ledger me" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.some(call => call[2] === "ledger me"));
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
+    expect(spies.startAgentRunForUser).toHaveBeenCalledWith(7, { chatId: 3, notifyChatId: "42" });
+    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "completed", undefined);
+    // The ledger opens before the agent run starts, so a run is never untracked.
+    expect(
+      spies.startAgentRunForUser.mock.invocationCallOrder[0]
+    ).toBeLessThan(spies.runWorkspaceAgent.mock.invocationCallOrder[0]);
+  });
+
+  it("closes the ledger as failed when the agent run throws", async () => {
+    spies.runWorkspaceAgent.mockRejectedValueOnce(new Error("gateway exploded"));
+    const { status } = await postUpdate({
+      update_id: 611,
+      message: { message_id: 24, chat: { id: 42 }, text: "break please" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => String(call[2]).includes("hit an error")));
+    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "failed", "gateway exploded");
+  });
+
+  it("still delivers the reply when the ledger itself is unavailable", async () => {
+    spies.startAgentRunForUser.mockRejectedValueOnce(new Error("ledger db down"));
+    const { status } = await postUpdate({
+      update_id: 612,
+      message: { message_id: 25, chat: { id: 42 }, text: "run anyway" },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalled();
   });
 
   it("attaches a View run deep-link button to the final reply", async () => {

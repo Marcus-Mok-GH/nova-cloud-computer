@@ -1309,11 +1309,11 @@ async function executeWorkspaceTool(
       const progressTimer = onProgress
         ? setInterval(() => {
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
-            onProgress(`Exa deep research (${level}) is reading the live web - ${elapsed}s elapsed…`);
+            onProgress(`Deep research is reading the live web - ${elapsed}s elapsed…`);
           }, 10000)
         : undefined;
       if (onProgress)
-        onProgress(`Exa deep research (${level}) is starting its web searches…`);
+        onProgress(`Deep research is starting its web searches…`);
       try {
         const research = await runResearch(topic, difficulty, instructions);
         const sourcesBlock = research.sources.length

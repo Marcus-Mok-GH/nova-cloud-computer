@@ -1,5 +1,15 @@
 import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
+import type { E2BSandboxLike } from "./e2b";
+import {
+  type SandboxOp,
+  mirrorWorkspaceOp,
+  prepareAgentSandbox,
+  runBashOnSandbox,
+  syncAgentSandbox,
+  workspaceRelativePathOf,
+  folderPathOf,
+} from "./sandboxWorkspace";
 import { evaluate } from "mathjs";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
@@ -604,6 +614,24 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "run_bash",
+      description:
+        "Run a bash command in the live workspace sandbox and get its exit code, stdout and stderr. The sandbox is awake for the whole run and its working directory is your workspace: the same files and folders the file tools operate on, plus anything bash creates (synced to durable storage automatically). Use it for quick shell work - ls, grep, wc, head, chmod, git, tar - and prefer it over run_vm_task for anything that does not need Python. No sudo; 120-second timeout.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "The bash command to run, e.g. 'wc -l notes.txt' or 'grep -c TODO *.md'.",
+          },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_vm_task",
       description:
         "Run a Python 3 script in an isolated E2B sandbox VM with internet access and a 240-second limit. This is the tool for real execution: installing and using packages (pip install, e.g. requests), scraping or browsing with HTTP libraries, processing data, or running shell commands via subprocess.run(['cmd','arg'], capture_output=True, text=True). It is NOT for workspace file management - use create_file / edit_file / read_file and the other dedicated tools for that; they are faster, safer, and sync instantly. Only reach for the VM when code actually needs to run. Always write complete Python code in `code` - `task` is just a short label for the run. The script sees the workspace's files under /home/user/workspace/input (each mounted with an id prefix, e.g. input/104-calc.py - the exact mounted paths are returned with every run result, so do not guess them) and should print() anything you want to report; workspace files changed or created during the run are synced back automatically.",
@@ -747,6 +775,7 @@ Operating principles:
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission - the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
 - Never do mental arithmetic. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Doing arithmetic in your head is the fastest way to give the user a confidently wrong number; one tool call costs a fraction of a second.
+- Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
@@ -842,7 +871,8 @@ async function executeWorkspaceTool(
   ownerId: number,
   computer: Computer,
   call: GatewayToolCall,
-  onProgress?: (detail: string) => void
+  onProgress?: (detail: string) => void,
+  sandbox?: E2BSandboxLike
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -853,6 +883,21 @@ async function executeWorkspaceTool(
   }
   const str = (value: unknown) =>
     typeof value === "string" ? value.trim() : "";
+  // Sandbox-first execution: the workspace sandbox (woken at run start) is
+  // the live execution surface, and the durable Neon/S3 store syncs from it.
+  // Every mutating file/folder operation is mirrored onto the sandbox
+  // filesystem; a mirror failure is logged but never blocks the durable op.
+  const folderRows = computer.folders as Array<{ id: number; name: string; parentId: number | null }>;
+  const mirror = async (op: SandboxOp) => {
+    if (!sandbox) return;
+    try {
+      const mirrored = await mirrorWorkspaceOp(sandbox, op);
+      if (!mirrored.ok)
+        console.error("[Sandbox mirror] failed", op.kind, mirrored.error);
+    } catch (error) {
+      console.error("[Sandbox mirror] error", op.kind, error);
+    }
+  };
   switch (call.name) {
     case "list_workspace": {
       const { folders, files } = describeWorkspace(computer);
@@ -880,6 +925,13 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Could not create the file - a file named ${name} may already exist.`,
         };
+      const createdPath = workspaceRelativePathOf(
+        folderRows,
+        created.name,
+        created.folderId ?? null
+      );
+      if (createdPath)
+        await mirror({ kind: "write_file", path: createdPath, content: str(args.content) });
       return {
         ok: true,
         result: `Created ${created.name} (id ${created.id}).`,
@@ -905,6 +957,13 @@ async function executeWorkspaceTool(
       });
       if (!updated)
         return { ok: false, result: `Could not edit ${file.name}.` };
+      const editedPath = workspaceRelativePathOf(
+        folderRows,
+        file.name,
+        file.folderId ?? null
+      );
+      if (editedPath)
+        await mirror({ kind: "write_file", path: editedPath, content });
       return {
         ok: true,
         result: `Updated ${file.name} (id ${file.id}).`,
@@ -926,6 +985,10 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Could not rename ${file.name} - ${newName} may already exist.`,
         };
+      const renameFrom = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
+      const renameTo = workspaceRelativePathOf(folderRows, newName, file.folderId ?? null);
+      if (renameFrom && renameTo)
+        await mirror({ kind: "move_path", from: renameFrom, to: renameTo });
       return {
         ok: true,
         result: `Renamed ${file.name} to ${updated.name}.`,
@@ -944,6 +1007,11 @@ async function executeWorkspaceTool(
       });
       if (!updated)
         return { ok: false, result: `Could not move ${file.name}.` };
+      const moveFrom = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
+      const parentPath = folderPathOf(folderRows, folder.id);
+      const moveTo = moveFrom && parentPath ? `${parentPath}/${moveFrom.split("/").pop()}` : null;
+      if (moveFrom && moveTo)
+        await mirror({ kind: "move_path", from: moveFrom, to: moveTo });
       return {
         ok: true,
         result: `Moved ${file.name} into ${folder.name}.`,
@@ -956,6 +1024,8 @@ async function executeWorkspaceTool(
         return { ok: false, result: `File not found: ${str(args.file)}.` };
       if (!(await deleteWorkspaceFileForUser(ownerId, file.id)))
         return { ok: false, result: `Could not delete ${file.name}.` };
+      const deletedPath = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
+      if (deletedPath) await mirror({ kind: "delete_file", path: deletedPath });
       return {
         ok: true,
         result: `Deleted ${file.name}.`,
@@ -983,6 +1053,9 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Could not create the folder - ${name} may already exist.`,
         };
+      const parentPath = folderPathOf(folderRows, created.parentId ?? null);
+      const newFolderPath = parentPath ? `${parentPath}/${created.name}` : created.name;
+      await mirror({ kind: "create_folder", path: newFolderPath });
       return {
         ok: true,
         result: `Created the ${created.name} folder (id ${created.id}).`,
@@ -1004,6 +1077,15 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Could not rename ${folder.name} - ${newName} may already exist.`,
         };
+      const folderRenameFrom = folderPathOf(folderRows, folder.id);
+      const folderRenameParent = folderPathOf(folderRows, folder.parentId ?? null);
+      const folderRenameTo = folderRenameFrom
+        ? folderRenameParent
+          ? `${folderRenameParent}/${newName}`
+          : newName
+        : null;
+      if (folderRenameFrom && folderRenameTo)
+        await mirror({ kind: "move_path", from: folderRenameFrom, to: folderRenameTo });
       return {
         ok: true,
         result: `Renamed ${folder.name} to ${updated.name}.`,
@@ -1027,6 +1109,14 @@ async function executeWorkspaceTool(
       });
       if (!updated)
         return { ok: false, result: `Could not move ${folder.name}.` };
+      const folderMoveFrom = folderPathOf(folderRows, folder.id);
+      const folderMoveParent = folderPathOf(folderRows, parent.id);
+      const folderMoveTo =
+        folderMoveFrom && folderMoveParent
+          ? `${folderMoveParent}/${folderMoveFrom.split("/").pop()}`
+          : null;
+      if (folderMoveFrom && folderMoveTo)
+        await mirror({ kind: "move_path", from: folderMoveFrom, to: folderMoveTo });
       return {
         ok: true,
         result: `Moved ${folder.name} into ${parent.name}.`,
@@ -1039,6 +1129,8 @@ async function executeWorkspaceTool(
         return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
       if (!(await deleteWorkspaceFolderForUser(ownerId, folder.id)))
         return { ok: false, result: `Could not delete ${folder.name}.` };
+      const removedFolderPath = folderPathOf(folderRows, folder.id);
+      if (removedFolderPath) await mirror({ kind: "delete_folder", path: removedFolderPath });
       return {
         ok: true,
         result: `Deleted the ${folder.name} folder and its contents.`,
@@ -1393,13 +1485,39 @@ async function executeWorkspaceTool(
         if (progressTimer) clearInterval(progressTimer);
       }
     }
+    case "run_bash": {
+      const command = str(args.command);
+      if (!command)
+        return { ok: false, result: "A bash command is required." };
+      if (!sandbox)
+        return {
+          ok: false,
+          result:
+            "The workspace sandbox is not available right now - it either failed to wake or the server's E2B_API_KEY is not configured. Use run_vm_task for shell work instead, and tell the user if the sandbox needs the E2B key.",
+          action: { kind: "vm", name: "bash", operation: "disabled" },
+        };
+      const bash = await runBashOnSandbox(sandbox, command);
+      return {
+        ok: bash.ok,
+        result: bash.result,
+        detail: bash.result.slice(0, 16000),
+        action: { kind: "vm", name: "bash", operation: bash.ok ? "completed" : "failed" },
+      };
+    }
     case "run_vm_task": {
       const task = str(args.task);
       if (!task) return { ok: false, result: "A task is required." };
-      const started = await startAgentVmRun(ownerId, {
-        task,
-        code: str(args.code) || undefined,
-      });
+      const started = await startAgentVmRun(
+        ownerId,
+        {
+          task,
+          code: str(args.code) || undefined,
+        },
+        // The sandbox already woke with this run and its files are current,
+        // so a mid-run restore (which wipes and re-uploads the workspace,
+        // losing bash-created files) must not run again.
+        { skipRestore: Boolean(sandbox) }
+      );
       if (!started.configured)
         return {
           ok: false,
@@ -1426,6 +1544,8 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
   if (!action) return call.name;
   if (action.kind === "tool")
     return `${action.operation === "failed" ? "Failed solving" : "Solved"}: ${action.name}.`;
+  if (action.kind === "vm" && action.name === "bash")
+    return `${action.operation === "failed" ? "Failed running" : "Ran"} a bash command in the sandbox.`;
   if (action.kind === "research")
     return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
   if (action.operation === "presented")
@@ -1677,6 +1797,12 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
 
+  // The workspace sandbox wakes with every run: state is shared with the
+  // finally block below, which syncs the live sandbox filesystem back into
+  // the durable Neon/S3 store no matter how the run ends.
+  let agentSandbox: E2BSandboxLike | undefined;
+  let sandboxWorkspaceId: number | undefined;
+
   try {
     const status = await getMistralGatewayStatus(ownerId);
     if (!status.configured) {
@@ -1704,6 +1830,21 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     }
 
     let computer = await getWorkspaceComputer(ownerId);
+    // The sandbox wakes before the first tool runs: the durable store's files
+    // and folders sync into it, every file/folder tool mirrors onto it, and
+    // bash commands execute on it directly. A failed wake degrades the run to
+    // direct database tools instead of breaking it.
+    sandboxWorkspaceId = computer.workspace.id;
+    agentSandbox = await prepareAgentSandbox(ownerId, computer);
+    if (agentSandbox) {
+      await emitTool({
+        id: "sandbox-wake",
+        name: "wake_sandbox",
+        state: "completed",
+        args: {},
+        summary: "Woke the workspace sandbox and synced the files into it.",
+      });
+    }
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
@@ -2020,7 +2161,7 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
                   },
                 })
               ).catch(() => {});
-            }),
+            }, agentSandbox),
             deadlineAtMs
           );
         } catch (error) {
@@ -2124,5 +2265,11 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     await options.onChunk?.(streamedRunText.trim() ? failureNote : reply);
     const message = await persistAssistant(reply);
     return { message, actions, outOfBudget: false };
+  } finally {
+    // End of run, on every exit path (completed, stopped, deadline, error):
+    // sync the live sandbox filesystem - files created or changed by bash,
+    // VM tasks, or mirrored tool ops - back into the durable Neon/S3 store.
+    if (agentSandbox && sandboxWorkspaceId !== undefined)
+      await syncAgentSandbox(ownerId, sandboxWorkspaceId, agentSandbox);
   }
 }

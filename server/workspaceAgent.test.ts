@@ -163,6 +163,7 @@ vi.mock("./telegram", () => ({
 
 const {
   runWorkspaceAgent,
+  sendTelegramWorkStartedAck,
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
   setGatewayRateLimitRetryDelayForTests,
@@ -350,6 +351,62 @@ describe("Nova tool-calling workspace agent", () => {
         )
       )
     ).toBe(true);
+  });
+
+  it("sends the guaranteed model-written work confirmation over Telegram", async () => {
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: "On it - this should take about 30 seconds.",
+    });
+    await sendTelegramWorkStartedAck(1, "bot-token", "42", "build me a landing page", Date.now() + 285_000);
+    expect(completeWithNvidiaGateway).toHaveBeenCalledWith(1, expect.stringContaining("build me a landing page"));
+    expect(sendTelegramMessage).toHaveBeenCalledWith("bot-token", "42", "On it - this should take about 30 seconds.");
+  });
+
+  it("skips the work confirmation when the run budget is nearly gone", async () => {
+    await sendTelegramWorkStartedAck(1, "bot-token", "42", "do a thing", Date.now() + 10_000);
+    expect(completeWithNvidiaGateway).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it("never breaks the run when the work confirmation fails", async () => {
+    completeWithNvidiaGateway.mockRejectedValueOnce(new Error("gateway down"));
+    await expect(
+      sendTelegramWorkStartedAck(1, "bot-token", "42", "do a thing", Date.now() + 285_000)
+    ).resolves.toBeUndefined();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses the model-written closing status at the deadline when the gateway answers", async () => {
+    completeWithNvidiaGateway.mockResolvedValueOnce({
+      text: "I got the research done but ran out of time to write the file. Send \"continue\" and I will pick up right where I left off.",
+    });
+    deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
+    chatWithNvidiaGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const result = await runWorkspaceAgent(1, 3, "research and deploy", {
+      deadlineAtMs: Date.now() + 25,
+    });
+    const reply = result.message.content;
+    expect(reply).toContain("Send \"continue\" and I will pick up");
+    expect(reply).not.toContain("end of what I can do in one go");
+  });
+
+  it("closes with a synthesized reply when the FIRST gateway round hangs past the deadline", async () => {
+    // Round 0 used to be unraced: a stalled or retrying first model round
+    // could push the whole task past the runtime kill with no reply. It is
+    // now raced whenever the budget is not already gone.
+    chatWithNvidiaGateway.mockImplementationOnce(() => new Promise(() => {}));
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      deadlineAtMs: Date.now() + 100,
+    });
+    const reply = result.message.content;
+    expect(reply).toContain("end of what I can do in one go");
+    expect(reply).toContain('Send "continue"');
   });
 
   it("closes with a synthesized reply when a later gateway round outlasts the deadline", async () => {

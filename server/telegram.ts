@@ -98,6 +98,12 @@ export function stripMarkdownEmphasis(text: string) {
   }
 }
 
+/**
+ * Sends a plain-text Telegram message. Emphasis markers are stripped first
+ * because no parse mode is set: Telegram would otherwise render them as
+ * literal asterisks and underscores. Throws the Telegram error description
+ * on failure so callers can surface the real cause.
+ */
 export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>> }) {
   return telegramRequest<{ message_id: number }>(token, "sendMessage", {
     chat_id: chatId,

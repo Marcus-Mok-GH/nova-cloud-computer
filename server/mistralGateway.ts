@@ -66,16 +66,34 @@ export function resetMistralGatewayHealthCache() {
   gatewayHealthCache = undefined;
 }
 
+export type MistralGatewayClientErrorKind =
+  | "configuration"
+  | "unavailable"
+  | "rate_limit"
+  | "allowance_reached"
+  | "invalid_response"
+  | "client_error"
+  | "stopped";
+
+/**
+ * Maps an upstream HTTP status to the gateway error kind. 429 keeps its special
+ * rate-limit handling and 401/403 mean the configured credential is wrong, but
+ * other 4xx statuses (except the transient 408/425) are permanent request
+ * problems - a bad model id or an oversized prompt - that retrying cannot fix,
+ * so the workspace agent must not burn its retry budget on them.
+ */
+function classifyGatewayHttpError(status: number): MistralGatewayClientErrorKind {
+  if (status === 429) return "rate_limit";
+  if (status === 401 || status === 403) return "configuration";
+  if (status >= 400 && status < 500 && status !== 408 && status !== 425)
+    return "client_error";
+  return "unavailable";
+}
+
 export class MistralGatewayClientError extends Error {
   constructor(
     message: string,
-    public readonly kind:
-      | "configuration"
-      | "unavailable"
-      | "rate_limit"
-      | "allowance_reached"
-      | "invalid_response"
-      | "stopped"
+    public readonly kind: MistralGatewayClientErrorKind
   ) {
     super(message);
     this.name = "MistralGatewayClientError";
@@ -344,15 +362,18 @@ function modelKind(model: MistralModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: Pixtral Large - Mistral AI's flagship vision-language
- * model (docs.mistral.ai). Natively multimodal with image input,
- * function/tool calling, and a 128K-token context, served over the
- * OpenAI-compatible chat API.
+ * Default chat model: Mistral Medium 3.5 - the frontier-class multimodal
+ * replacement for the deprecated Pixtral Large (docs.mistral.ai/models).
+ * Vision-capable with function/tool calling and a 256K-token context, served
+ * over the OpenAI-compatible chat API.
  */
-export const DEFAULT_MISTRAL_MODEL = "pixtral-large-latest";
+export const DEFAULT_MISTRAL_MODEL = "mistral-medium-3-5";
 
-/** Text-only fallback if model discovery proves the default is not served here. */
-export const TEXT_FALLBACK_MODEL = "mistral-large-latest";
+/**
+ * Text-only fallback if model discovery proves the default is not served here.
+ * mistral-large is deprecated too, so the always-current small family stands in.
+ */
+export const TEXT_FALLBACK_MODEL = "mistral-small-latest";
 
 /** Test hook: drop the discovered-model cache between suites. */
 export function resetMistralModelCache() {
@@ -369,12 +390,19 @@ export function defaultMistralModel(): string {
   // The hardcoded default is authoritative whenever this gateway serves it.
   if (modelCache.models.some(model => model.id === DEFAULT_MISTRAL_MODEL))
     return DEFAULT_MISTRAL_MODEL;
-  // This gateway does not serve the default: degrade to another vision model,
-  // and only then to the text fallback.
+  // This gateway does not serve the default: degrade to another vision model
+  // (preferring the current medium family over the deprecated pixtral one),
+  // then to a discovered text model. The hardcoded text fallback is only
+  // authoritative when this gateway actually serves it.
   const vision = modelCache.models.filter(model => model.kind === "vision");
-  return (
+  const visionPick =
+    vision.find(model => model.id.includes("medium"))?.id ??
     vision.find(model => model.id.includes("pixtral"))?.id ??
-    vision[0]?.id ??
+    vision[0]?.id;
+  if (visionPick) return visionPick;
+  return (
+    modelCache.models.find(model => model.id === TEXT_FALLBACK_MODEL)?.id ??
+    modelCache.models.find(model => model.kind === "text")?.id ??
     TEXT_FALLBACK_MODEL
   );
 }
@@ -424,7 +452,7 @@ export async function listMistralModels(forceRefresh = false) {
       message ??
         describeMistralError(payload, response.status) ??
         "AI model discovery is temporarily unavailable.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
   const models = parseMistralModels(payload as MistralModelsResponse | undefined);
@@ -502,7 +530,7 @@ async function readGatewayStreamedCompletion(
       message ??
         describeMistralError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
   const bufferedText =
@@ -600,7 +628,7 @@ export async function completeWithMistralGateway(
       message ??
         describeMistralError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-      response.status === 429 ? "rate_limit" : "unavailable"
+      classifyGatewayHttpError(response.status)
     );
   }
   const bufferedText =
@@ -988,7 +1016,7 @@ export async function chatWithMistralGateway(
           message ??
             describeMistralError(payload, response.status) ??
             "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-          response.status === 429 ? "rate_limit" : "unavailable"
+          classifyGatewayHttpError(response.status)
         );
       }
       const attemptResult = await readGatewayStreamedChatResult(
@@ -1068,7 +1096,7 @@ export async function chatWithMistralGateway(
         message ??
           describeMistralError(errorPayload, response.status) ??
           "Nova’s AI service is temporarily unavailable. Please retry shortly.",
-        response.status === 429 ? "rate_limit" : "unavailable"
+        classifyGatewayHttpError(response.status)
       );
     }
     const payload = (await response.json().catch(() => undefined)) as

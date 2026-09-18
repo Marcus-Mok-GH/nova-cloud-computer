@@ -1401,6 +1401,20 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain("lockouts can persist");
   });
 
+  it("does not retry permanent client errors from the gateway", async () => {
+    // Earlier tests leave queued mock rejections behind (clearAllMocks only
+    // clears call history), so start from a clean slate like the other
+    // error-path tests do.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithMistralGateway.mockRejectedValue(
+      new MistralGatewayClientError("Model not found", "client_error")
+    );
+    const result = await runWorkspaceAgent(1, 3, "hello?");
+    // A 4xx rejection cannot succeed by retrying, so the agent stops at once.
+    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(result.message.content).toContain("Mistral AI rejected this request");
+  });
+
   it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
     chatWithMistralGateway.mockRejectedValue(
       new MistralGatewayClientError("Too Many Requests", "rate_limit")

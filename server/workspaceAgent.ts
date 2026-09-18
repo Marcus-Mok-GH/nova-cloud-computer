@@ -81,9 +81,12 @@ type WorkspaceAgentOptions = {
 
 /**
  * Vercel caps functions at 300s; leave a safety margin so the closing reply
- * is persisted well before the instance can be frozen or killed.
+ * is persisted well before the instance can be frozen or killed. The webhook
+ * anchors the deadline to when the Telegram update ARRIVED, not when the
+ * agent run starts - pre-run work (upload download, voice transcription)
+ * would otherwise push the closing reply past the hard runtime limit.
  */
-const MAX_RUN_BUDGET_MS = 285_000;
+export const MAX_RUN_BUDGET_MS = 285_000;
 /** Skip the final model round when less than this remains. */
 const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
 
@@ -1680,15 +1683,31 @@ export async function runWorkspaceAgent(
           }
         : undefined;
       let result: Awaited<ReturnType<typeof chatWithGatewayRetry>>;
-      try {
-        result = await chatWithGatewayRetry(ownerId, messages, {
+      const runChatRound = () =>
+        chatWithGatewayRetry(ownerId, messages, {
           tools: agentTools,
           ...(emitChunk ? { onChunk: emitChunk } : {}),
           signal: stopController.signal,
           deadlineAtMs,
           retryState,
         });
+      // Rounds after the first are raced against the deadline: a slow LLM
+      // round can take up to the client's own 120s timeout, which used to
+      // run past the budget between the round-level checks until Vercel
+      // killed the whole task with no reply. Round 0 is bounded by the
+      // gateway client's own request timeouts and may still need to run
+      // with a nearly-expired budget so its tool calls can be skipped and
+      // reported rather than vanishing.
+      try {
+        result =
+          round === 0 ? await runChatRound() : await raceToolDeadline(runChatRound, deadlineAtMs);
       } catch (error) {
+        if (error instanceof RunDeadlineExceeded) {
+          reply = synthesizeDeadlineReply();
+          streamedReplyChars = 0;
+          closedByDeadline = true;
+          break;
+        }
         if (
           stopController.signal.aborted &&
           (await hasAgentStopAfter(ownerId, runStartedAt))
@@ -1707,13 +1726,18 @@ export async function runWorkspaceAgent(
             role: "user",
             content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
           };
-        result = await chatWithGatewayRetry(ownerId, messages, {
-          tools: agentTools,
-          ...(emitChunk ? { onChunk: emitChunk } : {}),
-          signal: stopController.signal,
-          deadlineAtMs,
-          retryState,
-        });
+        try {
+          result =
+            round === 0 ? await runChatRound() : await raceToolDeadline(runChatRound, deadlineAtMs);
+        } catch (error) {
+          if (error instanceof RunDeadlineExceeded) {
+            reply = synthesizeDeadlineReply();
+            streamedReplyChars = 0;
+            closedByDeadline = true;
+            break;
+          }
+          throw error;
+        }
       }
       // Recover a tool call the model wrote out as text: run it as a real
       // call so the action executes instead of dumping raw JSON on the user.

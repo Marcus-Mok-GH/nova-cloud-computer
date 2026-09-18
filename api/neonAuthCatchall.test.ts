@@ -45,6 +45,12 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPathFromRequestUrl("/api/chat/delete")).toBe(true);
   });
 
+  it("keeps the HMAC-guarded agent continuation namespace co-deployed", () => {
+    expect(isCoDeployedApiPath(["agent", "continue"])).toBe(true);
+    expect(isCoDeployedApiPath("agent/continue")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/agent/continue")).toBe(true);
+  });
+
   it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
     expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(
       "session=value; Path=/; HttpOnly; Secure; SameSite=None",

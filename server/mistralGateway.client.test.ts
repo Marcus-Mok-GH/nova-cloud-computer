@@ -116,18 +116,18 @@ describe("Mistral gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "mistral-large-latest", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
-  it("defaults to the hardcoded Mistral Medium 3.5 vision model whenever it is served", async () => {
+  it("defaults to the hardcoded ministral-14b model whenever it is served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "mistral-large-latest", modalities: ["text"] },
-      { id: "mistral-medium-3-5", modalities: ["text", "image"] },
+      { id: "ministral-14b-latest", modalities: ["text"] },
       { id: "mistral-omni-latest", modalities: ["text", "image", "audio", "video"] },
     ] }), { status: 200 }));
     const status = await getMistralGatewayStatus(7);
-    expect(status).toMatchObject({ model: "mistral-medium-3-5", reachable: true });
-    expect(defaultMistralModel()).toBe("mistral-medium-3-5");
+    expect(status).toMatchObject({ model: "ministral-14b-latest", reachable: true });
+    expect(defaultMistralModel()).toBe("ministral-14b-latest");
   });
 
-  it("degrades to another vision model when Mistral Medium 3.5 is not served", async () => {
+  it("degrades to a vision model when the hardcoded default is not served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "mistral-medium-latest", modalities: ["text"] },
       { id: "mistral-omni-latest", modalities: ["text", "image", "audio", "video"] },

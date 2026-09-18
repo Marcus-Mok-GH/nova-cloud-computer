@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// These tests exercise the raw gateway stream handling in chatWithNvidiaGateway
+// These tests exercise the raw gateway stream handling in chatWithMistralGateway
 // with a stubbed global fetch - the paths that turn a long tool-calling reply
-// into "NVIDIA returned an invalid response" or a hung webhook.
+// into "Mistral returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({
-  getNvidiaInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
-  claimNvidiaInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
+  getMistralInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
+  claimMistralInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
 }));
 
-import { chatWithNvidiaGateway, resetNvidiaGatewayHealthCache } from "./nvidiaGateway";
+import { chatWithMistralGateway, resetMistralGatewayHealthCache } from "./mistralGateway";
 
 const ORIGINAL_FETCH = global.fetch;
 
@@ -28,24 +28,24 @@ function sseResponse(chunks: string[]) {
 
 function modelsResponse() {
   return new Response(
-    JSON.stringify({ data: [{ id: "nvidia/test-model" }] }),
+    JSON.stringify({ data: [{ id: "mistral/test-model" }] }),
     { status: 200, headers: { "content-type": "application/json" } }
   );
 }
 
 beforeEach(() => {
   // Tokens shorter than 32 chars are ignored by configuredGatewayToken().
-  process.env.NOVA_NVIDIA_GATEWAY_TOKEN = "test-gateway-token-0123456789abcdef012345";
-  resetNvidiaGatewayHealthCache();
-  process.env.NVIDIA_GATEWAY_URL = "https://gateway.example.com/v1";
+  process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "test-gateway-token-0123456789abcdef012345";
+  resetMistralGatewayHealthCache();
+  process.env.MISTRAL_GATEWAY_URL = "https://gateway.example.com/v1";
   vi.useFakeTimers();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   global.fetch = ORIGINAL_FETCH;
-  delete process.env.NOVA_NVIDIA_GATEWAY_TOKEN;
-  delete process.env.NVIDIA_GATEWAY_URL;
+  delete process.env.NOVA_MISTRAL_GATEWAY_TOKEN;
+  delete process.env.MISTRAL_GATEWAY_URL;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -57,11 +57,11 @@ function gatewayFetchStub(respond: (path: string) => Promise<Response> | Respons
   });
 }
 
-describe("NVIDIA gateway chat stream handling", () => {
+describe("Mistral gateway chat stream handling", () => {
   it("stitches streamed text and tool-call fragments into a result", async () => {
     const fetchImpl = gatewayFetchStub(() =>
       sseResponse([
-        `data: ${JSON.stringify({ model: "nvidia/test-model", choices: [{ delta: { content: "Let me check " } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "mistral/test-model", choices: [{ delta: { content: "Let me check " } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { content: "your files." } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", function: { name: "create_folder", arguments: '{"na' } }] } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'me":"A"}' } }] } }] })}\n\n`,
@@ -70,7 +70,7 @@ describe("NVIDIA gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     const chunks: string[] = [];
-    const result = await chatWithNvidiaGateway(1, [{ role: "user", content: "hi" }], {
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
       onChunk: chunk => chunks.push(chunk),
     });
     expect(result.text).toBe("Let me check your files.");
@@ -86,7 +86,7 @@ describe("NVIDIA gateway chat stream handling", () => {
     const fetchImpl = gatewayFetchStub(() => sseResponse(["data: [DONE]\n\n"]));
     global.fetch = fetchImpl as unknown as typeof fetch;
     await expect(
-      chatWithNvidiaGateway(1, [{ role: "user", content: "hi" }], {
+      chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
         onChunk: () => {},
       })
     ).rejects.toMatchObject({ kind: "invalid_response" });
@@ -106,7 +106,7 @@ describe("NVIDIA gateway chat stream handling", () => {
       ]);
     });
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithNvidiaGateway(
+    const result = await chatWithMistralGateway(
       1,
       [{ role: "user", content: "hi" }],
       { onChunk: () => {} }
@@ -124,7 +124,7 @@ describe("NVIDIA gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     await expect(
-      chatWithNvidiaGateway(1, [{ role: "user", content: "hi" }], {
+      chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
         onChunk: () => {},
       })
     ).rejects.toMatchObject({
@@ -151,7 +151,7 @@ describe("NVIDIA gateway chat stream handling", () => {
       );
     });
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithNvidiaGateway(1, [
+    const result = await chatWithMistralGateway(1, [
       { role: "user", content: "hi" },
     ]);
     expect(result.text).toBe("Back online.");
@@ -181,7 +181,7 @@ describe("NVIDIA gateway chat stream handling", () => {
     global.fetch = fetchImpl as unknown as typeof fetch;
 
     let settled: unknown;
-    const attempt = chatWithNvidiaGateway(1, [{ role: "user", content: "hi" }], {
+    const attempt = chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
       onChunk: () => {},
     }).then(
       value => {

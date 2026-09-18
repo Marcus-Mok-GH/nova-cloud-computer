@@ -953,7 +953,7 @@
       "isRLSEnabled": false
     },
     "public.nvidia_inference_allowances": {
-      "name": "nvidia_inference_allowances",
+      "name": "mistral_inference_allowances",
       "schema": "",
       "columns": {
         "id": {
@@ -991,8 +991,8 @@
         }
       },
       "indexes": {
-        "nvidia_inference_allowances_workspace_unique": {
-          "name": "nvidia_inference_allowances_workspace_unique",
+        "mistral_inference_allowances_workspace_unique": {
+          "name": "mistral_inference_allowances_workspace_unique",
           "columns": [
             {
               "expression": "workspaceId",
@@ -1010,7 +1010,7 @@
       "foreignKeys": {
         "nvidia_inference_allowances_workspaceId_workspaces_id_fk": {
           "name": "nvidia_inference_allowances_workspaceId_workspaces_id_fk",
-          "tableFrom": "nvidia_inference_allowances",
+          "tableFrom": "mistral_inference_allowances",
           "tableTo": "workspaces",
           "columnsFrom": [
             "workspaceId"
@@ -2218,7 +2218,7 @@
         "openai",
         "gemini",
         "custom",
-        "nvidia-nim"
+        "mistral"
       ]
     },
     "public.project_status": {

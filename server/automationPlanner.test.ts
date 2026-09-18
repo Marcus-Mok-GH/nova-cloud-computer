@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const complete = vi.fn();
 
-class MockNvidiaGatewayClientError extends Error {
+class MockMistralGatewayClientError extends Error {
   kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response";
   constructor(
     message: string,
@@ -13,9 +13,9 @@ class MockNvidiaGatewayClientError extends Error {
   }
 }
 
-vi.mock("./nvidiaGateway", () => ({
-  completeWithNvidiaGateway: complete,
-  NvidiaGatewayClientError: MockNvidiaGatewayClientError,
+vi.mock("./mistralGateway", () => ({
+  completeWithMistralGateway: complete,
+  MistralGatewayClientError: MockMistralGatewayClientError,
 }));
 
 const { planAutomation } = await import("./automationPlanner");
@@ -39,7 +39,7 @@ describe("planAutomation", () => {
 
   it("propagates gateway failures immediately without retrying", async () => {
     complete.mockRejectedValue(
-      new MockNvidiaGatewayClientError("gateway down", "unavailable")
+      new MockMistralGatewayClientError("gateway down", "unavailable")
     );
 
     await expect(

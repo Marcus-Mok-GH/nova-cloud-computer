@@ -1,4 +1,4 @@
-import { NVIDIA_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
@@ -20,14 +20,14 @@ import {
   updateWorkspaceFolderForUser,
 } from "./db";
 import {
-  chatWithNvidiaGateway,
-  completeWithNvidiaGateway,
-  getNvidiaGatewayStatus,
+  chatWithMistralGateway,
+  completeWithMistralGateway,
+  getMistralGatewayStatus,
   type GatewayChatMessage,
   type GatewayToolCall,
   type GatewayToolDefinition,
-  NvidiaGatewayClientError,
-} from "./nvidiaGateway";
+  MistralGatewayClientError,
+} from "./mistralGateway";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
@@ -162,7 +162,7 @@ export async function autoTitleChatForUser(
       firstUser.content,
       firstAssistant.content,
     ].join("\n");
-    const result = await completeWithNvidiaGateway(
+    const result = await completeWithMistralGateway(
       ownerId,
       prompt.slice(0, 2000)
     );
@@ -1390,8 +1390,8 @@ const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
 let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
 /**
- * NVIDIA's free tier rate limits (~40 RPM) apply per minute, but once a 429
- * lockout starts it lasts roughly 30-60 minutes - and every request sent
+ * Mistral AI applies per-tier rate limits (requests per second plus token
+ * budgets), and a 429 lockout can persist for a while - every request sent
  * during the lockout can extend it. So upstream rate limits get ONE patient
  * retry (transient 429s under load do clear in seconds), never the fast
  * retry loop, and only when the run budget can absorb the wait.
@@ -1439,7 +1439,7 @@ async function chatWithGatewayRetry(
     let streamedChars = 0;
     const emit = options.onChunk;
     try {
-      return await chatWithNvidiaGateway(ownerId, messages, {
+      return await chatWithMistralGateway(ownerId, messages, {
         tools: options.tools,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
@@ -1455,12 +1455,12 @@ async function chatWithGatewayRetry(
       // A user-requested stop aborts the in-flight request: never retry it.
       if (options.signal?.aborted) throw error;
       const retryable =
-        error instanceof NvidiaGatewayClientError &&
+        error instanceof MistralGatewayClientError &&
         GATEWAY_RETRY_KINDS.has(error.kind);
       // Upstream 429: one patient retry, deadline-gated, once per run. The
       // fast loop must never hammer a lockout - that only extends it.
       const isUpstreamRateLimit =
-        error instanceof NvidiaGatewayClientError && error.kind === "rate_limit";
+        error instanceof MistralGatewayClientError && error.kind === "rate_limit";
       const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
       if (
         isUpstreamRateLimit &&
@@ -1507,7 +1507,7 @@ export async function sendTelegramWorkStartedAck(
   if (deadlineAtMs - Date.now() < ACK_MIN_REMAINING_MS) return;
   const message = userText.slice(0, 500);
   const generate = (async () => {
-    const completion = await completeWithNvidiaGateway(
+    const completion = await completeWithMistralGateway(
       ownerId,
       `You are Nova, an AI assistant working inside the user's personal cloud workspace. The user just sent you this message over Telegram:
 
@@ -1527,7 +1527,7 @@ Write exactly ONE short confirmation line (aim for 10-20 words) that (1) confirm
 }
 
 /**
- * Runs the workspace agent for a message: a tool-calling loop over the NVIDIA
+ * Runs the workspace agent for a message: a tool-calling loop over the Mistral
  * gateway. Every message goes through the model with workspace tools
  * (create/read/edit/rename/move/delete files and folders, Telegram, VM runs);
  * the loop executes requested tools and continues until the model produces a
@@ -1597,7 +1597,7 @@ export async function runWorkspaceAgent(
     const summaries = lastRoundSummaries.map(summary => `- ${summary}`).join("\n");
     try {
       const completion = await Promise.race([
-        completeWithNvidiaGateway(
+        completeWithMistralGateway(
           ownerId,
           `You are Nova, an AI assistant working inside the user's personal cloud workspace. You just hit the end of the time you may spend on this single message; your work so far stops here but the conversation continues.
 
@@ -1622,10 +1622,10 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
 
   try {
-    const status = await getNvidiaGatewayStatus(ownerId);
+    const status = await getMistralGatewayStatus(ownerId);
     if (!status.configured) {
       const reply =
-        "NVIDIA inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
+        "Mistral inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
       return { message, actions: [], outOfBudget: false };
@@ -1635,13 +1635,13 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       (status.providerConfigurationKnown && !status.providerConfigured)
     ) {
       const reply =
-        "NVIDIA inference gateway is temporarily unreachable. Please try again shortly.";
+        "Mistral inference gateway is temporarily unreachable. Please try again shortly.";
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
       return { message, actions: [], outOfBudget: false };
     }
     if (status.allowance.exhausted) {
-      const reply = `NVIDIA inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
+      const reply = `Mistral inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
       return { message, actions: [], outOfBudget: false };
@@ -2032,21 +2032,21 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
     const message = await persistAssistant(reply);
     return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
-    console.error("[Chat] NVIDIA chat failed", error);
+    console.error("[Chat] Mistral chat failed", error);
     const kind =
-      error instanceof NvidiaGatewayClientError ? error.kind : "unavailable";
+      error instanceof MistralGatewayClientError ? error.kind : "unavailable";
     const failureNote =
       "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
     let reply: string;
     if (kind === "configuration") {
       reply =
-        "NVIDIA inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
+        "Mistral inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
     } else if (kind === "allowance_reached") {
       reply =
-        "NVIDIA inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
+        "Mistral inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
     } else if (kind === "rate_limit") {
       reply =
-        "NVIDIA's free-tier rate limit was hit (about 40 requests per minute). Their lockouts can last 30-60 minutes, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
+        "Mistral AI's rate limit was hit. Their lockouts can persist for a while, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails
@@ -2056,9 +2056,9 @@ Write a short, honest status message to the user (2-4 sentences): what got done,
       if (partial) {
         reply = partial + failureNote;
       } else if (kind === "invalid_response") {
-        reply = "NVIDIA returned an invalid response. Please try again shortly.";
+        reply = "Mistral returned an invalid response. Please try again shortly.";
       } else {
-        reply = NVIDIA_UNAVAILABLE_MESSAGE;
+        reply = MISTRAL_UNAVAILABLE_MESSAGE;
       }
     }
     // Only emit what the client has not already seen streamed live.

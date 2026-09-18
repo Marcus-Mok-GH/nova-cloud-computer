@@ -12,6 +12,8 @@ export const automationKind = pgEnum("automation_kind", ["workspace_digest"]);
 export const automationRunStatus = pgEnum("automation_run_status", ["running", "succeeded", "failed", "skipped"]);
 export const userAutomationFrequency = pgEnum("user_automation_frequency", ["hourly", "daily", "weekdays", "weekly", "custom"]);
 export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying", "live", "failed"]);
+/** Ledger of segmented agent runs: one row per user message that starts agent work. */
+export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_continue", "completed", "stopped", "failed"]);
 
 export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique() });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
@@ -52,3 +54,18 @@ export const siteDeployments = pgTable("site_deployments", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("site_deployments_workspace_created_idx").on(table.workspaceId, table.createdAt)]);
+
+export const agentRuns = pgTable("agent_runs", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  chatId: integer("chatId").notNull().references(() => chats.id, { onDelete: "cascade" }),
+  channel: varchar("channel", { length: 32 }).default("telegram").notNull(),
+  status: agentRunStatus("status").default("running").notNull(),
+  segment: integer("segment").default(0).notNull(),
+  notifyChatId: varchar("notifyChatId", { length: 64 }),
+  errorMessage: varchar("errorMessage", { length: 1200 }),
+  startedAt: timestamp("startedAt", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("agent_runs_workspace_status_idx").on(table.workspaceId, table.status), index("agent_runs_chat_idx").on(table.chatId)]);

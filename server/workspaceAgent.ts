@@ -1,5 +1,6 @@
 import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
+import { evaluate } from "mathjs";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
 import {
@@ -32,7 +33,7 @@ import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment" | "project";
+  kind: "folder" | "file" | "telegram" | "vm" | "connector" | "research" | "deployment" | "project" | "tool";
   name: string;
   operation?:
     | "created"
@@ -558,6 +559,24 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "solve_equation",
+      description:
+        "Solve a math equation exactly and return the numeric answer. Use this for ALL arithmetic - never do mental math: adding, subtracting, multiplying, dividing, percentages, powers, roots, or any multi-step numeric calculation should go through this tool. Express the problem as a single mathematical expression (e.g. '20 - (5*2 + 2*(2/3))' or 'sqrt(196) * 3.5'); word problems must be translated into an expression first.",
+      parameters: {
+        type: "object",
+        properties: {
+          equation: {
+            type: "string",
+            description: "A single mathematical expression to evaluate, e.g. '20 - 11.33' or 'sqrt(196) * 3.5'.",
+          },
+        },
+        required: ["equation"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "research_web",
       description:
         "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling - never omit it, never default lazily. Say nothing about the choice unless asked.",
@@ -727,6 +746,7 @@ Operating principles:
 - Act first. When the user states a goal, complete it end-to-end in this turn: plan internally, call every tool the goal requires, verify the result, then report. Never reply with only a plan, instructions, or a question when tools could get the work done right now.
 - Chain tools freely. Multi-step work is the norm: create folders before files, read before editing, verify after writing. Do not pause between steps to narrate or ask permission - the user sees your tool activity as it runs.
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
+- Never do mental arithmetic. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Doing arithmetic in your head is the fastest way to give the user a confidently wrong number; one tool call costs a fraction of a second.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
@@ -811,6 +831,13 @@ function toolCallWrittenAsText(text: string, tools: Array<{ function: { name: st
 }
 
 /** Executes a single model-requested tool call against the workspace. */
+/** Formats a numeric mathjs result for the agent: clean integers, readable decimals. */
+function formatMathAnswer(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  // Round long floats to 6 decimal places, trimming trailing zeros.
+  return String(Math.round(value * 1e6) / 1e6);
+}
+
 async function executeWorkspaceTool(
   ownerId: number,
   computer: Computer,
@@ -1297,6 +1324,33 @@ async function executeWorkspaceTool(
         };
       }
     }
+    case "solve_equation": {
+      const equation = str(args.equation).trim();
+      if (!equation)
+        return { ok: false, result: "An equation to solve is required." };
+      try {
+        const answer = evaluate(equation);
+        if (answer === undefined || answer === null || (typeof answer === "number" && !Number.isFinite(answer)))
+          return {
+            ok: false,
+            result: `That expression does not evaluate to a number (got: ${String(answer)}). Pass a single numeric expression like '20 - 11.33'.`,
+            action: { kind: "tool", name: equation.slice(0, 60), operation: "failed" },
+          };
+        const formatted = typeof answer === "number" ? formatMathAnswer(answer) : String(answer);
+        return {
+          ok: true,
+          result: `${equation} = ${formatted}`,
+          detail: `${equation} = ${formatted}`,
+          action: { kind: "tool", name: equation.slice(0, 60), operation: "completed" },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: `Could not evaluate '${equation}': ${error instanceof Error ? error.message : "invalid expression"}. Pass a single numeric expression like '20 - 11.33' or 'sqrt(196) * 3.5'.`,
+          action: { kind: "tool", name: equation.slice(0, 60), operation: "failed" },
+        };
+      }
+    }
     case "research_web": {
       const topic = str(args.topic);
       if (!topic) return { ok: false, result: "A research topic is required." };
@@ -1370,6 +1424,8 @@ async function executeWorkspaceTool(
 function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
   const action = execution.action;
   if (!action) return call.name;
+  if (action.kind === "tool")
+    return `${action.operation === "failed" ? "Failed solving" : "Solved"}: ${action.name}.`;
   if (action.kind === "research")
     return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
   if (action.operation === "presented")

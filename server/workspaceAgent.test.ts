@@ -364,6 +364,76 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Created notes.txt for you.");
   });
 
+  it("solves an equation when the model calls solve_equation, then finishes with a reply", async () => {
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-math",
+              name: "solve_equation",
+              arguments: JSON.stringify({ equation: "20 - (5*2 + 2*(2/3))" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "You get $8.67 back." })
+      );
+    const onChunk = vi.fn();
+    const onEvent = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "I have $20, how much change after 17 apples at 3 for $2?", {
+      onChunk,
+      onEvent,
+    });
+    // The tool loop fed the exact solved answer back to the model.
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-math",
+          content: "20 - (5*2 + 2*(2/3)) = 8.666667",
+        }),
+      ])
+    );
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "20 - (5*2 + 2*(2/3))", operation: "completed" },
+    ]);
+    expect(onChunk).toHaveBeenCalledWith("You get $8.67 back.");
+    expect(result.message.content).toBe("You get $8.67 back.");
+  });
+
+  it("reports a failed solve_equation call back to the model instead of breaking the run", async () => {
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-math-bad",
+              name: "solve_equation",
+              arguments: JSON.stringify({ equation: "2 +* 3" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Sorry, that one was not solvable." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "solve garbage");
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolRow = [...secondCallMessages].reverse().find(m => m.role === "tool");
+    expect(toolRow).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-math-bad",
+    });
+    expect(toolRow.content).toContain("Could not evaluate '2 +* 3'");
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "2 +* 3", operation: "failed" },
+    ]);
+    expect(result.message.content).toBe("Sorry, that one was not solvable.");
+  });
+
   it("deploys the workspace website when the model calls deploy_website", async () => {
     chatWithMistralGateway
       .mockResolvedValueOnce(

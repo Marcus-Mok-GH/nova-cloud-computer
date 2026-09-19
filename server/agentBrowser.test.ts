@@ -52,6 +52,44 @@ describe("runBrowserCommand", () => {
     );
   });
 
+  it("reports a terminal setup failure with the setup log tail and starts one fresh attempt", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({
+        exitCode: 12,
+        stdout: "Last browser install attempt failed; tail of the setup log:\nsetup exit 1\nEACCES: permission denied",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "", stderr: "" });
+    const result = await runBrowserCommand(fakeSandbox(run), "open https://example.com");
+    expect(result.ok).toBe(false);
+    expect(result.result).toContain("FAILED in a previous attempt");
+    expect(result.result).toContain("EACCES: permission denied");
+    expect(result.result).toContain("/tmp/nova-agent-browser-setup.log");
+    // One fresh background attempt is started, not a silent loop.
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ background: true })
+    );
+  });
+
+  it("records a terminal failure status so a failed install never looks like an in-progress one", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ exitCode: 11, stdout: "", stderr: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "", stderr: "" });
+    await runBrowserCommand(fakeSandbox(run), "snapshot");
+    const install = run.mock.calls[1][0] as string;
+    // The detached wrapper writes the failure file on a nonzero exit...
+    expect(install).toContain("nova-agent-browser-setup-failed");
+    // ...the fresh attempt clears it first...
+    expect(install).toContain("rm -f /tmp/nova-agent-browser-setup-failed");
+    // ...and the probe reads it (with the log tail) before anything else.
+    const probe = run.mock.calls[0][0] as string;
+    expect(probe).toContain("nova-agent-browser-setup-failed");
+    expect(probe).toContain("tail -n 15");
+  });
+
   it("also installs in the background when the CLI itself is missing", async () => {
     const run = vi
       .fn()

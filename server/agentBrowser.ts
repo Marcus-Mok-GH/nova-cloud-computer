@@ -8,12 +8,17 @@ const BROWSE_READINESS_TIMEOUT_MS = 20_000;
 // The one-time install runs detached in the sandbox, so this only covers
 // *starting* the detached process; the install itself finishes on its own.
 const BROWSE_SETUP_START_TIMEOUT_MS = 30_000;
-// Readiness probe exit codes: 10 = CLI missing, 11 = Chrome not installed.
+// Readiness probe exit codes: 10 = CLI missing, 11 = Chrome not installed
+// (or install still running), 12 = a previous install attempt FAILED.
 const EXIT_CLI_MISSING = 10;
 const EXIT_CHROME_MISSING = 11;
+const EXIT_SETUP_FAILED = 12;
 const SETUP_READY_MARKER = "$HOME/.nova-agent-browser-ready";
 const SETUP_LOCK = "/tmp/nova-agent-browser-setup.lock";
 const SETUP_LOG = "/tmp/nova-agent-browser-setup.log";
+// Written when the detached install exits nonzero so a *failed* install is
+// distinguishable from one that is still running.
+const SETUP_FAILED = "/tmp/nova-agent-browser-setup-failed";
 
 export type BrowserCommandResult = { ok: boolean; result: string };
 
@@ -25,6 +30,7 @@ type CommandOutcome = { exitCode: number; stdout: string; stderr: string };
  * so the heavy install only ever runs when it is actually needed.
  */
 const READINESS_PROBE = [
+  `if [ -f "${SETUP_FAILED}" ]; then echo "Last browser install attempt failed; tail of the setup log:"; tail -n 15 ${SETUP_LOG} 2>/dev/null; exit 12; fi`,
   "command -v agent-browser >/dev/null 2>&1 || exit 10",
   `[ ! -f "${SETUP_READY_MARKER}" ] && exit 11`,
   "agent-browser --version",
@@ -40,7 +46,9 @@ const READINESS_PROBE = [
 const AGENT_BROWSER_SETUP = [
   "set -e",
   `exec 9>${SETUP_LOCK}`,
-  "flock -n 9",
+  'flock -n 9 || { echo "another install is already running; nothing to do"; exit 0; }',
+  // A fresh attempt supersedes any recorded failure from a previous one.
+  `rm -f ${SETUP_FAILED}`,
   "if ! command -v agent-browser >/dev/null 2>&1; then",
   '  echo "Installing agent-browser (one-time setup for this sandbox)..."',
   "  npm install -g agent-browser",
@@ -64,7 +72,7 @@ const AGENT_BROWSER_SETUP = [
  * (and the sandbox itself is persistent), logs to a file inside the sandbox
  * so a later run can inspect why it failed, and the marker makes it one-time.
  */
-const DETACHED_SETUP = `( ${AGENT_BROWSER_SETUP} ) > ${SETUP_LOG} 2>&1; echo "setup exit $?" >> ${SETUP_LOG}`;
+const DETACHED_SETUP = `( ${AGENT_BROWSER_SETUP} ) > ${SETUP_LOG} 2>&1; code=$?; if [ "$code" -ne 0 ]; then echo "setup exit $code" | tee ${SETUP_FAILED} >> ${SETUP_LOG}; else echo "setup exit 0" >> ${SETUP_LOG}; fi`;
 
 const SETUP_IN_PROGRESS_RESULT = [
   "The sandbox browser is not installed yet, so the browser command was not run.",
@@ -176,6 +184,23 @@ export async function runBrowserCommand(
       READINESS_PROBE,
       BROWSE_READINESS_TIMEOUT_MS
     );
+    if (probe.exitCode === EXIT_SETUP_FAILED) {
+      // The previous install died (disk full, blocked download, ...). Surface
+      // its actual error instead of silently looping on fresh installs: the
+      // probe already printed the tail of the setup log. Start one new
+      // attempt (a transient failure heals itself) and tell the model what to
+      // do if the same error comes back.
+      await startDetachedSetup(sandbox);
+      const logTail = truncateOutput(probe.stdout);
+      return {
+        ok: false,
+        result: [
+          "The one-time sandbox browser install FAILED in a previous attempt:",
+          logTail || "(no log captured)",
+          "A fresh attempt is starting in the background now; wait 2-3 minutes and retry the browser command. If it fails again with the same error, inspect the sandbox with run_bash (`cat /tmp/nova-agent-browser-setup.log`, `agent-browser doctor`) and fix the root cause - common ones are no disk space or a blocked network for the npm/Chrome downloads. Tell the user what the log says.",
+        ].join("\n\n"),
+      };
+    }
     if (
       probe.exitCode === EXIT_CLI_MISSING ||
       probe.exitCode === EXIT_CHROME_MISSING

@@ -273,11 +273,15 @@ describe("Segment chaining inside the runner", () => {
       expect(closeCall?.[1]).toBe(501);
       // The closing status assumed an automatic continuation was coming; when
       // scheduling fails the user must be told to resume manually.
-      await waitFor(() =>
-        spies.sendTelegramMessage.mock.calls.some(call =>
-          typeof call[2] === "string" && call[2].includes('Send "continue"')
+      // waitFor returns (rather than throws) its final predicate result, so
+      // asserting on it keeps this test honest if the fallback never lands.
+      expect(
+        await waitFor(() =>
+          spies.sendTelegramMessage.mock.calls.some(call =>
+            typeof call[2] === "string" && call[2].includes('Send "continue"')
+          )
         )
-      );
+      ).toBe(true);
     } finally {
       globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
         if (String(url).includes("/api/agent/continue")) {

@@ -1,5 +1,10 @@
 # Changelog
 
+2026-09-19 - Portal logo in the landing page header
+
+- The landing page header now shows the new brand logo top-left: the warm-portal icon image replaces the old starburst `NovaMark` component in `client/src/pages/Home.tsx` (the "Nova" wordmark and "cloud computer" tagline next to it are unchanged).
+- `client/public/logo-96.png` added (96px downscale of the 1024px master) so the 27px header render is crisp on high-DPI screens; rounded via CSS to keep clean tile corners on both light and dark landing themes.
+
 2026-09-19 - Dark-theme favicon variant
 
 - Added a dark-mode variant of the portal logo for users browsing in dark theme: same composition, near-black ground (#0a0a0c) instead of charcoal, slightly more luminous doorway glow - AI-generated from the light-variant master as reference.

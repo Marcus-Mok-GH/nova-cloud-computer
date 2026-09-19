@@ -18,7 +18,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
-import NovaMark from "@/components/NovaMark";
 
 type Feature = { icon: LucideIcon; eyebrow: string; title: string; body: string };
 
@@ -50,7 +49,7 @@ function Home() {
       <header className="sticky top-0 z-40 border-b border-[#dfdcd4]/90 bg-[#f7f5f1]/95 backdrop-blur dark:border-white/10 dark:bg-[#121514]/95">
         <div className="mx-auto flex h-[70px] max-w-6xl items-center justify-between gap-5 px-5 sm:px-8">
           <a href="#top" className="flex items-center gap-2.5" aria-label="Nova home">
-            <NovaMark size={27} />
+            <img src="/logo-96.png" alt="" width="27" height="27" className="rounded-[7px]" loading="eager" />
             <span className="text-[17px] font-bold tracking-[-0.02em]">Nova</span>
             <span className="hidden border-l border-[#d6d2c9] pl-2.5 text-[11px] font-medium text-[#77766f] sm:inline dark:border-white/15 dark:text-[#a7aaa4]">cloud computer</span>
           </a>

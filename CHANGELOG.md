@@ -1,5 +1,11 @@
 # Changelog
 
+2026-09-19 - Dark-theme favicon variant
+
+- Added a dark-mode variant of the portal logo for users browsing in dark theme: same composition, near-black ground (#0a0a0c) instead of charcoal, slightly more luminous doorway glow - AI-generated from the light-variant master as reference.
+- `client/public/brand-icon-dark-1024.png` master asset; `favicon-dark-32.png` served via a `<link rel="icon" media="(prefers-color-scheme: dark)">` in `client/index.html`, so dark-theme users get it automatically. The light favicon remains the default and stays as the apple-touch-icon (iOS ignores color-scheme media queries).
+- 16px tab legibility verified (34 bright pixels).
+
 2026-09-19 - New logo: AI-generated warm portal icon
 
 - Replaced the browser icon with the new brand logo: an abstract open portal of overlapping warm-orange panels on a nearly black charcoal tile - layered files and saved context on the left, a bright doorway of light at the center, a muted copper panel curving away on the right, and an orange path flowing forward out of the opening. Generated with the AI image tool from a written design spec, then processed into the production set.

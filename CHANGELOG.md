@@ -1,10 +1,10 @@
 # Changelog
 
-## 2026-09-19 - New favicon: glowing nova starburst on a space-violet tile
+## 2026-09-19 - New favicon: a nova dawning over a dark planet horizon
 
-- Redesigned the browser-tab icon around the product's own brand mark: the four-point nova starburst (the same path as the in-app `NovaMark`) now glows white-to-amber over a deep space-violet gradient tile, with a soft radial glow and a small companion sparkle. Replaces the flat grey starburst on white, which was nearly invisible in dark tabs.
-- `client/public/favicon.svg`: new 64x64 design (starburst centered, gradients, glow). `client/public/favicon-32.png` added as a PNG fallback for browsers without SVG favicon support (Safari), and `client/public/apple-touch-icon.png` (180px, full-bleed tile since iOS masks corners itself) for home-screen installs.
-- `client/index.html`: icon links now serve SVG first, PNG 32 fallback, plus the apple-touch-icon; theme/description untouched.
+- Redesigned the browser-tab icon as a scene built from the product's own brand mark: the four-point nova starburst (the in-app `NovaMark` path) rises half-way over the horizon of a dark violet planet, wrapped in a warm halo with a glowing rim light along the planet's edge and a faint starfield above - "a new star dawning over your world". Replaces the old flat grey starburst on white, which was nearly invisible in dark browser tabs. A simpler first pass (starburst on a gradient tile) shipped earlier the same day and was pushed further into the horizon composition.
+- `client/public/favicon.svg`: new 64x64 clipped-tile design (halo -> star -> planet layering so the star's base sits behind the rim). `client/public/favicon-32.png` PNG fallback for browsers without SVG favicon support (Safari), `client/public/apple-touch-icon.png` (180px, full-bleed since iOS masks corners itself) for home-screen installs.
+- `client/index.html`: icon links serve SVG first, PNG 32 fallback, plus the apple-touch-icon; title/description untouched.
 
 # Changelog
 

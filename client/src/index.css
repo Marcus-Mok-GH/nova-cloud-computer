@@ -96,6 +96,11 @@ body {
 button, a { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
+
+/* ---------------- Mobile ---------------- */
+html { -webkit-text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"] { touch-action: manipulation; }
 ::selection { background: oklch(0.56 0.13 35 / 0.20); }
 
 .dashboard-shell { background: var(--background); }

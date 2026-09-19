@@ -167,7 +167,7 @@ export default function Workspace() {
             {isStreaming && !replyCommitted && <div className="chat-in flex w-full shrink-0 items-start gap-2.5"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.65rem)]">{streamingLabel && <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nova App</p>}{isUnavailableReply(streamingContent) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{streamingContent}</span></div></div> : streamingContent ? <div className="break-words text-[15px] leading-7 text-foreground"><MarkdownText text={streamingContent} /><span className="stream-caret" /></div> : <TypingIndicator />}</div></div>}
           </div>
         </div>
-        <form onSubmit={submit} className="z-10 shrink-0 bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-4 pt-3 sm:px-5 sm:pb-5">
+        <form onSubmit={submit} className="z-10 shrink-0 bg-gradient-to-t from-background via-background/95 to-transparent px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="mx-auto w-full max-w-3xl">
             <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 pl-3.5 shadow-[0_4px_14px_rgba(10,10,10,0.05)] transition-all focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/10 dark:bg-card dark:focus-within:border-primary/40">
               <Textarea
@@ -181,7 +181,7 @@ export default function Workspace() {
                 }}
                 placeholder="Message Nova…"
                 rows={1}
-                className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[15px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0"
+                className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
               />
               <button type="submit" disabled={!draft.trim() || isStreaming} aria-label="Send message" className={`grid size-9 shrink-0 place-items-center rounded-xl transition-all ${draft.trim() && !isStreaming ? "bg-primary text-white hover:bg-primary/90" : "bg-muted text-muted-foreground hover:bg-muted dark:bg-white/5 dark:text-muted-foreground dark:hover:bg-white/10"}`}>
                 {isStreaming ? <CircleDashed className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}

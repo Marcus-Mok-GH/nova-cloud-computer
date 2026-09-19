@@ -6,7 +6,7 @@ import {
   isValidSignInEmail,
   readSubmittedEmail,
 } from "@/lib/signInEmail";
-import NovaMark from "@/components/NovaMark";
+import NovaLogo from "@/components/NovaLogo";
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import React, { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -116,7 +116,7 @@ export default function SignIn() {
 
       <section className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-10">
         <div className="flex items-center gap-2.5">
-          <NovaMark size={26} ariaHidden={false} />
+          <NovaLogo size={26} ariaHidden={false} />
           <span className="text-lg font-extrabold tracking-tight text-card-foreground">Nova</span>
         </div>
         <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-card-foreground">Sign in to Nova.</h1>

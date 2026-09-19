@@ -1,5 +1,10 @@
 # Changelog
 
+2026-09-19 - Portal logo across the app
+
+- The warm-portal brand logo now replaces the old starburst `NovaMark` everywhere in the app: the dashboard sidebar, the sign-in card on `DashboardLayout`, the `SignIn` page, the `NotFound` page, and the Nova avatar marks in the `Workspace` chat stream (message avatars, empty state, and the workspace error screen).
+- New `NovaLogo` component (`client/src/components/NovaLogo.tsx`) mirrors the old mark's prop surface (`size`, `className`, `ariaHidden`) and renders `logo-96.png` with proportional tile rounding, so every usage swapped cleanly. `NovaMark.tsx` is deleted; the landing page header (already shipped) uses the same asset.
+
 2026-09-19 - Portal logo in the landing page header
 
 - The landing page header now shows the new brand logo top-left: the warm-portal icon image replaces the old starburst `NovaMark` component in `client/src/pages/Home.tsx` (the "Nova" wordmark and "cloud computer" tagline next to it are unchanged).

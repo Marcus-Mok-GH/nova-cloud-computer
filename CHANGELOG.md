@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-19 - Fix browse tool: the one-time Chrome install blew the run budget, so browser use always timed out
+
+- Production bug: every agent run that used `browse` timed out. The bootstrap (npm package + ~500MB Chrome for Testing download + apt deps, 1-3 minutes) ran *inline* with the browse call (240s timeout), inside a run whose whole budget is 285s (Vercel 300s). The agent almost always calls browse after already spending most of that budget, so the run died mid-install; the ready marker was never written, and the next run started the same doomed install from scratch. Browser use timed out every single time, on every sandbox, forever.
+- `server/agentBrowser.ts`: the install never runs inline anymore.
+  - A fast readiness probe (CLI on PATH + ready marker + `--version`, 20s) runs before every command; when ready, the command runs directly (120s) with no setup cost.
+  - When not ready, the idempotent install is started as a *detached background* E2B command (`background: true`): it survives the end of the agent run and the persistent sandbox finishes it on its own, logging to `/tmp/nova-agent-browser-setup.log`. The browse call returns immediately with model-ready guidance: tell the user the one-time setup is running, retry in 2-3 minutes, do not start a second install. A `flock` in the setup script stops two concurrent installs from racing npm or the Chrome download.
+  - A failed readiness probe (anything other than CLI/marker missing) reports its exit code and stderr with explicit debugging guidance (`run_bash` + `agent-browser doctor` + the setup log) instead of a generic retry loop; Chrome launch failures now mention the `--args --no-sandbox` fallback for container/VM sandboxes.
+  - New `warmBrowserInBackground()`: fire-and-forget warmup called right after the sandbox wakes in `server/workspaceAgent.ts`, so the one-time install usually finishes before the agent first wants to browse.
+- `server/workspaceAgent.ts`: browse tool description and system-prompt guidance updated to match (background install + retry in ~2-3 minutes, never retry immediately).
+- Tests: `agentBrowser.test.ts` rewritten for the new contract (probe -> command fast path, detached-install path asserts `background: true` + setup log, probe-failure guidance, warmup never throws), and the `workspaceAgent.test.ts` module mock extended with the warmup. 
+
 ## 2026-09-19 - Fix browse tool: bootstrap always failed (bad version flag + hidden CommandExitError)
 
 - Production bug found while E2E-testing PR #102: every `browse` call failed with a generic "exit status 1". Two stacked causes:

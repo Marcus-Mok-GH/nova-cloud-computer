@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import NovaMark from "@/components/NovaMark";
+import NovaLogo from "@/components/NovaLogo";
 import { Home } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -15,7 +15,7 @@ export default function NotFound() {
     <div className="flex min-h-screen w-full items-center justify-center bg-card dark:bg-background">
       <Card className="mx-4 w-full max-w-lg border-border bg-card shadow-[0_8px_30px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-card">
         <CardContent className="pb-8 pt-10 text-center">
-          <NovaMark size={44} className="mx-auto" />
+          <NovaLogo size={44} className="mx-auto" />
 
           <h1 className="mt-6 text-4xl font-extrabold tracking-tight">404</h1>
 

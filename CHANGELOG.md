@@ -1,5 +1,11 @@
 # Changelog
 
+2026-09-19 - New logo: AI-generated warm portal icon
+
+- Replaced the browser icon with the new brand logo: an abstract open portal of overlapping warm-orange panels on a nearly black charcoal tile - layered files and saved context on the left, a bright doorway of light at the center, a muted copper panel curving away on the right, and an orange path flowing forward out of the opening. Generated with the AI image tool from a written design spec, then processed into the production set.
+- `client/public/brand-icon-1024.png` added as the master source asset; `favicon-32.png` and `apple-touch-icon.png` (180px) regenerated from it. The hand-crafted SVG favicon (same-day iterations: nova chip core, and before that planet-horizon and tile variants) is retired; `favicon.svg` removed and the SVG icon link dropped from `client/index.html`, which now serves the PNG 32 fallback plus the apple-touch-icon.
+- 16px tab legibility verified by render test: 64 bright pixels (the previous grey starburst scored 0-4).
+
 ## 2026-09-19 - New favicon: the nova core, wired into the machine
 
 - Redesigned the browser-tab icon around the product's brand mark, taken technical: the four-point nova starburst (the in-app `NovaMark` path) is the glowing core of a chip on a dark space-violet tile, with amber circuit traces routing out of each arm in Manhattan bends to four contact pads, pinwheeling clockwise - a new star wired into a cloud computer. Replaces the old flat grey starburst on white, which was nearly invisible in dark browser tabs.

@@ -1,5 +1,13 @@
 # Changelog
 
+2026-09-19 - Mobile optimization pass
+
+- Viewport: replaced `maximum-scale=1` with `viewport-fit=cover` so pinch-zoom works again (accessibility) and safe-area insets are available on notched phones. `theme-color` now follows the OS color scheme.
+- Safe areas (notched phones, PWA standalone): the dashboard shell pads below the status bar, the mobile drawer and desktop rail anchor below the safe-area top, scrollable main content clears the home indicator, and the chat composer hugs `env(safe-area-inset-bottom)` so the send bar never hides behind the gesture bar.
+- iOS focus zoom: all text inputs and textareas that rendered below 16px on phones now render at 16px on small screens (chat composer, file explorer inline create field, file editing surface), matching the pattern already used by the base Input/Textarea components and the sign-in form.
+- Touch targets: file explorer tree rows grow to 36px on phones, the new-file/new-folder/collapse buttons grow to 32px, and the inline create input and file delete button gained padding; all delete affordances stay visible without hover.
+- Mobile feel: `-webkit-text-size-adjust: 100%`, transparent tap highlight, and `touch-action: manipulation` on buttons/links to remove tap delay and double-tap zoom flashes.
+
 2026-09-19 - Portal logo across the app
 
 - The warm-portal brand logo now replaces the old starburst `NovaMark` everywhere in the app: the dashboard sidebar, the sign-in card on `DashboardLayout`, the `SignIn` page, the `NotFound` page, and the Nova avatar marks in the `Workspace` chat stream (message avatars, empty state, and the workspace error screen).

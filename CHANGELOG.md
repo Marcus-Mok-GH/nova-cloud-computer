@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-19 - Runs continue to completion: chained segments extended and "reply continue" pauses removed
+
+- Production request: the agent stopped every ~5 minutes with "Just reply with 'continue'". The 285s per-segment budget cannot go away (Vercel kills functions at 300s), but the segmented chain that already self-continues runs was capped at 4 segments (~19 minutes total) and every segment boundary delivered a closing status asking the user to reply "continue" - even though the next segment starts automatically.
+- `server/db.ts`: `MAX_RUN_SEGMENTS` raised 4 -> 60, just under 4.75 hours of continuously chained agent work per message. The cap stays as runaway protection (a model stuck in a loop must not bill the gateway forever); when it is finally reached the closing status still tells the user to send "continue" to start a fresh chain.
+- `server/workspaceAgent.ts`: new `continuationPlanned` run option. When the runner knows the next segment will chain automatically, the model-written deadline closing status is composed as a passive progress note ("what got done so far, what is still left, the work continues automatically in a few seconds") instead of asking the user to send "continue". Runs without an automatic continuation (web app runs, the last segment of a chain) keep the old ask-the-user wording.
+- `server/agentRuns.ts`: the Telegram runner passes `continuationPlanned` for every segment that may chain, and when an out-of-budget segment fails to schedule its automatic continuation (hold or self-invocation fails) it now sends a short fallback message telling the user to send "continue" - previously the run just closed and the already-delivered status implied the work would resume by itself.
+- Tests: `workspaceAgent.test.ts` covers both closing-status prompts (progress note vs "send continue"); `agentContinue.test.ts` asserts `continuationPlanned` is passed through to the runner and that the schedule-failure path delivers the manual-resume fallback message. Suite: 421 passed.
+
+# Changelog
+
 ## 2026-09-19 - Fix browse tool: the one-time Chrome install blew the run budget, so browser use always timed out
 
 - Production bug: every agent run that used `browse` timed out. The bootstrap (npm package + ~500MB Chrome for Testing download + apt deps, 1-3 minutes) ran *inline* with the browse call (240s timeout), inside a run whose whole budget is 285s (Vercel 300s). The agent almost always calls browse after already spending most of that budget, so the run died mid-install; the ready marker was never written, and the next run started the same doomed install from scratch. Browser use timed out every single time, on every sandbox, forever.

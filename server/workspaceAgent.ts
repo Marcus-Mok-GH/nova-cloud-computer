@@ -90,6 +90,13 @@ type WorkspaceAgentOptions = {
    * function before the reply could be saved.
    */
   deadlineAtMs?: number;
+  /**
+   * True when a segmented run will automatically continue in the next
+   * segment (serverless invocation) once this segment's budget ends. The
+   * deadline closing status then reads as a progress note the user does not
+   * have to act on, instead of asking them to send "continue".
+   */
+  continuationPlanned?: boolean;
 };
 
 /**
@@ -1845,7 +1852,9 @@ Completed steps:
 ${summaries || "(none recorded yet)"}
 ${unfinishedTool ? `\nThe \`${unfinishedTool}\` step was ${unfinishedToolStarted ? "still running when time ran out and was interrupted, not finished" : "skipped because time ran out before it could start"}.` : ""}
 
-Write a short, honest status message to the user (2-4 sentences): what got done, what is unfinished, and that they can send "continue" so you pick up exactly where you left off. Output only that message.`
+${options.continuationPlanned
+        ? `Write a short progress status (2-4 sentences): what got done so far and what is still left. The work continues automatically in a few seconds without any user action. Do not ask the user to reply or wait, and do not mention time budgets, segments, or limits. Output only that message.`
+        : `Write a short, honest status message to the user (2-4 sentences): what got done, what is unfinished, and that they can send "continue" so you pick up exactly where you left off. Output only that message.`}`
         ).catch(() => null),
         waitFor(DEADLINE_CLOSE_MODEL_CAP_MS),
       ]) as { text?: unknown } | null | undefined;

@@ -796,6 +796,51 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe(true);
   });
 
+  it("writes the deadline closing status as a passive progress note when a continuation is planned", async () => {
+    // Segmented runs chain automatically, so the closing status must not ask
+    // the user to send "continue" - the next segment starts on its own.
+    completeWithMistralGateway.mockResolvedValueOnce({
+      text: "Research done, starting the write-up now.",
+    });
+    deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
+    chatWithMistralGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const result = await runWorkspaceAgent(1, 3, "research and deploy", {
+      deadlineAtMs: Date.now() + 25,
+      continuationPlanned: true,
+    });
+    expect(result.message.content).toBe("Research done, starting the write-up now.");
+    const prompt = String(completeWithMistralGateway.mock.calls[0][1]);
+    expect(prompt).toContain("continues automatically");
+    expect(prompt).toContain("Do not ask the user to reply or wait");
+    expect(prompt).not.toContain('send "continue"');
+  });
+
+  it("asks the user to send continue at the deadline when no continuation is planned", async () => {
+    completeWithMistralGateway.mockResolvedValueOnce({
+      text: "Out of time - send continue to resume.",
+    });
+    deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
+    chatWithMistralGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    const result = await runWorkspaceAgent(1, 3, "research and deploy", {
+      deadlineAtMs: Date.now() + 25,
+    });
+    expect(result.message.content).toBe("Out of time - send continue to resume.");
+    const prompt = String(completeWithMistralGateway.mock.calls[0][1]);
+    expect(prompt).toContain('they can send "continue"');
+  });
+
   it("uses the model-written closing status at the deadline when the gateway answers", async () => {
     completeWithMistralGateway.mockResolvedValueOnce({
       text: "I got the research done but ran out of time to write the file. Send \"continue\" and I will pick up right where I left off.",

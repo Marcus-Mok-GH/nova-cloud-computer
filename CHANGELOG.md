@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-19 - New favicon: glowing nova starburst on a space-violet tile
+
+- Redesigned the browser-tab icon around the product's own brand mark: the four-point nova starburst (the same path as the in-app `NovaMark`) now glows white-to-amber over a deep space-violet gradient tile, with a soft radial glow and a small companion sparkle. Replaces the flat grey starburst on white, which was nearly invisible in dark tabs.
+- `client/public/favicon.svg`: new 64x64 design (starburst centered, gradients, glow). `client/public/favicon-32.png` added as a PNG fallback for browsers without SVG favicon support (Safari), and `client/public/apple-touch-icon.png` (180px, full-bleed tile since iOS masks corners itself) for home-screen installs.
+- `client/index.html`: icon links now serve SVG first, PNG 32 fallback, plus the apple-touch-icon; theme/description untouched.
+
+# Changelog
+
 ## 2026-09-19 - Runs continue to completion: chained segments extended and "reply continue" pauses removed
 
 - Production request: the agent stopped every ~5 minutes with "Just reply with 'continue'". The 285s per-segment budget cannot go away (Vercel kills functions at 300s), but the segmented chain that already self-continues runs was capped at 4 segments (~19 minutes total) and every segment boundary delivered a closing status asking the user to reply "continue" - even though the next segment starts automatically.

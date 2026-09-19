@@ -25,10 +25,48 @@ const AGENT_BROWSER_SETUP = [
   "  agent-browser install --with-deps",
   `  touch "${SETUP_READY_MARKER}"`,
   "fi",
-  "agent-browser version",
+  "agent-browser --version",
 ].join("\n");
 
 export type BrowserCommandResult = { ok: boolean; result: string };
+
+type CommandOutcome = { exitCode: number; stdout: string; stderr: string };
+
+/**
+ * Runs one command in the sandbox and returns its exit code and output.
+ * The E2B SDK throws CommandExitError instead of returning when a command
+ * exits non-zero, so command failures are normalized back into an outcome;
+ * transport errors (timeouts, disconnects) still throw.
+ */
+async function runSandboxCommand(
+  sandbox: E2BSandboxLike,
+  command: string,
+  timeoutMs: number
+): Promise<CommandOutcome> {
+  try {
+    const run = await sandbox.commands.run(command, {
+      cwd: E2B_WORKSPACE_DIR,
+      timeoutMs,
+    });
+    const outcome = run as Partial<CommandOutcome>;
+    return {
+      exitCode: outcome.exitCode ?? 0,
+      stdout: outcome.stdout ?? "",
+      stderr: outcome.stderr ?? "",
+    };
+  } catch (error) {
+    // CommandExitError carries the same exitCode/stdout/stderr fields.
+    const failed = error as Partial<CommandOutcome>;
+    if (typeof failed.exitCode === "number") {
+      return {
+        exitCode: failed.exitCode,
+        stdout: failed.stdout ?? "",
+        stderr: failed.stderr ?? "",
+      };
+    }
+    throw error;
+  }
+}
 
 function truncateOutput(value: string | undefined): string {
   const text = (value ?? "").replace(/\u0000/g, "");
@@ -54,17 +92,17 @@ export async function runBrowserCommand(
       result: "An agent-browser command is required, e.g. 'open https://example.com' or 'snapshot'.",
     };
   try {
-    const setup = await sandbox.commands.run(AGENT_BROWSER_SETUP, {
-      cwd: E2B_WORKSPACE_DIR,
-      timeoutMs: BROWSE_SETUP_TIMEOUT_MS,
-    });
-    const setupExit = (setup as { exitCode?: number }).exitCode ?? 0;
-    if (setupExit !== 0) {
-      const stderr = truncateOutput((setup as { stderr?: string }).stderr);
+    const setup = await runSandboxCommand(
+      sandbox,
+      AGENT_BROWSER_SETUP,
+      BROWSE_SETUP_TIMEOUT_MS
+    );
+    if (setup.exitCode !== 0) {
+      const stderr = truncateOutput(setup.stderr);
       return {
         ok: false,
         result: [
-          `The sandbox browser could not be set up (setup exit code ${setupExit}).`,
+          `The sandbox browser could not be set up (setup exit code ${setup.exitCode}).`,
           stderr ? `stderr:\n${stderr}` : "",
           "The one-time Chrome install failed - most likely a transient network issue in the sandbox. Tell the user and retry the browse in a moment.",
         ]
@@ -72,15 +110,15 @@ export async function runBrowserCommand(
           .join("\n\n"),
       };
     }
-    const run = await sandbox.commands.run(`agent-browser ${prepared}`, {
-      cwd: E2B_WORKSPACE_DIR,
-      timeoutMs: BROWSE_COMMAND_TIMEOUT_MS,
-    });
-    const exitCode = (run as { exitCode?: number }).exitCode ?? 0;
-    const stdout = truncateOutput((run as { stdout?: string }).stdout);
-    const stderr = truncateOutput((run as { stderr?: string }).stderr);
-    const ok = exitCode === 0;
-    const parts = [`Exit code ${exitCode}.`];
+    const run = await runSandboxCommand(
+      sandbox,
+      `agent-browser ${prepared}`,
+      BROWSE_COMMAND_TIMEOUT_MS
+    );
+    const stdout = truncateOutput(run.stdout);
+    const stderr = truncateOutput(run.stderr);
+    const ok = run.exitCode === 0;
+    const parts = [`Exit code ${run.exitCode}.`];
     parts.push(`stdout:\n${stdout || "(empty)"}`);
     if (stderr) parts.push(`stderr:\n${stderr}`);
     if (!ok)

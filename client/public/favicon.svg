@@ -1,29 +1,55 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Nova favicon: the four-point nova starburst, glowing over a deep
-       space-violet tile. Derived from the in-app NovaMark so the browser
-       tab matches the product's brand mark. -->
+  <!-- Nova favicon: a new star rising over a dark planet's horizon.
+       The four-point nova starburst (the product's NovaMark) is half-risen
+       above the planet rim, wrapped in warm light - "your personal cloud
+       computer" as a world with a nova dawning over it. -->
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1a1f3d"/>
-      <stop offset="0.55" stop-color="#262050"/>
-      <stop offset="1" stop-color="#3d2570"/>
+    <clipPath id="tile">
+      <rect width="64" height="64" rx="14"/>
+    </clipPath>
+    <linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b0e1f"/>
+      <stop offset="0.7" stop-color="#141033"/>
+      <stop offset="1" stop-color="#1c1440"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.48" r="0.52">
-      <stop offset="0" stop-color="#ffc96b" stop-opacity="0.6"/>
-      <stop offset="0.55" stop-color="#ffc96b" stop-opacity="0.14"/>
+    <radialGradient id="halo" cx="0.5" cy="0.375" r="0.42">
+      <stop offset="0" stop-color="#ffd98a" stop-opacity="0.75"/>
+      <stop offset="0.5" stop-color="#ffc96b" stop-opacity="0.18"/>
       <stop offset="1" stop-color="#ffc96b" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="star" x1="0.5" y1="0" x2="0.5" y2="1">
       <stop offset="0" stop-color="#fffdf5"/>
-      <stop offset="0.55" stop-color="#ffd98a"/>
+      <stop offset="0.55" stop-color="#ffe3a0"/>
       <stop offset="1" stop-color="#ffb454"/>
     </linearGradient>
+    <linearGradient id="planet" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#3a2668"/>
+      <stop offset="0.35" stop-color="#221550"/>
+      <stop offset="1" stop-color="#0e0a24"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffe9b8" stop-opacity="0.95"/>
+      <stop offset="0.04" stop-color="#ffcf7d" stop-opacity="0.55"/>
+      <stop offset="0.1" stop-color="#ffb454" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffb454" stop-opacity="0"/>
+    </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#tile)"/>
-  <circle cx="32" cy="31" r="24" fill="url(#glow)"/>
-  <!-- Nova starburst (NovaMark path scaled from the 24px grid) -->
-  <path d="M32 5.78 C34.34 19.04 37.72 27.36 45.52 31 C37.72 34.64 34.34 42.96 32 56.22 C29.66 42.96 26.28 34.64 18.48 31 C26.28 27.36 29.66 19.04 32 5.78 Z" fill="url(#star)"/>
-  <circle cx="32" cy="31" r="6.2" fill="#fffdf5"/>
-  <!-- Small companion sparkle, top right -->
-  <path d="M49.5 8.5 C50.1 11.2 51.6 12.9 54.5 13.5 C51.6 14.1 50.1 15.8 49.5 18.5 C48.9 15.8 47.4 14.1 44.5 13.5 C47.4 12.9 48.9 11.2 49.5 8.5 Z" fill="#ffffff" fill-opacity="0.85"/>
+  <g clip-path="url(#tile)">
+    <rect width="64" height="64" fill="url(#space)"/>
+    <!-- starfield -->
+    <circle cx="10.5" cy="12" r="0.9" fill="#fff" opacity="0.85"/>
+    <circle cx="51" cy="8.5" r="0.8" fill="#fff" opacity="0.65"/>
+    <circle cx="45" cy="18" r="0.7" fill="#fff" opacity="0.55"/>
+    <circle cx="16.5" cy="21" r="0.6" fill="#fff" opacity="0.45"/>
+    <circle cx="57" cy="22" r="0.6" fill="#fff" opacity="0.5"/>
+    <circle cx="6.5" cy="28" r="0.6" fill="#fff" opacity="0.5"/>
+    <circle cx="26" cy="10" r="0.55" fill="#fff" opacity="0.4"/>
+    <!-- the nova, half-risen: glow first, then star, then planet covers the base -->
+    <ellipse cx="32" cy="26" rx="26" ry="22" fill="url(#halo)"/>
+    <path d="M32.0 7.03 C33.58 15.95 35.85 21.55 41.1 24.0 C35.85 26.45 33.58 32.05 32.0 40.97 C30.43 32.05 28.15 26.45 22.9 24.0 C28.15 21.55 30.43 15.95 32.0 7.03 Z" fill="url(#star)"/>
+    <circle cx="32" cy="24" r="3.4" fill="#fffdf5"/>
+    <!-- planet horizon -->
+    <circle cx="32" cy="72" r="38" fill="url(#planet)"/>
+    <circle cx="32" cy="72" r="38" fill="none" stroke="url(#rim)" stroke-width="2.2"/>
+  </g>
 </svg>

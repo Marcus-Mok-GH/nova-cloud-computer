@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Nova favicon: a new star rising over a dark planet's horizon.
-       The four-point nova starburst (the product's NovaMark) is half-risen
-       above the planet rim, wrapped in warm light - "your personal cloud
-       computer" as a world with a nova dawning over it. -->
+  <!-- Nova favicon: the cloud computer's core. The product's four-point
+       nova starburst (NovaMark) sits at the center of a dark space-violet
+       tile, wired into the machine: circuit traces route out of each arm
+       with Manhattan bends to contact pads, pinwheeling clockwise - a new
+       star on a circuit board. -->
   <defs>
     <clipPath id="tile">
       <rect width="64" height="64" rx="14"/>
     </clipPath>
     <linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0b0e1f"/>
-      <stop offset="0.7" stop-color="#141033"/>
-      <stop offset="1" stop-color="#1c1440"/>
+      <stop offset="0" stop-color="#0c0f22"/>
+      <stop offset="0.65" stop-color="#171041"/>
+      <stop offset="1" stop-color="#251356"/>
     </linearGradient>
-    <radialGradient id="halo" cx="0.5" cy="0.375" r="0.42">
+    <radialGradient id="halo" cx="0.5" cy="0.47" r="0.34">
       <stop offset="0" stop-color="#ffd98a" stop-opacity="0.75"/>
-      <stop offset="0.5" stop-color="#ffc96b" stop-opacity="0.18"/>
+      <stop offset="0.6" stop-color="#ffc96b" stop-opacity="0.14"/>
       <stop offset="1" stop-color="#ffc96b" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="star" x1="0.5" y1="0" x2="0.5" y2="1">
@@ -22,34 +23,43 @@
       <stop offset="0.55" stop-color="#ffe3a0"/>
       <stop offset="1" stop-color="#ffb454"/>
     </linearGradient>
-    <linearGradient id="planet" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0" stop-color="#3a2668"/>
-      <stop offset="0.35" stop-color="#221550"/>
-      <stop offset="1" stop-color="#0e0a24"/>
-    </linearGradient>
-    <linearGradient id="rim" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0" stop-color="#ffe9b8" stop-opacity="0.95"/>
-      <stop offset="0.04" stop-color="#ffcf7d" stop-opacity="0.55"/>
-      <stop offset="0.1" stop-color="#ffb454" stop-opacity="0"/>
-      <stop offset="1" stop-color="#ffb454" stop-opacity="0"/>
-    </linearGradient>
   </defs>
   <g clip-path="url(#tile)">
     <rect width="64" height="64" fill="url(#space)"/>
-    <!-- starfield -->
-    <circle cx="10.5" cy="12" r="0.9" fill="#fff" opacity="0.85"/>
-    <circle cx="51" cy="8.5" r="0.8" fill="#fff" opacity="0.65"/>
-    <circle cx="45" cy="18" r="0.7" fill="#fff" opacity="0.55"/>
-    <circle cx="16.5" cy="21" r="0.6" fill="#fff" opacity="0.45"/>
-    <circle cx="57" cy="22" r="0.6" fill="#fff" opacity="0.5"/>
-    <circle cx="6.5" cy="28" r="0.6" fill="#fff" opacity="0.5"/>
-    <circle cx="26" cy="10" r="0.55" fill="#fff" opacity="0.4"/>
-    <!-- the nova, half-risen: glow first, then star, then planet covers the base -->
-    <ellipse cx="32" cy="26" rx="26" ry="22" fill="url(#halo)"/>
-    <path d="M32.0 7.03 C33.58 15.95 35.85 21.55 41.1 24.0 C35.85 26.45 33.58 32.05 32.0 40.97 C30.43 32.05 28.15 26.45 22.9 24.0 C28.15 21.55 30.43 15.95 32.0 7.03 Z" fill="url(#star)"/>
-    <circle cx="32" cy="24" r="3.4" fill="#fffdf5"/>
-    <!-- planet horizon -->
-    <circle cx="32" cy="72" r="38" fill="url(#planet)"/>
-    <circle cx="32" cy="72" r="38" fill="none" stroke="url(#rim)" stroke-width="2.2"/>
+    <circle cx="54.5" cy="20" r="0.8" fill="#fff" opacity="0.5"/>
+    <circle cx="9" cy="12" r="0.7" fill="#fff" opacity="0.5"/>
+    <circle cx="55" cy="50" r="0.6" fill="#fff" opacity="0.4"/>
+    <circle cx="9" cy="38" r="0.6" fill="#fff" opacity="0.4"/>
+    <circle cx="52" cy="7" r="0.6" fill="#fff" opacity="0.45"/>
+    <ellipse cx="32" cy="31" rx="19" ry="19" fill="url(#halo)"/>
+    <!-- circuit traces: glow pass then crisp pass, pinwheel clockwise -->
+    <g stroke="#ffb454" stroke-width="3.4" stroke-opacity="0.34" fill="none" stroke-linecap="round">
+      <path d="M32 16.4 V12.5 H44.5"/>
+      <path d="M40.4 31 H44.2 V42"/>
+      <path d="M32 45.6 V47.5 H19.5"/>
+      <path d="M23.6 31 H19.8 V18"/>
+    </g>
+    <g stroke="#ffd98a" stroke-width="1.5" stroke-opacity="0.95" fill="none" stroke-linecap="round">
+      <path d="M32 16.4 V12.5 H44.5"/>
+      <path d="M40.4 31 H44.2 V42"/>
+      <path d="M32 45.6 V47.5 H19.5"/>
+      <path d="M23.6 31 H19.8 V18"/>
+    </g>
+    <!-- contact pads -->
+    <g fill="none" stroke="#ffcf7d" stroke-width="1.1" stroke-opacity="0.85">
+      <circle cx="46.5" cy="12.5" r="2"/>
+      <circle cx="44.2" cy="44.2" r="2"/>
+      <circle cx="17.3" cy="47.5" r="2"/>
+      <circle cx="19.8" cy="15.8" r="2"/>
+    </g>
+    <g fill="#ffcf7d" fill-opacity="0.9">
+      <circle cx="46.5" cy="12.5" r="0.55"/>
+      <circle cx="44.2" cy="44.2" r="0.55"/>
+      <circle cx="17.3" cy="47.5" r="0.55"/>
+      <circle cx="19.8" cy="15.8" r="0.55"/>
+    </g>
+    <!-- the nova core -->
+    <path d="M32.0 17.91 C33.22 24.79 34.97 29.11 39.02 31.0 C34.97 32.89 33.22 37.21 32.0 44.09 C30.79 37.21 29.03 32.89 24.98 31.0 C29.03 29.11 30.79 24.79 32.0 17.91 Z" fill="url(#star)"/>
+    <circle cx="32" cy="31" r="3.4" fill="#fffdf5"/>
   </g>
 </svg>

@@ -1,9 +1,10 @@
 # Changelog
 
-## 2026-09-19 - New favicon: a nova dawning over a dark planet horizon
+## 2026-09-19 - New favicon: the nova core, wired into the machine
 
-- Redesigned the browser-tab icon as a scene built from the product's own brand mark: the four-point nova starburst (the in-app `NovaMark` path) rises half-way over the horizon of a dark violet planet, wrapped in a warm halo with a glowing rim light along the planet's edge and a faint starfield above - "a new star dawning over your world". Replaces the old flat grey starburst on white, which was nearly invisible in dark browser tabs. A simpler first pass (starburst on a gradient tile) shipped earlier the same day and was pushed further into the horizon composition.
-- `client/public/favicon.svg`: new 64x64 clipped-tile design (halo -> star -> planet layering so the star's base sits behind the rim). `client/public/favicon-32.png` PNG fallback for browsers without SVG favicon support (Safari), `client/public/apple-touch-icon.png` (180px, full-bleed since iOS masks corners itself) for home-screen installs.
+- Redesigned the browser-tab icon around the product's brand mark, taken technical: the four-point nova starburst (the in-app `NovaMark` path) is the glowing core of a chip on a dark space-violet tile, with amber circuit traces routing out of each arm in Manhattan bends to four contact pads, pinwheeling clockwise - a new star wired into a cloud computer. Replaces the old flat grey starburst on white, which was nearly invisible in dark browser tabs.
+- Iterated live the same day from two earlier passes (plain gradient-tile starburst, then a planet-horizon scene) into the final circuit-core composition.
+- `client/public/favicon.svg`: new 64x64 clipped-tile design (halo, glow pass under traces, crisp trace pass, ring-and-dot pads, star core). 16px render checked for tab legibility (warm content on par with the largest-star variant). `client/public/favicon-32.png` PNG fallback for browsers without SVG favicon support (Safari), `client/public/apple-touch-icon.png` (180px, full-bleed since iOS masks corners itself) for home-screen installs.
 - `client/index.html`: icon links serve SVG first, PNG 32 fallback, plus the apple-touch-icon; title/description untouched.
 
 # Changelog

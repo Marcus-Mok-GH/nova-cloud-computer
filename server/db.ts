@@ -808,7 +808,15 @@ export async function requestAgentStopForUser(ownerId: number) {
 
 /** True when a stop request was recorded after `startedAt` for this workspace owner. */
 /** Total segments one user message may consume (the initial run plus continuations), bounding chained self-invocations. */
-export const MAX_RUN_SEGMENTS = 4;
+/**
+ * The hard cap on chained segments for one user message. Each segment gets its
+ * own serverless invocation with a fresh ~285s budget, so this is the total
+ * chained runtime one message may consume: 60 segments is just under 4.75
+ * hours of continuous agent work. The cap exists only as runaway protection
+ * (a model stuck in a loop must not bill the gateway indefinitely); when it
+ * is finally reached the closing status tells the user to send "continue".
+ */
+export const MAX_RUN_SEGMENTS = 60;
 
 /** Moves a just-delivered run to awaiting_continue so a continuation endpoint can claim its next segment. */
 export async function holdAgentRunForContinue(ownerId: number, runId: number) {

@@ -77,4 +77,49 @@ describe("runBrowserCommand", () => {
     expect(result.result).toContain("could not run");
     expect(result.result).toContain("try again in a moment");
   });
+  it("uses the --version flag the CLI actually supports in the bootstrap", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "agent-browser 1.0.0", stderr: "" })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "page loaded", stderr: "" });
+    await runBrowserCommand(fakeSandbox(run), "open https://example.com");
+    // `agent-browser version` is NOT a valid command (exit 1) and would fail
+    // every single browse call during bootstrap.
+    expect(run.mock.calls[0][0]).toContain("agent-browser --version");
+    expect(run.mock.calls[0][0]).not.toContain("agent-browser version\n");
+  });
+
+  it("surfaces a CommandExitError thrown by the SDK instead of hiding it as a transport error", async () => {
+    // The E2B SDK throws on non-zero exits rather than returning; the thrown
+    // error still carries exitCode/stdout/stderr.
+    const exitError = Object.assign(new Error("exit status 1"), {
+      exitCode: 1,
+      stdout: "",
+      stderr: "npm ERR! network unreachable",
+    });
+    const run = vi.fn(async () => {
+      throw exitError;
+    });
+    const result = await runBrowserCommand(fakeSandbox(run), "open https://example.com");
+    expect(result.ok).toBe(false);
+    expect(result.result).toContain("could not be set up");
+    expect(result.result).toContain("npm ERR! network unreachable");
+  });
+
+  it("reports exit code and stderr when the SDK throws for a failed command", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce({ exitCode: 0, stdout: "1.0.0", stderr: "" })
+      .mockRejectedValueOnce(
+        Object.assign(new Error("exit status 3"), {
+          exitCode: 3,
+          stdout: "",
+          stderr: "no browser is installed",
+        })
+      );
+    const result = await runBrowserCommand(fakeSandbox(run), "snapshot");
+    expect(result.ok).toBe(false);
+    expect(result.result).toContain("Exit code 3.");
+    expect(result.result).toContain("no browser is installed");
+  });
 });

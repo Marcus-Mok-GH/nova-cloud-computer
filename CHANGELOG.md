@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-19 - Fix browse tool: bootstrap always failed (bad version flag + hidden CommandExitError)
+
+- Production bug found while E2E-testing PR #102: every `browse` call failed with a generic "exit status 1". Two stacked causes:
+  - The bootstrap script ended with `agent-browser version`, which is NOT a valid command (the CLI only supports `--version`, exit 1). With `set -e`, the whole bootstrap failed on every single call, forever - the marker file made no difference because the version check ran after it.
+  - The E2B SDK (v2) does not return nonzero exits; it throws `CommandExitError`. The thrown error was swallowed by the generic catch, so the real stderr never reached the model - only "exit status 1" as the error message.
+- `server/agentBrowser.ts`: bootstrap now ends with `agent-browser --version` (verified against the real CLI locally: `agent-browser version` -> "Unknown command", exit 1; `--version` -> "agent-browser 0.27.0", exit 0). New `runSandboxCommand()` normalizes `CommandExitError` (it carries exitCode/stdout/stderr, confirmed from the SDK's typings) back into an outcome object, so failed commands and failed setup now report their true exit code and stderr to the model; only transport errors (timeouts/disconnects) still map to the retry-hint message.
+- Tests: three new cases - bootstrap uses `--version`, a thrown `CommandExitError` from setup surfaces its stderr, and a thrown per-command exit error reports exit code + stderr. Full suite: 415 passed.
+
+# Changelog
+
 ## 2026-09-18 - Browser use: drive a real headless Chrome via agent-browser
 
 - New `browse` tool: the agent drives a real headless Chrome in the live workspace sandbox through the agent-browser CLI (vercel-labs/agent-browser) - `open <url>`, `snapshot` for the accessibility tree with element refs, `click @e2` / `fill @e3 "text"` for interaction, `read` for rendered text, `screenshot page.png` saved as a regular workspace file.

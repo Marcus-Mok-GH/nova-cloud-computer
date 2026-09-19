@@ -193,7 +193,10 @@ const runCoderTaskMock = vi.hoisted(() => vi.fn());
 vi.mock("./coder", () => ({ runCoderTask: runCoderTaskMock }));
 
 const runBrowserCommandMock = vi.hoisted(() => vi.fn());
-vi.mock("./agentBrowser", () => ({ runBrowserCommand: runBrowserCommandMock }));
+vi.mock("./agentBrowser", () => ({
+  runBrowserCommand: runBrowserCommandMock,
+  warmBrowserInBackground: vi.fn(async () => undefined),
+}));
 
 vi.mock("./workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),

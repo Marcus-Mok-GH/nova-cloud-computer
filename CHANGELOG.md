@@ -1,5 +1,14 @@
 # Changelog
 
+2026-09-20 - Coding specialist failure policy
+
+- code_task now survives its own failures instead of collapsing into the agent hand-writing code the user never asked for. Transient specialist errors (timeouts, NIM hiccups) get one automatic retry inside the tool call, so a single blip never degrades the run; config errors stay single-shot and deterministic.
+- When the specialist is confirmed unavailable, the tool result carries an explicit policy: do NOT silently write the code yourself - tell the user the specialist is down, ask whether to proceed with Nova's own attempt, and only self-code after the user accepted it in the conversation (then say plainly the code is Nova's own work without the specialist). The run loop marks the run specialist-down and stops nudging toward code_task in that disclosed degraded mode, so a broken deliverable can never arrive as a surprise.
+- System prompt rule updated to match: specialist-unavailable means disclose and ask, never silent substitution.
+- 3 new tests (444 passing), tsc clean.
+
+# Changelog
+
 2026-09-20 - Website deletion for the workspace agent
 
 - New `delete_website` tool: the agent can now take the user's site down - delete, unpublish, remove, take down. By default it deletes the current live site (the one `deploy_website` 'update' targets); `all: true` deletes every site the workspace ever deployed. Deletion is irreversible and the URL goes offline immediately, but workspace files are never touched, and the system prompt tells the agent to confirm the target when several sites exist or the request is vague, and to say plainly what went offline.

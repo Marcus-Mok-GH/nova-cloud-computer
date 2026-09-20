@@ -890,7 +890,7 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer. Treat your internal knowledge as amnesia: if a fact matters and you have not seen it in a tool result, search for it first - never answer a current or factual question from memory alone.
 - Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
-- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (DeepSeek V4 Pro on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is not configured (then tell the user exactly that: the Nova operator must set NVIDIA_NIM_API_KEY on the server) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
+- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (DeepSeek V4 Pro on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -926,6 +926,14 @@ type ToolExecution = {
   action?: AgentAction;
   /** Full raw response surfaced in the research dropdown in the UI. */
   detail?: string;
+  /**
+   * Set when the coding specialist is confirmed unavailable (a non-config
+   * error survived the internal retry, or NIM is not configured). The run
+   * loop uses it to stop re-nudging toward code_task: with the specialist
+   * down, self-coding is legitimate degraded mode - as long as the model
+   * disclosed it to the user as the failure policy requires.
+   */
+  specialistDown?: boolean;
 };
 
 /**
@@ -1643,8 +1651,24 @@ async function executeWorkspaceTool(
           }, 10000)
         : undefined;
       if (onProgress) onProgress("The coding specialist is reading the task…");
+      const specialistError = (error: unknown) =>
+        `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
       try {
-        const coder = await runCoderTask(task, context, language);
+        let coder: Awaited<ReturnType<typeof runCoderTask>>;
+        try {
+          coder = await runCoderTask(task, context, language);
+        } catch (error) {
+          // A config error is deterministic - no retry helps, and the user
+          // must hear exactly which key the operator has to set.
+          const message = error instanceof Error ? error.message : "";
+          if (message.includes("not configured")) throw error;
+          // Transient specialist failures (timeouts, NIM hiccups) get one
+          // automatic retry, so a single blip never pushes the agent into
+          // silently hand-writing the code itself.
+          onProgress?.("The coding specialist hit a snag - retrying once…");
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          coder = await runCoderTask(task, context, language);
+        }
         return {
           ok: true,
           result: coder.code,
@@ -1652,11 +1676,17 @@ async function executeWorkspaceTool(
           action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
         };
       } catch (error) {
-        const message = `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+        const message = specialistError(error);
         return {
           ok: false,
-          result: message,
+          result:
+            `${message} The specialist is unavailable for this task, so do NOT silently write the code yourself: ` +
+            `tell the user exactly that the coding specialist is down, and ask whether to proceed with Nova's own attempt. ` +
+            `Proceed yourself only if the user already explicitly accepted Nova's own coding in this conversation, or the change is a genuinely tiny fix - ` +
+            `and then say plainly that the code is Nova's own work without the specialist, so a broken result never comes as a surprise. ` +
+            `If the user wants to wait instead, tell them the Nova operator should check NVIDIA_NIM_API_KEY on the server.`,
           detail: message,
+          specialistDown: true,
           action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "failed" },
         };
       } finally {
@@ -2117,6 +2147,7 @@ ${options.continuationPlanned
     // substantial code itself without ever calling code_task.
     let codeTaskUsed = false;
     let coderNudgeSent = false;
+    let specialistDown = false;
     let coderNudgePending = false;
     let coderNudgeFile = "";
     // Set when a tool call outlasts the deadline mid-round: the round loop
@@ -2384,6 +2415,7 @@ ${options.continuationPlanned
         // where the agent wrote substantial code itself without it. The
         // nudge is queued and delivered once, after the round's tool
         // results, so it never breaks the tool-call message chain.
+        if (execution.specialistDown) specialistDown = true;
         if (call.name === "code_task") {
           codeTaskUsed = true;
           coderNudgePending = false;
@@ -2412,7 +2444,9 @@ ${options.continuationPlanned
       }
       // Coder-delegation guard: deliver the queued nudge once, only when the
       // run is continuing anyway - never on the closing or end_turn exits.
-      if (coderNudgePending && !closedByDeadline && !endTurnCalled) {
+      // With the specialist confirmed down, self-coding is disclosed
+      // degraded mode - nudging back toward code_task would be noise.
+      if (coderNudgePending && !closedByDeadline && !endTurnCalled && !specialistDown) {
         coderNudgePending = false;
         coderNudgeSent = true;
         messages.push({ role: "user", content: coderNudgeFor(coderNudgeFile) });

@@ -545,9 +545,72 @@ describe("Nova tool-calling workspace agent", () => {
     const toolRow = [...secondCallMessages].reverse().find(m => m.role === "tool");
     expect(toolRow.tool_call_id).toBe("call-code-nc");
     expect(toolRow.content).toContain("The coding specialist failed: NVIDIA NIM is not configured");
+    // The failure now carries the no-silent-substitution policy.
+    expect(toolRow.content).toContain("do NOT silently write the code yourself");
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(1); // config errors are deterministic: no retry
     expect(result.actions).toEqual([
       { kind: "tool", name: "code_task: build a todo app", operation: "failed" },
     ]);
+  });
+
+  it("retries a transient specialist failure once instead of giving up", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock
+      .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
+      .mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-code-r", name: "code_task", arguments: JSON.stringify({ task: "build a todo app" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Here is your todo app." }));
+    const result = await runWorkspaceAgent(1, 3, "build me a todo app");
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(2);
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "code_task: build a todo app", operation: "completed" },
+    ]);
+  });
+
+  it("reports the specialist as down after a persistent failure and stops nudging toward code_task", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockRejectedValue(new Error("NVIDIA NIM responded with status 500."));
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-code-d1", name: "code_task", arguments: JSON.stringify({ task: "build a website" }) },
+          ],
+        })
+      )
+      // Degraded mode: the model writes the substantial file itself - which
+      // the run must allow (disclosed, not re-nudged) once the specialist is down.
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-code-d2",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "index.html", content: twentyLineScript }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          text: "The coding specialist is down - this is my own attempt at your website.",
+        })
+      );
+    await runWorkspaceAgent(1, 3, "build me a website");
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(2); // initial call + one retry
+    const toolRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-code-d1");
+    expect(toolRow?.content).toContain("do NOT silently write the code yourself");
+    // The self-write after the specialist went down earns no coder nudge.
+    expect(coderNudgeMessages()).toHaveLength(0);
   });
 
   // Coder-delegation guard: the agent loop itself keeps the coding

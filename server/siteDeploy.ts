@@ -112,7 +112,7 @@ function fileBody(content: string): Buffer {
 export type DeployOptions = {
   /** The deployment ID to publish to, e.g. 'd-01'. Its URL never changes. Omit to create a new deployment. */
   deployment?: string;
-  /** Short description of what this deployment is (required for a new deployment, optional on a redeploy). */
+  /** Short description of what this deployment is (required on EVERY deploy - it names the deployment's purpose in the registry). */
   description?: string;
 };
 
@@ -192,6 +192,13 @@ export async function deployWorkspaceSite(
     // created - there is no implicit "latest site" target anymore.
     const requestedKey = options?.deployment?.trim();
     const description = options?.description?.trim() ?? "";
+    if (!description) {
+      return {
+        ok: false,
+        message:
+          "A short description of this deployment is required on every deploy (e.g. 'portfolio site', 'bakery landing page') - it names the deployment's purpose, is kept in the workspace's deployment registry across chats, and is how you and the user tell deployments apart. Pass it as description.",
+      };
+    }
     let deploymentKey: string;
     let site: { id: string; name: string | null; url: string };
     let previousDescription: string | null = null;
@@ -213,17 +220,10 @@ export async function deployWorkspaceSite(
       deploymentKey = target.key;
       site = { id: target.siteId, name: target.siteName, url: target.siteUrl };
       previousDescription = target.description;
-      if (description && description !== previousDescription) {
+      if (description !== previousDescription) {
         await updateSiteDeploymentDescriptionForUser(ownerId, target.key, description);
       }
     } else {
-      if (!description) {
-        return {
-          ok: false,
-          message:
-            "A new deployment needs a short description of what it is (e.g. 'portfolio site', 'bakery landing page') - it is how you and the user tell deployments apart later. Pass it as description.",
-        };
-      }
       const key = await nextSiteDeploymentKeyForUser(ownerId);
       deploymentKey = key;
       site = await createNetlifySite();
@@ -235,7 +235,7 @@ export async function deployWorkspaceSite(
       siteName: site.name,
       siteUrl: site.url,
       deploymentKey,
-      description: description || previousDescription,
+      description,
       fileCount: deployFiles.length,
       status: "deploying",
     });

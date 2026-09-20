@@ -4,7 +4,14 @@ export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
-export const MISTRAL_UNAVAILABLE_MESSAGE = "Mistral AI inference isn’t available right now, so I couldn’t run the agent. Please try again shortly. Explicit workspace actions remain available.";
+/**
+ * Lead-in for the assistant reply persisted when the Mistral inference
+ * gateway itself failed. The actual error message is appended so the user
+ * (and any debugging pass) sees the real failure instead of a canned
+ * "try again shortly" - the client detects this prefix to render the
+ * offline/error state.
+ */
+export const MISTRAL_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
 
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no

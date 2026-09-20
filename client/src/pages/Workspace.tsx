@@ -11,7 +11,7 @@ import { dedupeToolActivityMessages, isInternalChatMessage, parsePersistedToolAc
 import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, Mail, MessageSquareText, Send, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 
 export default function Workspace() {
@@ -56,7 +56,7 @@ export default function Workspace() {
     el.scrollTop = el.scrollHeight;
   }, [chatId, savedMessages.data?.length, streamingContent, toolActivities, isStreaming]);
 
-  const isUnavailableReply = (content: string) => content === MISTRAL_UNAVAILABLE_MESSAGE;
+  const isUnavailableReply = (content: string) => content.startsWith(MISTRAL_UNAVAILABLE_PREFIX);
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;

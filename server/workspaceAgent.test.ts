@@ -1841,6 +1841,67 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([]);
   });
 
+  it("refuses to scaffold when stale files hide in nested subfolders of the project", async () => {
+    // A template's files mostly live in nested folders (src/, out/): a
+    // stale scaffold can leave the project root empty while its subfolders
+    // still hold files. The refusal must see the whole subtree.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [
+        { id: 22, name: "traffic-jam-escape", parentId: null },
+        { id: 23, name: "src", parentId: 22 },
+      ],
+      files: [{ id: 99, name: "main.jsx", content: "old", folderId: 23 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "traffic-jam-escape", template: "react" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "There is an old project in that folder already - a new name it is." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "rebuild my game");
+    expect(createFolder).not.toHaveBeenCalled();
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)!.content).toContain("already exists with files");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("refuses create_file when a same-name file already exists at the same level", async () => {
+    // Root-level duplicates bypass the database unique constraint (NULL
+    // folderId rows never collide), so the guard lives in the handler.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [],
+      files: [{ id: 30, name: "index.html", content: "old", folderId: null }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "create_file", arguments: JSON.stringify({ name: "Index.HTML", content: "new" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "That file is already there - I will edit it instead." }));
+    const result = await runWorkspaceAgent(1, 3, "add a file");
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolResult = lastToolResult(secondCallMessages)!.content;
+    expect(toolResult).toContain("A file named Index.HTML already exists");
+    expect(toolResult).toContain("workspace root");
+    expect(result.actions).toEqual([]);
+  });
+
   it("scaffolds into an existing but empty project folder", async () => {
     // A folder exists but holds nothing (a stale empty scaffold): reuse it
     // and fill it with the template instead of refusing.

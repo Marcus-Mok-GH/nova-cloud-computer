@@ -1,4 +1,4 @@
-import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
 import { runCoderTask } from "./coder";
 import { NimConfigError } from "./nim";
@@ -2723,7 +2723,14 @@ ${options.continuationPlanned
       } else if (kind === "invalid_response") {
         reply = "Mistral returned an invalid response. Please try again shortly.";
       } else {
-        reply = MISTRAL_UNAVAILABLE_MESSAGE;
+        // Say what actually failed instead of a canned "try again shortly":
+        // the real error (network failure, gateway 5xx body, timeout detail)
+        // is what diagnosing needs. Cap the length so a runaway error body
+        // cannot flood the chat.
+        const detail = error instanceof Error ? error.message : String(error);
+        reply =
+          MISTRAL_UNAVAILABLE_PREFIX +
+          (detail.length > 500 ? `${detail.slice(0, 500)}…` : detail);
       }
     }
     // Only emit what the client has not already seen streamed live.

@@ -2320,13 +2320,14 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Hello world");
   });
 
-  it("reports Mistral is unavailable when every retry fails", async () => {
+  it("reports the actual gateway error when every retry fails", async () => {
     chatWithMistralGateway.mockRejectedValue(
-      new MistralGatewayClientError("boom", "unavailable")
+      new MistralGatewayClientError("fetch failed: connection reset by peer", "unavailable")
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(result.message.content).toContain("Mistral");
+    expect(result.message.content).toContain("Mistral inference gateway error");
+    expect(result.message.content).toContain("fetch failed: connection reset by peer");
     expect(onChunk).toHaveBeenCalled();
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
   });

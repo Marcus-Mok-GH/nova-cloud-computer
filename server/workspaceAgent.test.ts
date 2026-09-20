@@ -196,6 +196,7 @@ vi.mock("./siteDeploy", () => ({
 }));
 
 const runCoderTaskMock = vi.hoisted(() => vi.fn());
+const { NimConfigError } = await import("./nim");
 vi.mock("./coder", () => ({ runCoderTask: runCoderTaskMock }));
 
 const runBrowserCommandMock = vi.hoisted(() => vi.fn());
@@ -221,6 +222,7 @@ const {
   setGatewayRetryDelaysForTests,
   setGatewayRateLimitRetryDelayForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   workspaceToolsForConnectors,
   getConnectedConnectorToolkits,
   CODER_NUDGE_PREFIX,
@@ -484,7 +486,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("delegates a coding task to the NIM coding specialist, then places the returned code", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "def add(a, b):\n    return a + b", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "def add(a, b):\n    return a + b", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -557,7 +559,7 @@ describe("Nova tool-calling workspace agent", () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock
       .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
-      .mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+      .mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -585,8 +587,8 @@ describe("Nova tool-calling workspace agent", () => {
           ],
         })
       )
-      // Degraded mode: the model writes the substantial file itself - which
-      // the run must allow (disclosed, not re-nudged) once the specialist is down.
+      // Same-run self-coding attempt: mechanically blocked - the user has
+      // not had a turn to answer the acceptance question yet.
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -609,8 +611,146 @@ describe("Nova tool-calling workspace agent", () => {
       .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
       .find(m => m.role === "tool" && m.tool_call_id === "call-code-d1");
     expect(toolRow?.content).toContain("do NOT silently write the code yourself");
-    // The self-write after the specialist went down earns no coder nudge.
+    // The same-run self-write is mechanically blocked: the file is never
+    // created and the tool result carries the acceptance question policy.
+    const blockedRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-code-d2");
+    expect(blockedRow?.content).toContain("the user has not accepted Nova's own coding yet");
+    expect(createFile).not.toHaveBeenCalledWith(1, expect.objectContaining({ name: "index.html" }));
+    // No coder nudge once the specialist is down.
     expect(coderNudgeMessages()).toHaveLength(0);
+    // The run ends with the chat marked pending acceptance.
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX}pending` })
+    );
+  });
+
+  it("blocks a pending-acceptance run until accept_own_coding records the user's consent", async () => {
+    runCoderTaskMock.mockReset();
+    // Both history reads (prior-turn load and the acceptance scan) must
+    // see the marker so the run starts gated.
+    const pendingHistory = [
+      { id: 1, role: "user", content: "Build me a website." },
+      { id: 2, role: "assistant", content: "The coding specialist is down - shall I try it myself?" },
+      { id: 3, role: "assistant", content: `${SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX}pending` },
+      { id: 4, role: "user", content: "Yes, go ahead yourself." },
+    ];
+    chatMessages.mockResolvedValueOnce(pendingHistory).mockResolvedValueOnce(pendingHistory);
+    chatWithMistralGateway
+      // The model first tries to self-code without recording acceptance:
+      // the gate blocks the substantial write.
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-gate-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "index.html", content: twentyLineScript }),
+            },
+          ],
+        })
+      )
+      // Proper flow: record the user's explicit consent, then self-code.
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-gate-2", name: "accept_own_coding", arguments: "{}" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-gate-3",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "index.html", content: twentyLineScript }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Done - this is my own version." }));
+    await runWorkspaceAgent(1, 3, "Yes, go ahead yourself.");
+    // Pre-acceptance write: blocked, with the acceptance policy in the result.
+    const blockedRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-gate-1");
+    expect(blockedRow?.content).toContain("the user has not accepted Nova's own coding yet");
+    // The accept tool records the consent durably.
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX}accepted` })
+    );
+    // The post-acceptance write now succeeds.
+    const acceptedRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-gate-3");
+    expect(acceptedRow?.content).toContain("Created index.html");
+    // The marker rows never reach the model's history.
+    const historySeesMarker = chatWithMistralGateway.mock.calls.some(call =>
+      (call[1] as Array<{ content?: unknown }>).some(
+        m => typeof m.content === "string" && m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
+      )
+    );
+    expect(historySeesMarker).toBe(false);
+  });
+
+  it("refuses accept_own_coding in the same run as the specialist failure", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockRejectedValue(new Error("NVIDIA NIM responded with status 500."));
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-acc-1", name: "code_task", arguments: JSON.stringify({ task: "build a website" }) },
+          ],
+        })
+      )
+      // The model tries to "accept" on the user's behalf in the same run.
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [{ id: "call-acc-2", name: "accept_own_coding", arguments: "{}" }],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "The coding specialist is down - shall I try it myself?" })
+      );
+    await runWorkspaceAgent(1, 3, "build me a website");
+    const acceptRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-acc-2");
+    expect(acceptRow?.content).toContain("failed in this same run");
+    expect(append).not.toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX}accepted` })
+    );
+  });
+
+  it("treats a missing NVIDIA_NIM_CODER_MODEL config error as non-retryable", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockRejectedValue(
+      new NimConfigError(
+        "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint."
+      )
+    );
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-cfg-1", name: "code_task", arguments: JSON.stringify({ task: "build a website" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "The specialist needs a model configured." }));
+    await runWorkspaceAgent(1, 3, "build me a website");
+    // Config failures are classified by type, not message text: no retry.
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(1);
+    const toolRow = chatWithMistralGateway.mock.calls
+      .flatMap(call => call[1] as Array<{ role: string; tool_call_id?: string; content?: string }>)
+      .find(m => m.role === "tool" && m.tool_call_id === "call-cfg-1");
+    expect(toolRow?.content).toContain("NVIDIA_NIM_CODER_MODEL is required");
   });
 
   // Coder-delegation guard: the agent loop itself keeps the coding
@@ -636,7 +776,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("nudges the model toward code_task when it writes substantial code itself", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -721,7 +861,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("does not nudge again once the specialist has been used this run", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -755,7 +895,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("cancels a pending nudge when the same round also calls code_task", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({

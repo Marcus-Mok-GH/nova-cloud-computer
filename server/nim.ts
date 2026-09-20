@@ -10,6 +10,13 @@
 
 import { ENV } from "./_core/env";
 
+/**
+ * A deterministic configuration failure - a missing key, a missing model ID
+ * for a custom endpoint, or a refused plaintext transport. Callers treat
+ * these as non-retryable: no amount of retrying fixes a config problem.
+ */
+export class NimConfigError extends Error {}
+
 export function isNimConfigured() {
   return ENV.nimApiKey.trim().length > 0;
 }
@@ -46,12 +53,12 @@ function extractText(content: unknown): string {
  */
 export async function runNimChat(options: NimChatOptions): Promise<string> {
   if (!isNimConfigured()) {
-    throw new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.");
+    throw new NimConfigError("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.");
   }
   const model = options.model ?? ENV.nimCoderModel;
   if (!model) {
-    throw new Error(
-      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'deepseek-ai/DeepSeek-V4-Pro-0813')."
+    throw new NimConfigError(
+      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'moonshotai/kimi-k3')."
     );
   }
   const endpoint = new URL(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`);
@@ -59,7 +66,7 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
   if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
     // The key travels in the Authorization header: refuse to send it over
     // an unencrypted transport to anything that is not this machine.
-    throw new Error(
+    throw new NimConfigError(
       `Refusing to send the NVIDIA NIM API key over ${endpoint.protocol}//${endpoint.hostname} - set NVIDIA_NIM_API_URL to an HTTPS endpoint (or http on a loopback host).`
     );
   }

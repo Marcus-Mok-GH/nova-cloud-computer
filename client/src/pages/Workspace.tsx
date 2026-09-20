@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ResearchToolActivity, ToolActivityLine } from "@/lib/toolActivityLine";
-import { dedupeToolActivityMessages, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
+import { dedupeToolActivityMessages, isInternalChatMessage, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
 import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, Mail, MessageSquareText, Send, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -129,6 +129,15 @@ export default function Workspace() {
   if (computer.isError) return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) {
     const persisted = savedMessages.data ?? [];
+    // Internal bookkeeping rows (tool activity is rendered separately,
+    // acceptance markers never) stay out of the visible bubble list.
+    const visibleMessages = dedupeToolActivityMessages(
+      persisted.filter(
+        message =>
+          parsePersistedToolActivity(message.content) ||
+          !isInternalChatMessage(message.content)
+      )
+    );
     const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, baselineMessageId, pendingUserContent, streamingContent, toolActivities);
     const lastPersistedRole = persisted.length ? persisted[persisted.length - 1].role : null;
     const pendingBubbleRendered = Boolean(pendingUserContent) && !userCommitted;
@@ -149,15 +158,15 @@ export default function Workspace() {
         </header>
         <div ref={scrollRef} onScroll={handleChatScroll} className="z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6 sm:px-5 sm:py-8">
           <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-5">
-            {savedMessages.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p> : persisted.length === 0 && !pendingUserContent && !isStreaming ? (
+            {savedMessages.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Loading conversation…</p> : visibleMessages.length === 0 && !pendingUserContent && !isStreaming ? (
               <div className="chat-in flex flex-col items-center justify-center gap-3 py-14 text-center">
                 <span className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15"><NovaLogo size={22} /></span>
                 <p className="text-lg font-extrabold tracking-tight">What are we working on?</p>
                 <p className="max-w-xs text-sm leading-6 text-muted-foreground">Ask Nova about your files, or give it a task. Replies stream in here.</p>
               </div>
-            ) : dedupeToolActivityMessages(persisted).map((message, index) => {
+            ) : visibleMessages.map((message, index) => {
               const persistedTool = message.role === "assistant" ? parsePersistedToolActivity(message.content) : null;
-              const showLabel = index === 0 || persisted[index - 1].role === "user";
+              const showLabel = index === 0 || visibleMessages[index - 1].role === "user";
               if (persistedTool) return <div key={message.id} className="chat-in ml-[2.65rem] flex w-full shrink-0">{persistedTool.name === "research_web" ? <div className="flex w-full min-w-0 flex-col rounded-2xl border border-border/70 bg-card px-2.5 py-1.5 shadow-[0_1px_2px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card"><ResearchToolActivity activity={persistedTool} /></div> : <div className="flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-card px-2.5 py-1 shadow-[0_1px_2px_rgba(10,10,10,0.04)] dark:border-white/10 dark:bg-card"><ToolActivityLine activity={persistedTool} /></div>}</div>;
               if (message.role === "user") return <div key={message.id} className="chat-in flex w-full shrink-0 justify-end"><div className="max-w-[92%] rounded-3xl rounded-br-lg bg-neutral-950 px-4 py-2.5 text-[15px] leading-6 text-white shadow-[0_2px_10px_rgba(10,10,10,0.10)] sm:max-w-[85%] dark:bg-foreground dark:text-background">{message.content}</div></div>;
               return <div key={message.id} className="chat-in flex w-full shrink-0 items-start gap-2.5"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.65rem)]">{showLabel && <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nova App</p>}{isUnavailableReply(message.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm leading-6 text-red-700 sm:px-4 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{message.content}</span></div></div> : <div className="break-words text-[15px] leading-7 text-foreground"><MarkdownText text={message.content} /></div>}</div></div>;

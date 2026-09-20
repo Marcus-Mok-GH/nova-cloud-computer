@@ -4,7 +4,7 @@ import { isNimConfigured, runNimChat } from "./nim";
 const state = vi.hoisted(() => ({
   nimKey: "test-nim-key",
   nimUrl: "https://integrate.api.nvidia.com/v1",
-  nimModel: "deepseek-ai/deepseek-v4-pro-0813",
+  nimModel: "moonshotai/kimi-k3",
 }));
 vi.mock("./_core/env", () => ({
   ENV: {
@@ -27,7 +27,7 @@ beforeEach(() => {
   fetchStub.mockReset();
   state.nimKey = "test-nim-key";
   state.nimUrl = "https://integrate.api.nvidia.com/v1";
-  state.nimModel = "deepseek-ai/deepseek-v4-pro-0813";
+  state.nimModel = "moonshotai/kimi-k3";
 });
 
 describe("isNimConfigured", () => {
@@ -69,7 +69,7 @@ describe("runNimChat", () => {
   it("defaults to the configured NIM coder model", async () => {
     fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
     await runNimChat({ prompt: "p", systemPrompt: "s" });
-    expect(JSON.parse(fetchStub.mock.calls[0][1].body).model).toBe("deepseek-ai/deepseek-v4-pro-0813");
+    expect(JSON.parse(fetchStub.mock.calls[0][1].body).model).toBe("moonshotai/kimi-k3");
   });
 
   it("works against a self-hosted NIM base URL with or without a trailing slash", async () => {

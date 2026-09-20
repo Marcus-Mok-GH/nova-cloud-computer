@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runCoderTask } from "./coder";
 
-const state = vi.hoisted(() => ({ nimModel: "deepseek-ai/deepseek-v4-pro-0813" }));
+const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
 vi.mock("./_core/env", () => ({
   ENV: { get nimCoderModel() { return state.nimModel; } },
 }));
@@ -11,7 +11,7 @@ vi.mock("./nim", () => ({ runNimChat: runNimChatMock }));
 
 beforeEach(() => {
   runNimChatMock.mockReset();
-  state.nimModel = "deepseek-ai/deepseek-v4-pro-0813";
+  state.nimModel = "moonshotai/kimi-k3";
 });
 
 describe("runCoderTask", () => {
@@ -25,7 +25,7 @@ describe("runCoderTask", () => {
     );
 
     expect(result.code).toBe("```python\nprint('hi')\n```");
-    expect(result.model).toBe("deepseek-ai/deepseek-v4-pro-0813");
+    expect(result.model).toBe("moonshotai/kimi-k3");
     const [options] = runNimChatMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Nova's coding specialist");
     expect(options.prompt).toBe(

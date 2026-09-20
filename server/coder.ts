@@ -1,7 +1,7 @@
 /** Nova's coding specialist delegate.
  *
  * The heavy lifting is done by the strongest coding model served through
- * NVIDIA NIM (https://build.nvidia.com) - DeepSeek V4 Pro by default, a
+ * NVIDIA NIM (https://build.nvidia.com) - Kimi K3 by default, a
  * frontier coding MoE with a 262K-token context. The calling agent
  * describes the coding task and supplies any existing code or errors as
  * context; the specialist returns complete, working code the agent then

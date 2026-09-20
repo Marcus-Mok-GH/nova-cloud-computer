@@ -1,4 +1,11 @@
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+/** Internal bookkeeping rows (specialist-acceptance state) - never rendered. */
+export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX = "__nova_specialist_acceptance__:";
+
+/** True for internal rows the UI must never show as chat bubbles. */
+export const isInternalChatMessage = (content: string): boolean =>
+  content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) ||
+  content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX);
 
 export type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {

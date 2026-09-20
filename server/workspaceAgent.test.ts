@@ -217,6 +217,9 @@ const {
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   workspaceToolsForConnectors,
   getConnectedConnectorToolkits,
+  CODER_NUDGE_PREFIX,
+  isCodeFileName,
+  isSubstantialCode,
 } = await import("./workspaceAgent");
 
 // A well-formed end_turn tool call carrying the final reply.
@@ -505,6 +508,190 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([
       { kind: "tool", name: "code_task: build a todo app", operation: "failed" },
     ]);
+  });
+
+  // Coder-delegation guard: the agent loop itself keeps the coding
+  // specialist in play - one nudge per run when the model writes
+  // substantial code itself without ever calling code_task.
+  // The run mutates its messages array in place across rounds, so the same
+  // nudge row shows up in every later gateway call - dedupe by content.
+  const coderNudgeMessages = () => {
+    const seen = new Map<string, string>();
+    for (const call of chatWithMistralGateway.mock.calls) {
+      for (const m of call[1] as Array<{ role: string; content?: unknown }>) {
+        if (
+          m.role === "user" &&
+          typeof m.content === "string" &&
+          m.content.startsWith(CODER_NUDGE_PREFIX)
+        )
+          seen.set(m.content, m.content);
+      }
+    }
+    return [...seen.values()].map(content => ({ role: "user", content }));
+  };
+  const twentyLineScript = ["// app", ...Array.from({ length: 20 }, (_, i) => `console.log(${i});`)].join("\n");
+
+  it("nudges the model toward code_task when it writes substantial code itself", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "app.js", content: twentyLineScript }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-2",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "write app.js properly" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [endTurnCall("Rewrote app.js with the coding specialist.")],
+        })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a script");
+    // Exactly one coder nudge, naming the file, before the delegation round.
+    const nudges = coderNudgeMessages();
+    expect(nudges).toHaveLength(1);
+    expect(nudges[0].content).toContain("app.js");
+    // The model delegated after the nudge, and the specialist got the task.
+    expect(runCoderTaskMock).toHaveBeenCalledWith("write app.js properly", undefined, undefined);
+    expect(result.message.content).toBe("Rewrote app.js with the coding specialist.");
+  });
+
+  it("does not nudge for non-code files the agent writes itself", async () => {
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-note",
+              name: "create_file",
+              arguments: JSON.stringify({
+                name: "notes.txt",
+                content: twentyLineScript,
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Wrote your notes." }));
+    const result = await runWorkspaceAgent(1, 3, "take notes");
+    expect(coderNudgeMessages()).toHaveLength(0);
+    expect(result.message.content).toBe("Wrote your notes.");
+  });
+
+  it("does not nudge for trivial code the agent writes itself", async () => {
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-tiny",
+              name: "create_file",
+              arguments: JSON.stringify({
+                name: "tiny.js",
+                content: "console.log(1);",
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Added a one-liner." }));
+    const result = await runWorkspaceAgent(1, 3, "log the number one");
+    expect(coderNudgeMessages()).toHaveLength(0);
+    expect(result.message.content).toBe("Added a one-liner.");
+  });
+
+  it("does not nudge again once the specialist has been used this run", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-code",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "write app.js" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "app.js", content: twentyLineScript }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ toolCalls: [endTurnCall("Placed the specialist's app.js.")] })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a script");
+    expect(coderNudgeMessages()).toHaveLength(0);
+    expect(result.message.content).toBe("Placed the specialist's app.js.");
+  });
+
+  it("cancels a pending nudge when the same round also calls code_task", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "app.js", content: twentyLineScript }),
+            },
+            {
+              id: "call-2",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "review app.js" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ toolCalls: [endTurnCall("Written and reviewed with the specialist.")] })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a script");
+    expect(coderNudgeMessages()).toHaveLength(0);
+    expect(runCoderTaskMock).toHaveBeenCalledWith("review app.js", undefined, undefined);
+    expect(result.message.content).toBe("Written and reviewed with the specialist.");
+  });
+
+  it("classifies code files and substantial code sizes correctly", () => {
+    expect(isCodeFileName("app.js")).toBe(true);
+    expect(isCodeFileName("Component.TSX")).toBe(true);
+    expect(isCodeFileName("index.html")).toBe(true);
+    expect(isCodeFileName("style.css")).toBe(true);
+    expect(isCodeFileName("notes.txt")).toBe(false);
+    expect(isCodeFileName("readme.md")).toBe(false);
+    expect(isCodeFileName("data.json")).toBe(false);
+    expect(isCodeFileName("no-extension")).toBe(false);
+    expect(isSubstantialCode("one line")).toBe(false);
+    expect(isSubstantialCode(Array.from({ length: 15 }, (_, i) => `line ${i}`).join("\n"))).toBe(false);
+    expect(isSubstantialCode(Array.from({ length: 16 }, (_, i) => `line ${i}`).join("\n"))).toBe(true);
+    expect(isSubstantialCode("x".repeat(801))).toBe(true);
   });
 
   it("reports a failed solve_equation call back to the model instead of breaking the run", async () => {

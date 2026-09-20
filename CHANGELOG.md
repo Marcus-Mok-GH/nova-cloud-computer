@@ -4,6 +4,7 @@
 
 - New `delete_website` tool: the agent can now take the user's site down - delete, unpublish, remove, take down. By default it deletes the current live site (the one `deploy_website` 'update' targets); `all: true` deletes every site the workspace ever deployed. Deletion is irreversible and the URL goes offline immediately, but workspace files are never touched, and the system prompt tells the agent to confirm the target when several sites exist or the request is vague, and to say plainly what went offline.
 - Netlify client gains `deleteNetlifySite` (a 404 counts as already deleted); `deleteWorkspaceSite` walks the target sites, marks every matching deployment record `deleted`, and keeps going on partial failures so one bad site cannot block the sweep.
+- Server-side confirmation gate for site sweeps (CodeRabbit security review, PR #109): `all: true` alone deletes nothing - the first call returns the exact target list and requires a follow-up call whose `confirm_all` URLs match that list set-exactly, so a stale, partial or extra list leaves the sweep unexecuted, and the model can never wipe every site on one ambiguous leap. Single-site deletion stays direct: its scope is deterministic.
 - The Deployments page understands the new `deleted` status: a deleted latest record shows "Not deployed yet" again with a Deleted badge, and history rows show Deleted instead of Failed. Migration 0023 adds the `deleted` value to the `site_deployment_status` enum.
 
 2026-09-20 - Thin-reasoner architecture for the workspace agent

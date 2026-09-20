@@ -249,11 +249,31 @@ describe("deleteWorkspaceSite", () => {
     expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledWith(1, "site-1");
   });
 
-  it("deletes every known site when all: true, with URLs from the history", async () => {
+  it("lists the sweep targets without deleting when all: true is unconfirmed", async () => {
     const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
     spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
     spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
     const result = await deleteWorkspaceSite(1, { all: true });
+    expect(result).toMatchObject({
+      ok: false,
+      confirmationRequired: true,
+      targets: [
+        { siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" },
+        { siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" },
+      ],
+    });
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
+    expect(spies.markSiteDeploymentsDeletedForUser).not.toHaveBeenCalled();
+  });
+
+  it("deletes every known site when all: true is confirmed with exactly the listed URLs", async () => {
+    const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.deleted).toEqual([
@@ -264,6 +284,18 @@ describe("deleteWorkspaceSite", () => {
     }
     expect(spies.deleteNetlifySite).toHaveBeenCalledTimes(2);
     expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a stale or partial confirmation for the sweep", async () => {
+    const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app"], // missing site-0
+    });
+    expect(result).toMatchObject({ ok: false, confirmationRequired: true });
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
   });
 
   it("refuses when there is no live site", async () => {
@@ -295,7 +327,10 @@ describe("deleteWorkspaceSite", () => {
     spies.deleteNetlifySite
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("Netlify responded with status 500."));
-    const result = await deleteWorkspaceSite(1, { all: true });
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+    });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.deleted).toHaveLength(1);

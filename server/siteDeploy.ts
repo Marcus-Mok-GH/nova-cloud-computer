@@ -191,19 +191,27 @@ export async function deployWorkspaceSite(
 }
 
 
+export type DeleteTarget = { siteId: string; siteUrl: string };
+
 export type DeleteResult =
-  | { ok: true; deleted: Array<{ siteId: string; siteUrl: string }>; failed: number }
+  | { ok: true; deleted: DeleteTarget[]; failed: number }
+  | { ok: false; confirmationRequired: true; targets: DeleteTarget[]; message: string }
   | { ok: false; message: string };
 
 /**
  * Deletes the workspace's live website from Netlify - the URL goes offline
  * immediately and the deletion is irreversible (workspace files are untouched).
- * Default deletes the current live site (the one "update" deploys target);
- * `all: true` deletes every site the workspace has ever deployed.
+ * Default deletes the current live site (the one "update" deploys target).
+ *
+ * `all: true` deletes every site the workspace has ever deployed - a sweep so
+ * destructive it has a server-side confirmation gate: the first call only
+ * returns the full target list, and the sweep executes on a follow-up call
+ * whose `confirmUrls` must match that list exactly (set equality, so it also
+ * catches a target list that changed between the two calls).
  */
 export async function deleteWorkspaceSite(
   ownerId: number,
-  options?: { all?: boolean }
+  options?: { all?: boolean; confirmUrls?: string[] }
 ): Promise<DeleteResult> {
   if (!isNetlifyConfigured()) {
     return { ok: false, message: "Live deployments are not configured yet - the Nova operator needs to set NETLIFY_API_TOKEN." };
@@ -222,6 +230,27 @@ export async function deleteWorkspaceSite(
     siteIds = await listSiteDeploymentSiteIdsForUser(ownerId);
     if (siteIds.length === 0) {
       return { ok: false, message: "This workspace has no deployed websites to delete." };
+    }
+    // The sweep gate: without a matching confirmation nothing is deleted.
+    const targets = siteIds
+      .map(siteId => ({ siteId, siteUrl: urlOf.get(siteId) ?? siteId }))
+      .filter((t): t is DeleteTarget => Boolean(t));
+    const targetUrls = targets.map(t => t.siteUrl);
+    const confirmUrls = options.confirmUrls ?? [];
+    const confirmed = confirmUrls.length === targets.length && targetUrls.every(url => confirmUrls.includes(url));
+    if (!confirmed) {
+      const reason = (options.confirmUrls ?? []).length === 0
+        ? "the sweep needs explicit confirmation first"
+        : "the confirmed list does not match the current sites exactly - it may be stale";
+      return {
+        ok: false,
+        confirmationRequired: true,
+        targets,
+        message:
+          `Deleting every site is irreversible, so nothing was deleted yet (${reason}). ` +
+          `The complete target list is: ${targetUrls.join(", ")}. ` +
+          `Re-call with all: true and confirm_all set to exactly these URLs - and only after the user has explicitly confirmed deleting every one of them.`,
+      };
     }
   } else {
     if (!latest || latest.status === "deleted") {

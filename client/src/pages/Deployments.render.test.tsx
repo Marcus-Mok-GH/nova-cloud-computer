@@ -3,9 +3,8 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Deployments from "./Deployments";
 
-const state = vi.hoisted(() => ({
-  query: { isError: false, isLoading: false, errorMessage: null as string | null },
-  data: {
+const state = vi.hoisted(() => {
+  const baseData = {
     configured: true,
     latest: {
       id: 30,
@@ -42,8 +41,13 @@ const state = vi.hoisted(() => ({
         updatedAt: new Date("2026-09-16T10:00:20.000Z"),
       },
     ],
-  },
-}));
+  };
+  return {
+    query: { isError: false, isLoading: false, errorMessage: null as string | null },
+    data: baseData,
+    baseData,
+  };
+});
 
 const mutation = { mutate: vi.fn(), isPending: false };
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -60,9 +64,13 @@ vi.mock("@/lib/trpc", () => ({
 
 describe("Deployments page", () => {
   beforeEach(() => {
+    // Restore the complete fixture: earlier tests mutate state.data (latest,
+    // history), and spreading a mutated latest would silently build rows
+    // that are missing every field but status.
     state.data = {
-      ...state.data,
-      configured: true,
+      ...state.baseData,
+      latest: state.baseData.latest ? { ...state.baseData.latest } : (null as never),
+      history: state.baseData.history.map(row => ({ ...row })),
     };
     state.query = { isError: false, isLoading: false, errorMessage: null };
   });

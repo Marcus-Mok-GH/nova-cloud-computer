@@ -1006,8 +1006,18 @@ describe("Nova tool-calling workspace agent", () => {
     );
   });
 
-  it("passes all: true through when the user wants every site deleted", async () => {
+  it("gates an all-sites sweep: the first call lists targets and deletes nothing", async () => {
     deleteWebsite.mockClear();
+    deleteWebsite.mockResolvedValueOnce({
+      ok: false,
+      confirmationRequired: true,
+      targets: [
+        { siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" },
+        { siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" },
+      ],
+      message:
+        "The complete target list is: https://nova-live-site.netlify.app, https://nova-old-site.netlify.app. Re-call with all: true and confirm_all set to exactly these URLs - and only after the user has explicitly confirmed deleting every one of them.",
+    });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -1017,10 +1027,62 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockResolvedValueOnce(
-        chatResult({ text: "All your sites are offline." })
+        chatResult({ text: "You have two sites. Confirm and I will delete both." })
       );
-    await runWorkspaceAgent(1, 3, "delete all my sites");
-    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: true });
+    const result = await runWorkspaceAgent(1, 3, "delete all my sites");
+    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: true, confirmUrls: undefined });
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app, https://nova-old-site.netlify.app",
+        operation: "presented",
+      },
+    ]);
+    // The tool result hands the model the exact target list.
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-1",
+          content: expect.stringContaining("https://nova-old-site.netlify.app"),
+        }),
+      ])
+    );
+  });
+
+  it("executes the sweep when the model re-calls with confirm_all bound to the listed URLs", async () => {
+    deleteWebsite.mockClear();
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "delete_website",
+              arguments: JSON.stringify({
+                all: true,
+                confirm_all: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Both sites are offline." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "yes, delete both sites");
+    expect(deleteWebsite).toHaveBeenCalledWith(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+    });
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app",
+        operation: "deleted",
+      },
+    ]);
   });
 
   it("reports a failed deletion to the model instead of pretending it worked", async () => {

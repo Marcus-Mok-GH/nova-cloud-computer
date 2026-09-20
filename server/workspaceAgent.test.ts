@@ -1677,7 +1677,7 @@ describe("Nova tool-calling workspace agent", () => {
             {
               id: "call-1",
               name: "deploy_website",
-              arguments: JSON.stringify({ directory: "my-react-app" }),
+              arguments: JSON.stringify({ directory: "my-react-app", description: "my portfolio app" }),
             },
           ],
         })
@@ -1686,7 +1686,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Deployed the my-react-app folder - your site is live." })
       );
     const result = await runWorkspaceAgent(1, 3, "publish my portfolio app");
-    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { deployment: undefined, description: undefined });
+    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { deployment: undefined, description: "my portfolio app" });
     expect(result.actions).toEqual([
       {
         kind: "deployment",

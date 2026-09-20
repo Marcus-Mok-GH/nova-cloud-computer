@@ -162,6 +162,13 @@
       "when": 1789719132678,
       "tag": "0022_mistral_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789876377834,
+      "tag": "0023_easy_moondragon",
+      "breakpoints": true
     }
   ]
 }

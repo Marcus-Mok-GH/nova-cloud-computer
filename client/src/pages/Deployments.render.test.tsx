@@ -3,9 +3,8 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Deployments from "./Deployments";
 
-const state = vi.hoisted(() => ({
-  query: { isError: false, isLoading: false, errorMessage: null as string | null },
-  data: {
+const state = vi.hoisted(() => {
+  const baseData = {
     configured: true,
     latest: {
       id: 30,
@@ -42,8 +41,13 @@ const state = vi.hoisted(() => ({
         updatedAt: new Date("2026-09-16T10:00:20.000Z"),
       },
     ],
-  },
-}));
+  };
+  return {
+    query: { isError: false, isLoading: false, errorMessage: null as string | null },
+    data: baseData,
+    baseData,
+  };
+});
 
 const mutation = { mutate: vi.fn(), isPending: false };
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -60,9 +64,13 @@ vi.mock("@/lib/trpc", () => ({
 
 describe("Deployments page", () => {
   beforeEach(() => {
+    // Restore the complete fixture: earlier tests mutate state.data (latest,
+    // history), and spreading a mutated latest would silently build rows
+    // that are missing every field but status.
     state.data = {
-      ...state.data,
-      configured: true,
+      ...state.baseData,
+      latest: state.baseData.latest ? { ...state.baseData.latest } : (null as never),
+      history: state.baseData.history.map(row => ({ ...row })),
     };
     state.query = { isError: false, isLoading: false, errorMessage: null };
   });
@@ -96,6 +104,22 @@ describe("Deployments page", () => {
     expect(markup).toContain("Deployments could not load.");
     expect(markup).toContain("The Nova database is unavailable.");
     expect(markup).toContain("Try again");
+  });
+
+  it("shows the deleted state when the live site was taken down", () => {
+    state.data = {
+      ...state.data,
+      latest: { ...state.data.latest!, status: "deleted" } as never,
+      history: [
+        { ...state.data.latest!, status: "deleted" } as never,
+        ...state.data.history,
+      ],
+    };
+    const markup = renderToStaticMarkup(<Deployments />);
+    // A deleted latest record no longer advertises a live URL.
+    expect(markup).toContain("Not deployed yet");
+    expect(markup).not.toContain("Live 24/7");
+    expect(markup).toContain("Deleted");
   });
 
   it("surfaces the failure of the latest deployment", () => {

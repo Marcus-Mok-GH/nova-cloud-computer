@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const spies = vi.hoisted(() => ({
   isNetlifyConfigured: vi.fn(() => true),
   createNetlifySite: vi.fn(async () => ({ id: "site-new", name: "nova-fresh-site", url: "https://nova-fresh-site.netlify.app" })),
   deployFilesToNetlifySite: vi.fn(async () => ({ deployId: "dep-new" })),
+  deleteNetlifySite: vi.fn(async () => undefined),
+  listSiteDeploymentSiteIdsForUser: vi.fn(async () => []),
+  markSiteDeploymentsDeletedForUser: vi.fn(async () => 1),
   getLatestSiteDeploymentForUser: vi.fn(async () => null),
   listSiteDeploymentsForUser: vi.fn(async () => []),
   listWorkspaceFilesForUser: vi.fn(async () => []),
@@ -25,14 +28,17 @@ vi.mock("./db", () => ({
   listWorkspaceFoldersForUser: spies.listWorkspaceFoldersForUser,
   recordSiteDeployment: spies.recordSiteDeployment,
   updateSiteDeploymentStatusForUser: spies.updateSiteDeploymentStatusForUser,
+  listSiteDeploymentSiteIdsForUser: spies.listSiteDeploymentSiteIdsForUser,
+  markSiteDeploymentsDeletedForUser: spies.markSiteDeploymentsDeletedForUser,
 }));
 vi.mock("./netlify", () => ({
   isNetlifyConfigured: spies.isNetlifyConfigured,
   createNetlifySite: spies.createNetlifySite,
   deployFilesToNetlifySite: spies.deployFilesToNetlifySite,
+  deleteNetlifySite: spies.deleteNetlifySite,
 }));
 
-const { deployWorkspaceSite, getDeploymentStatusForUser } = await import("./siteDeploy");
+const { deleteWorkspaceSite, deployWorkspaceSite, getDeploymentStatusForUser } = await import("./siteDeploy");
 
 const indexFile = { id: 1, folderId: null, name: "index.html", content: "<html>hi</html>" };
 const nestedFile = { id: 2, folderId: 5, name: "about.html", content: "about" };
@@ -214,5 +220,132 @@ describe("Workspace website deployer", () => {
     expect(status).toMatchObject({ configured: true, latest: null, history: [{ id: 30, status: "live" }] });
     spies.isNetlifyConfigured.mockImplementation(() => false);
     expect((await getDeploymentStatusForUser(1)).configured).toBe(false);
+  });
+});
+
+
+describe("deleteWorkspaceSite", () => {
+  const liveRow = {
+    id: 30, siteId: "site-1", siteName: "nova-live-site", siteUrl: "https://nova-live-site.netlify.app",
+    status: "live", fileCount: 3, error: null, createdAt: new Date("2026-09-19T10:00:00.000Z"), updatedAt: new Date(),
+  };
+
+  beforeEach(() => {
+    spies.deleteNetlifySite.mockClear();
+    spies.listSiteDeploymentSiteIdsForUser.mockClear();
+    spies.markSiteDeploymentsDeletedForUser.mockClear().mockResolvedValue(1);
+    spies.getLatestSiteDeploymentForUser.mockResolvedValue(liveRow);
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow]);
+  });
+
+  it("deletes the current live site and marks its records deleted", async () => {
+    const result = await deleteWorkspaceSite(1);
+    expect(result).toEqual({
+      ok: true,
+      deleted: [{ siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" }],
+      failed: 0,
+    });
+    expect(spies.deleteNetlifySite).toHaveBeenCalledWith("site-1");
+    expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledWith(1, "site-1");
+  });
+
+  it("lists the sweep targets without deleting when all: true is unconfirmed", async () => {
+    const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    const result = await deleteWorkspaceSite(1, { all: true });
+    expect(result).toMatchObject({
+      ok: false,
+      confirmationRequired: true,
+      targets: [
+        { siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" },
+        { siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" },
+      ],
+    });
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
+    expect(spies.markSiteDeploymentsDeletedForUser).not.toHaveBeenCalled();
+  });
+
+  it("deletes every known site when all: true is confirmed with exactly the listed URLs", async () => {
+    const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deleted).toEqual([
+        { siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" },
+        { siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" },
+      ]);
+      expect(result.failed).toBe(0);
+    }
+    expect(spies.deleteNetlifySite).toHaveBeenCalledTimes(2);
+    expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a stale or partial confirmation for the sweep", async () => {
+    const oldRow = { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" };
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, oldRow]);
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app"], // missing site-0
+    });
+    expect(result).toMatchObject({ ok: false, confirmationRequired: true });
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
+  });
+
+  it("refuses when there is no live site", async () => {
+    spies.getLatestSiteDeploymentForUser.mockResolvedValue({ ...liveRow, status: "deleted" });
+    const result = await deleteWorkspaceSite(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("no live site to delete");
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
+  });
+
+  it("refuses when hosting is not configured", async () => {
+    spies.isNetlifyConfigured.mockImplementation(() => false);
+    const result = await deleteWorkspaceSite(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("NETLIFY_API_TOKEN");
+    expect(spies.deleteNetlifySite).not.toHaveBeenCalled();
+    spies.isNetlifyConfigured.mockImplementation(() => true);
+  });
+
+  it("treats a Netlify 404 as already-deleted and still marks the records", async () => {
+    spies.deleteNetlifySite.mockResolvedValue(undefined); // our client swallows 404s
+    const result = await deleteWorkspaceSite(1);
+    expect(result.ok).toBe(true);
+  });
+
+  it("keeps going on partial failures and counts them", async () => {
+    spies.listSiteDeploymentSiteIdsForUser.mockResolvedValue(["site-1", "site-0"]);
+    spies.listSiteDeploymentsForUser.mockResolvedValue([liveRow, { ...liveRow, siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" }]);
+    spies.deleteNetlifySite
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Netlify responded with status 500."));
+    const result = await deleteWorkspaceSite(1, {
+      all: true,
+      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deleted).toHaveLength(1);
+      expect(result.failed).toBe(1);
+    }
+    // The failed site's records were NOT marked deleted.
+    expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledTimes(1);
+    expect(spies.markSiteDeploymentsDeletedForUser).toHaveBeenCalledWith(1, "site-1");
+  });
+
+  it("fails cleanly when every deletion fails", async () => {
+    spies.deleteNetlifySite.mockRejectedValue(new Error("Netlify responded with status 500."));
+    const result = await deleteWorkspaceSite(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("No site was deleted");
+    expect(spies.markSiteDeploymentsDeletedForUser).not.toHaveBeenCalled();
   });
 });

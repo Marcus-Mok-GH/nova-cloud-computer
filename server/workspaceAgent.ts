@@ -550,6 +550,31 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "delete_website",
+      description:
+        "Delete the user's live website deployment(s) from Netlify - the URL goes offline immediately and this is irreversible (their workspace files are NOT touched). Use this whenever the user asks to delete, remove, unpublish, take down, or tear down their site, deployment, or live website. By default it deletes the current live site (the one 'update' deploys publish to). all: true deletes every site they have, but it is gated: the first all: true call only returns the full list of target URLs and deletes nothing; execute the sweep by re-calling with confirm_all set to exactly that list, and only once the user has explicitly confirmed deleting every site on it. Never call this unless the user clearly asked for a deletion; if several sites exist or the request is vague, ask which site they mean first.",
+      parameters: {
+        type: "object",
+        properties: {
+          all: {
+            type: "boolean",
+            description:
+              "true targets every site this workspace has ever deployed, not just the current live one. Default false.",
+          },
+          confirm_all: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "The confirmation for an all-sites sweep: the target URLs exactly as the gated all: true response listed them. Anything else (empty, stale, partial, extra) leaves the sweep unexecuted.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "create_project_template",
       description:
         "Scaffold a clean project in the workspace from a template: 'static' (plain HTML/CSS/JS site), 'react' (React single-page app that runs in the browser - no build step), or 'next' (Next.js App Router configured for static export; needs a VM build before deploying). The template lands in its own folder so deployments stay clean - deploy_website then publishes that folder (for 'next', its out/ build output). Use this when the user wants a new site or app started from scratch, or wants their project organized properly before going live. If the user did not ask for a specific stack, do not ask them - pick the best fit yourself and say which stack you chose.",
@@ -783,7 +808,7 @@ function describeWorkspace(computer: Computer) {
   return { folders, files };
 }
 
-import { deployWorkspaceSite } from "./siteDeploy";
+import { deleteWorkspaceSite, deployWorkspaceSite } from "./siteDeploy";
 import {
   isProjectTemplateKey,
   PROJECT_TEMPLATE_KEYS,
@@ -869,6 +894,7 @@ Operating principles:
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website: by default it deletes the current live site (the one 'update' deploys target). Deleting every site (all: true) is a two-step sweep: the first call only lists the target URLs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every site; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, confirm the target first when several sites exist or the request is vague, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website publishes a fresh site with a new URL.
 - Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
@@ -1258,6 +1284,33 @@ async function executeWorkspaceTool(
           name: outcome.deployment.siteUrl,
           operation: "deployed",
         },
+      };
+    }
+    case "delete_website": {
+      const deleteAll = args.all === true;
+      const confirmAll = Array.isArray(args.confirm_all) ? args.confirm_all.map(url => String(url)) : undefined;
+      const outcome = await deleteWorkspaceSite(ownerId, { all: deleteAll, confirmUrls: confirmAll });
+      if (!outcome.ok && "confirmationRequired" in outcome) {
+        // The sweep gate fired: nothing was deleted. Hand the model the exact
+        // target list so it can confirm with the user and re-call bound to it.
+        return {
+          ok: true,
+          result: `Nothing was deleted yet - deleting every site is irreversible and needs explicit confirmation. ${outcome.message}`,
+          action: { kind: "deployment", name: outcome.targets.map(t => t.siteUrl).join(", "), operation: "presented" },
+        };
+      }
+      if (!outcome.ok)
+        return {
+          ok: false,
+          result: `No website was deleted: ${outcome.message}`,
+          action: { kind: "deployment", name: "", operation: "failed" },
+        };
+      const urls = outcome.deleted.map(entry => entry.siteUrl).join(", ");
+      const failedNote = outcome.failed > 0 ? ` (${outcome.failed} other site${outcome.failed === 1 ? "" : "s"} failed to delete - check the deployment history)` : "";
+      return {
+        ok: true,
+        result: `Deleted ${outcome.deleted.length === 1 ? "the live site" : `${outcome.deleted.length} sites`}: ${urls}. The URL${outcome.deleted.length === 1 ? " is" : "s are"} offline and the deletion is irreversible${outcome.deleted.length === 1 ? "" : ""} - but every workspace file is untouched, so redeploying with deploy_website publishes a fresh site with a new URL. Tell the user plainly what went offline.${failedNote}`,
+        action: { kind: "deployment", name: urls, operation: "deleted" },
       };
     }
     case "create_project_template": {

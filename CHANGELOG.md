@@ -1,5 +1,14 @@
 # Changelog
 
+2026-09-20 - Mechanically gated self-coding after a specialist failure
+
+- The specialist-down policy is now enforced by the runtime, not just prompt discipline. After code_task fails, non-trivial create_file/edit_file writes are blocked in that same run, and the run ends with the user being asked whether to proceed with Nova's own attempt.
+- A pending acceptance is persisted per chat (internal marker rows, invisible in the UI and the model's history). Only in a later conversation turn, once the user explicitly accepts, does the new `accept_own_coding` tool record the consent and unlock Nova's own coding - and it refuses to run inside the same run as the failure, so the model can never accept on the user's behalf.
+- A successful code_task clears any lingering acceptance question, returning the chat to normal mandatory delegation.
+- Config failures in runNimChat are now typed (`NimConfigError`: missing key, missing model ID for a custom endpoint, refused plaintext transport) and classified non-retryable by type instead of fragile message-text matching, so a missing `NVIDIA_NIM_CODER_MODEL` no longer burns a pointless retry.
+- The coder nudge, code_task failure text, and system prompt all describe the acceptance flow.
+- 5 new tests (447 passing), tsc clean.
+
 2026-09-20 - Coding specialist model updated (DeepSeek V4 Pro retired from NVIDIA NIM)
 
 - The default coder model on the hosted NVIDIA NIM endpoint changed from `deepseek-ai/deepseek-v4-pro-0813` to `moonshotai/kimi-k3`. NVIDIA retired the V4 Pro build from the hosted catalog, so every code_task call in production was failing deterministically (model not found) and the agent fell back to hand-writing code. Kimi K3 is now the strongest coding model NIM serves.

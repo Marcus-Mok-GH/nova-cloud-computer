@@ -1,5 +1,12 @@
 # Changelog
 
+2026-09-20 - Gateway failures surface the real error, not a canned "try again shortly"
+
+- When the Mistral inference gateway fails after its retries, the assistant reply now leads with "Mistral inference gateway error: " followed by the actual error message (network failure, gateway response detail, timeout) capped at 500 characters - so a failing deployment can be diagnosed from the chat itself instead of a generic please-try-again. The canned "Mistral AI inference isn't available right now..." text is gone.
+- `shared/const.ts`: `MISTRAL_UNAVAILABLE_MESSAGE` is replaced by `MISTRAL_UNAVAILABLE_PREFIX`, the stable lead-in the actual error is appended to.
+- `client/src/pages/Workspace.tsx`: the offline/error bubble is detected by prefix match instead of exact equality, so it still renders for every distinct error while showing the real detail.
+- Tests: the agent suite asserts the real error text reaches the persisted reply; the Workspace render test asserts the error bubble shows the detail and that plain replies never match the prefix (101 tests across both files).
+
 2026-09-20 - send_progress_update is Telegram-only: no stray pings from web runs
 
 - `send_progress_update` and `present_file` are now both exposed only to the Telegram bot: the tool list in `server/workspaceAgent.ts` filters both out on web runs, so the model in the web app can no longer emit mid-run progress notes - which previously landed as random Telegram pings.

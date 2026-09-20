@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Workspace, { TypingIndicator } from "./Workspace";
-import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
+import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 
 const state = vi.hoisted(() => ({
   computer: { data: undefined as unknown, isError: false, isLoading: false, refetch: vi.fn() },
@@ -170,12 +170,21 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("Codebuff");
   });
 
-  it("renders an unavailable-AI persisted message as an explicit error", () => {
-    state.chatMessages = [{ id: 1, role: "assistant", content: MISTRAL_UNAVAILABLE_MESSAGE }];
+  it("renders an unavailable-AI persisted message as an explicit error, with the actual gateway error visible", () => {
+    state.chatMessages = [
+      { id: 1, role: "assistant", content: `${MISTRAL_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset` },
+    ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
     expect(markup).toContain("Nova is offline");
-    expect(markup).toContain(MISTRAL_UNAVAILABLE_MESSAGE);
+    expect(markup).toContain("Mistral inference gateway error");
+    expect(markup).toContain("connection reset");
+
+    // A plain assistant reply never matches the error prefix.
+    state.chatMessages = [{ id: 1, role: "assistant", content: "Mistral is a fine model" }];
+    const plainMarkup = renderChat();
+    expect(plainMarkup).not.toContain('data-testid="assistant-error"');
+    expect(plainMarkup).toContain("Mistral is a fine model");
   });
 
   it("renders a normal persisted assistant message as a regular bubble with exactly one label", () => {

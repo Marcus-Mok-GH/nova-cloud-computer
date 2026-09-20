@@ -1,5 +1,11 @@
 # Changelog
 
+2026-09-20 - Database causes ride along with drizzle's "Failed query" wrapper
+
+- When a database error is what broke a run, drizzle's own message only says "Failed query: <sql> params: ..." - the actual Postgres error (missing column, timeout, terminated connection) lives on `error.cause` and never reached the chat. The gateway-error fallback now unwraps the whole cause chain (up to 4 levels, joined with " | ", still capped at 500 characters) so the reply shows the real failure.
+- `server/workspaceAgent.ts`: new `errorChainText` helper; the unavailable fallback reports the chain instead of only the wrapper message.
+- `server/workspaceAgent.test.ts`: new test asserting a drizzle-style wrapper with a missing-column cause surfaces both the wrapper and the true cause in the persisted reply (91 tests).
+
 2026-09-20 - Gateway failures surface the real error, not a canned "try again shortly"
 
 - When the Mistral inference gateway fails after its retries, the assistant reply now leads with "Mistral inference gateway error: " followed by the actual error message (network failure, gateway response detail, timeout) capped at 500 characters - so a failing deployment can be diagnosed from the chat itself instead of a generic please-try-again. The canned "Mistral AI inference isn't available right now..." text is gone.

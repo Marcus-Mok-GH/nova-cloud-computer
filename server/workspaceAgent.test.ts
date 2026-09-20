@@ -1802,6 +1802,189 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([]);
   });
 
+  it("refuses to scaffold into an existing project folder that already has files", async () => {
+    // Yesterday's traffic-jam-escape failure: the folder existed with an
+    // index.html, every template file collided with the unique (folder, name)
+    // constraint, and the model retried blind. Now the refusal is up front
+    // and tells the model what to do instead.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [
+        { id: 10, name: "Notes", parentId: null },
+        { id: 22, name: "traffic-jam-escape", parentId: null },
+      ],
+      files: [{ id: 99, name: "index.html", content: "old", folderId: 22 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "traffic-jam-escape", template: "react" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "That folder already has a project in it - want a fresh name or should I clear it?" })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make a traffic jam game");
+    expect(createFolder).not.toHaveBeenCalled();
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolResult = lastToolResult(secondCallMessages)!.content;
+    expect(toolResult).toContain("already exists with files");
+    expect(toolResult).toContain("traffic-jam-escape");
+    expect(toolResult).toContain("different project name");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("refuses to scaffold when stale files hide in nested subfolders of the project", async () => {
+    // A template's files mostly live in nested folders (src/, out/): a
+    // stale scaffold can leave the project root empty while its subfolders
+    // still hold files. The refusal must see the whole subtree.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [
+        { id: 22, name: "traffic-jam-escape", parentId: null },
+        { id: 23, name: "src", parentId: 22 },
+      ],
+      files: [{ id: 99, name: "main.jsx", content: "old", folderId: 23 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "traffic-jam-escape", template: "react" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "There is an old project in that folder already - a new name it is." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "rebuild my game");
+    expect(createFolder).not.toHaveBeenCalled();
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)!.content).toContain("already exists with files");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("refuses create_file when a same-name file already exists at the same level", async () => {
+    // Root-level duplicates bypass the database unique constraint (NULL
+    // folderId rows never collide), so the guard lives in the handler.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [],
+      files: [{ id: 30, name: "index.html", content: "old", folderId: null }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "create_file", arguments: JSON.stringify({ name: "Index.HTML", content: "new" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "That file is already there - I will edit it instead." }));
+    const result = await runWorkspaceAgent(1, 3, "add a file");
+    expect(createFile).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolResult = lastToolResult(secondCallMessages)!.content;
+    expect(toolResult).toContain("A file named Index.HTML already exists");
+    expect(toolResult).toContain("workspace root");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("scaffolds into an existing but empty project folder", async () => {
+    // A folder exists but holds nothing (a stale empty scaffold): reuse it
+    // and fill it with the template instead of refusing.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "empty-site", parentId: null }],
+      files: [],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_project_template",
+              arguments: JSON.stringify({ name: "empty-site", template: "static" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Refilled your empty folder with the template." }));
+    await runWorkspaceAgent(1, 3, "scaffold my site");
+    expect(createFolder).not.toHaveBeenCalled();
+    expect(createFile.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("refuses create_folder when a same-name folder already exists at the same level", async () => {
+    // The blind retry also created a second traffic-jam-escape folder;
+    // same-name siblings only ever confuse later by-name lookups.
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "traffic-jam-escape", parentId: null }],
+      files: [],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "create_folder", arguments: JSON.stringify({ name: "Traffic-Jam-Escape" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "That folder is already there - I will use it as is." }));
+    const result = await runWorkspaceAgent(1, 3, "make a folder");
+    expect(createFolder).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolResult = lastToolResult(secondCallMessages)!.content;
+    expect(toolResult).toContain("A folder named Traffic-Jam-Escape already exists");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("reports the real error and its cause chain when a tool fails unexpectedly", async () => {
+    // The failing insert surfaced as a bare "The tool call failed
+    // unexpectedly." while the real cause (the unique-constraint violation)
+    // stayed only in the server logs. The tool result now carries the actual
+    // error with its cause, capped like inference errors.
+    const dbError = new Error(
+      'Failed query: insert into "workspace_files" values (default, ...) returning "id"'
+    );
+    (dbError as Error & { cause?: unknown }).cause = new Error(
+      'duplicate key value violates unique constraint "workspace_files_folder_name_unique"'
+    );
+    createFile.mockRejectedValueOnce(dbError);
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "index.html", content: "hi" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "That failed because of a name collision - let me use a different name." }));
+    await runWorkspaceAgent(1, 3, "add a file");
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const toolResult = lastToolResult(secondCallMessages)!.content;
+    expect(toolResult).toContain("The tool call failed unexpectedly:");
+    expect(toolResult).toContain("duplicate key value violates unique constraint");
+  });
+
   it("sends a model-driven progress update when the model calls send_progress_update", async () => {
     telegramCredentials.mockResolvedValueOnce({ token: "bot-token", chatId: "42" });
     chatWithMistralGateway

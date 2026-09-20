@@ -1,5 +1,12 @@
 # Changelog
 
+2026-09-20 - send_progress_update is Telegram-only: no stray pings from web runs
+
+- `send_progress_update` and `present_file` are now both exposed only to the Telegram bot: the tool list in `server/workspaceAgent.ts` filters both out on web runs, so the model in the web app can no longer emit mid-run progress notes - which previously landed as random Telegram pings.
+- The executor carries the run's channel, and the `send_progress_update` handler refuses defensively on any non-Telegram run before even looking up Telegram credentials - a web run can never reach Telegram, even if the model somehow emits the call.
+- The keep-the-user-posted prompt bullet is now channel-specific: Telegram keeps the full ETA-and-rhythm guidance, while the web prompt says to skip interim notes, names `send_progress_update`/`present_file` as Telegram-only, and routes blocker notices into the final reply.
+- `server/workspaceAgent.test.ts`: new tests for Telegram-only tool exposure and the web-run refusal with no Telegram send; the system-prompt test asserts the web copy and the absent progress tool (90 tests).
+
 2026-09-20 - Deployment IDs: the agent can never override a deployment URL
 
 - Every website deployment is now a first-class entity with a stable ID (`d-01`, `d-02`, ...) the agent works with and a short description kept in the workspace's deployment registry across chats. The agent can no longer override a deployment URL: publishing to an existing deployment requires naming its ID explicitly (its URL never changes), and omitting the ID always creates a brand-new deployment with its own URL. There is no implicit "latest site" target anymore, so a different project can never silently overwrite another deployment's live URL.

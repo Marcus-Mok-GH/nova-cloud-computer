@@ -959,8 +959,8 @@ Operating principles:
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn.
-- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools and send_progress_update; never write the final answer as plain text.
-- Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send - none of your tool activity. No confirmation is sent for you automatically anymore: when the task will take more than a few seconds, your first send_progress_update should be a brief acknowledgment with an honest time estimate, then go straight to work - but for a quick question or greeting, just answer it directly. From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work - after each meaningful step completes, and never let more than a minute or so pass in silence on a long run - and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected - about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker - saying whether you are solving it yourself or need something from them - and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat. In the web app the user watches your tool activity live, so skip interim notes there and just do the work.
+- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text.
+{{progress_updates}}
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
 
 Formatting: render replies in Markdown when it helps readability - **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
@@ -1078,7 +1078,8 @@ async function executeWorkspaceTool(
   call: GatewayToolCall,
   onProgress?: (detail: string) => void,
   sandbox?: E2BSandboxLike,
-  gate?: OwnCodingGate
+  gate?: OwnCodingGate,
+  channel?: "telegram" | "web"
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -1550,6 +1551,12 @@ async function executeWorkspaceTool(
     case "send_progress_update": {
       const text = str(args.text);
       if (!text) return { ok: false, result: "A progress note text is required." };
+      if (channel !== "telegram")
+        return {
+          ok: false,
+          result:
+            "send_progress_update is only available over Telegram - the web app already shows the user your tool activity live, so just do the work and deliver the result with end_turn.",
+        };
       const credentials = await getTelegramCredentialsForUser(ownerId);
       if (!credentials?.chatId)
         return {
@@ -2208,8 +2215,14 @@ ${options.continuationPlanned
     const userLine = identity.username
       ? `@${identity.username}${identity.name ? ` (${identity.name})` : ""}`
       : identity.name || identity.email || "the user";
+    // present_file and send_progress_update are Telegram-only: over Telegram
+    // the user sees none of the tool activity, so interim notes are needed -
+    // in the web app the user watches the tool activity live, and offering
+    // the tool there only produces stray Telegram pings.
     const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
-      tool => options.channel === "telegram" || tool.function.name !== "present_file"
+      tool =>
+        options.channel === "telegram" ||
+        (tool.function.name !== "present_file" && tool.function.name !== "send_progress_update")
     );
     const systemMessage = (): GatewayChatMessage => {
       const { folders, files } = describeWorkspace(computer);
@@ -2232,6 +2245,12 @@ ${options.continuationPlanned
             options.channel === "telegram"
               ? "Telegram - the user only sees the messages you send, not your tool activity"
               : "the Nova web app - the user sees your tool activity live as you work"
+          )
+          .replace(
+            "{{progress_updates}}",
+            options.channel === "telegram"
+              ? `- Keep the user posted on Telegram, and own the ETA while you work. Over Telegram the user sees only the messages you send - none of your tool activity. No confirmation is sent for you automatically anymore: when the task will take more than a few seconds, your first send_progress_update should be a brief acknowledgment with an honest time estimate, then go straight to work - but for a quick question or greeting, just answer it directly. From then on the estimate is yours to maintain: keep sending short updates at a steady rhythm as you work - after each meaningful step completes, and never let more than a minute or so pass in silence on a long run - and whenever reality diverges from your estimate, say so and send the revised range ("taking longer than expected - about 2 more minutes", "nearly there, ~20 seconds"). Tell the user immediately when you hit a blocker - saying whether you are solving it yourself or need something from them - and whether it changes the ETA. Use send_progress_update for every note, keep each one brief, and never send a "done" summary until the work actually is done. When you create or meaningfully update a file the user asked for, present it with present_file so they can view or download it right in the chat.`
+              : "- In the web app the user watches your tool activity live as you work, so skip interim progress notes and just do the work - send_progress_update and present_file are Telegram-only and are not available here. Tell the user about a blocker or a revised expectation in your final reply instead of pinging mid-run, and deliver the finished work with end_turn as usual."
           ),
       };
     };
@@ -2545,7 +2564,7 @@ ${options.continuationPlanned
                   },
                 })
               ).catch(() => {});
-            }, agentSandbox, ownCodingGate),
+            }, agentSandbox, ownCodingGate, options.channel),
             deadlineAtMs
           );
         } catch (error) {

@@ -10,15 +10,18 @@
 
 import {
   getLatestSiteDeploymentForUser,
+  listSiteDeploymentSiteIdsForUser,
   listSiteDeploymentsForUser,
   listWorkspaceFilesForUser,
   listWorkspaceFoldersForUser,
+  markSiteDeploymentsDeletedForUser,
   recordSiteDeployment,
   updateSiteDeploymentStatusForUser,
   type SiteDeploymentRow,
 } from "./db";
 import {
   createNetlifySite,
+  deleteNetlifySite,
   deployFilesToNetlifySite,
   isNetlifyConfigured,
   type NetlifyDeployFile,
@@ -185,4 +188,65 @@ export async function deployWorkspaceSite(
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "The deployment failed unexpectedly." };
   }
+}
+
+
+export type DeleteResult =
+  | { ok: true; deleted: Array<{ siteId: string; siteUrl: string }>; failed: number }
+  | { ok: false; message: string };
+
+/**
+ * Deletes the workspace's live website from Netlify - the URL goes offline
+ * immediately and the deletion is irreversible (workspace files are untouched).
+ * Default deletes the current live site (the one "update" deploys target);
+ * `all: true` deletes every site the workspace has ever deployed.
+ */
+export async function deleteWorkspaceSite(
+  ownerId: number,
+  options?: { all?: boolean }
+): Promise<DeleteResult> {
+  if (!isNetlifyConfigured()) {
+    return { ok: false, message: "Live deployments are not configured yet - the Nova operator needs to set NETLIFY_API_TOKEN." };
+  }
+
+  const latest = await getLatestSiteDeploymentForUser(ownerId);
+  let siteIds: string[];
+  // siteId -> public URL, taken from the deployment history rows.
+  const urlOf = new Map<string, string>();
+  const rememberUrl = (row: SiteDeploymentRow) => {
+    if (!urlOf.has(row.siteId)) urlOf.set(row.siteId, row.siteUrl);
+  };
+  if (options?.all) {
+    const history = await listSiteDeploymentsForUser(ownerId, 100);
+    history.forEach(rememberUrl);
+    siteIds = await listSiteDeploymentSiteIdsForUser(ownerId);
+    if (siteIds.length === 0) {
+      return { ok: false, message: "This workspace has no deployed websites to delete." };
+    }
+  } else {
+    if (!latest || latest.status === "deleted") {
+      return { ok: false, message: "This workspace has no live site to delete - publish one first with deploy_website." };
+    }
+    rememberUrl(latest);
+    siteIds = [latest.siteId];
+  }
+
+  const deleted: Array<{ siteId: string; siteUrl: string }> = [];
+  const failures: Array<{ siteId: string; message: string }> = [];
+  for (const siteId of siteIds) {
+    try {
+      await deleteNetlifySite(siteId);
+      await markSiteDeploymentsDeletedForUser(ownerId, siteId);
+      deleted.push({ siteId, siteUrl: urlOf.get(siteId) ?? siteId });
+    } catch (error) {
+      failures.push({ siteId, message: error instanceof Error ? error.message : "The deletion failed." });
+    }
+  }
+  if (deleted.length === 0) {
+    return {
+      ok: false,
+      message: `No site was deleted: ${failures.map(f => f.message).join("; ")}`,
+    };
+  }
+  return { ok: true, deleted, failed: failures.length };
 }

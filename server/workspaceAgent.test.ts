@@ -185,8 +185,14 @@ const deployWebsite = vi.fn(async () => ({
     status: "live",
   },
 }));
+const deleteWebsite = vi.fn(async () => ({
+  ok: true,
+  deleted: [{ siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" }],
+  failed: 0,
+}));
 vi.mock("./siteDeploy", () => ({
   deployWorkspaceSite: deployWebsite,
+  deleteWorkspaceSite: deleteWebsite,
 }));
 
 const runCoderTaskMock = vi.hoisted(() => vi.fn());
@@ -964,6 +970,87 @@ describe("Nova tool-calling workspace agent", () => {
       expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
       expect(persistE2BWorkspace).not.toHaveBeenCalled();
     });
+  });
+
+  it("deletes the live website when the model calls delete_website", async () => {
+    deleteWebsite.mockClear();
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "delete_website", arguments: JSON.stringify({}) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Your site is offline - https://nova-live-site.netlify.app deleted." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "take my site down");
+    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: false });
+    expect(result.actions).toEqual([
+      {
+        kind: "deployment",
+        name: "https://nova-live-site.netlify.app",
+        operation: "deleted",
+      },
+    ]);
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-1",
+          content: expect.stringContaining("https://nova-live-site.netlify.app"),
+        }),
+      ])
+    );
+  });
+
+  it("passes all: true through when the user wants every site deleted", async () => {
+    deleteWebsite.mockClear();
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "delete_website", arguments: JSON.stringify({ all: true }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "All your sites are offline." })
+      );
+    await runWorkspaceAgent(1, 3, "delete all my sites");
+    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: true });
+  });
+
+  it("reports a failed deletion to the model instead of pretending it worked", async () => {
+    deleteWebsite.mockClear();
+    deleteWebsite.mockResolvedValueOnce({ ok: false, message: "Netlify responded with status 500." });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "delete_website", arguments: JSON.stringify({}) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "The deletion failed - nothing went offline." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "unpublish my site");
+    expect(result.actions).toEqual([
+      { kind: "deployment", name: "", operation: "failed" },
+    ]);
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-1",
+          content: expect.stringContaining("No website was deleted"),
+        }),
+      ])
+    );
   });
 
   it("deploys the workspace website when the model calls deploy_website", async () => {

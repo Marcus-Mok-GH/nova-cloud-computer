@@ -98,6 +98,22 @@ describe("Deployments page", () => {
     expect(markup).toContain("Try again");
   });
 
+  it("shows the deleted state when the live site was taken down", () => {
+    state.data = {
+      ...state.data,
+      latest: { ...state.data.latest!, status: "deleted" } as never,
+      history: [
+        { ...state.data.latest!, status: "deleted" } as never,
+        ...state.data.history,
+      ],
+    };
+    const markup = renderToStaticMarkup(<Deployments />);
+    // A deleted latest record no longer advertises a live URL.
+    expect(markup).toContain("Not deployed yet");
+    expect(markup).not.toContain("Live 24/7");
+    expect(markup).toContain("Deleted");
+  });
+
   it("surfaces the failure of the latest deployment", () => {
     state.data = {
       ...state.data,

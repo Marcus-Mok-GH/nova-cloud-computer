@@ -11,7 +11,7 @@ export const agentVmRunStatus = pgEnum("agent_vm_run_status", ["queued", "runnin
 export const automationKind = pgEnum("automation_kind", ["workspace_digest"]);
 export const automationRunStatus = pgEnum("automation_run_status", ["running", "succeeded", "failed", "skipped"]);
 export const userAutomationFrequency = pgEnum("user_automation_frequency", ["hourly", "daily", "weekdays", "weekly", "custom"]);
-export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying", "live", "failed"]);
+export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying", "live", "failed", "deleted"]);
 /** Ledger of segmented agent runs: one row per user message that starts agent work. */
 export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_continue", "completed", "stopped", "failed"]);
 

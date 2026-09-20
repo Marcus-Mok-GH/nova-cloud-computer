@@ -49,6 +49,20 @@ export async function createNetlifySite(): Promise<NetlifySite> {
   return { id: site.id, name: site.name ?? null, url: site.ssl_url || site.url || "" };
 }
 
+/** Deletes a site entirely - its URL goes offline immediately. A 404 is treated as success (the site is already gone). */
+export async function deleteNetlifySite(siteId: string) {
+  const response = await fetch(`${NETLIFY_API_BASE}/sites/${encodeURIComponent(siteId)}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${ENV.netlifyApiToken}` },
+  });
+  if (!response.ok && response.status !== 404) {
+    const detail = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `Netlify responded with status ${response.status}${detail ? `: ${detail}` : "."}`
+    );
+  }
+}
+
 function sha1(content: Buffer) {
   return createHash("sha1").update(content).digest("hex");
 }

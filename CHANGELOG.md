@@ -21,8 +21,6 @@
 - System prompt rule updated to match: specialist-unavailable means disclose and ask, never silent substitution.
 - 3 new tests (444 passing), tsc clean.
 
-# Changelog
-
 2026-09-20 - Website deletion for the workspace agent
 
 - New `delete_website` tool: the agent can now take the user's site down - delete, unpublish, remove, take down. By default it deletes the current live site (the one `deploy_website` 'update' targets); `all: true` deletes every site the workspace ever deployed. Deletion is irreversible and the URL goes offline immediately, but workspace files are never touched, and the system prompt tells the agent to confirm the target when several sites exist or the request is vague, and to say plainly what went offline.

@@ -90,15 +90,26 @@ describe("Workspace website deployer", () => {
     expect(spies.createNetlifySite).not.toHaveBeenCalled();
   });
 
-  it("requires a description when creating a new deployment", async () => {
+  it("requires a description on every deploy - even without any deployment ID", async () => {
     spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
     const result = await deployWorkspaceSite(1);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toContain("description");
+      expect(result.message).toContain("required on every deploy");
       expect(result.message).not.toContain("index.html");
     }
     expect(spies.createNetlifySite).not.toHaveBeenCalled();
+    expect(spies.recordSiteDeployment).not.toHaveBeenCalled();
+  });
+
+  it("refuses a redeploy that arrives without a description", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.getSiteDeploymentByKeyForUser.mockResolvedValue(registryEntry());
+
+    const result = await deployWorkspaceSite(1, null, { deployment: "d-01" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("required on every deploy");
+    expect(spies.deployFilesToNetlifySite).not.toHaveBeenCalled();
     expect(spies.recordSiteDeployment).not.toHaveBeenCalled();
   });
 
@@ -130,7 +141,7 @@ describe("Workspace website deployer", () => {
     spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
     spies.getSiteDeploymentByKeyForUser.mockResolvedValue(registryEntry());
 
-    const result = await deployWorkspaceSite(1, null, { deployment: "d-01" });
+    const result = await deployWorkspaceSite(1, null, { deployment: "d-01", description: "portfolio site" });
     expect(result.ok).toBe(true);
     expect(spies.createNetlifySite).not.toHaveBeenCalled();
     expect(spies.deployFilesToNetlifySite).toHaveBeenCalledWith("site-old", expect.anything());
@@ -140,6 +151,7 @@ describe("Workspace website deployer", () => {
       deploymentKey: "d-01",
       description: "portfolio site",
     });
+    expect(spies.updateSiteDeploymentDescriptionForUser).not.toHaveBeenCalled();
     expect(spies.nextSiteDeploymentKeyForUser).not.toHaveBeenCalled();
   });
 
@@ -167,7 +179,7 @@ describe("Workspace website deployer", () => {
     spies.getSiteDeploymentByKeyForUser.mockResolvedValue(null);
     spies.listSiteDeploymentRegistryForUser.mockResolvedValue([registryEntry()]);
 
-    const result = await deployWorkspaceSite(1, null, { deployment: "d-99" });
+    const result = await deployWorkspaceSite(1, null, { deployment: "d-99", description: "test site" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toContain("no deployment 'd-99'");
@@ -181,7 +193,7 @@ describe("Workspace website deployer", () => {
     spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
     spies.getSiteDeploymentByKeyForUser.mockResolvedValue(registryEntry({ status: "deleted" }));
 
-    const result = await deployWorkspaceSite(1, null, { deployment: "d-01" });
+    const result = await deployWorkspaceSite(1, null, { deployment: "d-01", description: "test site" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain("deleted");
     expect(spies.deployFilesToNetlifySite).not.toHaveBeenCalled();
@@ -195,16 +207,6 @@ describe("Workspace website deployer", () => {
     expect(result.ok).toBe(true);
     expect(spies.updateSiteDeploymentDescriptionForUser).toHaveBeenCalledWith(1, "d-01", "new description");
     expect(spies.recordSiteDeployment.mock.calls[0][1]).toMatchObject({ description: "new description" });
-  });
-
-  it("keeps the previous description when a redeploy passes none", async () => {
-    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
-    spies.getSiteDeploymentByKeyForUser.mockResolvedValue(registryEntry({ description: "portfolio site" }));
-
-    const result = await deployWorkspaceSite(1, null, { deployment: "d-01" });
-    expect(result.ok).toBe(true);
-    expect(spies.updateSiteDeploymentDescriptionForUser).not.toHaveBeenCalled();
-    expect(spies.recordSiteDeployment.mock.calls[0][1]).toMatchObject({ description: "portfolio site" });
   });
 
   it("decodes binary data-URI files into their real bytes", async () => {

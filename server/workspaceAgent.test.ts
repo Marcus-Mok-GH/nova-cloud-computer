@@ -2014,6 +2014,47 @@ describe("Nova tool-calling workspace agent", () => {
     expect(presentTelegramFile).not.toHaveBeenCalled();
   });
 
+  it("exposes send_progress_update only to the Telegram bot, never to the web app", async () => {
+    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
+    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const telegramTools = chatWithMistralGateway.mock.calls[0][2].tools.map(
+      tool => tool.function.name
+    );
+    const webTools = chatWithMistralGateway.mock.calls[2][2].tools.map(
+      tool => tool.function.name
+    );
+    expect(telegramTools).toContain("send_progress_update");
+    expect(webTools).not.toContain("send_progress_update");
+  });
+
+  it("refuses a web-run send_progress_update call and sends no Telegram ping", async () => {
+    // No Telegram credentials here: the channel guard must fire before any
+    // credential lookup, so a web run can never reach Telegram.
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-progress",
+              name: "send_progress_update",
+              arguments: JSON.stringify({ text: "Still working on it..." }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "All done." }));
+    await runWorkspaceAgent(1, 3, "organize my files");
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-progress",
+      content: expect.stringContaining("only available over Telegram"),
+    });
+  });
+
   it("exposes present_file only to the Telegram bot, never to the web app", async () => {
     chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
@@ -2049,10 +2090,16 @@ describe("Nova tool-calling workspace agent", () => {
     const webPrompt = chatWithMistralGateway.mock.calls[2][1][0].content;
     expect(webPrompt).toContain("the Nova web app");
     expect(webPrompt).toContain("the user sees your tool activity live");
+    // The web prompt keeps the interim-notes guidance but swaps it for the
+    // web reality: no progress tool, no stray Telegram pings.
+    expect(webPrompt).toContain("skip interim progress notes");
+    expect(webPrompt).toContain("Telegram-only");
+    expect(webPrompt).not.toContain("own the ETA");
+    expect(webPrompt).not.toContain("present it with present_file");
 
-    // The progress tool is exposed to the model either way.
+    // The progress tool stays Telegram-only.
     const tools = chatWithMistralGateway.mock.calls[2][2].tools;
-    expect(tools.map(tool => tool.function.name)).toContain(
+    expect(tools.map(tool => tool.function.name)).not.toContain(
       "send_progress_update"
     );
   });

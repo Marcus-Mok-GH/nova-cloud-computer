@@ -169,6 +169,13 @@
       "when": 1789876377834,
       "tag": "0023_easy_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789892784879,
+      "tag": "0024_deployment_ids",
+      "breakpoints": true
     }
   ]
 }

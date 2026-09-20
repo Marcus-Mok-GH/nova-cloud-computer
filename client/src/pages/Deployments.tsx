@@ -10,6 +10,8 @@ type DeploymentRow = {
   siteId: string;
   siteName: string | null;
   siteUrl: string;
+  deploymentKey: string | null;
+  description: string | null;
   status: "deploying" | "live" | "failed" | "deleted";
   fileCount: number;
   error: string | null;
@@ -77,6 +79,12 @@ export default function Deployments() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {latest && latest.status !== "deleted" ? latest.siteUrl : "Not deployed yet"}
                     </p>
+                    {latest?.deploymentKey && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Deployment {latest.deploymentKey}
+                        {latest.description ? ` - ${latest.description}` : ""}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {live && (
@@ -114,8 +122,10 @@ export default function Deployments() {
                     <p className="leading-6">
                       Nova publishes your workspace to Netlify's free hosting under its folder
                       path - index.html is the entry page, and subfolders keep their structure.
-                      The first deploy creates your permanent subdomain; later deploys update the
-                      same live URL. Nova can publish anything static hosting serves: plain
+                      Every deployment gets its own permanent URL and a stable ID (d-01, d-02,
+                      ...) with a short description, so Nova never overwrites one deployment with
+                      another project - updating a deployment keeps its URL while the content
+                      changes. Nova can publish anything static hosting serves: plain
                       HTML/CSS/JS sites, React apps, statically exported Next.js projects, and
                       more.
                     </p>
@@ -185,10 +195,14 @@ export default function Deployments() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold">
+                            {row.deploymentKey ? `${row.deploymentKey} · ` : ""}
                             {row.fileCount} file{row.fileCount === 1 ? "" : "s"}
                           </span>
                           <span className="truncate text-xs text-muted-foreground">{row.siteUrl}</span>
                         </div>
+                        {row.description && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">{row.description}</p>
+                        )}
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {new Date(row.createdAt).toLocaleString()}
                         </p>

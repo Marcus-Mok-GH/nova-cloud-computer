@@ -3,20 +3,27 @@
  * Publishes a chosen workspace directory as a static website on Netlify's
  * free tier: the directory's files (text or binary data-URI) are uploaded
  * with their folder structure intact relative to that directory, so its
- * index.html is the entry page. The first deploy creates a fresh Netlify site with a permanent
- * free `<name>.netlify.app` subdomain; later deploys reuse that site so the
- * URL stays stable while the content updates. The result is a live, SSL-backed
- * website that stays up 24/7 at no cost. */
+ * index.html is the entry page. Each deployment is its own Netlify site with
+ * a permanent free `<name>.netlify.app` subdomain, a stable ID (d-01, d-02,
+ * ...) the agent targets it by, and a short description kept in the
+ * workspace's deployment registry. A deployment's URL is never overridden:
+ * the agent can only publish to a deployment by naming its ID explicitly, and
+ * updating that ID keeps its URL while the content changes. The result is a
+ * live, SSL-backed website that stays up 24/7 at no cost. */
 
 import {
   getLatestSiteDeploymentForUser,
-  listSiteDeploymentSiteIdsForUser,
+  getSiteDeploymentByKeyForUser,
+  listSiteDeploymentRegistryForUser,
   listSiteDeploymentsForUser,
+  markSiteDeploymentsDeletedForUser,
+  nextSiteDeploymentKeyForUser,
+  recordSiteDeployment,
+  updateSiteDeploymentDescriptionForUser,
+  updateSiteDeploymentStatusForUser,
   listWorkspaceFilesForUser,
   listWorkspaceFoldersForUser,
-  markSiteDeploymentsDeletedForUser,
-  recordSiteDeployment,
-  updateSiteDeploymentStatusForUser,
+  type SiteDeploymentRegistryEntry,
   type SiteDeploymentRow,
 } from "./db";
 import {
@@ -102,20 +109,41 @@ function fileBody(content: string): Buffer {
   return Buffer.from(content, "utf8");
 }
 
+export type DeployOptions = {
+  /** The deployment ID to publish to, e.g. 'd-01'. Its URL never changes. Omit to create a new deployment. */
+  deployment?: string;
+  /** Short description of what this deployment is (required for a new deployment, optional on a redeploy). */
+  description?: string;
+};
+
+/** Renders the workspace's deployment registry as one model-ready line for the system prompt. */
+export async function describeDeploymentsForUser(ownerId: number): Promise<string> {
+  const registry = await listSiteDeploymentRegistryForUser(ownerId);
+  if (registry.length === 0) return "none yet - no website has ever been deployed from this workspace";
+  return registry
+    .map(entry =>
+      `${entry.key} (${entry.status}, ${entry.siteUrl})` +
+      `${entry.description ? ` - ${entry.description}` : " - no description"}`
+    )
+    .join("; ");
+}
+
 /**
  * Deploys the chosen directory as a live website - the directory's contents
  * become the site and its index.html is the entry page. `directory` is a
  * workspace-relative folder path; null/empty means the workspace root.
- * `options.site` is the deliberate target choice made by the model:
- * "update" (default) reuses the workspace's existing Netlify site so its
- * public URL never changes while the content updates; "new" creates a
- * fresh site with its own URL, for a distinctly different project, so
- * separate sites never pile onto one URL.
+ *
+ * A deployment URL is never overridden: publishing to an existing deployment
+ * requires naming its ID in `options.deployment` (its URL stays the same
+ * while the content updates); without an ID a brand-new deployment is
+ * created, with its own site, URL and registry key. There is no implicit
+ * "latest site" target - a different project never silently overwrites
+ * another deployment's URL.
  */
 export async function deployWorkspaceSite(
   ownerId: number,
   directory?: string | null,
-  options?: { site?: "update" | "new" }
+  options?: DeployOptions
 ): Promise<DeployResult> {
   if (!isNetlifyConfigured()) {
     return { ok: false, message: "Live deployments are not configured yet - the Nova operator needs to set NETLIFY_API_TOKEN." };
@@ -159,20 +187,55 @@ export async function deployWorkspaceSite(
   }));
 
   try {
-    const previous = await getLatestSiteDeploymentForUser(ownerId);
-    // The model's deliberate choice: update the existing site (stable URL) or
-    // spin up a fresh site with its own URL. A first deploy always creates.
-    const mode = options?.site ?? "update";
-    const site =
-      mode === "update" && previous
-        ? { id: previous.siteId, name: previous.siteName, url: previous.siteUrl }
-        : await createNetlifySite();
+    // Targeting: an explicit deployment ID publishes to that deployment (its
+    // URL is never overridden); without an ID a brand-new deployment is
+    // created - there is no implicit "latest site" target anymore.
+    const requestedKey = options?.deployment?.trim();
+    const description = options?.description?.trim() ?? "";
+    let deploymentKey: string;
+    let site: { id: string; name: string | null; url: string };
+    let previousDescription: string | null = null;
+    if (requestedKey) {
+      const target = await getSiteDeploymentByKeyForUser(ownerId, requestedKey);
+      if (!target) {
+        const known = await describeDeploymentsForUser(ownerId);
+        return {
+          ok: false,
+          message: `There is no deployment '${requestedKey}' in this workspace. Known deployments: ${known}. Pass an existing ID to update that deployment, or omit it to create a new one.`,
+        };
+      }
+      if (target.status === "deleted") {
+        return {
+          ok: false,
+          message: `Deployment ${target.key} (${target.siteUrl}) was deleted, so its URL is gone - it cannot be deployed to anymore. Create a new deployment instead (it will get a fresh ID and URL).`,
+        };
+      }
+      deploymentKey = target.key;
+      site = { id: target.siteId, name: target.siteName, url: target.siteUrl };
+      previousDescription = target.description;
+      if (description && description !== previousDescription) {
+        await updateSiteDeploymentDescriptionForUser(ownerId, target.key, description);
+      }
+    } else {
+      if (!description) {
+        return {
+          ok: false,
+          message:
+            "A new deployment needs a short description of what it is (e.g. 'portfolio site', 'bakery landing page') - it is how you and the user tell deployments apart later. Pass it as description.",
+        };
+      }
+      const key = await nextSiteDeploymentKeyForUser(ownerId);
+      deploymentKey = key;
+      site = await createNetlifySite();
+    }
     if (!site.url) throw new Error("Netlify did not return a URL for the new site.");
 
     const deployment = await recordSiteDeployment(ownerId, {
       siteId: site.id,
       siteName: site.name,
       siteUrl: site.url,
+      deploymentKey,
+      description: description || previousDescription,
       fileCount: deployFiles.length,
       status: "deploying",
     });
@@ -191,90 +254,109 @@ export async function deployWorkspaceSite(
 }
 
 
-export type DeleteTarget = { siteId: string; siteUrl: string };
+export type DeleteTarget = { key: string; siteId: string; siteUrl: string; description: string | null };
 
 export type DeleteResult =
   | { ok: true; deleted: DeleteTarget[]; failed: number }
   | { ok: false; confirmationRequired: true; targets: DeleteTarget[]; message: string }
   | { ok: false; message: string };
 
+function targetOf(entry: SiteDeploymentRegistryEntry): DeleteTarget {
+  return { key: entry.key, siteId: entry.siteId, siteUrl: entry.siteUrl, description: entry.description };
+}
+
+/** How the model sees one registry entry when a target list is listed to it. */
+function describeTarget(target: DeleteTarget): string {
+  return `${target.key} (${target.siteUrl}${target.description ? ` - ${target.description}` : ""})`;
+}
+
 /**
- * Deletes the workspace's live website from Netlify - the URL goes offline
- * immediately and the deletion is irreversible (workspace files are untouched).
- * Default deletes the current live site (the one "update" deploys target).
+ * Deletes one deployment (by its ID) or every deployment the workspace has.
+ * Deletion is irreversible and the URL goes offline immediately; workspace
+ * files are untouched. A single deployment is deleted by naming its ID - the
+ * model resolves which ID from the deployment registry first and asks the
+ * user when the request is ambiguous.
  *
- * `all: true` deletes every site the workspace has ever deployed - a sweep so
- * destructive it has a server-side confirmation gate: the first call only
- * returns the full target list, and the sweep executes on a follow-up call
- * whose `confirmUrls` must match that list exactly (set equality, so it also
- * catches a target list that changed between the two calls).
+ * `all: true` deletes every deployment - a sweep so destructive it keeps a
+ * server-side confirmation gate: the first call only returns the target list,
+ * and the sweep executes on a follow-up call whose `confirmAll` must match
+ * the list of deployment IDs exactly (set equality, so it also catches a
+ * target list that changed between the two calls).
  */
 export async function deleteWorkspaceSite(
   ownerId: number,
-  options?: { all?: boolean; confirmUrls?: string[] }
+  options?: { deployment?: string; all?: boolean; confirmAll?: string[] }
 ): Promise<DeleteResult> {
   if (!isNetlifyConfigured()) {
     return { ok: false, message: "Live deployments are not configured yet - the Nova operator needs to set NETLIFY_API_TOKEN." };
   }
 
-  const latest = await getLatestSiteDeploymentForUser(ownerId);
-  let siteIds: string[];
-  // siteId -> public URL, taken from the deployment history rows.
-  const urlOf = new Map<string, string>();
-  const rememberUrl = (row: SiteDeploymentRow) => {
-    if (!urlOf.has(row.siteId)) urlOf.set(row.siteId, row.siteUrl);
-  };
+  const registry = await listSiteDeploymentRegistryForUser(ownerId);
+  if (registry.length === 0) {
+    return { ok: false, message: "This workspace has no deployed websites to delete." };
+  }
+
+  let targets: DeleteTarget[];
   if (options?.all) {
-    const history = await listSiteDeploymentsForUser(ownerId, 100);
-    history.forEach(rememberUrl);
-    siteIds = await listSiteDeploymentSiteIdsForUser(ownerId);
-    if (siteIds.length === 0) {
-      return { ok: false, message: "This workspace has no deployed websites to delete." };
-    }
     // The sweep gate: without a matching confirmation nothing is deleted.
-    const targets = siteIds
-      .map(siteId => ({ siteId, siteUrl: urlOf.get(siteId) ?? siteId }))
-      .filter((t): t is DeleteTarget => Boolean(t));
-    const targetUrls = targets.map(t => t.siteUrl);
-    const confirmUrls = options.confirmUrls ?? [];
-    const confirmed = confirmUrls.length === targets.length && targetUrls.every(url => confirmUrls.includes(url));
+    const allTargets = registry.map(targetOf);
+    const confirmedKeys = (options.confirmAll ?? []).map(key => key.trim()).filter(Boolean);
+    const targetKeys = allTargets.map(target => target.key);
+    const confirmed =
+      confirmedKeys.length === targetKeys.length && targetKeys.every(key => confirmedKeys.includes(key));
     if (!confirmed) {
-      const reason = (options.confirmUrls ?? []).length === 0
+      const reason = (options.confirmAll ?? []).length === 0
         ? "the sweep needs explicit confirmation first"
-        : "the confirmed list does not match the current sites exactly - it may be stale";
+        : "the confirmed list does not match the current deployments exactly - it may be stale";
       return {
         ok: false,
         confirmationRequired: true,
-        targets,
+        targets: allTargets,
         message:
-          `Deleting every site is irreversible, so nothing was deleted yet (${reason}). ` +
-          `The complete target list is: ${targetUrls.join(", ")}. ` +
-          `Re-call with all: true and confirm_all set to exactly these URLs - and only after the user has explicitly confirmed deleting every one of them.`,
+          `Deleting every deployment is irreversible, so nothing was deleted yet (${reason}). ` +
+          `The complete target list is: ${allTargets.map(describeTarget).join("; ")}. ` +
+          `Re-call with all: true and confirm_all set to exactly these deployment IDs - and only after the user has explicitly confirmed deleting every one of them.`,
       };
     }
+    targets = allTargets;
   } else {
-    if (!latest || latest.status === "deleted") {
-      return { ok: false, message: "This workspace has no live site to delete - publish one first with deploy_website." };
+    const requestedKey = options?.deployment?.trim();
+    if (!requestedKey) {
+      return {
+        ok: false,
+        message:
+          `Name the deployment to delete by its ID. Known deployments: ${registry.map(describeTarget).join("; ")}. ` +
+          `If the request is ambiguous, ask the user which one they mean first.`,
+      };
     }
-    rememberUrl(latest);
-    siteIds = [latest.siteId];
+    const entry = registry.find(candidate => candidate.key.toLowerCase() === requestedKey.toLowerCase());
+    if (!entry) {
+      return {
+        ok: false,
+        message: `There is no deployment '${requestedKey}' in this workspace. Known deployments: ${registry.map(describeTarget).join("; ")}.`,
+      };
+    }
+    if (entry.status === "deleted") {
+      return { ok: false, message: `Deployment ${entry.key} (${entry.siteUrl}) is already deleted.` };
+    }
+    targets = [targetOf(entry)];
   }
 
-  const deleted: Array<{ siteId: string; siteUrl: string }> = [];
-  const failures: Array<{ siteId: string; message: string }> = [];
-  for (const siteId of siteIds) {
+  const deleted: DeleteTarget[] = [];
+  const failures: Array<{ key: string; message: string }> = [];
+  for (const target of targets) {
     try {
-      await deleteNetlifySite(siteId);
-      await markSiteDeploymentsDeletedForUser(ownerId, siteId);
-      deleted.push({ siteId, siteUrl: urlOf.get(siteId) ?? siteId });
+      await deleteNetlifySite(target.siteId);
+      await markSiteDeploymentsDeletedForUser(ownerId, target.siteId);
+      deleted.push(target);
     } catch (error) {
-      failures.push({ siteId, message: error instanceof Error ? error.message : "The deletion failed." });
+      failures.push({ key: target.key, message: error instanceof Error ? error.message : "The deletion failed." });
     }
   }
   if (deleted.length === 0) {
     return {
       ok: false,
-      message: `No site was deleted: ${failures.map(f => f.message).join("; ")}`,
+      message: `No deployment was deleted: ${failures.map(f => `${f.key}: ${f.message}`).join("; ")}`,
     };
   }
   return { ok: true, deleted, failed: failures.length };

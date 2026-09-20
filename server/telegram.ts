@@ -81,33 +81,56 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
 }
 
 /**
- * Telegram messages are sent without a parse mode, so raw markdown emphasis
- * would reach the user as literal asterisks and underscores ("**under a
- * minute**" instead of an emphasised "under a minute"). Underscore pairs are
- * left alone deliberately: file names and identifiers use single underscores.
+ * Telegram messages are sent without a parse mode, so any markdown would
+ * reach the user as literal asterisks, hashes, backticks, and brackets
+ * ("**under a minute**" instead of an emphasised "under a minute", "## Plans"
+ * instead of a plain "Plans"). This unwraps everything the model might emit:
+ * emphasis, headings, code spans and fences, strikethrough, images, links,
+ * blockquote markers, bullet markers, and horizontal rules. Underscore pairs
+ * inside identifiers are left alone deliberately: file names and snake_case
+ * identifiers use single underscores.
  */
-export function stripMarkdownEmphasis(text: string) {
-  let result = text;
+export function stripMarkdownFormatting(text: string) {
+  // Code fences keep their content; the fence lines and info strings go.
+  let result = text.replace(/```[^\n]*\n?([\s\S]*?)\n?```/g, "$1").replace(/```/g, "");
+  // Images keep the URL; links keep the label and the URL.
+  result = result.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, "$2");
+  result = result.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_match, label: string, url: string) =>
+    label.trim() === url.trim() ? url : `${label} (${url})`
+  );
+  // Headings keep their text; quotes lose their marker; bullets lose theirs;
+  // horizontal rules vanish.
+  result = result
+    .replace(/~~(\S(?:[^~\n]*\S)?)~~/g, "$1")
+    .replace(/^#{1,6}\s+(.+)$/gm, "$1")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[ \t]*[-*+][ \t]+/gm, "")
+    .replace(/^[ \t]*([-*_][ \t]*){3,}[ \t]*$\n?/gm, "");
+  // Emphasis and inline code, unwrapped repeatedly so nested and doubled
+  // markers flatten fully. Single underscores must sit at a word boundary on
+  // both sides, so snake_case identifiers keep their underscores.
   while (true) {
     const stripped = result
+      .replace(/`([^`\n]+)`/g, "$1")
       .replace(/\*\*(\S(?:[^*\n]*\S)?)\*\*/g, "$1")
       .replace(/__(\S(?:[^_\n]*\S)?)__/g, "$1")
-      .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)(?!\w)/g, "$1$2");
+      .replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)(?!\w)/g, "$1$2")
+      .replace(/(^|[\s(>])_(?!\s)(\S(?:[^_\n]*\S)?)_(?!\w)/g, "$1$2");
     if (stripped === result) return result;
     result = stripped;
   }
 }
 
 /**
- * Sends a plain-text Telegram message. Emphasis markers are stripped first
- * because no parse mode is set: Telegram would otherwise render them as
- * literal asterisks and underscores. Throws the Telegram error description
- * on failure so callers can surface the real cause.
+ * Sends a plain-text Telegram message. Markdown formatting is stripped first
+ * because no parse mode is set: Telegram would otherwise render it as
+ * literal asterisks, hashes, backticks, and brackets. Throws the Telegram
+ * error description on failure so callers can surface the real cause.
  */
 export async function sendTelegramMessage(token: string, chatId: string, text: string, fetchImpl: typeof fetch = fetch, options?: { inlineKeyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>> }) {
   return telegramRequest<{ message_id: number }>(token, "sendMessage", {
     chat_id: chatId,
-    text: stripMarkdownEmphasis(text),
+    text: stripMarkdownFormatting(text),
     disable_web_page_preview: true,
     ...(options?.inlineKeyboard ? { reply_markup: { inline_keyboard: options.inlineKeyboard } } : {}),
   }, fetchImpl);

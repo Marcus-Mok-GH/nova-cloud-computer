@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, downloadTelegramUpload, presentTelegramFile, sendTelegramMessage, stripMarkdownEmphasis, telegramUploadFromMessage, validateTelegramBotToken } from "./telegram";
+import { configureTelegramWebhook, discoverTelegramChat, getTelegramWebhookInfo, downloadTelegramUpload, presentTelegramFile, sendTelegramMessage, stripMarkdownFormatting, telegramUploadFromMessage, validateTelegramBotToken } from "./telegram";
 
 function telegramResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -17,16 +17,34 @@ describe("Telegram Bot API client", () => {
     await expect(discoverTelegramChat("token", fetchImpl)).resolves.toBe("-10077");
   });
 
+  it("unwraps markdown structure into plain text for Telegram", () => {
+    // Headings, blockquote markers, bullets, rules: the skeleton goes.
+    expect(stripMarkdownFormatting("## Deployment plan\n### Step 1")).toBe("Deployment plan\nStep 1");
+    expect(stripMarkdownFormatting("> quoted note")).toBe("quoted note");
+    expect(stripMarkdownFormatting("- one\n- two\n* three")).toBe("one\ntwo\nthree");
+    expect(stripMarkdownFormatting("above\n\n---\n\nbelow")).toBe("above\n\n\nbelow");
+    // Code fences keep their content, drop the fence and language tag.
+    expect(stripMarkdownFormatting("run this:\n```python\nprint(1)\n```\ndone")).toBe("run this:\nprint(1)\ndone");
+    expect(stripMarkdownFormatting("use `pnpm test` locally")).toBe("use pnpm test locally");
+    // Strikethrough, images, and links keep their words; links keep the URL.
+    expect(stripMarkdownFormatting("~~old plan~~ current plan")).toBe("old plan current plan");
+    expect(stripMarkdownFormatting("![logo](https://example.com/logo.png) here")).toBe("https://example.com/logo.png here");
+    expect(stripMarkdownFormatting("see [the docs](https://example.com/docs) now")).toBe("see the docs (https://example.com/docs) now");
+    expect(stripMarkdownFormatting("open [https://example.com](https://example.com) now")).toBe("open https://example.com now");
+    // Emphasis inside links still flattens after both passes run.
+    expect(stripMarkdownFormatting("[**bold link**](https://example.com)")).toBe("bold link (https://example.com)");
+  });
+
   it("strips markdown emphasis so raw asterisks never reach the Telegram chat", async () => {
-    expect(stripMarkdownEmphasis("Got it - expect a reply in **under a minute**")).toBe("Got it - expect a reply in under a minute");
-    expect(stripMarkdownEmphasis("**Bold** start and *light* middle")).toBe("Bold start and light middle");
-    expect(stripMarkdownEmphasis("__dunder__ is unwrapped too")).toBe("dunder is unwrapped too");
+    expect(stripMarkdownFormatting("Got it - expect a reply in **under a minute**")).toBe("Got it - expect a reply in under a minute");
+    expect(stripMarkdownFormatting("**Bold** start and *light* middle")).toBe("Bold start and light middle");
+    expect(stripMarkdownFormatting("__dunder__ is unwrapped too")).toBe("dunder is unwrapped too");
     // Single underscores are identifiers, never emphasis: they must survive.
-    expect(stripMarkdownEmphasis("open nova_app_link and file_2")).toBe("open nova_app_link and file_2");
-    expect(stripMarkdownEmphasis("3 * 4 and 2*3 stay math")).toBe("3 * 4 and 2*3 stay math");
+    expect(stripMarkdownFormatting("open nova_app_link and file_2")).toBe("open nova_app_link and file_2");
+    expect(stripMarkdownFormatting("3 * 4 and 2*3 stay math")).toBe("3 * 4 and 2*3 stay math");
     // Nested emphasis needs repeated passes to strip the outer pair too.
-    expect(stripMarkdownEmphasis("**bold *light* text**")).toBe("bold light text");
-    expect(stripMarkdownEmphasis("__dunder and *star* mix__")).toBe("dunder and star mix");
+    expect(stripMarkdownFormatting("**bold *light* text**")).toBe("bold light text");
+    expect(stripMarkdownFormatting("__dunder and *star* mix__")).toBe("dunder and star mix");
     const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: { message_id: 9 } }));
     await sendTelegramMessage("token", "42", "expect a reply in **under a minute**", fetchImpl);
     expect(fetchImpl).toHaveBeenCalledWith(

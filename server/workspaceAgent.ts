@@ -2260,7 +2260,7 @@ ${options.continuationPlanned
           .replace(
             "{{channel}}",
             options.channel === "telegram"
-              ? "Telegram - the user only sees the messages you send, not your tool activity"
+              ? "Telegram - the user only sees the messages you send, not your tool activity. Telegram renders plain text only: never use markdown formatting of any kind (no headings, bold, italics, strikethrough, code blocks, tables, or [label](url) links) - write plain sentences, paste raw URLs, and use plain hyphens or numbers when a list helps"
               : "the Nova web app - the user sees your tool activity live as you work"
           )
           .replace(

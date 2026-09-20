@@ -1,5 +1,14 @@
 # Changelog
 
+2026-09-20 - Thin-reasoner architecture for the workspace agent
+
+- The agent's system prompt now frames the model explicitly as a *hybrid supervisor* - a router that also does light work itself. Classification (the one thing a small model does best) comes first: simple requests (a greeting, a quick clarification, summarizing a short passage, recalling the conversation) are answered directly with zero added latency, while complex requests are routed to tools and specialists. Inside routed work the model is still a *thin reasoner*: a traffic cop that routes and verifies, while the tools and specialists carry the knowledge (research_web, connectors), the computation (solve_equation, run_vm_task, run_bash, code_task) and the memory (workspace files). Spotty internal knowledge, unreliable arithmetic and degrading long-context recall are named as reasons to never trust those faculties when a tool can check them.
+- New "Classify first" operating principle: triage every request before touching a tool - simple questions never become a tool parade, and complex work is never swallowed with a one-line guess.
+- New "decide one action at a time" rule: the model picks the single next step from the latest tool result, executes, looks again - the run loop is its state machine, instead of planning a 5-step task in one giant leap.
+- The "never do mental arithmetic" rule is now "never do math or data work in your head": counting, filtering, aggregating, sorting, converting and extracting content all go through run_vm_task scripts, on top of solve_equation for plain arithmetic.
+- New notebook rule for long work: multi-step tasks get a working note (e.g. `_notes/<task>.md`) recording goal, key facts, decisions and progress after each meaningful step, read back before resuming - workspace files serve as the agent's external memory, not just deliverables.
+- SLM-optimized tool triggers sharpened: solve_equation now says "use this whenever the user asks to calculate, add, ... or any numbers appear in the answer", run_vm_task says "use this whenever real computation is needed" with an explicit list (calculate/process data, run or test code, scrape, analyze/count/filter/sort/convert/extract), and code_task repeats that delegation is the default for all real code.
+
 2026-09-20 - Coder-specialist delegation guard
 
 - The workspace agent now reliably routes non-trivial coding work to its coding specialist. The system prompt makes `code_task` delegation mandatory for real code (only tiny one-liner tweaks, notes and non-code content stay with the agent itself), and the `code_task` tool description says the same to the model at call time.

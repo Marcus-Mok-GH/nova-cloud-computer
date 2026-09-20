@@ -569,7 +569,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "deploy_website",
       description:
-        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting - always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files - pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the site target: 'update' (default) replaces the content of the workspace's existing live site - its URL stays the same; 'new' creates a fresh site with its own URL, for when the user wants a separate site or a distinctly different project, so different sites never pile onto one URL. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
+        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting - always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files - pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the deployment target: pass an existing deployment ID (e.g. 'd-01') to publish to that deployment - its URL never changes while the content updates - or omit it to create a brand-new deployment with its own ID and URL. NEVER overwrite one deployment's content by deploying a different project to it: iterate a site by its ID, and give a separate project its own new deployment. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
       parameters: {
         type: "object",
         properties: {
@@ -578,11 +578,15 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             description:
               "Workspace-relative directory to publish, e.g. 'my-react-app' or 'my-next-app/out'. Pass '/' for the workspace root. Its index.html becomes the entry page.",
           },
-          site: {
+          deployment: {
             type: "string",
-            enum: ["update", "new"],
             description:
-              "Which site to publish to: 'update' (default) replaces the existing live site's content and keeps its URL - use it whenever the user is iterating on the same site; 'new' creates a brand-new site with its own URL - use it when the user asks for a separate site or a distinctly different project, so versions of different sites don't tangle onto one URL.",
+              "The ID of the existing deployment to publish to, e.g. 'd-01' (find the workspace's deployments with their IDs in the system prompt). Its URL stays the same. Omit to create a new deployment - never guess an ID.",
+          },
+          description: {
+            type: "string",
+            description:
+              "A short description of what this deployment is, e.g. 'portfolio site' or 'bakery landing page'. Required when creating a new deployment; optional when redeploying to an existing one (pass it to update the description).",
           },
         },
         required: ["directory"],
@@ -594,20 +598,25 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "delete_website",
       description:
-        "Delete the user's live website deployment(s) from Netlify - the URL goes offline immediately and this is irreversible (their workspace files are NOT touched). Use this whenever the user asks to delete, remove, unpublish, take down, or tear down their site, deployment, or live website. By default it deletes the current live site (the one 'update' deploys publish to). all: true deletes every site they have, but it is gated: the first all: true call only returns the full list of target URLs and deletes nothing; execute the sweep by re-calling with confirm_all set to exactly that list, and only once the user has explicitly confirmed deleting every site on it. Never call this unless the user clearly asked for a deletion; if several sites exist or the request is vague, ask which site they mean first.",
+        "Delete one of the user's website deployments from Netlify - the URL goes offline immediately and this is irreversible (their workspace files are NOT touched). Use this whenever the user asks to delete, remove, unpublish, take down, or tear down their site, deployment, or live website. The deployment is chosen by its ID (e.g. 'd-01' - find the workspace's deployments with their IDs in the system prompt); when several deployments exist or the request is vague, show the user the deployment list and ask which one they mean first. all: true deletes every deployment, but it is gated: the first all: true call only returns the full target list and deletes nothing; execute the sweep by re-calling with confirm_all set to exactly the listed deployment IDs, and only once the user has explicitly confirmed deleting every deployment on it. Never call this unless the user clearly asked for a deletion.",
       parameters: {
         type: "object",
         properties: {
+          deployment: {
+            type: "string",
+            description:
+              "The ID of the deployment to delete, e.g. 'd-01'. Never guess an ID - it comes from the deployment list in the system prompt.",
+          },
           all: {
             type: "boolean",
             description:
-              "true targets every site this workspace has ever deployed, not just the current live one. Default false.",
+              "true targets every deployment this workspace has ever made, not one specific one. Default false.",
           },
           confirm_all: {
             type: "array",
             items: { type: "string" },
             description:
-              "The confirmation for an all-sites sweep: the target URLs exactly as the gated all: true response listed them. Anything else (empty, stale, partial, extra) leaves the sweep unexecuted.",
+              "The confirmation for an all-deployments sweep: the deployment IDs exactly as the gated all: true response listed them. Anything else (empty, stale, partial, extra) leaves the sweep unexecuted.",
           },
         },
         required: [],
@@ -859,7 +868,7 @@ function describeWorkspace(computer: Computer) {
   return { folders, files };
 }
 
-import { deleteWorkspaceSite, deployWorkspaceSite } from "./siteDeploy";
+import { deleteWorkspaceSite, deployWorkspaceSite, describeDeploymentsForUser } from "./siteDeploy";
 import {
   isProjectTemplateKey,
   PROJECT_TEMPLATE_KEYS,
@@ -944,9 +953,9 @@ Operating principles:
 - Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
-- Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
-- Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website: by default it deletes the current live site (the one 'update' deploys target). Deleting every site (all: true) is a two-step sweep: the first call only lists the target URLs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every site; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, confirm the target first when several sites exist or the request is vague, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website publishes a fresh site with a new URL.
-- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy with the same directory so the URL stays stable.
+- Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
+- Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website with the deployment's ID (from the deployment list above - never guess one). When several deployments exist or the request is vague, confirm which one they mean first. Deleting every deployment (all: true) is a two-step sweep: the first call only lists the target deployment IDs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every deployment; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website creates a fresh deployment with a new ID and URL.
+- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy to the same deployment ID so its URL stays stable.
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn.
@@ -1364,11 +1373,12 @@ async function executeWorkspaceTool(
           result:
             "You must choose the directory to deploy. Pass '/' for the workspace root, or a workspace folder path like 'my-react-app' or 'my-next-app/out' - the directory whose contents are the site.",
         };
-      const siteMode = args.site === "new" ? "new" : "update";
+      const deploymentKey = str(args.deployment).trim();
+      const description = str(args.description).trim();
       const outcome = await deployWorkspaceSite(
         ownerId,
         directory === "/" ? null : directory,
-        { site: siteMode }
+        { deployment: deploymentKey || undefined, description: description || undefined }
       );
       if (!outcome.ok)
         return {
@@ -1377,12 +1387,12 @@ async function executeWorkspaceTool(
           action: { kind: "deployment", name: "", operation: "failed" },
         };
       const fileCount = outcome.deployment.fileCount;
+      const fromLine = directory === "/" ? "the workspace root" : `/${directory}`;
       return {
         ok: true,
-        result:
-          siteMode === "new"
-            ? `A brand-new site is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`} onto a fresh site with its own URL. Any earlier site keeps its old URL untouched; future 'update' deploys will now target this new site.`
-            : `The site is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${directory === "/" ? "the workspace root" : `/${directory}`}. Share that URL - it stays the same on every future 'update' deploy.`,
+        result: deploymentKey
+          ? `Deployment ${outcome.deployment.deploymentKey} is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Its URL never changed: redeploying to the same ID always keeps the same URL.`
+          : `A brand-new deployment is live: ID ${outcome.deployment.deploymentKey}, ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Tell the user the URL and the deployment ID - future deploys pass that ID to update this exact deployment, and its description ('${description}') is kept in the deployment registry across chats.`,
         action: {
           kind: "deployment",
           name: outcome.deployment.siteUrl,
@@ -1392,15 +1402,19 @@ async function executeWorkspaceTool(
     }
     case "delete_website": {
       const deleteAll = args.all === true;
-      const confirmAll = Array.isArray(args.confirm_all) ? args.confirm_all.map(url => String(url)) : undefined;
-      const outcome = await deleteWorkspaceSite(ownerId, { all: deleteAll, confirmUrls: confirmAll });
+      const deploymentKey = str(args.deployment).trim();
+      const confirmAll = Array.isArray(args.confirm_all) ? args.confirm_all.map(key => String(key)) : undefined;
+      const outcome = await deleteWorkspaceSite(
+        ownerId,
+        { deployment: deploymentKey || undefined, all: deleteAll, confirmAll }
+      );
       if (!outcome.ok && "confirmationRequired" in outcome) {
         // The sweep gate fired: nothing was deleted. Hand the model the exact
         // target list so it can confirm with the user and re-call bound to it.
         return {
           ok: true,
-          result: `Nothing was deleted yet - deleting every site is irreversible and needs explicit confirmation. ${outcome.message}`,
-          action: { kind: "deployment", name: outcome.targets.map(t => t.siteUrl).join(", "), operation: "presented" },
+          result: `Nothing was deleted yet - deleting every deployment is irreversible and needs explicit confirmation. ${outcome.message}`,
+          action: { kind: "deployment", name: outcome.targets.map(t => t.key).join(", "), operation: "presented" },
         };
       }
       if (!outcome.ok)
@@ -1409,12 +1423,14 @@ async function executeWorkspaceTool(
           result: `No website was deleted: ${outcome.message}`,
           action: { kind: "deployment", name: "", operation: "failed" },
         };
-      const urls = outcome.deleted.map(entry => entry.siteUrl).join(", ");
-      const failedNote = outcome.failed > 0 ? ` (${outcome.failed} other site${outcome.failed === 1 ? "" : "s"} failed to delete - check the deployment history)` : "";
+      const listed = outcome.deleted
+        .map(entry => `${entry.key} (${entry.siteUrl})`)
+        .join(", ");
+      const failedNote = outcome.failed > 0 ? ` (${outcome.failed} other deployment${outcome.failed === 1 ? "" : "s"} failed to delete - check the deployment history)` : "";
       return {
         ok: true,
-        result: `Deleted ${outcome.deleted.length === 1 ? "the live site" : `${outcome.deleted.length} sites`}: ${urls}. The URL${outcome.deleted.length === 1 ? " is" : "s are"} offline and the deletion is irreversible${outcome.deleted.length === 1 ? "" : ""} - but every workspace file is untouched, so redeploying with deploy_website publishes a fresh site with a new URL. Tell the user plainly what went offline.${failedNote}`,
-        action: { kind: "deployment", name: urls, operation: "deleted" },
+        result: `Deleted ${outcome.deleted.length === 1 ? `deployment ${listed}` : `${outcome.deleted.length} deployments: ${listed}`}. The URL${outcome.deleted.length === 1 ? " is" : "s are"} offline and the deletion is irreversible - but every workspace file is untouched, and a new deploy_website creates a fresh deployment with a new ID and URL. Tell the user plainly what went offline.${failedNote}`,
+        action: { kind: "deployment", name: outcome.deleted.map(entry => entry.siteUrl).join(", "), operation: "deleted" },
       };
     }
     case "create_project_template": {
@@ -2185,6 +2201,10 @@ ${options.continuationPlanned
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
+    // The deployment registry - every site's ID, URL and description - rides
+    // along in the system prompt so targeting deployments stays explicit
+    // across every chat.
+    const deploymentsLine = await describeDeploymentsForUser(ownerId);
     const userLine = identity.username
       ? `@${identity.username}${identity.name ? ` (${identity.name})` : ""}`
       : identity.name || identity.email || "the user";
@@ -2199,6 +2219,7 @@ ${options.continuationPlanned
           "{{files}}",
           files
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
+          .replace("{{deployments}}", deploymentsLine)
           .replace(
             "{{style}}",
             communicationStyle

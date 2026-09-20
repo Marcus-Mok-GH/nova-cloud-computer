@@ -48,6 +48,10 @@ export const siteDeployments = pgTable("site_deployments", {
   siteId: varchar("siteId", { length: 64 }).notNull(),
   siteName: varchar("siteName", { length: 160 }),
   siteUrl: varchar("siteUrl", { length: 512 }).notNull(),
+  /** Stable short ID the agent targets a site by, e.g. 'd-01'. Shared by every run row of the same site. */
+  deploymentKey: varchar("deploymentKey", { length: 16 }),
+  /** Short description of what this deployment is, written by the agent at creation. */
+  description: varchar("description", { length: 240 }),
   status: siteDeploymentStatus("status").default("deploying").notNull(),
   fileCount: integer("fileCount").default(0).notNull(),
   error: varchar("error", { length: 1200 }),

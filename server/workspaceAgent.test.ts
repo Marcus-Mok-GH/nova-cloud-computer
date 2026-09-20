@@ -181,18 +181,21 @@ const deployWebsite = vi.fn(async () => ({
     siteId: "site-1",
     siteName: "nova-live-site",
     siteUrl: "https://nova-live-site.netlify.app",
+    deploymentKey: "d-01",
+    description: "portfolio site",
     fileCount: 3,
     status: "live",
   },
 }));
 const deleteWebsite = vi.fn(async () => ({
   ok: true,
-  deleted: [{ siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" }],
+  deleted: [{ key: "d-01", siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app", description: "portfolio site" }],
   failed: 0,
 }));
 vi.mock("./siteDeploy", () => ({
   deployWorkspaceSite: deployWebsite,
   deleteWorkspaceSite: deleteWebsite,
+  describeDeploymentsForUser: vi.fn(async () => "d-01 (live, https://nova-live-site.netlify.app) - portfolio site"),
 }));
 
 const runCoderTaskMock = vi.hoisted(() => vi.fn());
@@ -1189,7 +1192,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Your site is offline - https://nova-live-site.netlify.app deleted." })
       );
     const result = await runWorkspaceAgent(1, 3, "take my site down");
-    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: false });
+    expect(deleteWebsite).toHaveBeenCalledWith(1, { deployment: undefined, all: false, confirmAll: undefined });
     expect(result.actions).toEqual([
       {
         kind: "deployment",
@@ -1215,11 +1218,11 @@ describe("Nova tool-calling workspace agent", () => {
       ok: false,
       confirmationRequired: true,
       targets: [
-        { siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app" },
-        { siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app" },
+        { key: "d-01", siteId: "site-1", siteUrl: "https://nova-live-site.netlify.app", description: "portfolio site" },
+        { key: "d-02", siteId: "site-0", siteUrl: "https://nova-old-site.netlify.app", description: "bakery landing page" },
       ],
       message:
-        "The complete target list is: https://nova-live-site.netlify.app, https://nova-old-site.netlify.app. Re-call with all: true and confirm_all set to exactly these URLs - and only after the user has explicitly confirmed deleting every one of them.",
+        "The complete target list is: d-01 (https://nova-live-site.netlify.app - portfolio site); d-02 (https://nova-old-site.netlify.app - bakery landing page). Re-call with all: true and confirm_all set to exactly these deployment IDs - and only after the user has explicitly confirmed deleting every one of them.",
     });
     chatWithMistralGateway
       .mockResolvedValueOnce(
@@ -1233,11 +1236,11 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "You have two sites. Confirm and I will delete both." })
       );
     const result = await runWorkspaceAgent(1, 3, "delete all my sites");
-    expect(deleteWebsite).toHaveBeenCalledWith(1, { all: true, confirmUrls: undefined });
+    expect(deleteWebsite).toHaveBeenCalledWith(1, { deployment: undefined, all: true, confirmAll: undefined });
     expect(result.actions).toEqual([
       {
         kind: "deployment",
-        name: "https://nova-live-site.netlify.app, https://nova-old-site.netlify.app",
+        name: "d-01, d-02",
         operation: "presented",
       },
     ]);
@@ -1265,7 +1268,7 @@ describe("Nova tool-calling workspace agent", () => {
               name: "delete_website",
               arguments: JSON.stringify({
                 all: true,
-                confirm_all: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+                confirm_all: ["d-01", "d-02"],
               }),
             },
           ],
@@ -1276,8 +1279,9 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "yes, delete both sites");
     expect(deleteWebsite).toHaveBeenCalledWith(1, {
+      deployment: undefined,
       all: true,
-      confirmUrls: ["https://nova-live-site.netlify.app", "https://nova-old-site.netlify.app"],
+      confirmAll: ["d-01", "d-02"],
     });
     expect(result.actions).toEqual([
       {
@@ -1332,7 +1336,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "publish my site", { onChunk });
-    expect(deployWebsite).toHaveBeenCalledWith(1, null, { site: "update" });
+    expect(deployWebsite).toHaveBeenCalledWith(1, null, { deployment: undefined, description: undefined });
     expect(result.actions).toEqual([
       {
         kind: "deployment",
@@ -1682,7 +1686,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Deployed the my-react-app folder - your site is live." })
       );
     const result = await runWorkspaceAgent(1, 3, "publish my portfolio app");
-    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { site: "update" });
+    expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", { deployment: undefined, description: undefined });
     expect(result.actions).toEqual([
       {
         kind: "deployment",

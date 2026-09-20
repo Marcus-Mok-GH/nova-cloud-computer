@@ -1,5 +1,12 @@
 # Changelog
 
+2026-09-20 - Deployment descriptions are a MUST on every deploy
+
+- The description parameter is now required on EVERY `deploy_website` call, not just when creating a new deployment: `server/siteDeploy.ts` refuses any deploy without one, telling the model the description names the deployment's purpose, is kept in the workspace's deployment registry across chats, and is how the user and the agent tell deployments apart. On a redeploy, passing a changed description still refreshes the registry entry.
+- `server/workspaceAgent.ts`: `description` is a required parameter of the `deploy_website` tool, the tool docs say it is a MUST on every call, and the system prompt guidance spells out that the agent never calls `deploy_website` without a description naming the deployment's purpose.
+- `server/siteDeploy.test.ts` (31 tests): added refusal tests for a descriptionless new deploy and a descriptionless redeploy; existing-ID tests now pass the current description and assert no spurious registry update.
+- `server/workspaceAgent.test.ts`: the directory-deploy test now passes a description and asserts it is forwarded to the deployer.
+
 2026-09-20 - Deployment IDs: the agent can never override a deployment URL
 
 - Every website deployment is now a first-class entity with a stable ID (`d-01`, `d-02`, ...) the agent works with and a short description kept in the workspace's deployment registry across chats. The agent can no longer override a deployment URL: publishing to an existing deployment requires naming its ID explicitly (its URL never changes), and omitting the ID always creates a brand-new deployment with its own URL. There is no implicit "latest site" target anymore, so a different project can never silently overwrite another deployment's live URL.

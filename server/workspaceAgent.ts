@@ -1051,6 +1051,23 @@ function formatMathAnswer(value: number): string {
 }
 
 /**
+ * Unwraps an error chain into one diagnostic line. Drizzle's query errors say
+ * only "Failed query: <sql> params: ..." while the actual database error
+ * (missing column, timeout, terminated connection) lives on `error.cause` -
+ * without the cause, a failed query cannot be diagnosed from the chat.
+ */
+function errorChainText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; current instanceof Error && depth < 4; depth += 1) {
+    const message = current.message.trim();
+    if (message && !parts.includes(message)) parts.push(message);
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return parts.join(" | ");
+}
+
+/**
  * The specialist-down self-coding gate, threaded through a run. `blocked`
  * forbids non-trivial create_file/edit_file writes; the accept tool lifts it
  * only in a LATER conversation turn, never in the run where code_task failed.
@@ -2724,10 +2741,11 @@ ${options.continuationPlanned
         reply = "Mistral returned an invalid response. Please try again shortly.";
       } else {
         // Say what actually failed instead of a canned "try again shortly":
-        // the real error (network failure, gateway 5xx body, timeout detail)
-        // is what diagnosing needs. Cap the length so a runaway error body
+        // the real error (network failure, gateway 5xx body, timeout detail,
+        // and the database cause behind a drizzle "Failed query" wrapper) is
+        // what diagnosing needs. Cap the length so a runaway error body
         // cannot flood the chat.
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = errorChainText(error) || String(error);
         reply =
           MISTRAL_UNAVAILABLE_PREFIX +
           (detail.length > 500 ? `${detail.slice(0, 500)}…` : detail);

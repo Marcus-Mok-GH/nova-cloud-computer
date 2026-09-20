@@ -2332,6 +2332,26 @@ describe("Nova tool-calling workspace agent", () => {
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
   });
 
+  it("reports the database cause behind a drizzle Failed query wrapper", async () => {
+    // Drizzle wraps database errors: its own message is only
+    // "Failed query: <sql> params: ..." - the real Postgres error (here, the
+    // missing migration column) rides on error.cause and must reach the chat.
+    const cause = new Error(
+      'db error: column "deploymentKey" of relation "site_deployments" does not exist'
+    );
+    const wrapped = new Error(
+      'Failed query: select "deploymentKey" from "site_deployments"\nparams: 4,500'
+    );
+    wrapped.cause = cause;
+    chatWithMistralGateway.mockRejectedValue(wrapped);
+    const result = await runWorkspaceAgent(1, 3, "organize my deployments");
+    expect(result.message.content).toContain("Mistral inference gateway error");
+    expect(result.message.content).toContain("Failed query");
+    expect(result.message.content).toContain(
+      'column "deploymentKey" of relation "site_deployments" does not exist'
+    );
+  });
+
   it("reports configuration error when the gateway is not configured", async () => {
     getMistralGatewayStatus.mockReturnValueOnce({
       configured: false,

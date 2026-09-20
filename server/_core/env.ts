@@ -141,16 +141,16 @@ export const ENV = {
   /**
    * The coding model the coder sub-agent calls on NVIDIA NIM. On the hosted
    * endpoint this defaults to the strongest coding model NIM serves;
-   * deepseek-ai/deepseek-v4-flash is the faster, cheaper alternative. A
+   * deepseek-ai/deepseek-v4-flash-0731 is the faster, cheaper alternative. A
    * self-hosted or custom endpoint registers different served model IDs
-   * (e.g. 'deepseek-ai/DeepSeek-V4-Pro-0813'), so NVIDIA_NIM_CODER_MODEL
+   * (e.g. 'moonshotai/kimi-k3'), so NVIDIA_NIM_CODER_MODEL
    * must be set explicitly there - it resolves to empty until it is.
    */
   nimCoderModel:
     process.env.NVIDIA_NIM_CODER_MODEL ??
     ((process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1") ===
     "https://integrate.api.nvidia.com/v1"
-      ? "deepseek-ai/deepseek-v4-pro-0813"
+      ? "moonshotai/kimi-k3"
       : ""),
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",

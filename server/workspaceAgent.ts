@@ -1,6 +1,7 @@
 import { MISTRAL_UNAVAILABLE_MESSAGE } from "@shared/const";
 import { runResearch } from "./researcher";
 import { runCoderTask } from "./coder";
+import { NimConfigError } from "./nim";
 import type { E2BSandboxLike } from "./e2b";
 import {
   type SandboxOp,
@@ -150,6 +151,46 @@ async function raceToolDeadline<T>(
 }
 
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+/**
+ * Internal bookkeeping rows recording the specialist-down acceptance state
+ * ("pending" after a run whose code_task failed, "accepted" once the user
+ * OK'd Nova's own coding in a later turn, "cleared" when code_task next
+ * succeeds). They are persisted as chat messages, filtered out of the
+ * model's history and the client UI, and never shown to anyone.
+ */
+export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX = "__nova_specialist_acceptance__:";
+
+type SpecialistAcceptanceState = "pending" | "accepted" | "none";
+
+/** Reads the latest specialist acceptance marker for a chat. */
+async function readSpecialistAcceptance(
+  ownerId: number,
+  chatId: number
+): Promise<SpecialistAcceptanceState> {
+  const rows = (await listChatMessagesForUser(ownerId, chatId)) ?? [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const content = rows[index].content;
+    if (content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)) {
+      const state = content.slice(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX.length);
+      if (state === "pending" || state === "accepted") return state;
+      return "none";
+    }
+  }
+  return "none";
+}
+
+/** Appends a specialist acceptance marker row. */
+async function recordSpecialistAcceptance(
+  ownerId: number,
+  chatId: number,
+  state: "pending" | "accepted" | "cleared"
+): Promise<void> {
+  await appendChatMessageForUser(ownerId, {
+    chatId,
+    role: "assistant",
+    content: `${SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX}${state}`,
+  });
+}
 
 const DEFAULT_CHAT_TITLES = new Set([
   "New workspace conversation",
@@ -170,7 +211,8 @@ export async function autoTitleChatForUser(
     const firstAssistant = messages?.find(
       m =>
         m.role === "assistant" &&
-        !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
+        !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
+        !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
     );
     if (!firstUser || !firstAssistant) return;
     const prompt = [
@@ -238,7 +280,7 @@ export function isSubstantialCode(content: string): boolean {
 
 /** The coder-delegation nudge for a round that bypassed the specialist. */
 export function coderNudgeFor(wroteName: string): string {
-  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (DeepSeek V4 Pro) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and place the specialist's returned code into the workspace with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that and continue yourself.`;
+  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and place the specialist's returned code into the workspace with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
 }
 
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
@@ -677,9 +719,18 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "accept_own_coding",
+      description:
+        "Records that the user explicitly accepted Nova writing the code itself while the coding specialist is down. Call this ONLY when code_task failed in an EARLIER conversation turn AND the user's latest message clearly said yes to Nova's own attempt. It refuses inside the same run as the failure (the user must answer first), and while it has not succeeded, create_file and edit_file are blocked for non-trivial code.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "code_task",
       description:
-        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (DeepSeek V4 Pro) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools and verify. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
+        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools and verify. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
       parameters: {
         type: "object",
         properties: {
@@ -890,7 +941,7 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer. Treat your internal knowledge as amnesia: if a fact matters and you have not seen it in a tool result, search for it first - never answer a current or factual question from memory alone.
 - Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
-- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (DeepSeek V4 Pro on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
+- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -990,12 +1041,35 @@ function formatMathAnswer(value: number): string {
   return String(Math.round(value * 1e6) / 1e6);
 }
 
+/**
+ * The specialist-down self-coding gate, threaded through a run. `blocked`
+ * forbids non-trivial create_file/edit_file writes; the accept tool lifts it
+ * only in a LATER conversation turn, never in the run where code_task failed.
+ */
+type OwnCodingGate = {
+  chatId: number;
+  /** True while the user has not yet accepted Nova's own coding. */
+  blocked: boolean;
+  /** True when this run started with a pending acceptance question. */
+  awaitingAcceptance: boolean;
+  /** True when code_task failed inside this same run. */
+  specialistDownThisRun: boolean;
+};
+
+const SPECIALIST_DOWN_BLOCK_RESULT =
+  "Blocked: the coding specialist is down and the user has not accepted Nova's own coding yet. " +
+  "Do NOT write this code yourself. Tell the user exactly that the coding specialist is down for this task, " +
+  "ask whether to proceed with Nova's own attempt, and end your turn. Only in a later conversation turn, " +
+  "once the user has explicitly accepted, call the accept_own_coding tool to record it - then you may write " +
+  "the code yourself, saying plainly it is Nova's own work without the specialist.";
+
 async function executeWorkspaceTool(
   ownerId: number,
   computer: Computer,
   call: GatewayToolCall,
   onProgress?: (detail: string) => void,
-  sandbox?: E2BSandboxLike
+  sandbox?: E2BSandboxLike,
+  gate?: OwnCodingGate
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -1032,6 +1106,17 @@ async function executeWorkspaceTool(
     case "create_file": {
       const name = str(args.name);
       if (!name) return { ok: false, result: "A file name is required." };
+      if (
+        gate?.blocked &&
+        isCodeFileName(name) &&
+        isSubstantialCode(str(args.content))
+      ) {
+        return {
+          ok: false,
+          result: SPECIALIST_DOWN_BLOCK_RESULT,
+          action: { kind: "tool", name: `create_file: ${name}`, operation: "failed" },
+        };
+      }
       const folder =
         args.folder !== undefined
           ? resolveFolder(computer, args.folder)
@@ -1075,6 +1160,17 @@ async function executeWorkspaceTool(
       if (!file)
         return { ok: false, result: `File not found: ${str(args.file)}.` };
       const content = typeof args.content === "string" ? args.content : "";
+      if (
+        gate?.blocked &&
+        isCodeFileName(file.name) &&
+        isSubstantialCode(content)
+      ) {
+        return {
+          ok: false,
+          result: SPECIALIST_DOWN_BLOCK_RESULT,
+          action: { kind: "tool", name: `edit_file: ${file.name}`, operation: "failed" },
+        };
+      }
       const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
         content,
       });
@@ -1635,6 +1731,43 @@ async function executeWorkspaceTool(
         if (progressTimer) clearInterval(progressTimer);
       }
     }
+    case "accept_own_coding": {
+      if (!gate) {
+        return {
+          ok: false,
+          result: "There is no pending coding-specialist acceptance question - continue normally.",
+        };
+      }
+      if (gate.specialistDownThisRun) {
+        return {
+          ok: false,
+          result:
+            "The coding specialist failed in this same run, so the user has not had a turn to answer yet. " +
+            "Tell the user the specialist is down, ask whether to proceed with Nova's own attempt, and end your turn. " +
+            "Only call accept_own_coding in a later conversation turn, after the user explicitly accepted.",
+          action: { kind: "tool", name: "accept_own_coding", operation: "failed" },
+        };
+      }
+      if (!gate.awaitingAcceptance) {
+        return {
+          ok: false,
+          result:
+            "There is no pending coding-specialist acceptance question. Only call this tool when the user has just " +
+            "explicitly accepted Nova writing the code itself while the specialist is down.",
+          action: { kind: "tool", name: "accept_own_coding", operation: "failed" },
+        };
+      }
+      gate.awaitingAcceptance = false;
+      gate.blocked = false;
+      await recordSpecialistAcceptance(ownerId, gate.chatId, "accepted");
+      return {
+        ok: true,
+        result:
+          "Recorded: the user accepted Nova writing this code itself without the coding specialist. " +
+          "You may proceed with create_file/edit_file for this task, and say plainly that the result is Nova's own work.",
+        action: { kind: "tool", name: "accept_own_coding", operation: "completed" },
+      };
+    }
     case "code_task": {
       const task = str(args.task).trim();
       if (!task) return { ok: false, result: "A coding task is required." };
@@ -1659,7 +1792,11 @@ async function executeWorkspaceTool(
           coder = await runCoderTask(task, context, language);
         } catch (error) {
           // A config error is deterministic - no retry helps, and the user
-          // must hear exactly which key the operator has to set.
+          // must hear exactly which key the operator has to set. Any
+          // NimConfigError (missing key, missing model ID for a custom
+          // endpoint, refused plaintext transport) is classified by type,
+          // not by message text.
+          if (error instanceof NimConfigError) throw error;
           const message = error instanceof Error ? error.message : "";
           if (message.includes("not configured")) throw error;
           // Transient specialist failures (timeouts, NIM hiccups) get one
@@ -1682,8 +1819,10 @@ async function executeWorkspaceTool(
           result:
             `${message} The specialist is unavailable for this task, so do NOT silently write the code yourself: ` +
             `tell the user exactly that the coding specialist is down, and ask whether to proceed with Nova's own attempt. ` +
-            `Proceed yourself only if the user already explicitly accepted Nova's own coding in this conversation, or the change is a genuinely tiny fix - ` +
-            `and then say plainly that the code is Nova's own work without the specialist, so a broken result never comes as a surprise. ` +
+            `Non-trivial create_file and edit_file are blocked in this run; only in a LATER conversation turn, once the user has explicitly ` +
+            `accepted Nova's own coding, call the accept_own_coding tool to record it, then write the code yourself and say plainly that ` +
+            `it is Nova's own work without the specialist, so a broken result never comes as a surprise. ` +
+            `Genuinely tiny fixes (a one-line change, a few lines of markup) remain allowed. ` +
             `If the user wants to wait instead, tell them the Nova operator should check NVIDIA_NIM_API_KEY on the server.`,
           detail: message,
           specialistDown: true,
@@ -2107,7 +2246,11 @@ ${options.continuationPlanned
     const MAX_HISTORY_MESSAGES = 60;
     const priorMessages = (await listChatMessagesForUser(ownerId, chatId)) ?? [];
     const historyTurns: GatewayChatMessage[] = priorMessages
-      .filter(m => !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX))
+      .filter(
+        m =>
+          !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
+          !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
+      )
       .slice(-MAX_HISTORY_MESSAGES)
       .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
     if (historyTurns.length) historyTurns[historyTurns.length - 1] = currentTurn;
@@ -2150,6 +2293,21 @@ ${options.continuationPlanned
     let specialistDown = false;
     let coderNudgePending = false;
     let coderNudgeFile = "";
+    // Specialist-down self-coding gate: a run that ends with code_task down
+    // leaves a pending acceptance marker; until the user accepts in a LATER
+    // turn (recorded via accept_own_coding), non-trivial create_file and
+    // edit_file calls are blocked by the tool executor itself.
+    const ownCodingGate: OwnCodingGate = {
+      chatId,
+      blocked: false,
+      awaitingAcceptance: false,
+      specialistDownThisRun: false,
+    };
+    const priorAcceptance = await readSpecialistAcceptance(ownerId, chatId);
+    if (priorAcceptance === "pending") {
+      ownCodingGate.blocked = true;
+      ownCodingGate.awaitingAcceptance = true;
+    }
     // Set when a tool call outlasts the deadline mid-round: the round loop
     // must stop without refreshing state or starting another gateway round.
     let closedByDeadline = false;
@@ -2366,7 +2524,7 @@ ${options.continuationPlanned
                   },
                 })
               ).catch(() => {});
-            }, agentSandbox),
+            }, agentSandbox, ownCodingGate),
             deadlineAtMs
           );
         } catch (error) {
@@ -2415,10 +2573,27 @@ ${options.continuationPlanned
         // where the agent wrote substantial code itself without it. The
         // nudge is queued and delivered once, after the round's tool
         // results, so it never breaks the tool-call message chain.
-        if (execution.specialistDown) specialistDown = true;
+        if (execution.specialistDown) {
+          specialistDown = true;
+          ownCodingGate.specialistDownThisRun = true;
+          ownCodingGate.blocked = true;
+          ownCodingGate.awaitingAcceptance = false;
+        }
         if (call.name === "code_task") {
           codeTaskUsed = true;
           coderNudgePending = false;
+          // A working specialist clears any lingering acceptance question:
+          // self-coding rules return to the normal mandatory-delegation mode.
+          if (execution.ok && (ownCodingGate.awaitingAcceptance || priorAcceptance !== "none")) {
+            ownCodingGate.awaitingAcceptance = false;
+            ownCodingGate.blocked = false;
+            ownCodingGate.specialistDownThisRun = false;
+            specialistDown = false;
+            await recordSpecialistAcceptance(ownerId, chatId, "cleared");
+          }
+        }
+        if (call.name === "accept_own_coding" && execution.ok) {
+          codeTaskUsed = true;
         } else if (
           execution.ok &&
           !codeTaskUsed &&
@@ -2463,6 +2638,12 @@ ${options.continuationPlanned
       messages[0] = systemMessage();
     }
 
+    if (specialistDown) {
+      // The run ends with the acceptance question the model asked: mark the
+      // chat pending so the NEXT user turn can accept (and only that turn,
+      // via accept_own_coding, unlocks Nova's own coding).
+      await recordSpecialistAcceptance(ownerId, chatId, "pending");
+    }
     if (!reply.trim()) {
       reply =
         "I could not complete that request. Please try again, or rephrase it more specifically.";

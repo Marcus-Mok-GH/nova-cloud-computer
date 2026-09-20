@@ -1,13 +1,25 @@
 # Changelog
 
+2026-09-20 - Mechanically gated self-coding after a specialist failure
+
+- The specialist-down policy is now enforced by the runtime, not just prompt discipline. After code_task fails, non-trivial create_file/edit_file writes are blocked in that same run, and the run ends with the user being asked whether to proceed with Nova's own attempt.
+- A pending acceptance is persisted per chat (internal marker rows, invisible in the UI and the model's history). Only in a later conversation turn, once the user explicitly accepts, does the new `accept_own_coding` tool record the consent and unlock Nova's own coding - and it refuses to run inside the same run as the failure, so the model can never accept on the user's behalf.
+- A successful code_task clears any lingering acceptance question, returning the chat to normal mandatory delegation.
+- Config failures in runNimChat are now typed (`NimConfigError`: missing key, missing model ID for a custom endpoint, refused plaintext transport) and classified non-retryable by type instead of fragile message-text matching, so a missing `NVIDIA_NIM_CODER_MODEL` no longer burns a pointless retry.
+- The coder nudge, code_task failure text, and system prompt all describe the acceptance flow.
+- 5 new tests (447 passing), tsc clean.
+
+2026-09-20 - Coding specialist model updated (DeepSeek V4 Pro retired from NVIDIA NIM)
+
+- The default coder model on the hosted NVIDIA NIM endpoint changed from `deepseek-ai/deepseek-v4-pro-0813` to `moonshotai/kimi-k3`. NVIDIA retired the V4 Pro build from the hosted catalog, so every code_task call in production was failing deterministically (model not found) and the agent fell back to hand-writing code. Kimi K3 is now the strongest coding model NIM serves.
+- Explicit `NVIDIA_NIM_CODER_MODEL` deployments must be updated to a model the endpoint actually serves; the failure policy from today's other change now discloses a specialist outage instead of silently self-coding through it.
+
 2026-09-20 - Coding specialist failure policy
 
 - code_task now survives its own failures instead of collapsing into the agent hand-writing code the user never asked for. Transient specialist errors (timeouts, NIM hiccups) get one automatic retry inside the tool call, so a single blip never degrades the run; config errors stay single-shot and deterministic.
 - When the specialist is confirmed unavailable, the tool result carries an explicit policy: do NOT silently write the code yourself - tell the user the specialist is down, ask whether to proceed with Nova's own attempt, and only self-code after the user accepted it in the conversation (then say plainly the code is Nova's own work without the specialist). The run loop marks the run specialist-down and stops nudging toward code_task in that disclosed degraded mode, so a broken deliverable can never arrive as a surprise.
 - System prompt rule updated to match: specialist-unavailable means disclose and ask, never silent substitution.
 - 3 new tests (444 passing), tsc clean.
-
-# Changelog
 
 2026-09-20 - Website deletion for the workspace agent
 

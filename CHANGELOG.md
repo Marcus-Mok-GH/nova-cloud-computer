@@ -1,5 +1,9 @@
 # Changelog
 
+2026-09-20 - Telegram replies are always plain text
+
+- The Nova agent over Telegram now writes and sends plain text only. Two layers enforce it: the Telegram system prompt tells the model that Telegram renders plain text only (no headings, bold, italics, strikethrough, code blocks, tables, or markdown links - raw URLs instead), and the outgoing-message sanitizer (`stripMarkdownFormatting`, replacing the narrower `stripMarkdownEmphasis`) now unwraps every markdown structure the model might still emit: fenced code blocks keep their content, images and [label](url) links keep their words and URLs, headings, blockquote markers, bullet markers, strikethrough, inline code, and horizontal rules are unwrapped, on top of the existing bold/italic flattening. Snake_case identifiers and math like "3 * 4" still pass through untouched.
+
 2026-09-20 - Migration journal timestamps corrected; production schema repaired
 
 - Root cause of the "column deploymentKey does not exist" outage: the migration journal entries for 0019_site_deployments and 0020_same_red_skull carried future timestamps (2026-09-22 02:40 UTC) instead of their real creation time (2026-09-18 05:00 UTC). drizzle-kit treats any journal entry older than the newest recorded migration as applied, so every migration after 0020 with an honest timestamp was silently skipped in production builds: 0023 (site_deployment_status 'deleted' enum value, renamed FK) and 0024 (deploymentKey/description columns) never ran, while 0022 had only been applied by hand.

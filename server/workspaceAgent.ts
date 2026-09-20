@@ -208,6 +208,39 @@ export async function autoTitleChatForUser(
  */
 export const END_TURN_NUDGE_PREFIX = "[end-turn control]";
 
+/**
+ * Prefix of the control message that follows a round in which the agent
+ * wrote substantial code itself without delegating to the coding
+ * specialist. Regular users never ask for a sub-agent by name, so the loop
+ * itself keeps the specialist in play: one nudge per run, only when the
+ * agent's own code write shows it skipped code_task.
+ */
+export const CODER_NUDGE_PREFIX = "[coder control]";
+
+/** File extensions whose content is real code the specialist should own. */
+const CODE_FILE_EXTENSIONS = new Set([
+  "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rb", "php", "java", "kt",
+  "swift", "go", "rs", "c", "h", "cpp", "hpp", "cs", "scala", "sh", "bash",
+  "sql", "vue", "svelte", "html", "htm", "css", "scss", "less",
+]);
+
+/** True when the file name marks it as code (not notes, docs or data). */
+export function isCodeFileName(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return false;
+  return CODE_FILE_EXTENSIONS.has(name.slice(dot + 1).trim().toLowerCase());
+}
+
+/** A write this large is beyond the tiny tweak the agent may do itself. */
+export function isSubstantialCode(content: string): boolean {
+  return content.split("\n").length > 15 || content.length > 800;
+}
+
+/** The coder-delegation nudge for a round that bypassed the specialist. */
+export function coderNudgeFor(wroteName: string): string {
+  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (DeepSeek V4 Pro) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and place the specialist's returned code into the workspace with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that and continue yourself.`;
+}
+
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
@@ -621,7 +654,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "code_task",
       description:
-        "Delegate a non-trivial coding task to Nova's coding specialist sub-agent - a frontier coding model (DeepSeek V4 Pro) served through NVIDIA NIM. Use it when real code needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools. Not for tiny snippets you can write instantly, shell commands, or math - use your own tools for those.",
+        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (DeepSeek V4 Pro) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools and verify. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
       parameters: {
         type: "object",
         properties: {
@@ -827,7 +860,7 @@ Operating principles:
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer.
-- Delegate heavy coding to code_task. When the user wants substantial code written, refactored, or debugged - whole files, components, scripts, algorithms, tricky bugs - hand it to the coding specialist: describe the goal and constraints, include the relevant existing code or the exact error in context, and it returns complete working code from DeepSeek V4 Pro on NVIDIA NIM. Place that code into the workspace with your file tools and verify it. For one-liners and small edits write the code yourself - a specialist round-trip is slower than writing a few lines directly. If it reports that the specialist is not configured yet (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that.
+- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (DeepSeek V4 Pro on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is not configured (then tell the user exactly that: the Nova operator must set NVIDIA_NIM_API_KEY on the server) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Each deploy also deliberately targets one site: 'update' (default) replaces the existing live site's content while its URL stays the same - use it whenever the user is iterating on the same site; 'new' creates a fresh site with its own URL - use it when the user asks for a separate site or pivots to a distinctly different project, so versions of different sites never pile onto one URL. Tell the user which URL is live. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -2022,6 +2055,12 @@ ${options.continuationPlanned
     let reply = "";
     let streamedReplyChars = 0;
     let recoveredCallCount = 0;
+    // Coder-delegation guard: one nudge per run when the agent writes
+    // substantial code itself without ever calling code_task.
+    let codeTaskUsed = false;
+    let coderNudgeSent = false;
+    let coderNudgePending = false;
+    let coderNudgeFile = "";
     // Set when a tool call outlasts the deadline mid-round: the round loop
     // must stop without refreshing state or starting another gateway round.
     let closedByDeadline = false;
@@ -2283,6 +2322,41 @@ ${options.continuationPlanned
           tool_call_id: call.id,
           content: execution.result,
         });
+        // Coder-delegation guard: remember specialist use, and flag a round
+        // where the agent wrote substantial code itself without it. The
+        // nudge is queued and delivered once, after the round's tool
+        // results, so it never breaks the tool-call message chain.
+        if (call.name === "code_task") {
+          codeTaskUsed = true;
+        } else if (
+          execution.ok &&
+          !codeTaskUsed &&
+          !coderNudgeSent &&
+          !coderNudgePending &&
+          (call.name === "create_file" || call.name === "edit_file") &&
+          typeof execution.action?.name === "string"
+        ) {
+          let written = "";
+          try {
+            const parsed = JSON.parse(call.arguments || "{}") as {
+              content?: unknown;
+            };
+            if (typeof parsed?.content === "string") written = parsed.content;
+          } catch {
+            // Malformed arguments: no nudge, the tool already reported it.
+          }
+          if (isCodeFileName(execution.action.name) && isSubstantialCode(written)) {
+            coderNudgePending = true;
+            coderNudgeFile = execution.action.name;
+          }
+        }
+      }
+      // Coder-delegation guard: deliver the queued nudge once, only when the
+      // run is continuing anyway - never on the closing or end_turn exits.
+      if (coderNudgePending && !closedByDeadline && !endTurnCalled) {
+        coderNudgePending = false;
+        coderNudgeSent = true;
+        messages.push({ role: "user", content: coderNudgeFor(coderNudgeFile) });
       }
       // The deadline hit mid-tool: the closing reply is already set - leave
       // the round loop without refreshing state or starting a new round.

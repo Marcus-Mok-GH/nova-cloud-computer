@@ -1,5 +1,11 @@
 # Changelog
 
+2026-09-20 - Coder-specialist delegation guard
+
+- The workspace agent now reliably routes non-trivial coding work to its coding specialist. The system prompt makes `code_task` delegation mandatory for real code (only tiny one-liner tweaks, notes and non-code content stay with the agent itself), and the `code_task` tool description says the same to the model at call time.
+- New deterministic backstop in the agent loop: when a run writes a substantial code file (code extension, more than ~15 lines or 800 chars) via `create_file`/`edit_file` without ever calling `code_task`, one `[coder control]` nudge is delivered after that round's tool results, telling the model to delegate the coding work to the specialist (or continue if the code is already complete and verified). The nudge is skipped entirely once `code_task` has been used, fires at most once per run, and is never inserted mid-tool-chain.
+- Users never need to ask for a sub-agent by name; the loop itself keeps the specialist in play.
+
 2026-09-19 - Mobile optimization pass
 
 - Viewport: replaced `maximum-scale=1` with `viewport-fit=cover` so pinch-zoom works again (accessibility) and safe-area insets are available on notched phones. `theme-color` now follows the OS color scheme.

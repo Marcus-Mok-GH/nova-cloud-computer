@@ -327,7 +327,10 @@ describe("Nova tool-calling workspace agent", () => {
     await runWorkspaceAgent(1, 3, "hi");
     const [, messages, options] = chatWithMistralGateway.mock.calls[0];
     const system = messages[0].content;
-    // Thin-reasoner framing: tools carry knowledge, computation and memory.
+    // Hybrid-supervisor framing: classify first, tools carry the heavy load.
+    expect(system).toContain("hybrid supervisor");
+    expect(system).toContain("Classify first");
+    expect(system).toContain("zero added latency");
     expect(system).toContain("thin reasoner");
     expect(system).toContain("traffic cop");
     // State-machine execution: one action at a time, not a 5-step leap.

@@ -408,6 +408,22 @@ export async function listWorkspaceFoldersForUser(ownerId: number) {
   return db.select().from(workspaceFolders).where(eq(workspaceFolders.workspaceId, workspace.id)).orderBy(asc(workspaceFolders.name));
 }
 
+/**
+ * The workspace enforces one file per (folder, name) via a unique constraint.
+ * Drizzle wraps the database error, so walk the cause chain for Postgres
+ * code 23505. A duplicate insert means the name is taken; callers surface a
+ * friendly "already exists" result instead of a raw database error.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const code = (current as Error & { code?: unknown }).code;
+    if (code === "23505") return true;
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export async function createWorkspaceFolderForUser(ownerId: number, input: { name: string; parentId?: number | null }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
@@ -465,13 +481,18 @@ export async function createWorkspaceFileForUser(ownerId: number, input: { name:
     const folder = await getFolderForUser(ownerId, input.folderId);
     if (!folder) return undefined;
   }
-  return (await db.insert(workspaceFiles).values({
-    workspaceId: workspace.id,
-    name: input.name,
-    content: input.content ?? "",
-    mimeType: input.mimeType ?? "text/plain",
-    folderId: input.folderId ?? null,
-  }).returning())[0];
+  try {
+    return (await db.insert(workspaceFiles).values({
+      workspaceId: workspace.id,
+      name: input.name,
+      content: input.content ?? "",
+      mimeType: input.mimeType ?? "text/plain",
+      folderId: input.folderId ?? null,
+    }).returning())[0];
+  } catch (error) {
+    if (isUniqueViolation(error)) return undefined;
+    throw error;
+  }
 }
 
 export async function updateWorkspaceFileForUser(ownerId: number, fileId: number, input: { name?: string; content?: string; folderId?: number | null }) {
@@ -486,7 +507,14 @@ export async function updateWorkspaceFileForUser(ownerId: number, fileId: number
   if (input.name !== undefined) updateSet.name = input.name;
   if (input.content !== undefined) updateSet.content = input.content;
   if (input.folderId !== undefined) updateSet.folderId = input.folderId;
-  return (await db.update(workspaceFiles).set(updateSet).where(eq(workspaceFiles.id, file.id)).returning())[0];
+  try {
+    return (await db.update(workspaceFiles).set(updateSet).where(eq(workspaceFiles.id, file.id)).returning())[0];
+  } catch (error) {
+    // Renaming or moving a file onto an existing name hits the same
+    // unique constraint as a duplicate create.
+    if (isUniqueViolation(error)) return undefined;
+    throw error;
+  }
 }
 
 export async function deleteWorkspaceFileForUser(ownerId: number, fileId: number) {

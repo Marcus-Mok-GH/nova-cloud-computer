@@ -1133,6 +1133,25 @@ async function executeWorkspaceTool(
     case "create_file": {
       const name = str(args.name);
       if (!name) return { ok: false, result: "A file name is required." };
+      // Root-level names bypass the database unique constraint (NULL
+      // folderId rows never collide in Postgres), so the guard lives here:
+      // one file per name at the same level, case-insensitive like folders.
+      const targetFolder =
+        args.folder !== undefined ? resolveFolder(computer, args.folder) : undefined;
+      if (args.folder !== undefined && !targetFolder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      if (
+        computer.files.some(
+          file =>
+            (file.folderId ?? null) === (targetFolder?.id ?? null) &&
+            file.name.toLowerCase() === name.toLowerCase()
+        )
+      ) {
+        return {
+          ok: false,
+          result: `A file named ${name} already exists in that location${targetFolder ? "" : " (workspace root)"}. Edit the existing file instead, or delete it first.`,
+        };
+      }
       if (
         gate?.blocked &&
         isCodeFileName(name) &&
@@ -1144,16 +1163,10 @@ async function executeWorkspaceTool(
           action: { kind: "tool", name: `create_file: ${name}`, operation: "failed" },
         };
       }
-      const folder =
-        args.folder !== undefined
-          ? resolveFolder(computer, args.folder)
-          : undefined;
-      if (args.folder !== undefined && !folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
       const created = await createWorkspaceFileForUser(ownerId, {
         name,
         content: str(args.content),
-        folderId: folder?.id ?? null,
+        folderId: targetFolder?.id ?? null,
       });
       if (!created)
         return {
@@ -1223,6 +1236,20 @@ async function executeWorkspaceTool(
         return { ok: false, result: `File not found: ${str(args.file)}.` };
       if (!newName)
         return { ok: false, result: "A new file name is required." };
+      // Same root-level constraint as create_file: renames onto an existing
+      // name never hit the database guard when the folder is NULL.
+      if (
+        computer.files.some(
+          other =>
+            other.id !== file.id &&
+            (other.folderId ?? null) === (file.folderId ?? null) &&
+            other.name.toLowerCase() === newName.toLowerCase()
+        )
+      )
+        return {
+          ok: false,
+          result: `A file named ${newName} already exists in that location. Pick a different name, or delete the other file first.`,
+        };
       const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
         name: newName,
       });
@@ -1248,6 +1275,18 @@ async function executeWorkspaceTool(
         return { ok: false, result: `File not found: ${str(args.file)}.` };
       if (!folder)
         return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+      if (
+        computer.files.some(
+          other =>
+            other.id !== file.id &&
+            (other.folderId ?? null) === folder.id &&
+            other.name.toLowerCase() === file.name.toLowerCase()
+        )
+      )
+        return {
+          ok: false,
+          result: `A file named ${file.name} already exists in ${folder.name}. Rename one of them first, or delete the other file.`,
+        };
       const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
         folderId: folder.id,
       });
@@ -1290,6 +1329,21 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Parent folder not found: ${str(args.parent)}.`,
         };
+      // Same-name siblings created ambiguity the agent cannot see: a later
+      // create_file by folder name resolves to whichever folder came first,
+      // so a workspace ends up with two same-named folders. Refuse up front.
+      if (
+        folderRows.some(
+          folder =>
+            (folder.parentId ?? null) === (parent?.id ?? null) &&
+            folder.name.toLowerCase() === name.toLowerCase()
+        )
+      ) {
+        return {
+          ok: false,
+          result: `A folder named ${name} already exists in that location. Use a different name, or work in the existing ${name} folder instead.`,
+        };
+      }
       const created = await createWorkspaceFolderForUser(ownerId, {
         name,
         parentId: parent?.id ?? null,
@@ -1470,6 +1524,51 @@ async function executeWorkspaceTool(
       const existingProject = computer.folders.find(
         folder => folder.parentId === null && folder.name.toLowerCase() === projectName.toLowerCase()
       );
+      // Reusing an existing folder only works when it is empty: the template
+      // files would collide with whatever the earlier project left behind
+      // (the workspace enforces one file per folder and name), and a raw
+      // duplicate-key error helps nobody. Refuse with a message the model
+      // can act on: different name, or delete the stale folder first.
+      const staleDescendantIds = new Set<number>();
+      if (existingProject) {
+        // Template files land in nested subfolders (src/, out/), so collect
+        // the project root plus every descendant before judging reuse: a
+        // stale file anywhere beneath the root would collide with the
+        // scaffold, and a same-name subfolder would be duplicated.
+        staleDescendantIds.add(existingProject.id);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const folder of folderRows) {
+            if (
+              folder.parentId != null &&
+              staleDescendantIds.has(folder.parentId) &&
+              !staleDescendantIds.has(folder.id)
+            ) {
+              staleDescendantIds.add(folder.id);
+              grew = true;
+            }
+          }
+        }
+      }
+      const hasStaleContent =
+        existingProject !== undefined &&
+        (folderRows.some(
+          folder =>
+            folder.id !== existingProject.id &&
+            staleDescendantIds.has(folder.id)
+        ) ||
+          computer.files.some(
+            file => file.folderId != null && staleDescendantIds.has(file.folderId)
+          ));
+      if (existingProject && hasStaleContent) {
+        return {
+          ok: false,
+          result:
+            `A ${projectName} project folder already exists with files in it from an earlier project, so the ${template} template would collide with them. ` +
+            `Scaffold with a different project name instead, or delete the ${projectName} folder first if the old project is no longer needed.`,
+        };
+      }
       const projectFolder =
         existingProject ??
         (await createWorkspaceFolderForUser(ownerId, {
@@ -2604,9 +2703,15 @@ ${options.continuationPlanned
             break;
           }
           console.error("[Workspace tool] failed", call.name, error);
+          // Say what actually failed - the real error with its cause chain,
+          // not a canned line - capped at 500 chars like inference errors so
+          // a runaway error body cannot flood the context.
+          const failureDetail = errorChainText(error) || String(error);
           execution = {
             ok: false,
-            result: "The tool call failed unexpectedly.",
+            result: `The tool call failed unexpectedly: ${
+              failureDetail.length > 500 ? `${failureDetail.slice(0, 500)}…` : failureDetail
+            }`,
           };
         }
         if (execution.action) actions.push(execution.action);

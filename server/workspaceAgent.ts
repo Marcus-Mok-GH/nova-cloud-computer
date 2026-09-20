@@ -1290,6 +1290,21 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Parent folder not found: ${str(args.parent)}.`,
         };
+      // Same-name siblings created ambiguity the agent cannot see: a later
+      // create_file by folder name resolves to whichever folder came first,
+      // so a workspace ends up with two same-named folders. Refuse up front.
+      if (
+        folderRows.some(
+          folder =>
+            (folder.parentId ?? null) === (parent?.id ?? null) &&
+            folder.name.toLowerCase() === name.toLowerCase()
+        )
+      ) {
+        return {
+          ok: false,
+          result: `A folder named ${name} already exists in that location. Use a different name, or work in the existing ${name} folder instead.`,
+        };
+      }
       const created = await createWorkspaceFolderForUser(ownerId, {
         name,
         parentId: parent?.id ?? null,
@@ -1470,6 +1485,22 @@ async function executeWorkspaceTool(
       const existingProject = computer.folders.find(
         folder => folder.parentId === null && folder.name.toLowerCase() === projectName.toLowerCase()
       );
+      // Reusing an existing folder only works when it is empty: the template
+      // files would collide with whatever the earlier project left behind
+      // (the workspace enforces one file per folder and name), and a raw
+      // duplicate-key error helps nobody. Refuse with a message the model
+      // can act on: different name, or delete the stale folder first.
+      if (
+        existingProject &&
+        computer.files.some(file => file.folderId === existingProject.id)
+      ) {
+        return {
+          ok: false,
+          result:
+            `A ${projectName} project folder already exists with files in it from an earlier project, so the ${template} template would collide with them. ` +
+            `Scaffold with a different project name instead, or delete the ${projectName} folder first if the old project is no longer needed.`,
+        };
+      }
       const projectFolder =
         existingProject ??
         (await createWorkspaceFolderForUser(ownerId, {
@@ -2604,9 +2635,15 @@ ${options.continuationPlanned
             break;
           }
           console.error("[Workspace tool] failed", call.name, error);
+          // Say what actually failed - the real error with its cause chain,
+          // not a canned line - capped at 500 chars like inference errors so
+          // a runaway error body cannot flood the context.
+          const failureDetail = errorChainText(error) || String(error);
           execution = {
             ok: false,
-            result: "The tool call failed unexpectedly.",
+            result: `The tool call failed unexpectedly: ${
+              failureDetail.length > 500 ? `${failureDetail.slice(0, 500)}…` : failureDetail
+            }`,
           };
         }
         if (execution.action) actions.push(execution.action);

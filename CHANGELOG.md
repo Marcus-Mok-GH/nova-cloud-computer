@@ -1,5 +1,10 @@
 # Changelog
 
+2026-09-20 - Migration journal timestamps corrected; production schema repaired
+
+- Root cause of the "column deploymentKey does not exist" outage: the migration journal entries for 0019_site_deployments and 0020_same_red_skull carried future timestamps (2026-09-22 02:40 UTC) instead of their real creation time (2026-09-18 05:00 UTC). drizzle-kit treats any journal entry older than the newest recorded migration as applied, so every migration after 0020 with an honest timestamp was silently skipped in production builds: 0023 (site_deployment_status 'deleted' enum value, renamed FK) and 0024 (deploymentKey/description columns) never ran, while 0022 had only been applied by hand.
+- `drizzle/neon/meta/_journal.json`: 0019/0020 "when" values corrected to 1789707600000 / 1789707601000 (2026-09-18 05:00:00/01 UTC), matching the production bookkeeping table (which was repaired in place: bogus future created_at values on the 0019/0020 rows corrected, missing rows recorded for 0022/0023/0024, and the 0023/0024 SQL applied with its backfill). The journal is strictly ascending again and the production build's db:migrate step is a no-op instead of a re-apply failure.
+
 2026-09-20 - Database causes ride along with drizzle's "Failed query" wrapper
 
 - When a database error is what broke a run, drizzle's own message only says "Failed query: <sql> params: ..." - the actual Postgres error (missing column, timeout, terminated connection) lives on `error.cause` and never reached the chat. The gateway-error fallback now unwraps the whole cause chain (up to 4 levels, joined with " | ", still capped at 500 characters) so the reply shows the real failure.

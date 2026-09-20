@@ -2328,6 +2328,7 @@ ${options.continuationPlanned
         // results, so it never breaks the tool-call message chain.
         if (call.name === "code_task") {
           codeTaskUsed = true;
+          coderNudgePending = false;
         } else if (
           execution.ok &&
           !codeTaskUsed &&

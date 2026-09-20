@@ -650,6 +650,35 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Placed the specialist's app.js.");
   });
 
+  it("cancels a pending nudge when the same round also calls code_task", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_file",
+              arguments: JSON.stringify({ name: "app.js", content: twentyLineScript }),
+            },
+            {
+              id: "call-2",
+              name: "code_task",
+              arguments: JSON.stringify({ task: "review app.js" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ toolCalls: [endTurnCall("Written and reviewed with the specialist.")] })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a script");
+    expect(coderNudgeMessages()).toHaveLength(0);
+    expect(runCoderTaskMock).toHaveBeenCalledWith("review app.js", undefined, undefined);
+    expect(result.message.content).toBe("Written and reviewed with the specialist.");
+  });
+
   it("classifies code files and substantial code sizes correctly", () => {
     expect(isCodeFileName("app.js")).toBe(true);
     expect(isCodeFileName("Component.TSX")).toBe(true);

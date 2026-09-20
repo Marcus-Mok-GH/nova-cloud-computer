@@ -51,7 +51,7 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
   const model = options.model ?? ENV.nimCoderModel;
   if (!model) {
     throw new Error(
-      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'deepseek-ai/DeepSeek-V4-Pro-0813')."
+      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'moonshotai/kimi-k3')."
     );
   }
   const endpoint = new URL(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`);

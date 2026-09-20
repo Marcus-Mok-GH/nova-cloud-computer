@@ -1,5 +1,10 @@
 # Changelog
 
+2026-09-20 - Coding specialist model updated (DeepSeek V4 Pro retired from NVIDIA NIM)
+
+- The default coder model on the hosted NVIDIA NIM endpoint changed from `deepseek-ai/deepseek-v4-pro-0813` to `moonshotai/kimi-k3`. NVIDIA retired the V4 Pro build from the hosted catalog, so every code_task call in production was failing deterministically (model not found) and the agent fell back to hand-writing code. Kimi K3 is now the strongest coding model NIM serves.
+- Explicit `NVIDIA_NIM_CODER_MODEL` deployments must be updated to a model the endpoint actually serves; the failure policy from today's other change now discloses a specialist outage instead of silently self-coding through it.
+
 2026-09-20 - Coding specialist failure policy
 
 - code_task now survives its own failures instead of collapsing into the agent hand-writing code the user never asked for. Transient specialist errors (timeouts, NIM hiccups) get one automatic retry inside the tool call, so a single blip never degrades the run; config errors stay single-shot and deterministic.

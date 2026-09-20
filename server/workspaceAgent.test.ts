@@ -484,7 +484,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("delegates a coding task to the NIM coding specialist, then places the returned code", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "def add(a, b):\n    return a + b", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "def add(a, b):\n    return a + b", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -557,7 +557,7 @@ describe("Nova tool-calling workspace agent", () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock
       .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
-      .mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+      .mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -636,7 +636,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("nudges the model toward code_task when it writes substantial code itself", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -721,7 +721,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("does not nudge again once the specialist has been used this run", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -755,7 +755,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("cancels a pending nudge when the same round also calls code_task", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "deepseek-ai/deepseek-v4-pro-0813" });
+    runCoderTaskMock.mockResolvedValueOnce({ code: "// specialist version", model: "moonshotai/kimi-k3" });
     chatWithMistralGateway
       .mockResolvedValueOnce(
         chatResult({

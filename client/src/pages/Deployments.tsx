@@ -10,7 +10,7 @@ type DeploymentRow = {
   siteId: string;
   siteName: string | null;
   siteUrl: string;
-  status: "deploying" | "live" | "failed";
+  status: "deploying" | "live" | "failed" | "deleted";
   fileCount: number;
   error: string | null;
   createdAt: Date | string;
@@ -75,7 +75,7 @@ export default function Deployments() {
                   <div>
                     <h2 className="text-sm font-bold">Your live website</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {latest ? latest.siteUrl : "Not deployed yet"}
+                      {latest && latest.status !== "deleted" ? latest.siteUrl : "Not deployed yet"}
                     </p>
                   </div>
                 </div>
@@ -92,6 +92,11 @@ export default function Deployments() {
                 {deploying && (
                   <span className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                     <Loader2 size={14} className="animate-spin" /> Deploying
+                  </span>
+                )}
+                {latest?.status === "deleted" && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-600 dark:bg-zinc-500/10 dark:text-zinc-300">
+                    Deleted
                   </span>
                 )}
               </div>
@@ -195,6 +200,10 @@ export default function Deployments() {
                       ) : row.status === "deploying" ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                           <Loader2 size={12} className="animate-spin" /> Deploying
+                        </span>
+                      ) : row.status === "deleted" ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-bold text-zinc-600 dark:bg-zinc-500/10 dark:text-zinc-300">
+                          Deleted
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-bold text-red-700 dark:text-red-300">

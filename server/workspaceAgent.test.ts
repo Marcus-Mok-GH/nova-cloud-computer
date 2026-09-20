@@ -320,6 +320,37 @@ describe("Nova tool-calling workspace agent", () => {
     expect(computer).toHaveBeenCalled();
   });
 
+  it("frames the agent as a thin reasoner with SLM-optimized tool triggers", async () => {
+    chatWithMistralGateway.mockResolvedValueOnce(
+      chatResult({ text: "Sure - what should it contain?" })
+    );
+    await runWorkspaceAgent(1, 3, "hi");
+    const [, messages, options] = chatWithMistralGateway.mock.calls[0];
+    const system = messages[0].content;
+    // Thin-reasoner framing: tools carry knowledge, computation and memory.
+    expect(system).toContain("thin reasoner");
+    expect(system).toContain("traffic cop");
+    // State-machine execution: one action at a time, not a 5-step leap.
+    expect(system).toContain("Decide one action at a time");
+    expect(system).toContain("state machine");
+    // Weakness offload: math AND data manipulation, plus a notebook rule.
+    expect(system).toContain("Never do math or data work in your head");
+    expect(system).toContain("Keep a notebook for long work");
+    expect(system).toContain("_notes/<task>.md");
+    // Explicit triggers on the SLM-facing tool descriptions.
+    const tool = (name: string) =>
+      options.tools.find((t: { function: { name: string } }) => t.function.name === name).function;
+    expect(tool("solve_equation").description).toContain(
+      "whenever the user asks to calculate"
+    );
+    expect(tool("run_vm_task").description).toContain(
+      "whenever real computation is needed"
+    );
+    expect(tool("code_task").description).toContain(
+      "default for ALL real code"
+    );
+  });
+
   it("gives the model the prior conversation instead of starting fresh every turn", async () => {
     // Chat history has an earlier exchange plus a tool-activity row (raw
     // JSON bookkeeping) that must never reach the model as a real turn.

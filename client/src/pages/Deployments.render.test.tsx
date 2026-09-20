@@ -11,6 +11,8 @@ const state = vi.hoisted(() => {
       siteId: "site-1",
       siteName: "nova-live-site",
       siteUrl: "https://nova-live-site.netlify.app",
+      deploymentKey: "d-01",
+      description: "portfolio site",
       status: "live" as string,
       fileCount: 4,
       error: null,
@@ -23,6 +25,8 @@ const state = vi.hoisted(() => {
         siteId: "site-1",
         siteName: "nova-live-site",
         siteUrl: "https://nova-live-site.netlify.app",
+        deploymentKey: "d-01",
+        description: "portfolio site",
         status: "live",
         fileCount: 4,
         error: null,
@@ -79,6 +83,8 @@ describe("Deployments page", () => {
     const markup = renderToStaticMarkup(<Deployments />);
     expect(markup).toContain("Your live website");
     expect(markup).toContain("nova-live-site.netlify.app");
+    expect(markup).toContain("Deployment d-01");
+    expect(markup).toContain("portfolio site");
     expect(markup).toContain("Live 24/7");
     expect(markup).toContain("Copy URL");
     expect(markup).toContain("Deployment history");

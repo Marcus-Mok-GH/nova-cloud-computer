@@ -1,5 +1,15 @@
 # Changelog
 
+2026-09-20 - Deployment IDs: the agent can never override a deployment URL
+
+- Every website deployment is now a first-class entity with a stable ID (`d-01`, `d-02`, ...) the agent works with and a short description kept in the workspace's deployment registry across chats. The agent can no longer override a deployment URL: publishing to an existing deployment requires naming its ID explicitly (its URL never changes), and omitting the ID always creates a brand-new deployment with its own URL. There is no implicit "latest site" target anymore, so a different project can never silently overwrite another deployment's live URL.
+- `drizzle/schema.ts` + `drizzle/neon/0024_deployment_ids.sql`: `site_deployments` gains `deploymentKey` and `description` columns; the migration backfills every existing Netlify site with a key (`d-01`, `d-02`, ... per workspace, numbered by first deploy).
+- `server/db.ts`: New deployment-registry helpers (`listSiteDeploymentRegistryForUser`, `getSiteDeploymentByKeyForUser`, `nextSiteDeploymentKeyForUser`, `updateSiteDeploymentDescriptionForUser`); `recordSiteDeployment` stores the key and description.
+- `server/siteDeploy.ts`: `deployWorkspaceSite` takes `{ deployment, description }` instead of the old `site: "update" | "new"` - a new deployment requires a description, an unknown or deleted ID is refused with the known deployments listed, and a redeploy can refresh the description. `deleteWorkspaceSite` deletes by deployment ID; the `all: true` sweep gate now confirms against the deployment IDs instead of URLs. New `describeDeploymentsForUser` renders the registry for the system prompt.
+- `server/workspaceAgent.ts`: `deploy_website` takes `deployment` + `description`; `delete_website` takes `deployment` with the `confirm_all` sweep bound to IDs. The system prompt now lists the workspace's deployments ({{deployments}}) so the agent always knows the IDs, URLs and descriptions across every chat, and the guidance forbids guessing IDs or overwriting a deployment with a different project.
+- `client/src/pages/Deployments.tsx`: The Deployments page shows the deployment ID and description on the live-site card and in the history, and its copy explains the new model.
+- `server/siteDeploy.test.ts`, `server/workspaceAgent.test.ts`, `client/src/pages/Deployments.render.test.tsx`: updated and extended for the new API (31 deployer tests, 88 agent tests, 5 render tests - all green).
+
 2026-09-20 - Mechanically gated self-coding after a specialist failure
 
 - The specialist-down policy is now enforced by the runtime, not just prompt discipline. After code_task fails, non-trivial create_file/edit_file writes are blocked in that same run, and the run ends with the user being asked whether to proceed with Nova's own attempt.

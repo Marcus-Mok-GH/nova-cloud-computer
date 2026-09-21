@@ -96,3 +96,69 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
     </div>
   );
 }
+/**
+ * code_task calls get the same dropdown treatment as research_web: while the
+ * coding specialist works, the panel shows the full task it was handed plus
+ * the live progress notes; once it finishes, the panel holds the complete
+ * code the specialist returned (or the failure reason if it went down). It
+ * starts open while running so the user sees what the specialist is doing.
+ */
+export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
+  const [open, setOpen] = useState(activity.state === "running");
+  const running = activity.state === "running";
+  let task = "";
+  let language = "";
+  try {
+    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (typeof parsed.task === "string") task = parsed.task.trim();
+      if (typeof parsed.language === "string") language = parsed.language.trim();
+    }
+  } catch { /* truncated or malformed - the header one-liner still applies */ }
+  return (
+    <div data-testid="code-task-tool-activity" className="flex w-full min-w-0 flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div data-testid="code-task-detail-panel" className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10">
+          {task && (
+            <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                Task{language ? ` · ${language}` : ""}
+              </p>
+              <p className="break-words text-sm leading-6 text-foreground">{task}</p>
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2.5">
+            {running ? (
+              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+                {activity.detail || "The coding specialist is reading the task…"}
+              </p>
+            ) : activity.state === "failed" ? (
+              <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
+                {activity.detail || activity.summary || "The coding task failed."}
+              </p>
+            ) : activity.detail ? (
+              <div className="min-w-0">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Specialist's code</p>
+                <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">{activity.detail}</pre>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {activity.summary || "The specialist's code is no longer available."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

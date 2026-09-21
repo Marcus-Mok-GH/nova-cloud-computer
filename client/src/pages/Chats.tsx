@@ -1,8 +1,8 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { ChevronRight, MessageSquareText, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ChevronRight, MessageSquareText, Sparkles, Trash2 } from "lucide-react";
+import NewChatButton from "@/components/NewChatButton";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { useLocation } from "wouter";
@@ -13,8 +13,6 @@ export default function Chats() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const create = trpc.chats.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate() });
-
   const deleteChat = async (chatId: number, title: string) => {
     if (!window.confirm(`Delete “${title}”? This conversation and its messages will be permanently deleted.`)) return;
     setDeletingId(chatId);
@@ -35,13 +33,10 @@ export default function Chats() {
     <DashboardLayout>
       <section className="relative mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
-        <div className="flex flex-wrap items-end justify-between gap-5">
-          <div className="rise-in">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Conversation archive</p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Every conversation stays with the private computer it helps you shape.</p>
-          </div>
-          <Button onClick={() => create.mutate({ title: "New workspace conversation" })} disabled={create.isPending} className="rounded-full bg-primary hover:bg-primary/90"><Plus className="mr-1.5 size-4" />{create.isPending ? "Creating…" : "New chat"}</Button>
+        <div className="rise-in">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Conversation archive</p>
+          <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Every conversation stays with the private computer it helps you shape.</p>
         </div>
         <div className="mt-8 space-y-2">
           {computer.data?.chats.length ? computer.data.chats.map(chat => (
@@ -57,6 +52,7 @@ export default function Chats() {
             <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-white/10 bg-card text-center dark:bg-[#141414]"><div><Sparkles className="mx-auto size-5 text-primary" /><p className="mt-3 text-sm text-muted-foreground dark:text-muted-foreground">Begin a conversation with Nova from your workspace.</p></div></div>
           )}
         </div>
+        <NewChatButton />
       </section>
     </DashboardLayout>
   );

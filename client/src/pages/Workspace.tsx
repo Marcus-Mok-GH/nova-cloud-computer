@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { CodeTaskToolActivity, ResearchToolActivity, ToolActivityLine } from "@/lib/toolActivityLine";
-import { dedupeToolActivityMessages, isInternalChatMessage, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
+import { dedupeToolActivityMessages, isInternalChatMessage, mergeToolActivity, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
 import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, Mail, MessageSquareText, Send, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -97,7 +97,7 @@ export default function Workspace() {
           if (data === "[DONE]") { await finalizeStream(); await utils.workspace.computer.invalidate(); return; }
           try {
             const parsed = JSON.parse(data) as { type?: string; tool?: ToolActivity; choices?: Array<{ delta?: { content?: string } }> };
-            if (parsed.type === "tool" && parsed.tool?.id) { setToolActivities(previous => { const index = previous.findIndex(activity => activity.id === parsed.tool?.id); if (index === -1) return [...previous, parsed.tool!]; const next = [...previous]; next[index] = { ...next[index], ...parsed.tool }; return next; }); continue; }
+            if (parsed.type === "tool" && parsed.tool?.id) { setToolActivities(previous => { const incoming = parsed.tool!; const index = previous.findIndex(activity => activity.id === incoming.id); if (index === -1) return [...previous, mergeToolActivity({ id: incoming.id, name: incoming.name, state: "running", args: incoming.args ?? {} }, incoming)]; const next = [...previous]; next[index] = mergeToolActivity(next[index], incoming); return next; }); continue; }
             setStreamingContent(prev => prev + (parsed.choices?.[0]?.delta?.content || ""));
           } catch { /* Ignore malformed stream fragments. */ }
         }

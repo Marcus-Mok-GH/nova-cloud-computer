@@ -215,3 +215,36 @@ describe("reconcileChatMessages", () => {
     expect(arrayArgs?.args).toEqual({});
   });
 });
+
+describe("mergeToolActivity", () => {
+  const base: ToolActivity = { id: "t1", name: "code_task", state: "running", args: {} };
+
+  it("appends each fresh running progress note to the log", async () => {
+    const { mergeToolActivity } = await import("./chatMessages");
+    const step1 = mergeToolActivity(base, { ...base, detail: "The specialist is listing the workspace files..." });
+    expect(step1.progressLog).toEqual(["The specialist is listing the workspace files..."]);
+    const step2 = mergeToolActivity(step1, { ...step1, detail: "The specialist wrote app.py..." });
+    expect(step2.progressLog).toEqual([
+      "The specialist is listing the workspace files...",
+      "The specialist wrote app.py...",
+    ]);
+    expect(step2.detail).toBe("The specialist wrote app.py...");
+  });
+
+  it("does not log a repeated or missing detail", async () => {
+    const { mergeToolActivity } = await import("./chatMessages");
+    const step1 = mergeToolActivity(base, { ...base, detail: "Working..." });
+    const step2 = mergeToolActivity(step1, { ...step1, detail: "Working..." });
+    expect(step2.progressLog).toEqual(["Working..."]);
+    const bare = mergeToolActivity(step2, { ...step2 });
+    expect(bare.progressLog).toEqual(["Working..."]);
+  });
+
+  it("drops the log when the tool finishes", async () => {
+    const { mergeToolActivity } = await import("./chatMessages");
+    const running = mergeToolActivity(base, { ...base, detail: "Working..." });
+    const done = mergeToolActivity(running, { ...running, state: "completed", detail: "Final result." });
+    expect(done.state).toBe("completed");
+    expect(done.progressLog).toBeUndefined();
+  });
+});

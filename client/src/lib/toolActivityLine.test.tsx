@@ -132,3 +132,58 @@ describe("ToolActivityLine", () => {
     expect(running).toContain("animate-spin");
   });
 });
+
+describe("sub-agent progress log streaming", () => {
+  it("renders every streamed progress line while a code task runs", () => {
+    const running: ToolActivity = {
+      id: "t1",
+      name: "code_task",
+      state: "running",
+      args: { arguments: '{"task":"Build the dashboard"}' },
+      detail: "The specialist is running: npm test",
+      progressLog: [
+        "The coding specialist is taking over the task - reading the workspace on its own...",
+        "The specialist is listing the workspace files...",
+        "The specialist wrote src/dashboard.tsx...",
+        "The specialist is running: npm test",
+      ],
+    };
+    const html = renderToStaticMarkup(<CodeTaskToolActivity activity={running} />);
+    expect(html).toContain("The specialist wrote src/dashboard.tsx...");
+    expect(html).toContain("The coding specialist is taking over the task");
+    expect(html).toContain("npm test");
+    // The panel still shows the task it was handed.
+    expect(html).toContain("Build the dashboard");
+  });
+
+  it("renders every streamed progress line while research runs", () => {
+    const running: ToolActivity = {
+      id: "t2",
+      name: "research_web",
+      state: "running",
+      args: { arguments: '{"topic":"GLM pool congestion"}' },
+      detail: "Writing the report...",
+      progressLog: [
+        "Deep research is starting its web searches...",
+        'Searched the live web - found 3 new sources (e.g. "GLM status")',
+        "Evidence gathered from 3 sources - writing the report...",
+      ],
+    };
+    const html = renderToStaticMarkup(<ResearchToolActivity activity={running} />);
+    expect(html).toContain("Deep research is starting its web searches...");
+    expect(html).toContain("found 3 new sources");
+    expect(html).toContain("Evidence gathered from 3 sources");
+  });
+
+  it("falls back to the single detail line when no log has streamed yet", () => {
+    const running: ToolActivity = {
+      id: "t3",
+      name: "research_web",
+      state: "running",
+      args: { arguments: '{"topic":"q"}' },
+      detail: "Exa deep research is starting its web searches...",
+    };
+    const html = renderToStaticMarkup(<ResearchToolActivity activity={running} />);
+    expect(html).toContain("Exa deep research is starting its web searches...");
+  });
+});

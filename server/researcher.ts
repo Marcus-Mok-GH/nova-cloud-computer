@@ -45,11 +45,13 @@ export type ResearchDifficulty = ExaDeepSearchType;
  *   "deep-reasoning" for the deepest research level. Anything unrecognised or
  *   missing falls back to "deep".
  * @param instructions Optional focus, constraints or specific questions.
+ * @param onProgress Live progress notes from the deep research stream.
  */
 export async function runResearch(
   topic: string,
   difficulty?: string,
   instructions?: string,
+  onProgress?: (note: string) => void,
 ): Promise<ResearchResult> {
   if (!ENV.exaApiKey.trim()) {
     throw new Error("Web research is not configured yet - the Nova operator needs to set EXA_API_KEY.");
@@ -62,6 +64,7 @@ export async function runResearch(
     query: ask,
     type: normalizeExaDeepSearchType(difficulty),
     systemPrompt: RESEARCH_SYSTEM_PROMPT,
+    ...(onProgress ? { onProgress } : {}),
   });
   const trimmed = report.trim();
   if (!trimmed) throw new Error("The deep research run finished without a report.");

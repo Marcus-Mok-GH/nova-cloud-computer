@@ -1836,18 +1836,25 @@ async function executeWorkspaceTool(
       const instructions = str(args.instructions) || undefined;
       const level = difficulty === "deep-lite" || difficulty === "deep-reasoning" ? difficulty : "deep";
       const startedAt = Date.now();
-      // Exa's deep research is a single long HTTP call, so the live progress
-      // stream reports elapsed time while the researcher works.
+      // The researcher streams its real process now (sub-search results, the
+      // start of report synthesis). The elapsed-time heartbeat only fires
+      // when the stream has gone quiet, so the log shows work, not ticking.
+      let lastNoteAt = Date.now();
+      const note = (detail: string) => {
+        lastNoteAt = Date.now();
+        onProgress?.(detail);
+      };
       const progressTimer = onProgress
         ? setInterval(() => {
+            if (Date.now() - lastNoteAt < 25_000) return;
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
-            onProgress(`Deep research is reading the live web - ${elapsed}s elapsed…`);
+            lastNoteAt = Date.now();
+            onProgress(`Deep research is still working - ${elapsed}s elapsed…`);
           }, 10000)
         : undefined;
-      if (onProgress)
-        onProgress(`Deep research is starting its web searches…`);
+      note(`Deep research is starting its web searches…`);
       try {
-        const research = await runResearch(topic, difficulty, instructions);
+        const research = await runResearch(topic, difficulty, instructions, note);
         const sourcesBlock = research.sources.length
           ? `\n\nAll sources consulted by the researcher:\n${research.sources
               .map((source, index) => `${index + 1}. ${source.title || source.url} - ${source.url}`)
@@ -1919,24 +1926,31 @@ async function executeWorkspaceTool(
       // files and runs commands itself, and its writes sync back into the
       // durable store); without one - or when the model lacks function
       // calling - it returns complete code for this agent to place. The
-      // live progress stream reports what the specialist is doing.
+      // specialist streams its own steps; the elapsed-time heartbeat only
+      // fires when its stream has gone quiet.
+      let lastNoteAt = Date.now();
+      const note = (detail: string) => {
+        lastNoteAt = Date.now();
+        onProgress?.(detail);
+      };
       const progressTimer = onProgress
         ? setInterval(() => {
+            if (Date.now() - lastNoteAt < 25_000) return;
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
-            onProgress(`The coding specialist is working on your task - ${elapsed}s elapsed…`);
+            lastNoteAt = Date.now();
+            onProgress(`The coding specialist is still working - ${elapsed}s elapsed…`);
           }, 10000)
         : undefined;
-      if (onProgress)
-        onProgress(
-          sandbox
-            ? "The coding specialist is taking over the task - reading the workspace on its own…"
-            : "The coding specialist is reading the task…"
-        );
+      note(
+        sandbox
+          ? "The coding specialist is taking over the task - reading the workspace on its own…"
+          : "The coding specialist is reading the task…"
+      );
       const specialistError = (error: unknown) =>
         `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
       const runSpecialist = (): Promise<CoderOutcome> =>
         sandbox
-          ? runAutonomousCoderTask({ task, context, language, sandbox, onProgress, deadlineAtMs })
+          ? runAutonomousCoderTask({ task, context, language, sandbox, onProgress: note, deadlineAtMs })
           : runCoderTask(task, context, language).then(result => ({ kind: "single", ...result }));
       try {
         let outcome: CoderOutcome;
@@ -1954,7 +1968,7 @@ async function executeWorkspaceTool(
           // Transient specialist failures (timeouts, NIM hiccups) get one
           // automatic retry, so a single blip never pushes the agent into
           // silently hand-writing the code itself.
-          onProgress?.("The coding specialist hit a snag - retrying once…");
+          note("The coding specialist hit a snag - retrying once…");
           await new Promise(resolve => setTimeout(resolve, 1500));
           outcome = await runSpecialist();
         }

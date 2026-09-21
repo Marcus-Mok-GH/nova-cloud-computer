@@ -141,3 +141,132 @@ describe("runExaDeepResearch", () => {
     expect(fetchStub).not.toHaveBeenCalled();
   });
 });
+
+describe("runExaDeepResearch streaming", () => {
+  /** An SSE response built from data payloads; the caller appends [DONE]. */
+  function sseResponse(dataPayloads: string[]) {
+    const body = dataPayloads.map(payload => `data: ${payload}\n\n`).join("") + "data: [DONE]\n\n";
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  it("requests the stream and assembles the report from text-delta events", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([`{"type":"text-delta","delta":"Nova is "}`, `{"type":"text-delta","delta":"a workspace agent."}`])
+    );
+    const { report, sources } = await runExaDeepResearch({ query: "What is Nova?" });
+    expect(report).toBe("Nova is a workspace agent.");
+    expect(sources).toEqual([]);
+    expect(JSON.parse(fetchStub.mock.calls[0][1].body).stream).toBe(true);
+  });
+
+  it("emits one progress note per sub-search results event and one when synthesis starts", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"results","results":[{"title":"Nova docs","url":"https://nova.example/docs"},{"title":"Nova blog","url":"https://nova.example/blog"}]}`,
+        `{"type":"results","results":[{"title":"Deep agents","url":"https://deep.example"}]}`,
+        `{"type":"text-delta","delta":"Answer"}`,
+      ])
+    );
+    const notes: string[] = [];
+    const { sources } = await runExaDeepResearch({ query: "q", onProgress: note => notes.push(note) });
+    expect(notes).toEqual([
+      'Searched the live web - found 2 new sources (e.g. "Nova docs")',
+      "Searched the live web - found 1 new source (e.g. \"Deep agents\")",
+      "Evidence gathered from 3 sources - writing the report...",
+    ]);
+    // The grounding event never arrived, so the results are the fallback sources.
+    expect(sources).toEqual([
+      { title: "Nova docs", url: "https://nova.example/docs" },
+      { title: "Nova blog", url: "https://nova.example/blog" },
+      { title: "Deep agents", url: "https://deep.example" },
+    ]);
+  });
+
+  it("collects grounding citations from grounding events", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"results","results":[{"title":"Unused","url":"https://unused.example"}]}`,
+        `{"type":"grounding","grounding":[{"field":"text","citations":[{"url":"https://a.example","title":"A"},{"url":"https://a.example","title":"A dup"},{"url":"https://b.example","title":"B"}]}]}`,
+        `{"type":"text-delta","delta":"Report."}`,
+      ])
+    );
+    const { report, sources } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("Report.");
+    expect(sources).toEqual([
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+    ]);
+  });
+
+  it("resets the partial report when the stream restarts synthesis", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"text-delta","delta":"partial tha"}`,
+        `{"type":"stream-reset","streamReset":true}`,
+        `{"type":"text-delta","delta":"Full report."}`,
+      ])
+    );
+    const { report } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("Full report.");
+  });
+
+  it("skips malformed SSE fragments without killing the research", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([`{"broken json`, `{"type":"text-delta","delta":"Report."}`])
+    );
+    const { report } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("Report.");
+  });
+
+  it("still parses a buffered JSON answer when the gateway ignores stream:true", async () => {
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({
+        output: { content: "Buffered report.", grounding: [{ field: "text", citations: [{ url: "https://c.example", title: "C" }] }] },
+      })
+    );
+    const { report, sources } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("Buffered report.");
+    expect(sources).toEqual([{ url: "https://c.example", title: "C" }]);
+  });
+
+  it("throws when the stream ends without any report text", async () => {
+    fetchStub.mockResolvedValueOnce(sseResponse([`{"type":"results","results":[]}`]));
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("without a report");
+  });
+
+  it("accumulates citations across multiple grounding events instead of replacing them", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"grounding","grounding":[{"field":"content","citations":[{"url":"https://a.example","title":"A"}]}]}`,
+        `{"type":"grounding","grounding":[{"field":"content[2]","citations":[{"url":"https://b.example","title":"B"}]}]}`,
+        `{"type":"text-delta","delta":"Report [1] [2]."}`,
+      ])
+    );
+    const { sources } = await runExaDeepResearch({ query: "q" });
+    expect(sources).toEqual([
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+    ]);
+  });
+
+  it("reads partial text from OpenAI-style choices chunks when delta is absent", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"text-delta","choices":[{"index":0,"delta":{"role":"assistant","content":"OpenAI-style "},"finish_reason":null}]}`,
+        `{"type":"text-delta","choices":[{"index":0,"delta":{"content":"chunk."},"finish_reason":null}]}`,
+      ])
+    );
+    const { report } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("OpenAI-style chunk.");
+  });
+
+  it("rejects a stream whose retained line exceeds the 1 MiB cap", async () => {
+    // No trailing newline: the retained line grows past the cap mid-stream.
+    const oversized = new Response(
+      'data: {"type":"text-delta","delta":"' + "x".repeat(1_048_600) + '"',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    );
+    fetchStub.mockResolvedValueOnce(oversized);
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("maximum SSE line length");
+  });
+});

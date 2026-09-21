@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = {
   claimAutomationRun: vi.fn(),
+  getActiveCustomModelForUser: vi.fn(async () => null),
   createWorkspaceFileForUser: vi.fn(),
   getAutomationForScheduleTask: vi.fn(),
   getAutomationRecordForUser: vi.fn(),

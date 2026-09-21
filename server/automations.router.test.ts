@@ -8,6 +8,7 @@ const createHeartbeatJob = vi.fn();
 const updateHeartbeatJob = vi.fn();
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   getAutomationRecordForUser,
   setAutomationScheduleTaskForUser,
   updateAutomationForUser,

@@ -81,6 +81,7 @@ const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsR
 });
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   createProjectForUser: createProjectSpy,
   createTaskForUser: createTaskSpy,
   createCustomModelForUser: createCustomModelSpy,

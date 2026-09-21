@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { completeWithMistralGateway } from "./mistralGateway";
+import { completeWithWorkspaceModel } from "./byokGateway";
 
 export type PlannedAutomation = {
   name: string;
@@ -133,7 +133,7 @@ export async function planAutomation(
   // burn up to three allowances for a single request.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await completeWithMistralGateway(
+    const result = await completeWithWorkspaceModel(
       ownerId,
       `${prompt}\n\nReply with ONLY the JSON object.`
     );

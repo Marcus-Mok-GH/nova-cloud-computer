@@ -445,6 +445,14 @@ export function resetMistralModelCache() {
 export function defaultMistralModel(): string {
   const defaultModel = configuredDefaultChatModel();
   const textFallbackModel = configuredTextFallbackModel();
+  // Z.ai serves free flash models that its /models endpoint does not list, so
+  // a configured Z.ai override is authoritative without the served-check
+  // below - discovery would otherwise degrade a deliberate glm-4.7-flash
+  // default to the first listed (paid) model and trip the account balance
+  // wall. The Mistral side keeps the served-check: its /models list is
+  // authoritative.
+  if (defaultModel !== DEFAULT_MISTRAL_MODEL && zaiGatewayToken())
+    return defaultModel;
   if (!modelCache || modelCache.expiresAt <= Date.now()) return defaultModel;
   // The configured default is authoritative whenever this gateway serves it.
   if (modelCache.models.some(model => model.id === defaultModel))

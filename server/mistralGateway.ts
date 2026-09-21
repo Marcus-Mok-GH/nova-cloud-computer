@@ -103,8 +103,40 @@ export class MistralGatewayClientError extends Error {
 /** Default transport: Mistral AI's OpenAI-compatible hosted API. */
 const MISTRAL_API_BASE_URL = "https://api.mistral.ai/v1";
 
+/** Default transport for the Z.ai (Zhipu GLM) gateway. */
+const ZAI_API_BASE_URL = "https://api.z.ai/api/paas/v4";
+
+/**
+ * The gateway serves either Mistral or Z.ai (Zhipu GLM). Mode is chosen by
+ * which credential is configured: a ZAI_API_KEY switches the gateway to Z.ai,
+ * including its env var names (ZAI_GATEWAY_URL, ZAI_DEFAULT_MODEL,
+ * ZAI_FALLBACK_MODEL) and default base URL; without it the legacy Mistral
+ * configuration (MISTRAL_API_KEY / NOVA_MISTRAL_GATEWAY_TOKEN,
+ * MISTRAL_GATEWAY_URL, MISTRAL_DEFAULT_MODEL, MISTRAL_FALLBACK_MODEL) keeps
+ * working unchanged. Reading the credential and its companion vars from the
+ * same mode keeps the switch atomic: a deployment that sets ZAI_API_KEY but
+ * has not yet set ZAI_GATEWAY_URL falls back to Z.ai's own base URL, never to
+ * a Mistral URL paired with a Z.ai credential.
+ */
+function zaiGatewayToken() {
+  const token =
+    process.env.ZAI_API_KEY?.trim() ||
+    process.env.NOVA_ZAI_GATEWAY_TOKEN?.trim();
+  return token && token.length >= 32 ? token : undefined;
+}
+
+function mistralGatewayToken() {
+  const token =
+    process.env.MISTRAL_API_KEY?.trim() ||
+    process.env.NOVA_MISTRAL_GATEWAY_TOKEN?.trim();
+  return token && token.length >= 32 ? token : undefined;
+}
+
 function configuredGatewayUrl() {
-  const raw = process.env.MISTRAL_GATEWAY_URL?.trim() || MISTRAL_API_BASE_URL;
+  const zai = !!zaiGatewayToken();
+  const raw = zai
+    ? process.env.ZAI_GATEWAY_URL?.trim() || ZAI_API_BASE_URL
+    : process.env.MISTRAL_GATEWAY_URL?.trim() || MISTRAL_API_BASE_URL;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return undefined;
@@ -115,10 +147,7 @@ function configuredGatewayUrl() {
 }
 
 function configuredGatewayToken() {
-  const token =
-    process.env.MISTRAL_API_KEY?.trim() ||
-    process.env.NOVA_MISTRAL_GATEWAY_TOKEN?.trim();
-  return token && token.length >= 32 ? token : undefined;
+  return zaiGatewayToken() ?? mistralGatewayToken();
 }
 
 /** Best-effort human-readable description of a failed Mistral HTTP response. */
@@ -379,14 +408,17 @@ export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 /**
  * Operator override for the default chat model id. The hardcoded default is
  * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
- * (e.g. Z.ai's GLM API via MISTRAL_GATEWAY_URL). This override lets the
+ * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
  * deployment point the default at the provider's own model id - for example
- * MISTRAL_DEFAULT_MODEL=glm-4.7-flash - without a code change. The override
+ * ZAI_DEFAULT_MODEL=glm-4.7-flash - without a code change. The override
  * is only authoritative when the gateway actually serves that model id;
  * otherwise discovery degrades exactly as it does for the hardcoded default.
  */
 export function configuredDefaultChatModel(): string {
-  return process.env.MISTRAL_DEFAULT_MODEL?.trim() || DEFAULT_MISTRAL_MODEL;
+  const override = zaiGatewayToken()
+    ? process.env.ZAI_DEFAULT_MODEL?.trim()
+    : process.env.MISTRAL_DEFAULT_MODEL?.trim();
+  return override || DEFAULT_MISTRAL_MODEL;
 }
 
 /**
@@ -394,7 +426,10 @@ export function configuredDefaultChatModel(): string {
  * configuredDefaultChatModel for deployments on a non-Mistral provider.
  */
 export function configuredTextFallbackModel(): string {
-  return process.env.MISTRAL_FALLBACK_MODEL?.trim() || TEXT_FALLBACK_MODEL;
+  const override = zaiGatewayToken()
+    ? process.env.ZAI_FALLBACK_MODEL?.trim()
+    : process.env.MISTRAL_FALLBACK_MODEL?.trim();
+  return override || TEXT_FALLBACK_MODEL;
 }
 
 /** Test hook: drop the discovered-model cache between suites. */

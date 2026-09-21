@@ -47,14 +47,45 @@ const BYOK_ALLOWANCE = {
 const SAFE_UPSTREAM_CACHE_MS = 5 * 60_000;
 const safeUpstreamCache = new Map<string, number>();
 
-function isBlockedUpstreamIp(ip: string) {
+function isPublicUpstreamIpv4(ip: string) {
   const octets = ip.split(".").map(Number);
-  if (octets.length === 4 && octets.every(octet => Number.isInteger(octet) && octet >= 0 && octet <= 255)) {
-    if (octets[0] === 169 && octets[1] === 254) return true; // link-local: AWS/GCP/Azure metadata
-    if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true; // carrier NAT: Alibaba metadata
+  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
     return false;
   }
-  return ip.toLowerCase().startsWith("fe80:"); // IPv6 link-local
+  const [a, b] = octets;
+  if (a === 0 || a === 10 || a === 127) return false; // this-network, private, loopback
+  if (a === 169 && b === 254) return false; // link-local: AWS/GCP/Azure metadata
+  if (a === 172 && b >= 16 && b <= 31) return false; // private
+  if (a === 192 && b === 168) return false; // private
+  if (a === 100 && b >= 64 && b <= 127) return false; // carrier NAT: Alibaba metadata
+  if (a === 198 && (b === 18 || b === 19)) return false; // benchmarking
+  if (a >= 224) return false; // multicast and reserved
+  return true;
+}
+
+/** True only for globally routable addresses; blocks loopback, private, link-local, ULA, and metadata ranges. */
+function isPublicUpstreamIp(ip: string) {
+  const lower = ip.toLowerCase();
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isPublicUpstreamIpv4(mapped[1]);
+  if (lower.includes(":")) {
+    if (lower === "::" || lower === "::1") return false;
+    if (/^f[cd]/.test(lower)) return false; // fc00::/7 unique local
+    if (/^fe[89ab]/.test(lower)) return false; // fe80::/10 link-local
+    if (/^ff/.test(lower)) return false; // ff00::/8 multicast
+    return true;
+  }
+  return isPublicUpstreamIpv4(ip);
+}
+
+function isLiteralLoopbackHost(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "::1" ||
+    hostname === "0.0.0.0" ||
+    /^127\.\d+\.\d+\.\d+$/.test(hostname)
+  );
 }
 
 export async function assertSafeUpstreamUrl(baseUrl: string) {
@@ -65,12 +96,7 @@ export async function assertSafeUpstreamUrl(baseUrl: string) {
     throw new MistralGatewayClientError("That provider endpoint is not a valid URL.", "configuration");
   }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  const isLoopback =
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "::1" ||
-    hostname === "0.0.0.0" ||
-    hostname.startsWith("127.");
+  const isLoopback = isLiteralLoopbackHost(hostname);
   if (url.protocol !== "https:" && !isLoopback) {
     throw new MistralGatewayClientError(
       "Provider endpoints must use HTTPS. Plain http is only allowed for localhost servers.",
@@ -78,6 +104,7 @@ export async function assertSafeUpstreamUrl(baseUrl: string) {
     );
   }
   if ((safeUpstreamCache.get(hostname) ?? 0) > Date.now()) return;
+  if (isLoopback) return; // the supported local-model case; nothing further to resolve
   let addresses: Array<{ address: string }>;
   try {
     addresses = await dnsLookup(hostname, { all: true });
@@ -85,9 +112,9 @@ export async function assertSafeUpstreamUrl(baseUrl: string) {
     throw new MistralGatewayClientError("That provider endpoint hostname could not be resolved.", "configuration");
   }
   for (const { address } of addresses) {
-    if (isBlockedUpstreamIp(address)) {
+    if (!isPublicUpstreamIp(address)) {
       throw new MistralGatewayClientError(
-        "That provider endpoint address is not allowed: cloud metadata and link-local addresses cannot be used.",
+        "That provider endpoint is not allowed: provider endpoints must be publicly reachable addresses, not private, link-local, or cloud-metadata hosts.",
         "configuration"
       );
     }
@@ -113,20 +140,26 @@ function decryptCustomModelKey(model: CustomModel) {
 
 /** Fetch against the user's own provider; mirrors the gateway's timeout and /stop abort semantics. */
 async function byokFetch(
-  model: CustomModel,
+  baseUrl: string,
   apiKey: string,
   init: RequestInit = {},
   timeoutMs = BYOK_CHAT_TIMEOUT_MS,
   externalSignal?: AbortSignal
 ) {
+  // Redirects are followed manually so every hop is validated before the
+  // credential-bearing request continues (no redirecting to private hosts).
+  const BYOK_MAX_REDIRECTS = 3;
   const controller = new AbortController();
   const abortWithStop = () => controller.abort();
   externalSignal?.addEventListener("abort", abortWithStop, { once: true });
   if (externalSignal?.aborted) controller.abort();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(chatCompletionsUrl(model.baseUrl), {
+    await assertSafeUpstreamUrl(baseUrl);
+    let requestUrl = chatCompletionsUrl(baseUrl);
+    let response = await fetch(requestUrl, {
       ...init,
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -134,7 +167,27 @@ async function byokFetch(
       },
       signal: controller.signal,
     });
+    for (let hop = 0; hop < BYOK_MAX_REDIRECTS; hop += 1) {
+      if (response.status < 300 || response.status >= 400) break;
+      const location = response.headers.get("location");
+      if (!location) break;
+      requestUrl = new URL(location, requestUrl).toString();
+      await assertSafeUpstreamUrl(requestUrl);
+      response = await fetch(requestUrl, {
+        ...init,
+        redirect: "manual",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          ...init.headers,
+        },
+        signal: controller.signal,
+      });
+    }
+    return response;
   } catch (error) {
+    // Guard rejections (bad URL, private host, failed DNS) keep their own kind.
+    if (error instanceof MistralGatewayClientError) throw error;
     // Only a user /stop is "stopped"; timeouts and provider outages stay
     // "unavailable" so callers keep their normal retry handling.
     throw new MistralGatewayClientError(
@@ -158,10 +211,9 @@ export async function chatWithCustomModel(
   } = {}
 ): Promise<GatewayChatResult> {
   const apiKey = decryptCustomModelKey(model);
-  await assertSafeUpstreamUrl(model.baseUrl);
   const fetchChatCompletion = () =>
     byokFetch(
-      model,
+      model.baseUrl,
       apiKey,
       {
         method: "POST",
@@ -390,25 +442,19 @@ export async function testCustomModelEndpoint(input: {
   if (!modelId) {
     throw new MistralGatewayClientError("Enter the model ID before testing the connection.", "configuration");
   }
-  await assertSafeUpstreamUrl(input.baseUrl);
-  const response = await fetch(chatCompletionsUrl(input.baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.apiKey}`,
-      "Content-Type": "application/json",
+  const response = await byokFetch(
+    input.baseUrl,
+    input.apiKey,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+      }),
     },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: "user", content: "ping" }],
-      max_tokens: 1,
-    }),
-    signal: AbortSignal.timeout(BYOK_TEST_TIMEOUT_MS),
-  }).catch(error => {
-    throw new MistralGatewayClientError(
-      sanitizeGatewayError(error),
-      "unavailable"
-    );
-  });
+    BYOK_TEST_TIMEOUT_MS
+  );
   if (!response.ok) throw await byokHttpError(response);
   // A reachable endpoint is enough; an empty tiny completion is not an error.
   return { ok: true, message: "Connected. The provider accepted the request." };

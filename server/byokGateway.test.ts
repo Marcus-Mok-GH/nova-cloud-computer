@@ -274,7 +274,7 @@ describe("BYOK upstream guard", () => {
 
   it("blocks cloud metadata and link-local endpoints", async () => {
     vi.mocked(dnsLookup).mockImplementation(async () => [{ address: "169.254.169.254" }]);
-    const model = customModelFixture({ baseUrl: "https://metadata.internal/v1" });
+    const model = customModelFixture({ baseUrl: "https://metadata-hop.example/v1" });
     global.fetch = vi.fn();
     await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
       kind: "configuration",
@@ -290,6 +290,53 @@ describe("BYOK upstream guard", () => {
     await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
       kind: "unavailable",
     });
+  });
+
+  it("blocks hostnames that resolve into private networks", async () => {
+    vi.mocked(dnsLookup).mockImplementation(async () => [{ address: "10.0.0.5" }]);
+    const model = customModelFixture({ baseUrl: "https://internal-service.example/v1" });
+    global.fetch = vi.fn();
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "configuration",
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("follows redirects but rejects a redirect to a private host", async () => {
+    vi.mocked(dnsLookup).mockImplementation(async (hostname: any) => {
+      if (String(hostname).startsWith("internal-redirect.")) return [{ address: "192.168.1.20" }];
+      return [{ address: "104.18.7.4" }];
+    });
+    const model = customModelFixture({ baseUrl: "https://redirect-source.example/v1" });
+    const calls: string[] = [];
+    global.fetch = vi.fn(async (url: any) => {
+      calls.push(String(url));
+      if (calls.length === 1) return Response.redirect("https://internal-redirect.example/v1/chat/completions", 302);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "configuration",
+    });
+    expect(calls).toEqual(["https://redirect-source.example/v1/chat/completions"]);
+  });
+
+  it("follows redirects to public hosts and completes the chat", async () => {
+    const model = customModelFixture({ baseUrl: "https://redirect-public.example/v1" });
+    const calls: string[] = [];
+    global.fetch = vi.fn(async (url: any) => {
+      calls.push(String(url));
+      if (calls.length === 1) return Response.redirect("https://redirect-target.example/v1/chat/completions", 307);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const result = await chatWithCustomModel(model, [{ role: "user", content: "Hi" }]);
+    expect(result.text).toBe("ok");
+    expect(calls[1]).toBe("https://redirect-target.example/v1/chat/completions");
   });
 
   it("still reports an aborted /stop as stopped", async () => {

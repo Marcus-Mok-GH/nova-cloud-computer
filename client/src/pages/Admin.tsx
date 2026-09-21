@@ -1,6 +1,6 @@
 import React from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Ban, BadgeCheck, Bot, Loader2, MessageSquareText, RotateCcw, ShieldCheck, Trash2, Users as UsersIcon, Zap } from "lucide-react";
+import { Ban, BadgeCheck, Bot, Eye, FileText, Loader2, MessageSquareText, RotateCcw, ShieldCheck, Trash2, Users as UsersIcon, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -17,10 +17,107 @@ function formatStamp(value: Date | string | undefined) {
   return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatBytes(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Read-only inspection of one account's chats and workspace files. */
+function AdminUserContent({ userId }: { userId: number }) {
+  const [openFileId, setOpenFileId] = useState<number | null>(null);
+
+  const chatsQuery = trpc.admin.userChats.useQuery({ userId }, { retry: false });
+  const filesQuery = trpc.admin.userFiles.useQuery({ userId }, { retry: false });
+  const fileContentQuery = trpc.admin.userFileContent.useQuery(
+    { userId, fileId: openFileId ?? 0 },
+    { enabled: openFileId !== null, retry: false },
+  );
+
+  const chats = chatsQuery.data ?? [];
+  const files = filesQuery.data ?? [];
+
+  return (
+    <div className="w-full space-y-5 rounded-2xl bg-muted/40 p-4">
+      <div>
+        <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          <MessageSquareText className="size-3.5" /> Chats {chatsQuery.isLoading ? "…" : `(${chats.length})`}
+        </p>
+        {chatsQuery.isLoading ? (
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading chats…</div>
+        ) : chats.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">No chats in this workspace.</p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {chats.map(chat => (
+              <details key={chat.id} className="rounded-xl border border-border bg-card px-3 py-2 dark:border-white/10 dark:bg-card">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  {chat.title}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {chat.messages.length} messages · {formatStamp(chat.updatedAt)}
+                  </span>
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {chat.messages.length === 0 && <p className="text-xs text-muted-foreground">No messages.</p>}
+                  {chat.messages.map(message => (
+                    <div key={message.id} className="rounded-lg bg-muted/60 px-3 py-2 dark:bg-white/5">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                        {message.role === "user" ? "User" : "Nova"} · {formatStamp(message.createdAt)}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-xs text-foreground/90">{message.content}</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          <FileText className="size-3.5" /> Files {filesQuery.isLoading ? "…" : `(${files.length})`}
+        </p>
+        {filesQuery.isLoading ? (
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading files…</div>
+        ) : files.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">No files in this workspace.</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {files.map(file => {
+              const isOpen = openFileId === file.id;
+              return (
+                <li key={file.id} className="rounded-xl border border-border bg-card px-3 py-2 dark:border-white/10 dark:bg-card">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-sm font-semibold">
+                      {file.folderName ? <span className="text-muted-foreground">{file.folderName}/</span> : ""}
+                      {file.name}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">{formatBytes(file.sizeBytes)} · {file.mimeType} · {formatStamp(file.updatedAt)}</span>
+                    </p>
+                    <button onClick={() => setOpenFileId(isOpen ? null : file.id)} className="pill-btn shrink-0 px-2.5 py-1 text-[11px]">
+                      {isOpen ? "Hide" : "View"}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-3 text-xs text-foreground/90">
+                      {fileContentQuery.isLoading ? "Loading…" : fileContentQuery.data?.content || file.preview || "(empty file)"}
+                    </pre>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Admin() {
   const { loading, user } = useAuth();
   const utils = trpc.useUtils();
   const [pendingUserId, setPendingUserId] = useState<number | null>(null);
+  const [inspectingUserId, setInspectingUserId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<"role" | "ban" | "delete" | null>(null);
 
   const overviewQuery = trpc.admin.overview.useQuery(undefined, { enabled: user?.role === "admin", retry: false });
@@ -127,6 +224,13 @@ export default function Admin() {
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
+                        onClick={() => setInspectingUserId(inspectingUserId === account.id ? null : account.id)}
+                        title={inspectingUserId === account.id ? "Hide this account's chats and files" : "Inspect this account's chats and files"}
+                        className="pill-btn px-3 py-1.5 text-xs"
+                      >
+                        {inspectingUserId === account.id ? <><Eye className="size-3.5" /> Close</> : <><Eye className="size-3.5" /> Inspect</>}
+                      </button>
+                      <button
                         onClick={() => setUserRole.mutate({ userId: account.id, role: account.role === "admin" ? "user" : "admin" })}
                         disabled={!canChangeRole || busy}
                         title={!canChangeRole && isSelf ? "You are the only active admin - promote someone else before demoting yourself." : account.role === "admin" ? "Demote to standard user" : "Promote to admin"}
@@ -151,6 +255,7 @@ export default function Admin() {
                         {busy && pendingAction === "delete" ? <Loader2 className="size-3.5 animate-spin" /> : <><Trash2 className="size-3.5" /> Delete</>}
                       </button>
                     </div>
+                    {inspectingUserId === account.id && <AdminUserContent userId={account.id} />}
                   </li>
                 );
               })}

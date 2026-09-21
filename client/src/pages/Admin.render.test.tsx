@@ -24,6 +24,9 @@ vi.mock("@/lib/trpc", () => ({
       setUserRole: { useMutation: () => ({ mutate: vi.fn() }) },
       setUserBanned: { useMutation: () => ({ mutate: vi.fn() }) },
       deleteUser: { useMutation: () => ({ mutate: vi.fn() }) },
+      userChats: { useQuery: () => ({ data: [], isLoading: false }) },
+      userFiles: { useQuery: () => ({ data: [], isLoading: false }) },
+      userFileContent: { useQuery: () => ({ data: undefined, isLoading: false }) },
     },
   },
 }));
@@ -43,6 +46,7 @@ describe("Admin console page", () => {
     expect(markup).toContain("Ban");
     expect(markup).toContain("Delete");
     expect(markup).toContain("banned");
+    expect(markup).toContain("Inspect");
   });
 
   it("hides the console behind the 404 page for non-admins and signed-out visitors", () => {

@@ -13,6 +13,8 @@ import {
   tasks,
   telegramBotSettings,
   users,
+  workspaceFiles,
+  workspaceFolders,
   workspaces,
 } from "../drizzle/schema";
 
@@ -156,4 +158,130 @@ export async function deleteUserForAdmin(userId: number) {
   const db = await requireDb();
   const [deleted] = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
   return !!deleted;
+}
+
+// ---------------------------------------------------------------------------
+// Admin content inspection
+//
+// Read-only visibility into another account's chats and workspace files.
+// Reached only through `adminProcedure`, so every caller is a verified admin.
+// ---------------------------------------------------------------------------
+
+/** Newest chats inspected per account. */
+const ADMIN_INSPECT_CHATS_LIMIT = 50;
+/** Most recent messages kept per inspected chat. */
+const ADMIN_INSPECT_MESSAGES_PER_CHAT = 100;
+/** Most recent files inspected per account. */
+const ADMIN_INSPECT_FILES_LIMIT = 200;
+/** Characters of text shown inline before a file needs to be opened fully. */
+const ADMIN_INSPECT_PREVIEW_CHARS = 400;
+
+export type AdminInspectedMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: Date;
+};
+
+export type AdminInspectedChat = {
+  id: number;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+  messages: AdminInspectedMessage[];
+};
+
+export type AdminInspectedFile = {
+  id: number;
+  name: string;
+  folderName: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  updatedAt: Date;
+  preview: string;
+};
+
+/** Another account's chats with their most recent messages, newest activity first. */
+export async function getUserChatsForAdmin(userId: number): Promise<AdminInspectedChat[]> {
+  const db = await requireDb();
+
+  const chatRows = await db
+    .select({ id: chats.id, title: chats.title, createdAt: chats.createdAt, updatedAt: chats.updatedAt })
+    .from(chats)
+    .innerJoin(workspaces, eq(chats.workspaceId, workspaces.id))
+    .where(eq(workspaces.ownerId, userId))
+    .orderBy(desc(chats.updatedAt))
+    .limit(ADMIN_INSPECT_CHATS_LIMIT);
+
+  if (chatRows.length === 0) return [];
+
+  const messageRows = await db
+    .select({
+      id: chatMessages.id,
+      chatId: chatMessages.chatId,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(inArray(chatMessages.chatId, chatRows.map(chat => chat.id)))
+    .orderBy(desc(chatMessages.createdAt))
+    .limit(chatRows.length * ADMIN_INSPECT_MESSAGES_PER_CHAT);
+
+  const messagesByChat = new Map<number, AdminInspectedMessage[]>();
+  for (const message of messageRows) {
+    const bucket = messagesByChat.get(message.chatId) ?? [];
+    if (bucket.length < ADMIN_INSPECT_MESSAGES_PER_CHAT) bucket.push(message);
+    messagesByChat.set(message.chatId, bucket);
+  }
+
+  return chatRows.map(chat => ({
+    ...chat,
+    messages: (messagesByChat.get(chat.id) ?? []).sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    ),
+  }));
+}
+
+/** Another account's workspace files, newest first, with a short inline preview. */
+export async function getUserFilesForAdmin(userId: number): Promise<AdminInspectedFile[]> {
+  const db = await requireDb();
+
+  const rows = await db
+    .select({
+      id: workspaceFiles.id,
+      name: workspaceFiles.name,
+      folderName: workspaceFolders.name,
+      mimeType: workspaceFiles.mimeType,
+      content: workspaceFiles.content,
+      updatedAt: workspaceFiles.updatedAt,
+    })
+    .from(workspaceFiles)
+    .innerJoin(workspaces, eq(workspaceFiles.workspaceId, workspaces.id))
+    .leftJoin(workspaceFolders, eq(workspaceFiles.folderId, workspaceFolders.id))
+    .where(eq(workspaces.ownerId, userId))
+    .orderBy(desc(workspaceFiles.updatedAt))
+    .limit(ADMIN_INSPECT_FILES_LIMIT);
+
+  return rows.map(({ content, ...file }) => ({
+    ...file,
+    sizeBytes: content.length,
+    preview: content.slice(0, ADMIN_INSPECT_PREVIEW_CHARS),
+  }));
+}
+
+/** Full content of a single file, but only when it belongs to that account's workspace. */
+export async function getUserFileContentForAdmin(userId: number, fileId: number) {
+  const db = await requireDb();
+  const [file] = await db
+    .select({
+      id: workspaceFiles.id,
+      name: workspaceFiles.name,
+      mimeType: workspaceFiles.mimeType,
+      content: workspaceFiles.content,
+    })
+    .from(workspaceFiles)
+    .innerJoin(workspaces, eq(workspaceFiles.workspaceId, workspaces.id))
+    .where(and(eq(workspaces.ownerId, userId), eq(workspaceFiles.id, fileId)));
+  return file;
 }

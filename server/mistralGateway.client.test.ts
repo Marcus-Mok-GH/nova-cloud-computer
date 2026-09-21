@@ -167,6 +167,20 @@ describe("Mistral gateway client", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("https://zai-mirror.example.com/v4/models", expect.anything());
   });
 
+  it("trusts a ZAI_DEFAULT_MODEL the gateway does not list (z.ai serves unlisted free models)", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    // Only paid models come back from /models - the free flash models are
+    // served but unlisted. The override must not degrade to glm-4.5.
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "glm-4.5" },
+      { id: "glm-4.7" },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(status).toMatchObject({ model: "glm-4.7-flash", reachable: true });
+    expect(defaultMistralModel()).toBe("glm-4.7-flash");
+  });
+
   it("keeps the legacy Mistral transport when no Z.ai credential is set", async () => {
     process.env.MISTRAL_DEFAULT_MODEL = "glm-4.7-flash";
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [

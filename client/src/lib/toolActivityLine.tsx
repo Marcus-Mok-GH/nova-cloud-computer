@@ -1,7 +1,41 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CircleDashed, XCircle } from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
 import { MarkdownText } from "@/lib/markdown";
+
+/**
+ * The append-only live log of a running sub-agent's process: every progress
+ * note the backend streamed while the specialist worked, oldest first, with
+ * the latest line spinning. Auto-scrolls to the newest line so the user can
+ * watch the process happen instead of a single "working..." line.
+ */
+export function ProgressLog({ log }: { log: string[] }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "nearest" });
+  }, [log.length]);
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {log.map((line, index) => {
+        const latest = index === log.length - 1;
+        return (
+          <p
+            key={index}
+            className={
+              latest
+                ? "flex min-w-0 items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400"
+                : "min-w-0 break-words text-xs leading-5 text-muted-foreground"
+            }
+          >
+            {latest ? <CircleDashed className="size-3.5 shrink-0 animate-spin" /> : null}
+            <span className="min-w-0 break-words">{line}</span>
+          </p>
+        );
+      })}
+      <div ref={endRef} />
+    </div>
+  );
+}
 
 /**
  * One-line rendering for a tool call, e.g. "Read File notes.txt".
@@ -78,10 +112,14 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
       {open && (
         <div data-testid="research-detail-panel" className="mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
           {running ? (
+            (activity.progressLog?.length ?? 0) > 0 ? (
+              <ProgressLog log={activity.progressLog!} />
+            ) : (
             <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
               <CircleDashed className="size-3.5 shrink-0 animate-spin" />
               {activity.detail || "Exa deep research is starting its web searches…"}
             </p>
+            )
           ) : activity.detail ? (
             <div className="break-words text-sm leading-6 text-foreground">
               <MarkdownText text={activity.detail} />
@@ -138,10 +176,14 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
           )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2.5">
             {running ? (
+              (activity.progressLog?.length ?? 0) > 0 ? (
+                <ProgressLog log={activity.progressLog!} />
+              ) : (
               <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
                 <CircleDashed className="size-3.5 shrink-0 animate-spin" />
                 {activity.detail || "The coding specialist is reading the task…"}
               </p>
+              )
             ) : activity.state === "failed" ? (
               <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
                 {activity.detail || activity.summary || "The coding task failed."}

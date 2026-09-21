@@ -9,6 +9,7 @@ const start = vi.fn(async (ownerId: number, input: { task: string; code?: string
 const cancel = vi.fn(async (ownerId: number, runId: number) => ownerId === 1 && runId === 9 ? { id: 9, task: "Inspect notes", status: "cancelled" } : undefined);
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   getTelegramSettingsForUser: vi.fn(), saveTelegramSettingsForUser: vi.fn(), getTelegramCredentialsForUser: vi.fn(), updateTelegramChatForUser: vi.fn(), deleteTelegramSettingsForUser: vi.fn(),
   createWorkspaceFolderForUser: vi.fn(), updateWorkspaceFolderForUser: vi.fn(), deleteWorkspaceFolderForUser: vi.fn(),
   createWorkspaceFileForUser: vi.fn(), updateWorkspaceFileForUser: vi.fn(), deleteWorkspaceFileForUser: vi.fn(),

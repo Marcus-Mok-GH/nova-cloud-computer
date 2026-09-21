@@ -34,14 +34,17 @@ import {
   updateWorkspaceFolderForUser,
 } from "./db";
 import {
-  chatWithMistralGateway,
-  completeWithMistralGateway,
   getMistralGatewayStatus,
   type GatewayChatMessage,
   type GatewayToolCall,
   type GatewayToolDefinition,
   MistralGatewayClientError,
 } from "./mistralGateway";
+import {
+  chatWithWorkspaceModel,
+  completeWithWorkspaceModel,
+  getActiveCustomModel,
+} from "./byokGateway";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
@@ -220,7 +223,7 @@ export async function autoTitleChatForUser(
       firstUser.content,
       firstAssistant.content,
     ].join("\n");
-    const result = await completeWithMistralGateway(
+    const result = await completeWithWorkspaceModel(
       ownerId,
       prompt.slice(0, 2000)
     );
@@ -2173,7 +2176,7 @@ async function chatWithGatewayRetry(
     let streamedChars = 0;
     const emit = options.onChunk;
     try {
-      return await chatWithMistralGateway(ownerId, messages, {
+      return await chatWithWorkspaceModel(ownerId, messages, {
         tools: options.tools,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
@@ -2290,7 +2293,7 @@ export async function runWorkspaceAgent(
     const summaries = lastRoundSummaries.map(summary => `- ${summary}`).join("\n");
     try {
       const completion = await Promise.race([
-        completeWithMistralGateway(
+        completeWithWorkspaceModel(
           ownerId,
           `You are Nova, an AI assistant working inside the user's personal cloud workspace. You just hit the end of the time you may spend on this single message; your work so far stops here but the conversation continues.
 
@@ -2323,6 +2326,10 @@ ${options.continuationPlanned
   let sandboxWorkspaceId: number | undefined;
 
   try {
+    // A workspace with its own provider (BYOK) never depends on the built-in
+    // gateway, so its health flags do not gate the run.
+    const customModel = await getActiveCustomModel(ownerId);
+    if (!customModel) {
     const status = await getMistralGatewayStatus(ownerId);
     if (!status.configured) {
       const reply =
@@ -2346,6 +2353,7 @@ ${options.continuationPlanned
       await options.onChunk?.(reply);
       const message = await persistAssistant(reply);
       return { message, actions: [], outOfBudget: false };
+    }
     }
 
     let computer = await getWorkspaceComputer(ownerId);

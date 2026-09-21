@@ -12,6 +12,7 @@ const setUsernameForUserSpy = vi.fn(async (userId: number, username: string) => 
 });
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   isUsernameTaken: isUsernameTakenSpy,
   setUsernameForUser: setUsernameForUserSpy,
 }));

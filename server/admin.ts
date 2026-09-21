@@ -2,7 +2,7 @@
  * Admin console data access. Every function here is reached only through
  * `adminProcedure`, which rejects any caller whose role is not `admin`.
  */
-import { and, count, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   agentVmRuns,
@@ -215,23 +215,27 @@ export async function getUserChatsForAdmin(userId: number): Promise<AdminInspect
 
   if (chatRows.length === 0) return [];
 
-  const messageRows = await db
-    .select({
-      id: chatMessages.id,
-      chatId: chatMessages.chatId,
-      role: chatMessages.role,
-      content: chatMessages.content,
-      createdAt: chatMessages.createdAt,
-    })
-    .from(chatMessages)
-    .where(inArray(chatMessages.chatId, chatRows.map(chat => chat.id)))
-    .orderBy(desc(chatMessages.createdAt))
-    .limit(chatRows.length * ADMIN_INSPECT_MESSAGES_PER_CHAT);
+  // Rank messages per chat so one very active chat cannot crowd the others out
+  // of a shared result limit: each selected chat always gets its own newest N.
+  const chatIdList = sql.join(chatRows.map(chat => sql`${chat.id}`), sql`, `);
+  const rankedResult = (await db.execute(sql`
+    SELECT id, chat_id AS "chatId", role, content, created_at AS "createdAt"
+    FROM (
+      SELECT id, chat_id, role, content, created_at,
+             ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC, id DESC) AS rn
+      FROM chat_messages
+      WHERE chat_id IN (${chatIdList})
+    ) ranked
+    WHERE rn <= ${ADMIN_INSPECT_MESSAGES_PER_CHAT}
+  `)) as unknown as
+    | { rows?: Array<{ id: number; chatId: number; role: "user" | "assistant"; content: string; createdAt: Date | string }> }
+    | Array<{ id: number; chatId: number; role: "user" | "assistant"; content: string; createdAt: Date | string }>;
+  const messageRows = Array.isArray(rankedResult) ? rankedResult : (rankedResult.rows ?? []);
 
   const messagesByChat = new Map<number, AdminInspectedMessage[]>();
   for (const message of messageRows) {
     const bucket = messagesByChat.get(message.chatId) ?? [];
-    if (bucket.length < ADMIN_INSPECT_MESSAGES_PER_CHAT) bucket.push(message);
+    bucket.push({ id: message.id, role: message.role, content: message.content, createdAt: new Date(message.createdAt) });
     messagesByChat.set(message.chatId, bucket);
   }
 
@@ -247,13 +251,16 @@ export async function getUserChatsForAdmin(userId: number): Promise<AdminInspect
 export async function getUserFilesForAdmin(userId: number): Promise<AdminInspectedFile[]> {
   const db = await requireDb();
 
+  // Compute size and preview in the database: selecting full content for up to
+  // 200 files could pull tens of millions of characters into the app.
   const rows = await db
     .select({
       id: workspaceFiles.id,
       name: workspaceFiles.name,
       folderName: workspaceFolders.name,
       mimeType: workspaceFiles.mimeType,
-      content: workspaceFiles.content,
+      sizeBytes: sql<number>`length(${workspaceFiles.content})`,
+      preview: sql<string>`left(${workspaceFiles.content}, ${ADMIN_INSPECT_PREVIEW_CHARS})`,
       updatedAt: workspaceFiles.updatedAt,
     })
     .from(workspaceFiles)
@@ -263,10 +270,9 @@ export async function getUserFilesForAdmin(userId: number): Promise<AdminInspect
     .orderBy(desc(workspaceFiles.updatedAt))
     .limit(ADMIN_INSPECT_FILES_LIMIT);
 
-  return rows.map(({ content, ...file }) => ({
+  return rows.map(file => ({
     ...file,
-    sizeBytes: content.length,
-    preview: content.slice(0, ADMIN_INSPECT_PREVIEW_CHARS),
+    sizeBytes: Number(file.sizeBytes ?? 0),
   }));
 }
 

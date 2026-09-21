@@ -43,7 +43,12 @@ function AdminUserContent({ userId }: { userId: number }) {
         <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <MessageSquareText className="size-3.5" /> Chats {chatsQuery.isLoading ? "…" : `(${chats.length})`}
         </p>
-        {chatsQuery.isLoading ? (
+        {chatsQuery.isError ? (
+          <div className="mt-2 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+            Couldn't load chats.
+            <button onClick={() => chatsQuery.refetch()} className="pill-btn px-2.5 py-1 text-[11px]">Retry</button>
+          </div>
+        ) : chatsQuery.isLoading ? (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading chats…</div>
         ) : chats.length === 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">No chats in this workspace.</p>
@@ -78,7 +83,12 @@ function AdminUserContent({ userId }: { userId: number }) {
         <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <FileText className="size-3.5" /> Files {filesQuery.isLoading ? "…" : `(${files.length})`}
         </p>
-        {filesQuery.isLoading ? (
+        {filesQuery.isError ? (
+          <div className="mt-2 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+            Couldn't load files.
+            <button onClick={() => filesQuery.refetch()} className="pill-btn px-2.5 py-1 text-[11px]">Retry</button>
+          </div>
+        ) : filesQuery.isLoading ? (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading files…</div>
         ) : files.length === 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">No files in this workspace.</p>
@@ -98,11 +108,16 @@ function AdminUserContent({ userId }: { userId: number }) {
                       {isOpen ? "Hide" : "View"}
                     </button>
                   </div>
-                  {isOpen && (
+                  {isOpen && (fileContentQuery.isError ? (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                      Couldn't load file content.
+                      <button onClick={() => fileContentQuery.refetch()} className="pill-btn px-2.5 py-1 text-[11px]">Retry</button>
+                    </div>
+                  ) : (
                     <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-3 text-xs text-foreground/90">
                       {fileContentQuery.isLoading ? "Loading…" : fileContentQuery.data?.content || file.preview || "(empty file)"}
                     </pre>
-                  )}
+                  ))}
                 </li>
               );
             })}

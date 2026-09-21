@@ -199,8 +199,12 @@ vi.mock("./siteDeploy", () => ({
 }));
 
 const runCoderTaskMock = vi.hoisted(() => vi.fn());
+const runAutonomousCoderTaskMock = vi.hoisted(() => vi.fn());
 const { NimConfigError } = await import("./nim");
-vi.mock("./coder", () => ({ runCoderTask: runCoderTaskMock }));
+vi.mock("./coder", () => ({
+  runCoderTask: runCoderTaskMock,
+  runAutonomousCoderTask: runAutonomousCoderTaskMock,
+}));
 
 const runBrowserCommandMock = vi.hoisted(() => vi.fn());
 vi.mock("./agentBrowser", () => ({
@@ -984,6 +988,49 @@ describe("Nova tool-calling workspace agent", () => {
       vi.mocked(restoreWorkspaceToE2B).mockResolvedValue(1);
       vi.mocked(persistE2BWorkspace).mockReset();
       vi.mocked(persistE2BWorkspace).mockResolvedValue(0);
+    });
+
+    it("runs code_task autonomously when the sandbox is awake, syncing writes back into the workspace", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runAutonomousCoderTaskMock.mockReset().mockResolvedValueOnce({
+        kind: "autonomous",
+        summary: "Built and verified the game.",
+        writtenPaths: ["index.html"],
+        commandsRun: 2,
+        rounds: 3,
+        model: "moonshotai/kimi-k3",
+      });
+      runCoderTaskMock.mockReset();
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              { id: "call-code", name: "code_task", arguments: JSON.stringify({ task: "build a game" }) },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(chatResult({ text: "Done - the game is in your workspace." }));
+      const result = await runWorkspaceAgent(1, 3, "build me a game");
+      // The specialist ran autonomously with the live sandbox, not single-shot.
+      expect(runAutonomousCoderTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ task: "build a game", sandbox: sandbox as never })
+      );
+      expect(runCoderTaskMock).not.toHaveBeenCalled();
+      // Its sandbox writes were synced back into the durable store inside
+      // the tool call, before the model saw the result.
+      expect(persistE2BWorkspace).toHaveBeenCalledWith(1, sandbox);
+      // The model heard the summary and the changed-file list, and was told
+      // to verify the work.
+      const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+      expect(toolResult.tool_call_id).toBe("call-code");
+      expect(toolResult.content).toContain("worked autonomously");
+      expect(toolResult.content).toContain("Built and verified the game.");
+      expect(toolResult.content).toContain("index.html");
+      expect(toolResult.content).toContain("verify the work");
+      expect(result.message.content).toBe("Done - the game is in your workspace.");
     });
 
     it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {

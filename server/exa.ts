@@ -181,12 +181,24 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
         const grounding = record.grounding as ExaGrounding[] | undefined;
         if (grounding?.length) {
           const merged = collectSources({ grounding });
-          if (merged.length) sources = merged;
+          if (merged.length) {
+            // Grounding events may arrive per output field: accumulate, never
+            // replace, so citations from earlier events survive.
+            const seen = new Set(sources.map(source => source.url));
+            sources = [...sources, ...merged.filter(source => !seen.has(source.url))];
+          }
         }
         return;
       }
       case "text-delta": {
-        const delta = typeof record.delta === "string" ? record.delta : "";
+        let delta = typeof record.delta === "string" ? record.delta : "";
+        if (!delta) {
+          // Exa also emits OpenAI-compatible chat completion chunks; read the
+          // partial text from choices[0].delta.content when delta is absent.
+          const choices = record.choices as { delta?: { content?: unknown } }[] | undefined;
+          const content = choices?.[0]?.delta?.content;
+          if (typeof content === "string") delta = content;
+        }
         report += delta;
         if (!reportStarted && report.trim()) {
           reportStarted = true;
@@ -213,6 +225,9 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // A misbehaving stream that never sends a newline would otherwise grow the
+  // retained line until the 270s timeout; cap it and abandon the stream.
+  const maxSseLineLength = 1_048_576;
   const emitSseLines = (chunk: string, onLine: (line: string) => void) => {
     buffer += chunk;
     let newlineIndex = buffer.indexOf("\n");
@@ -221,7 +236,11 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
       buffer = buffer.slice(newlineIndex + 1);
       newlineIndex = buffer.indexOf("\n");
     }
+    if (buffer.length > maxSseLineLength) {
+      throw new Error("Exa deep research stream exceeded the maximum SSE line length.");
+    }
   };
+  try {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -235,6 +254,10 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
         // A malformed fragment never kills the research: skip the line.
       }
     });
+  }
+  } finally {
+    // Release the connection when the stream ends early (error or bound hit).
+    reader.cancel().catch(() => {});
   }
   // Flush any trailing line the stream ended without a newline on.
   if (buffer.startsWith("data:")) {

@@ -233,4 +233,40 @@ describe("runExaDeepResearch streaming", () => {
     fetchStub.mockResolvedValueOnce(sseResponse([`{"type":"results","results":[]}`]));
     await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("without a report");
   });
+
+  it("accumulates citations across multiple grounding events instead of replacing them", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"grounding","grounding":[{"field":"content","citations":[{"url":"https://a.example","title":"A"}]}]}`,
+        `{"type":"grounding","grounding":[{"field":"content[2]","citations":[{"url":"https://b.example","title":"B"}]}]}`,
+        `{"type":"text-delta","delta":"Report [1] [2]."}`,
+      ])
+    );
+    const { sources } = await runExaDeepResearch({ query: "q" });
+    expect(sources).toEqual([
+      { url: "https://a.example", title: "A" },
+      { url: "https://b.example", title: "B" },
+    ]);
+  });
+
+  it("reads partial text from OpenAI-style choices chunks when delta is absent", async () => {
+    fetchStub.mockResolvedValueOnce(
+      sseResponse([
+        `{"type":"text-delta","choices":[{"index":0,"delta":{"role":"assistant","content":"OpenAI-style "},"finish_reason":null}]}`,
+        `{"type":"text-delta","choices":[{"index":0,"delta":{"content":"chunk."},"finish_reason":null}]}`,
+      ])
+    );
+    const { report } = await runExaDeepResearch({ query: "q" });
+    expect(report).toBe("OpenAI-style chunk.");
+  });
+
+  it("rejects a stream whose retained line exceeds the 1 MiB cap", async () => {
+    // No trailing newline: the retained line grows past the cap mid-stream.
+    const oversized = new Response(
+      'data: {"type":"text-delta","delta":"' + "x".repeat(1_048_600) + '"',
+      { status: 200, headers: { "content-type": "text/event-stream" } }
+    );
+    fetchStub.mockResolvedValueOnce(oversized);
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("maximum SSE line length");
+  });
 });

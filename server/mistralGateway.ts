@@ -406,6 +406,13 @@ export const DEFAULT_MISTRAL_MODEL = "ministral-14b-latest";
 export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 
 /**
+ * Free-tier text fallback for Z.ai deployments: like the default model, the
+ * free flash models are served but unlisted by /models, so the Mistral
+ * fallback id would never resolve there.
+ */
+export const ZAI_TEXT_FALLBACK_MODEL = "glm-4.5-flash";
+
+/**
  * Operator override for the default chat model id. The hardcoded default is
  * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
  * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
@@ -429,7 +436,25 @@ export function configuredTextFallbackModel(): string {
   const override = zaiGatewayToken()
     ? process.env.ZAI_FALLBACK_MODEL?.trim()
     : process.env.MISTRAL_FALLBACK_MODEL?.trim();
-  return override || TEXT_FALLBACK_MODEL;
+  if (override) return override;
+  // Z.ai's /models endpoint omits the free flash models, so the hardcoded
+  // Mistral fallback id cannot resolve there; the other free flash model is
+  // the verified-served Z.ai default (used for pool-overload degradation).
+  return zaiGatewayToken() ? ZAI_TEXT_FALLBACK_MODEL : TEXT_FALLBACK_MODEL;
+}
+
+/**
+ * Pool-overload degradation window: after the resolved chat model fails with
+ * an upstream overload (HTTP 429 - z.ai error 1305 free-pool congestion),
+ * later requests skip straight to the pool-fallback model until this many
+ * milliseconds pass.
+ */
+const POOL_DEGRADE_MS = 5 * 60_000;
+/** Timestamp (epoch ms) until which the resolved chat model stays degraded. */
+let poolDegradedUntil = 0;
+/** Test hook: clear pool-overload degradation between suites. */
+export function resetMistralPoolDegradation() {
+  poolDegradedUntil = 0;
 }
 
 /** Test hook: drop the discovered-model cache between suites. */
@@ -645,10 +670,11 @@ export async function completeWithMistralGateway(
     );
   }
   const resolvedModel = modelId?.trim() || status.model;
+  return attemptWithPoolFallback(status, claim, resolvedModel, async model => {
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
     body: JSON.stringify({
-      model: resolvedModel,
+      model,
       messages: [{ role: "user", content: prompt }],
       ...(onChunk ? { stream: true } : {}),
     }),
@@ -664,7 +690,7 @@ export async function completeWithMistralGateway(
     }
     return {
       text,
-      model: completion.model ?? resolvedModel,
+      model: completion.model ?? model,
       usage: completion.usage ?? null,
       allowance: {
         usedRequests: claim.usedRequests,
@@ -715,7 +741,7 @@ export async function completeWithMistralGateway(
     { model?: string; usage?: GatewayCompletion["usage"] } | undefined;
   return {
     text: bufferedText,
-    model: completion?.model ?? resolvedModel,
+    model: completion?.model ?? model,
     usage: completion?.usage ?? null,
     allowance: {
       usedRequests: claim.usedRequests,
@@ -729,6 +755,7 @@ export async function completeWithMistralGateway(
         claim.usedRequests >= status.allowance.maxRequests,
     },
   };
+  });
 }
 
 export type GatewayToolDefinition = {
@@ -1001,6 +1028,63 @@ async function readGatewayStreamedChatResult(
   };
 }
 
+/**
+ * Runs one model attempt with pool-overload degradation: when the resolved
+ * chat model fails with an upstream overload (HTTP 429 - z.ai error 1305
+ * free-pool congestion), the request retries once on the configured
+ * pool-fallback model, and later requests skip straight to the fallback for
+ * POOL_DEGRADE_MS. The fallback attempt reuses the run's allowance claim,
+ * so it is not double-charged. If the fallback pool is overloaded too, the
+ * degradation window ends early so the next request retries the primary
+ * model instead of pinning to a dead pool.
+ */
+async function attemptWithPoolFallback<T>(
+  status: Awaited<ReturnType<typeof getMistralGatewayStatus>>,
+  claim: NonNullable<
+    Awaited<ReturnType<typeof claimMistralInferenceRequestForUser>>
+  >,
+  resolvedModel: string,
+  attempt: (model: string) => Promise<T>
+): Promise<T> {
+  const poolFallback = configuredTextFallbackModel();
+  const degraded = poolDegradedUntil > Date.now();
+  const firstModel =
+    degraded && poolFallback && poolFallback !== resolvedModel
+      ? poolFallback
+      : resolvedModel;
+  try {
+    return await attempt(firstModel);
+  } catch (error) {
+    const isOverload =
+      error instanceof MistralGatewayClientError && error.kind === "rate_limit";
+    if (
+      isOverload &&
+      firstModel === resolvedModel &&
+      poolFallback &&
+      poolFallback !== resolvedModel
+    ) {
+      poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
+      console.warn(
+        `[Mistral gateway] ${resolvedModel} overloaded - retrying once on pool fallback ${poolFallback}, degraded for ${
+          POOL_DEGRADE_MS / 60_000
+        }m`
+      );
+      try {
+        return await attempt(poolFallback);
+      } catch (fallbackError) {
+        if (
+          fallbackError instanceof MistralGatewayClientError &&
+          fallbackError.kind === "rate_limit"
+        )
+          poolDegradedUntil = 0;
+        throw fallbackError;
+      }
+    }
+    if (isOverload && degraded) poolDegradedUntil = 0;
+    throw error;
+  }
+}
+
 export async function chatWithMistralGateway(
   ownerId: number,
   messages: GatewayChatMessage[],
@@ -1035,6 +1119,30 @@ export async function chatWithMistralGateway(
     );
   }
   const resolvedModel = options.model?.trim() || status.model;
+  return attemptWithPoolFallback(status, claim, resolvedModel, model =>
+    attemptGatewayChat(status, claim, messages, options, model)
+  );
+}
+
+/**
+ * One OpenAI-compatible chat attempt against a specific model, streaming or
+ * buffered. Extracted from chatWithMistralGateway so the pool-overload
+ * fallback can retry the same request against a different model without
+ * re-claiming the inference allowance.
+ */
+async function attemptGatewayChat(
+  status: Awaited<ReturnType<typeof getMistralGatewayStatus>>,
+  claim: NonNullable<
+    Awaited<ReturnType<typeof claimMistralInferenceRequestForUser>>
+  >,
+  messages: GatewayChatMessage[],
+  options: {
+    tools?: GatewayToolDefinition[];
+    onChunk?: (chunk: string) => void;
+    signal?: AbortSignal;
+  },
+  resolvedModel: string
+): Promise<GatewayChatResult> {
   // The gateway occasionally returns a 200 completion with no text and no
   // tool calls (seen on long tool-calling runs). One automatic retry absorbs
   // those transient empties so the user never sees a dead reply; the request
@@ -1252,4 +1360,5 @@ export async function chatWithMistralGateway(
         claim.usedRequests >= status.allowance.maxRequests,
     },
   };
+
 }

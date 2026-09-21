@@ -23,6 +23,14 @@ const setUserBannedSpy = vi.fn(async (userId: number, banned: boolean) => {
   return user;
 });
 const deleteUserSpy = vi.fn(async (userId: number) => users.delete(userId));
+const userChatsSpy = vi.fn(async (userId: number) => [
+  { id: 10 + userId, title: "Chat of user " + userId, createdAt: new Date(), updatedAt: new Date(), messages: [{ id: 1, role: "user" as const, content: "hello", createdAt: new Date() }] },
+]);
+const userFilesSpy = vi.fn(async (userId: number) => [
+  { id: 20 + userId, name: `notes-${userId}.txt`, folderName: null, mimeType: "text/plain", sizeBytes: 11, updatedAt: new Date(), preview: "hello world" },
+]);
+const userFileContentSpy = vi.fn(async (userId: number, fileId: number) =>
+  fileId === 20 + userId ? { id: fileId, name: `notes-${userId}.txt`, mimeType: "text/plain", content: "hello world" } : undefined);
 const countOtherActiveAdminsSpy = vi.fn(async (userId: number) =>
   [...users.values()].filter(u => u.id !== userId && u.role === "admin" && !u.bannedAt).length);
 
@@ -33,6 +41,9 @@ vi.mock("./admin", () => ({
   setUserBannedForAdmin: setUserBannedSpy,
   deleteUserForAdmin: deleteUserSpy,
   countOtherActiveAdmins: countOtherActiveAdminsSpy,
+  getUserChatsForAdmin: userChatsSpy,
+  getUserFilesForAdmin: userFilesSpy,
+  getUserFileContentForAdmin: userFileContentSpy,
 }));
 
 const { appRouter } = await import("./routers");
@@ -64,6 +75,9 @@ describe("Nova admin console API", () => {
     await expect(member.admin.setUserRole({ userId: 1, role: "admin" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(member.admin.setUserBanned({ userId: 1, banned: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(member.admin.deleteUser({ userId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(member.admin.userChats({ userId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(member.admin.userFiles({ userId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(member.admin.userFileContent({ userId: 1, fileId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const anonymous = appRouter.createCaller(contextFor(null));
     await expect(anonymous.admin.overview()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
@@ -134,5 +148,23 @@ describe("Nova admin console API", () => {
     const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
     await expect(caller.admin.deleteUser({ userId: 2 })).resolves.toEqual({ success: true });
     expect(users.has(2)).toBe(false);
+  });
+
+  it("lets an admin inspect another account's chats and files", async () => {
+    users.set(2, { id: 2, name: "Helper", email: "helper@example.com", role: "user", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
+    const chats = await caller.admin.userChats({ userId: 2 });
+    expect(chats).toHaveLength(1);
+    expect(chats[0].title).toContain("user 2");
+    expect(chats[0].messages[0]).toMatchObject({ role: "user", content: "hello" });
+    const files = await caller.admin.userFiles({ userId: 2 });
+    expect(files[0]).toMatchObject({ name: "notes-2.txt", sizeBytes: 11, preview: "hello world" });
+    const content = await caller.admin.userFileContent({ userId: 2, fileId: 22 });
+    expect(content).toMatchObject({ content: "hello world" });
+  });
+
+  it("reports a missing inspected file as not found", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
+    await expect(caller.admin.userFileContent({ userId: 2, fileId: 999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

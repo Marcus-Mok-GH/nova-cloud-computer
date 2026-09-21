@@ -210,4 +210,62 @@ describe("runAutonomousCoderTask", () => {
     ).rejects.toThrow("A coding task is required.");
     expect(runNimAgentChatMock).not.toHaveBeenCalled();
   });
+
+  it("writes file content byte-exact, preserving indentation and trailing newlines", async () => {
+    const sandbox = fakeSandbox();
+    const content = "  indented()\n\n# trailing newline\n";
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "write_file", { path: "app.py", content }))
+      .mockResolvedValueOnce(textReply("Done."));
+
+    await runAutonomousCoderTask({ task: "write it", sandbox: sandbox as never });
+
+    expect(sandbox.writes).toEqual([
+      { path: "/home/user/workspace/app.py", content },
+    ]);
+  });
+
+  it("rejects shell deletes and renames at the boundary", async () => {
+    const sandbox = fakeSandbox();
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "run_command", { command: "rm -rf src" }))
+      .mockResolvedValueOnce(
+        toolCall("c2", "run_command", { command: "git mv a.py b.py" })
+      )
+      .mockResolvedValueOnce(textReply("Done."));
+
+    await runAutonomousCoderTask({ task: "clean up", sandbox: sandbox as never });
+
+    const toolResults = runNimAgentChatMock.mock.calls[2][0].messages.filter(
+      m => m.role === "tool"
+    );
+    expect(toolResults[0].content).toContain("Rejected: this workspace must not delete");
+    expect(toolResults[1].content).toContain("Rejected: this workspace must not delete");
+    // The destructive commands never reached the sandbox.
+    expect(
+      sandbox.commands.run.mock.calls.some(args => String(args[0]).includes("rm -rf"))
+    ).toBe(false);
+    expect(
+      sandbox.commands.run.mock.calls.some(args => String(args[0]).includes("git mv"))
+    ).toBe(false);
+  });
+
+  it("reports partial work instead of throwing when a mid-task model call fails", async () => {
+    const sandbox = fakeSandbox();
+    runNimAgentChatMock
+      .mockResolvedValueOnce(
+        toolCall("c1", "write_file", { path: "half.py", content: "print('half')" })
+      )
+      .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 502."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "build it",
+      sandbox: sandbox as never,
+    });
+
+    if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("failure mid-task");
+    expect(outcome.summary).toContain("status 502");
+    expect(outcome.writtenPaths).toEqual(["half.py"]);
+  });
 });

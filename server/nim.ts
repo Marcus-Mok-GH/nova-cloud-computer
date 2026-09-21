@@ -98,11 +98,11 @@ function extractText(content: unknown): string {
 }
 
 /** Shared endpoint/key/transport resolution for both chat variants. */
-function nimChatEndpoint(): URL {
+function nimChatEndpoint(modelOverride?: string): URL {
   if (!isNimConfigured()) {
     throw new NimConfigError("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.");
   }
-  if (!ENV.nimCoderModel) {
+  if (!(modelOverride ?? ENV.nimCoderModel)) {
     throw new NimConfigError(
       "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'moonshotai/kimi-k3')."
     );
@@ -125,7 +125,7 @@ async function postNimChat(
   timeoutMs: number,
   modelOverride?: string
 ): Promise<{ message?: { content?: unknown; tool_calls?: unknown } }> {
-  const endpoint = nimChatEndpoint();
+  const endpoint = nimChatEndpoint(modelOverride);
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -205,7 +205,8 @@ export async function runNimAgentChat(
       tool_choice: "auto",
       max_tokens: options.maxTokens ?? 8192,
     },
-    options.timeoutMs ?? 240_000
+    options.timeoutMs ?? 240_000,
+    options.model
   );
   const rawToolCalls = Array.isArray(message.message?.tool_calls)
     ? (message.message?.tool_calls as unknown[])

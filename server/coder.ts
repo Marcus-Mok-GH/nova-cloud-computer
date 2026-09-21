@@ -239,6 +239,9 @@ async function executeCoderToolCall(
     return "Invalid JSON arguments - call the tool again with valid JSON.";
   }
   const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  // File content is the one argument that must survive byte-exact: leading
+  // indentation, trailing newlines and inner whitespace are all meaningful.
+  const raw = (value: unknown) => (typeof value === "string" ? value : "");
   switch (name) {
     case "list_files": {
       onProgress?.("The specialist is listing the workspace files…");
@@ -266,7 +269,7 @@ async function executeCoderToolCall(
     }
     case "write_file": {
       const path = safeWorkspacePath(str(args.path));
-      const content = str(args.content);
+      const content = raw(args.content);
       if (!path) return `Unsafe path: ${str(args.path)}`;
       if (!content) return "write_file needs the file's full content.";
       const mirrored = await mirrorWorkspaceOp(sandbox, {
@@ -282,6 +285,23 @@ async function executeCoderToolCall(
     case "run_command": {
       const command = str(args.command);
       if (!command) return "run_command needs a command.";
+      // The durable store only ever imports sandbox files - it never
+      // deletes - so a shell delete or rename would diverge from it and
+      // the file would resurrect on the next run. The system prompt asks
+      // the model not to; this boundary check makes it stick for the
+      // common cases (rm, mv, unlink, rmdir, shred, and the git
+      // equivalents). Anything else destructive is the prompt's job.
+      const forbidden = /(^|[;&|\s])(rm|rmdir|unlink|shred)\b|(^|[;&|\s])mv\b|git\s+(rm|clean)\b/.test(
+        command
+      );
+      if (forbidden) {
+        return (
+          "Rejected: this workspace must not delete or rename files with shell " +
+          "commands (the durable store would resurrect them). To replace content, " +
+          "use write_file with the full new content; to move a file, write_file " +
+          "the new path and ask Nova to remove the old one afterwards."
+        );
+      }
       onProgress?.(`The specialist is running: ${command.slice(0, 80)}`);
       try {
         return await runSandboxCommand(sandbox, command, remainingMs);
@@ -358,6 +378,21 @@ export async function runAutonomousCoderTask(
         );
         return { kind: "single", ...single };
       }
+      // Once the specialist has touched the workspace, a retry would
+      // restart from a misleading clean slate (its writes are real, in the
+      // sandbox). Report exactly what was done and let the caller verify.
+      if (writtenPaths.size > 0 || commandsRun > 0) {
+        return {
+          kind: "autonomous",
+          summary: `The specialist hit a failure mid-task after doing part of the work (${
+            error instanceof Error ? error.message : "unknown error"
+          }). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
+          writtenPaths: Array.from(writtenPaths).sort(),
+          commandsRun,
+          rounds: round,
+          model: ENV.nimCoderModel,
+        };
+      }
       throw error;
     }
     if (reply.kind === "text") {
@@ -387,7 +422,7 @@ export async function runAutonomousCoderTask(
         call.arguments,
         writtenPaths,
         options.onProgress,
-        remainingForTool > MIN_CALL_RESERVE_MS ? remainingForTool : MIN_CALL_RESERVE_MS
+        remainingForTool
       );
       if (call.name === "run_command") commandsRun += 1;
       messages.push({ role: "tool", tool_call_id: call.id, content: result });

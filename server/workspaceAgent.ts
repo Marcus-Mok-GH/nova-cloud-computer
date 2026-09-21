@@ -1968,18 +1968,19 @@ async function executeWorkspaceTool(
         }
         // Autonomous: the specialist's writes are already in the sandbox -
         // sync them into the durable store now so this run's later rounds
-        // (and the workspace UI) see the real files.
-        const imported = await syncAgentSandbox(
-          ownerId,
-          computer.workspace.id,
-          sandbox
-        );
+        // (and the workspace UI) see the real files. syncAgentSandbox never
+        // throws, but a sync that silently failed is not a success story:
+        // the claim below is anchored on the files the specialist wrote
+        // (authoritative from the loop), and the end-of-run sync is the
+        // backstop - so the instruction to read the files back and verify
+        // also catches a file the sync missed.
+        await syncAgentSandbox(ownerId, computer.workspace.id, sandbox);
         const fileList = outcome.writtenPaths.length > 0 ? outcome.writtenPaths.join(", ") : "(none)";
         return {
           ok: true,
           result:
-            `The coding specialist worked autonomously and synced ${imported} file(s) into the workspace. Its summary: ${outcome.summary}\n\n` +
-            `Files it wrote: ${fileList}. Read the changed files back, verify the work actually meets the task, fix anything it left broken, and present the result to the user.`,
+            `The coding specialist worked autonomously in the sandbox. Its summary: ${outcome.summary}\n\n` +
+            `Files it wrote: ${fileList}. Read the changed files back from the workspace, verify the work actually meets the task, fix anything it left broken, and present the result to the user. If a changed file is missing from the workspace, say so plainly instead of improvising it.`,
           detail: `${outcome.summary}\n\nFiles written: ${fileList}`.slice(0, 16000),
           action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
         };

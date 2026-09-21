@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc";
-import { countOtherActiveAdmins, deleteUserForAdmin, getAdminOverview, listUsersForAdmin, setUserBannedForAdmin, setUserRoleForAdmin } from "./admin";
+import { countOtherActiveAdmins, deleteUserForAdmin, getAdminOverview, getUserChatsForAdmin, getUserFileContentForAdmin, getUserFilesForAdmin, listUsersForAdmin, setUserBannedForAdmin, setUserRoleForAdmin } from "./admin";
 
 const managedRole = z.enum(["user", "admin"]);
 
@@ -48,6 +48,25 @@ export const adminRouter = router({
       const updated = await setUserBannedForAdmin(input.userId, input.banned);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "That account is no longer available." });
       return { success: true, user: updated };
+    }),
+
+  /** Another account's chats with their most recent messages, newest activity first. */
+  userChats: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(({ input }) => getUserChatsForAdmin(input.userId)),
+
+  /** Another account's workspace files, newest first, with short previews. */
+  userFiles: adminProcedure
+    .input(z.object({ userId: z.number().int().positive() }))
+    .query(({ input }) => getUserFilesForAdmin(input.userId)),
+
+  /** Full content of one file, only when it belongs to that account's workspace. */
+  userFileContent: adminProcedure
+    .input(z.object({ userId: z.number().int().positive(), fileId: z.number().int().positive() }))
+    .query(async ({ input }) => {
+      const file = await getUserFileContentForAdmin(input.userId, input.fileId);
+      if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "That file is no longer available." });
+      return file;
     }),
 
   /** Permanently delete an account with all of its workspace data. An admin can

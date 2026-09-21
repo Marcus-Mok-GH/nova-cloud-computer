@@ -7,6 +7,7 @@ const chats = new Map<number, { id: number; ownerId: number; title: string }>();
 let nextId = 1;
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   createWorkspaceFolderForUser: vi.fn(async (ownerId: number, input: { name: string }) => { const item = { id: nextId++, ownerId, name: input.name }; folders.set(item.id, item); return item; }),
   updateWorkspaceFolderForUser: vi.fn(async (ownerId: number, id: number, input: { name?: string }) => { const item = folders.get(id); if (!item || item.ownerId !== ownerId) return undefined; const updated = { ...item, name: input.name ?? item.name }; folders.set(id, updated); return updated; }),
   deleteWorkspaceFolderForUser: vi.fn(async (ownerId: number, id: number) => folders.get(id)?.ownerId === ownerId && folders.delete(id)),

@@ -21,6 +21,7 @@ const spies = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   getDb: vi.fn(),
   findWorkspaceOwnerByTelegramLinkCode: vi.fn(async () => null),
   findWorkspaceOwnerByTelegramToken: spies.findWorkspaceOwnerByTelegramToken,

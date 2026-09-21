@@ -266,6 +266,18 @@ export async function deleteCustomModelForUser(ownerId: number, customModelId: n
   return true;
 }
 
+/** The workspace's active BYOK custom model row (with encrypted key), or null when Nova's built-in gateway is in use. */
+export async function getActiveCustomModelForUser(ownerId: number) {
+  const db = await requireDb();
+  const settings = await getOrCreateWorkspaceSettings(ownerId);
+  if (settings.activeProvider !== "custom" || settings.activeCustomModelId === null) return null;
+  return (await db
+    .select()
+    .from(customModels)
+    .where(and(eq(customModels.id, settings.activeCustomModelId), eq(customModels.workspaceId, settings.workspaceId)))
+    .limit(1))[0] ?? null;
+}
+
 export async function getWorkspaceModelSettingsForUser(ownerId: number) {
   const [settings, models] = await Promise.all([getOrCreateWorkspaceSettings(ownerId), listCustomModelsForUser(ownerId)]);
   return { ...settings, customModels: models };

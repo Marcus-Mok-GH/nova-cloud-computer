@@ -17,7 +17,7 @@ const ERROR_MESSAGE_LIMIT = 600;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 10_000;
 
-type GatewayCompletion = {
+export type GatewayCompletion = {
   text?: string;
   model?: string;
   usage?: {
@@ -82,7 +82,7 @@ export type MistralGatewayClientErrorKind =
  * problems - a bad model id or an oversized prompt - that retrying cannot fix,
  * so the workspace agent must not burn its retry budget on them.
  */
-function classifyGatewayHttpError(status: number): MistralGatewayClientErrorKind {
+export function classifyGatewayHttpError(status: number): MistralGatewayClientErrorKind {
   if (status === 429) return "rate_limit";
   if (status === 401 || status === 403) return "configuration";
   if (status >= 400 && status < 500 && status !== 408 && status !== 425)
@@ -196,7 +196,7 @@ function getMaxRequests(): number | null {
     : null;
 }
 
-function sanitizeGatewayError(error: unknown) {
+export function sanitizeGatewayError(error: unknown) {
   const message =
     error instanceof Error
       ? error.message
@@ -850,7 +850,7 @@ async function readWithStallGuard(
  * fragments are stitched back into complete tool calls. Falls back to the
  * buffered JSON body when the gateway ignores the `stream` flag.
  */
-async function readGatewayStreamedChatResult(
+export async function readGatewayStreamedChatResult(
   response: Response,
   resolvedModel: string,
   onChunk: (chunk: string) => void

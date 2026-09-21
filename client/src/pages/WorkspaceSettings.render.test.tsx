@@ -9,7 +9,8 @@ vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { child
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() } },
-    models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation } },
+    models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
+    mistral: { status: { useQuery: () => ({ data: { model: "mistral-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false }) }, runs: { useQuery: () => ({ data: [], isLoading: false }) }, update: { useMutation: () => mutation }, runDue: { useMutation: () => mutation } },
     auth: { deleteAccount: { useMutation: () => mutation } },
@@ -30,6 +31,10 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Disconnect Telegram");
     expect(markup).toContain("you can connect again any time");
     expect(markup).not.toContain("Connect Telegram");
+    expect(markup).toContain("Use your own AI provider");
+    expect(markup).toContain("Nova built-in AI");
+    expect(markup).toContain("Add your own provider");
+    expect(markup).toContain("Test connection");
     expect(markup).toContain("Tell Nova what to automate");
     expect(markup).toContain("Disconnect GitHub");
     expect(markup).toContain("Connect Gmail");

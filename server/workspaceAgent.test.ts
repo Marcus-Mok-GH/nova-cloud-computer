@@ -77,6 +77,7 @@ const renameChat = vi.fn(
 );
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   appendChatMessageForUser: append,
   getChatForUser: chat,
   listChatMessagesForUser: chatMessages,

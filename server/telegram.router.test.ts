@@ -17,6 +17,7 @@ function safe(ownerId: number) {
 }
 
 vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
   getTelegramSettingsForUser: vi.fn(async (ownerId: number) => safe(ownerId)),
   saveTelegramSettingsForUser: vi.fn(async (ownerId: number, input: { botToken: string; chatId?: string | null; botUsername?: string | null; botDisplayName?: string | null }) => {
     telegramConfigs.set(ownerId, { token: input.botToken, chatId: input.chatId ?? null, botUsername: input.botUsername ?? null, botDisplayName: input.botDisplayName ?? null });

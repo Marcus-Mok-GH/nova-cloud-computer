@@ -18,6 +18,10 @@ vi.mock("./mistralGateway", () => ({
   MistralGatewayClientError: MockMistralGatewayClientError,
 }));
 
+vi.mock("./db", () => ({
+  getActiveCustomModelForUser: vi.fn(async () => null),
+}));
+
 const { planAutomation } = await import("./automationPlanner");
 
 const validPlan = {

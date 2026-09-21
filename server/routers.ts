@@ -41,6 +41,7 @@ import {
   updateAutomationForUser,
 } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { getDeploymentStatusForUser } from "./siteDeploy";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
@@ -71,6 +72,15 @@ const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.st
 const fileInput = z.object({ name: z.string().trim().min(1, "A file needs a name.").max(240), content: z.string().max(200000).optional(), mimeType: z.string().trim().min(1).max(120).optional(), folderId: z.number().int().positive().nullable().optional() });
 const fileUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(240).optional(), content: z.string().max(200000).optional(), folderId: z.number().int().positive().nullable().optional() }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide at least one file change." });
 const agentVmRunInput = z.object({ task: z.string().trim().min(3, "Describe the VM task.").max(1600), code: z.string().max(12000).optional() });
+const terminalSizeInput = z.object({ cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) });
+/** Only classified TerminalError messages reach the client; anything else is
+ *  unexpected (E2B/network internals) and gets a fixed generic message. */
+const terminalRouteError = (error: unknown, fallback: string) => {
+  if (error instanceof TerminalError) {
+    return new TRPCError({ code: error.kind === "precondition" ? "PRECONDITION_FAILED" : "BAD_REQUEST", message: error.message });
+  }
+  return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
+};
 const mistralCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want Mistral to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
 
 export const appRouter = router({
@@ -184,6 +194,15 @@ export const appRouter = router({
   deployments: router({
     /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only - the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
     status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),
+  }),
+  terminal: router({
+    /** Direct shell access to the workspace's persistent agent VM. */
+    status: protectedProcedure.query(({ ctx }) => getTerminalStatusForUser(ctx.user.id)),
+    start: protectedProcedure.input(terminalSizeInput).mutation(async ({ ctx, input }) => { try { return await startTerminalForUser(ctx.user.id, input); } catch (error) { throw terminalRouteError(error, "Nova could not open the terminal."); } }),
+    read: protectedProcedure.input(z.object({ sinceSeq: z.number().int().min(0).default(0) })).query(({ ctx, input }) => readTerminalForUser(ctx.user.id, input.sinceSeq)),
+    write: protectedProcedure.input(z.object({ data: z.string().min(1).max(8192) })).mutation(async ({ ctx, input }) => { try { await writeTerminalForUser(ctx.user.id, input.data); return { written: true as const }; } catch (error) { throw terminalRouteError(error, "Nova could not send that input."); } }),
+    resize: protectedProcedure.input(terminalSizeInput).mutation(async ({ ctx, input }) => { try { return await resizeTerminalForUser(ctx.user.id, input); } catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not resize the terminal." }); } }),
+    stop: protectedProcedure.mutation(async ({ ctx }) => { try { return await stopTerminalForUser(ctx.user.id); } catch (error) { throw terminalRouteError(error, "Nova could not close the terminal."); } }),
   }),
   agentVm: router({
     status: protectedProcedure.query(({ ctx }) => getAgentVmStatus(ctx.user.id)), list: protectedProcedure.query(({ ctx }) => listAgentVmRuns(ctx.user.id)),

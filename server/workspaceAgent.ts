@@ -1,6 +1,6 @@
 import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
-import { runCoderTask } from "./coder";
+import { runAutonomousCoderTask, runCoderTask, type CoderOutcome } from "./coder";
 import { NimConfigError } from "./nim";
 import type { E2BSandboxLike } from "./e2b";
 import {
@@ -280,7 +280,7 @@ export function isSubstantialCode(content: string): boolean {
 
 /** The coder-delegation nudge for a round that bypassed the specialist. */
 export function coderNudgeFor(wroteName: string): string {
-  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and place the specialist's returned code into the workspace with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
+  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
 }
 
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
@@ -739,7 +739,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "code_task",
       description:
-        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context; the specialist returns complete working code which you then place into the workspace with your file tools and verify. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
+        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context. The specialist works autonomously: it reads, writes and verifies the workspace files itself, and the files it writes are synced into the workspace before the result returns - so read the changed files it reports back, verify the work, and fix anything it left broken. Only when the result is bare code (no sandbox available) do you place it into the workspace with your file tools yourself. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
       parameters: {
         type: "object",
         properties: {
@@ -950,7 +950,7 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Be deliberate - under-researching gives wrong answers, over-researching wastes the user's time. Use its findings, and cite the source URLs it provides for facts that came from them. Cited research beats a confident-sounding wrong answer. Treat your internal knowledge as amnesia: if a fact matters and you have not seen it in a tool result, search for it first - never answer a current or factual question from memory alone.
 - Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
-- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, place the complete working code it returns into the workspace with your file tools, and verify it. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
+- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work: pick sensible defaults (names, structure, wording, formatting), act end-to-end, and state each choice in one line. Switch to collaborative - pause and ask one focused question - when guessing has a real cost: irreversible or destructive actions beyond the literal request, personal taste you cannot know (like the wording of a message to someone else or creative direction), missing credentials or permissions only the user can provide, or no reasonable interpretation at all. Never ask permission for steps you can safely undo; never improvise steps you cannot.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -1096,7 +1096,8 @@ async function executeWorkspaceTool(
   onProgress?: (detail: string) => void,
   sandbox?: E2BSandboxLike,
   gate?: OwnCodingGate,
-  channel?: "telegram" | "web"
+  channel?: "telegram" | "web",
+  deadlineAtMs?: number
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -1913,22 +1914,34 @@ async function executeWorkspaceTool(
       const context = str(args.context) || undefined;
       const language = str(args.language) || undefined;
       const startedAt = Date.now();
-      // A single long call to the coding specialist: the live progress
-      // stream reports elapsed time while the specialist works, mirroring
-      // research_web's panel.
+      // One coding task, two possible shapes: with a live sandbox the
+      // specialist works autonomously (it lists, reads and writes workspace
+      // files and runs commands itself, and its writes sync back into the
+      // durable store); without one - or when the model lacks function
+      // calling - it returns complete code for this agent to place. The
+      // live progress stream reports what the specialist is doing.
       const progressTimer = onProgress
         ? setInterval(() => {
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
             onProgress(`The coding specialist is working on your task - ${elapsed}s elapsed…`);
           }, 10000)
         : undefined;
-      if (onProgress) onProgress("The coding specialist is reading the task…");
+      if (onProgress)
+        onProgress(
+          sandbox
+            ? "The coding specialist is taking over the task - reading the workspace on its own…"
+            : "The coding specialist is reading the task…"
+        );
       const specialistError = (error: unknown) =>
         `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+      const runSpecialist = (): Promise<CoderOutcome> =>
+        sandbox
+          ? runAutonomousCoderTask({ task, context, language, sandbox, onProgress, deadlineAtMs })
+          : runCoderTask(task, context, language).then(result => ({ kind: "single", ...result }));
       try {
-        let coder: Awaited<ReturnType<typeof runCoderTask>>;
+        let outcome: CoderOutcome;
         try {
-          coder = await runCoderTask(task, context, language);
+          outcome = await runSpecialist();
         } catch (error) {
           // A config error is deterministic - no retry helps, and the user
           // must hear exactly which key the operator has to set. Any
@@ -1943,12 +1956,31 @@ async function executeWorkspaceTool(
           // silently hand-writing the code itself.
           onProgress?.("The coding specialist hit a snag - retrying once…");
           await new Promise(resolve => setTimeout(resolve, 1500));
-          coder = await runCoderTask(task, context, language);
+          outcome = await runSpecialist();
         }
+        if (outcome.kind === "single") {
+          return {
+            ok: true,
+            result: outcome.code,
+            detail: outcome.code.slice(0, 16000),
+            action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
+          };
+        }
+        // Autonomous: the specialist's writes are already in the sandbox -
+        // sync them into the durable store now so this run's later rounds
+        // (and the workspace UI) see the real files.
+        const imported = await syncAgentSandbox(
+          ownerId,
+          computer.workspace.id,
+          sandbox
+        );
+        const fileList = outcome.writtenPaths.length > 0 ? outcome.writtenPaths.join(", ") : "(none)";
         return {
           ok: true,
-          result: coder.code,
-          detail: coder.code.slice(0, 16000),
+          result:
+            `The coding specialist worked autonomously and synced ${imported} file(s) into the workspace. Its summary: ${outcome.summary}\n\n` +
+            `Files it wrote: ${fileList}. Read the changed files back, verify the work actually meets the task, fix anything it left broken, and present the result to the user.`,
+          detail: `${outcome.summary}\n\nFiles written: ${fileList}`.slice(0, 16000),
           action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
         };
       } catch (error) {
@@ -2680,7 +2712,7 @@ ${options.continuationPlanned
                   },
                 })
               ).catch(() => {});
-            }, agentSandbox, ownCodingGate, options.channel),
+            }, agentSandbox, ownCodingGate, options.channel, deadlineAtMs),
             deadlineAtMs
           );
         } catch (error) {

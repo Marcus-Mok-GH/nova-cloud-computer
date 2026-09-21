@@ -1,3 +1,4 @@
+import { lookup as dnsLookup } from "node:dns/promises";
 import { decryptModelApiKey } from "./modelSecrets";
 import { getActiveCustomModelForUser } from "./db";
 import {
@@ -36,6 +37,63 @@ const BYOK_ALLOWANCE = {
   remainingRequests: null,
   exhausted: false,
 } as const;
+
+/**
+ * Guards a user-supplied provider endpoint before any credential-bearing
+ * request: HTTPS outside loopback (http stays available for local model
+ * servers like Ollama/vLLM), and never link-local or cloud-metadata
+ * addresses (SSRF targets such as 169.254.169.254).
+ */
+const SAFE_UPSTREAM_CACHE_MS = 5 * 60_000;
+const safeUpstreamCache = new Map<string, number>();
+
+function isBlockedUpstreamIp(ip: string) {
+  const octets = ip.split(".").map(Number);
+  if (octets.length === 4 && octets.every(octet => Number.isInteger(octet) && octet >= 0 && octet <= 255)) {
+    if (octets[0] === 169 && octets[1] === 254) return true; // link-local: AWS/GCP/Azure metadata
+    if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true; // carrier NAT: Alibaba metadata
+    return false;
+  }
+  return ip.toLowerCase().startsWith("fe80:"); // IPv6 link-local
+}
+
+export async function assertSafeUpstreamUrl(baseUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new MistralGatewayClientError("That provider endpoint is not a valid URL.", "configuration");
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const isLoopback =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "::1" ||
+    hostname === "0.0.0.0" ||
+    hostname.startsWith("127.");
+  if (url.protocol !== "https:" && !isLoopback) {
+    throw new MistralGatewayClientError(
+      "Provider endpoints must use HTTPS. Plain http is only allowed for localhost servers.",
+      "configuration"
+    );
+  }
+  if ((safeUpstreamCache.get(hostname) ?? 0) > Date.now()) return;
+  let addresses: Array<{ address: string }>;
+  try {
+    addresses = await dnsLookup(hostname, { all: true });
+  } catch {
+    throw new MistralGatewayClientError("That provider endpoint hostname could not be resolved.", "configuration");
+  }
+  for (const { address } of addresses) {
+    if (isBlockedUpstreamIp(address)) {
+      throw new MistralGatewayClientError(
+        "That provider endpoint address is not allowed: cloud metadata and link-local addresses cannot be used.",
+        "configuration"
+      );
+    }
+  }
+  safeUpstreamCache.set(hostname, Date.now() + SAFE_UPSTREAM_CACHE_MS);
+}
 
 function chatCompletionsUrl(baseUrl: string) {
   const base = baseUrl.replace(/\/+$/, "");
@@ -77,11 +135,11 @@ async function byokFetch(
       signal: controller.signal,
     });
   } catch (error) {
+    // Only a user /stop is "stopped"; timeouts and provider outages stay
+    // "unavailable" so callers keep their normal retry handling.
     throw new MistralGatewayClientError(
-      externalSignal?.aborted
-        ? "This reply was stopped with /stop."
-        : sanitizeGatewayError(error),
-      "stopped"
+      externalSignal?.aborted ? "This reply was stopped with /stop." : sanitizeGatewayError(error),
+      externalSignal?.aborted ? "stopped" : "unavailable"
     );
   } finally {
     clearTimeout(timeout);
@@ -100,6 +158,7 @@ export async function chatWithCustomModel(
   } = {}
 ): Promise<GatewayChatResult> {
   const apiKey = decryptCustomModelKey(model);
+  await assertSafeUpstreamUrl(model.baseUrl);
   const fetchChatCompletion = () =>
     byokFetch(
       model,
@@ -325,8 +384,13 @@ export async function completeWithWorkspaceModel(
 export async function testCustomModelEndpoint(input: {
   baseUrl: string;
   apiKey: string;
-  modelId?: string;
+  modelId: string;
 }): Promise<{ ok: boolean; message: string }> {
+  const modelId = input.modelId.trim();
+  if (!modelId) {
+    throw new MistralGatewayClientError("Enter the model ID before testing the connection.", "configuration");
+  }
+  await assertSafeUpstreamUrl(input.baseUrl);
   const response = await fetch(chatCompletionsUrl(input.baseUrl), {
     method: "POST",
     headers: {
@@ -334,7 +398,7 @@ export async function testCustomModelEndpoint(input: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: input.modelId?.trim() || "gpt-4o-mini",
+      model: modelId,
       messages: [{ role: "user", content: "ping" }],
       max_tokens: 1,
     }),

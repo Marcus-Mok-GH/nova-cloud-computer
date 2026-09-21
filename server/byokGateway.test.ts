@@ -21,7 +21,14 @@ vi.mock("./modelSecrets", () => ({
   decryptModelApiKey: vi.fn(() => "sk-byok-test-key"),
 }));
 
+// The upstream guard resolves provider hostnames; tests stub DNS so no real
+// lookups happen and blocked ranges can be simulated per-test.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async () => [{ address: "104.18.7.4" }]),
+}));
+
 import { chatWithWorkspaceModel, completeWithWorkspaceModel, testCustomModelEndpoint, chatWithCustomModel } from "./byokGateway";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { MistralGatewayClientError } from "./mistralGateway";
 import { getActiveCustomModelForUser } from "./db";
 import type { CustomModel } from "../drizzle/schema";
@@ -59,6 +66,8 @@ function sseResponse(chunks: string[]) {
 
 beforeEach(() => {
   vi.mocked(getActiveCustomModelForUser).mockClear();
+  vi.mocked(dnsLookup).mockClear();
+  vi.mocked(dnsLookup).mockImplementation(async () => [{ address: "104.18.7.4" }]);
 });
 
 afterEach(() => {
@@ -238,7 +247,72 @@ describe("BYOK chat behavior", () => {
   });
 });
 
+describe("BYOK upstream guard", () => {
+  it("rejects plain http outside localhost before any request is made", async () => {
+    const model = customModelFixture({ baseUrl: "http://openrouter.example/v1" });
+    global.fetch = vi.fn();
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "configuration",
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("allows http for localhost model servers", async () => {
+    const model = customModelFixture({ baseUrl: "http://localhost:11434/v1" });
+    const urls: string[] = [];
+    global.fetch = vi.fn(async (url: any) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const result = await chatWithCustomModel(model, [{ role: "user", content: "Hi" }]);
+    expect(result.text).toBe("ok");
+    expect(urls[0]).toBe("http://localhost:11434/v1/chat/completions");
+  });
+
+  it("blocks cloud metadata and link-local endpoints", async () => {
+    vi.mocked(dnsLookup).mockImplementation(async () => [{ address: "169.254.169.254" }]);
+    const model = customModelFixture({ baseUrl: "https://metadata.internal/v1" });
+    global.fetch = vi.fn();
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "configuration",
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("classifies provider network failures as unavailable, not stopped", async () => {
+    const model = customModelFixture();
+    global.fetch = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "unavailable",
+    });
+  });
+
+  it("still reports an aborted /stop as stopped", async () => {
+    const model = customModelFixture();
+    global.fetch = vi.fn((_url: any, init: any) => new Promise((_resolve, reject) => {
+      if (init.signal.aborted) reject(new Error("The operation was aborted."));
+      else init.signal.addEventListener("abort", () => reject(new Error("The operation was aborted.")));
+    }));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      chatWithCustomModel(model, [{ role: "user", content: "Hi" }], { signal: controller.signal })
+    ).rejects.toMatchObject({ kind: "stopped" });
+  });
+});
+
 describe("BYOK endpoint test", () => {
+  it("requires a model ID instead of guessing a provider model", async () => {
+    await expect(
+      testCustomModelEndpoint({ baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test", modelId: "   " })
+    ).rejects.toMatchObject({ kind: "configuration" });
+  });
+
   it("accepts a reachable endpoint and reports provider errors on failure", async () => {
     global.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ choices: [{ message: { content: "x" } }] }), {

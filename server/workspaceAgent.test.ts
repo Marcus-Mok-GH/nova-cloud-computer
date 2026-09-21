@@ -2676,7 +2676,10 @@ describe("Nova tool-calling workspace agent", () => {
     // The wait happens once per run, never as a fast-retry hammer.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(2);
     expect(result.message.content).toContain("rate limit was hit");
-    expect(result.message.content).toContain("lockouts can persist");
+    expect(result.message.content).toContain("Lockouts can persist");
+    // The canned explanation must carry the actual backend error text.
+    expect(result.message.content).toContain("Actual backend error");
+    expect(result.message.content).toContain("Too Many Requests");
   });
 
   it("does not retry permanent client errors from the gateway", async () => {
@@ -2690,7 +2693,8 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // A 4xx rejection cannot succeed by retrying, so the agent stops at once.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
-    expect(result.message.content).toContain("Mistral AI rejected this request");
+    expect(result.message.content).toContain("rejected this request");
+    expect(result.message.content).toContain("Model not found");
   });
 
   it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
@@ -2711,6 +2715,7 @@ describe("Nova tool-calling workspace agent", () => {
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
+    expect(result.message.content).toContain("no key");
   });
 
   it("returns invalid-response message when every retry is invalid", async () => {

@@ -2854,19 +2854,33 @@ ${options.continuationPlanned
       error instanceof MistralGatewayClientError ? error.kind : "unavailable";
     const failureNote =
       "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
+    // Every canned failure reply carries the actual backend error (message
+    // plus cause chain) so the user can diagnose it from the chat: the
+    // upstream text is what says whether the provider throttled, billed,
+    // or outright rejected the request. Capped so a runaway error body
+    // cannot flood the chat.
+    const detail = errorChainText(error) || String(error);
+    const actualError = ` Actual backend error: ${
+      detail.length > 500 ? `${detail.slice(0, 500)}…` : detail
+    }`;
+    const withActualError = (lead: string) => lead + actualError;
     let reply: string;
     if (kind === "configuration") {
-      reply =
-        "Mistral inference is not connected yet. An administrator must configure the server-only gateway before chat is available.";
+      reply = withActualError(
+        "Inference is not connected yet. An administrator must configure the server-only gateway before chat is available."
+      );
     } else if (kind === "allowance_reached") {
-      reply =
-        "Mistral inference request allowance has been reached. New requests are blocked until an administrator raises the cap.";
+      reply = withActualError(
+        "The inference request allowance has been reached. New requests are blocked until an administrator raises the cap."
+      );
     } else if (kind === "rate_limit") {
-      reply =
-        "Mistral AI's rate limit was hit. Their lockouts can persist for a while, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved.";
+      reply = withActualError(
+        "The inference provider's rate limit was hit. Lockouts can persist for a while, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved."
+      );
     } else if (kind === "client_error") {
-      reply =
-        "Mistral AI rejected this request (for example an unsupported model or an oversized prompt). Retrying cannot fix that, so I stopped. Please adjust the request and try again; everything so far is saved.";
+      reply = withActualError(
+        "The inference provider rejected this request (for example an unsupported model or an oversized prompt). Retrying cannot fix that, so I stopped. Please adjust the request and try again; everything so far is saved."
+      );
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails
@@ -2876,7 +2890,9 @@ ${options.continuationPlanned
       if (partial) {
         reply = partial + failureNote;
       } else if (kind === "invalid_response") {
-        reply = "Mistral returned an invalid response. Please try again shortly.";
+        reply = withActualError(
+          "The inference provider returned an invalid response. Please try again shortly."
+        );
       } else {
         // Say what actually failed instead of a canned "try again shortly":
         // the real error (network failure, gateway 5xx body, timeout detail,

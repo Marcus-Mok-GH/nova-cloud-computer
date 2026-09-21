@@ -16,19 +16,38 @@ import { persistE2BWorkspace } from "./workspaceSync";
  *
  * Sessions are in-memory and owner-scoped: one live terminal per workspace,
  * kept alive while the Nova server runs or until the user closes it.
+ *
+ * Stream positions (`offset`, `seq`, `sinceSeq`) count UTF-16 code units of
+ * the decoded output stream, matching JavaScript's String.slice semantics.
  */
 
 const TERMINAL_OUTPUT_CAP_BYTES = 262_144; // 256 KB of scrollback retained
 const TERMINAL_MAX_INPUT_BYTES = 8192;
+
+/**
+ * A terminal failure that is safe to show to the calling user as-is. Any
+ * error that is NOT a TerminalError is treated as unexpected and mapped to a
+ * generic message by the router, so E2B/network internals never leak.
+ */
+export class TerminalError extends Error {
+  readonly kind: "precondition" | "bad_request";
+  constructor(message: string, kind: "precondition" | "bad_request" = "bad_request") {
+    super(message);
+    this.name = "TerminalError";
+    this.kind = kind;
+  }
+}
 
 type TerminalSession = {
   sandboxId: string;
   ptyId: number;
   cols: number;
   rows: number;
-  /** Byte offset of `output[0]` in the logical stream (front trims move it). */
+  /** UTF-16 code-unit offset of `output[0]` in the logical stream (front trims move it). */
   offset: number;
   output: string;
+  /** UTF-8 byte size of `output`, tracked incrementally for the trim loop. */
+  bytes: number;
   decoder: TextDecoder;
   lastUsedAt: number;
   sendInput: (data: string) => Promise<void>;
@@ -36,18 +55,37 @@ type TerminalSession = {
   kill: () => Promise<boolean>;
 };
 
-const sessions = new Map<number, TerminalSession>();
+type TerminalStartResult = {
+  reused: boolean;
+  ptyId: number;
+  offset: number;
+  seq: number;
+  output: string;
+};
 
-type TerminalPtyHandle = { pid: number };
+const sessions = new Map<number, TerminalSession>();
+const pendingStarts = new Map<number, Promise<TerminalStartResult>>();
+
+type TerminalPtyHandle = { pid: number; wait?: () => Promise<unknown> };
 
 function appendOutput(session: TerminalSession, data: Uint8Array) {
-  session.output += session.decoder.decode(data, { stream: true });
-  session.lastUsedAt = Date.now();
-  if (session.output.length > TERMINAL_OUTPUT_CAP_BYTES) {
-    const excess = session.output.length - TERMINAL_OUTPUT_CAP_BYTES;
-    session.output = session.output.slice(excess);
-    session.offset += excess;
+  const decoded = session.decoder.decode(data, { stream: true });
+  if (!decoded) return;
+  session.output += decoded;
+  session.bytes += Buffer.byteLength(decoded, "utf8");
+  // Trim the front at code-point boundaries until the retained scrollback
+  // fits the UTF-8 byte cap. Whole code points are removed so the stream
+  // never starts on a lone surrogate, and `offset` stays an exact UTF-16
+  // code-unit position in the logical output stream.
+  while (session.bytes > TERMINAL_OUTPUT_CAP_BYTES && session.output.length > 0) {
+    const codePoint = session.output.codePointAt(0);
+    if (codePoint === undefined) break;
+    const units = codePoint > 0xffff ? 2 : 1;
+    session.output = session.output.slice(units);
+    session.offset += units;
+    session.bytes -= Buffer.byteLength(String.fromCodePoint(codePoint), "utf8");
   }
+  session.lastUsedAt = Date.now();
 }
 
 function describeTerminalError(error: unknown) {
@@ -56,6 +94,20 @@ function describeTerminalError(error: unknown) {
       ? error.message
       : "Nova could not reach the agent VM terminal."
   );
+}
+
+/** Best-effort import of sandbox-created files into Neon so they show in Files. */
+async function persistTerminalWorkspace(ownerId: number, sandboxId: string) {
+  try {
+    const client = getE2BClient();
+    if (!client) return;
+    const sandbox = await client.connect(sandboxId);
+    await persistE2BWorkspace(ownerId, sandbox);
+  } catch (error) {
+    console.warn(
+      `[terminal] could not import terminal-created files into Neon: ${describeTerminalError(error)}`
+    );
+  }
 }
 
 /** True when the workspace has a live terminal session (reattachable). */
@@ -70,30 +122,15 @@ export function getTerminalStatusForUser(ownerId: number) {
   };
 }
 
-/**
- * Opens (or reattaches to) the workspace terminal. Returns the current
- * scrollback so a reopened tab instantly shows recent output.
- */
-export async function startTerminalForUser(
+async function createTerminalSession(
   ownerId: number,
   size: { cols: number; rows: number }
-) {
-  const existing = sessions.get(ownerId);
-  if (existing) {
-    existing.lastUsedAt = Date.now();
-    return {
-      reused: true as const,
-      ptyId: existing.ptyId,
-      offset: existing.offset,
-      seq: existing.offset + existing.output.length,
-      output: existing.output,
-    };
-  }
-
+): Promise<TerminalStartResult> {
   const client = getE2BClient();
   if (!client) {
-    throw new Error(
-      "E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal."
+    throw new TerminalError(
+      "E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal.",
+      "precondition"
     );
   }
   const computer = await getWorkspaceComputer(ownerId);
@@ -108,8 +145,9 @@ export async function startTerminalForUser(
   await ensureE2BWorkspaceDir(sandbox);
   const pty = (sandbox as { pty?: any }).pty;
   if (!pty) {
-    throw new Error(
-      "The agent VM template does not expose terminals. Ask an administrator to enable the terminal-enabled E2B template."
+    throw new TerminalError(
+      "The agent VM template does not expose terminals. Ask an administrator to enable the terminal-enabled E2B template.",
+      "precondition"
     );
   }
 
@@ -129,6 +167,7 @@ export async function startTerminalForUser(
     rows: size.rows,
     offset: 0,
     output: "",
+    bytes: 0,
     decoder: new TextDecoder(),
     lastUsedAt: Date.now(),
     sendInput: (data: string) => pty.sendInput(handle.pid, data),
@@ -136,6 +175,20 @@ export async function startTerminalForUser(
     kill: () => pty.kill(handle.pid),
   };
   sessions.set(ownerId, session);
+  // When the shell exits on its own (e.g. the user runs `exit`), drop the
+  // session and import terminal-created files - without disturbing any newer
+  // replacement session that may have taken over this owner's slot.
+  if (handle.wait) {
+    void handle
+      .wait()
+      .then(() => {
+        const current = sessions.get(ownerId);
+        if (!current || current.ptyId !== handle.pid) return;
+        sessions.delete(ownerId);
+        void persistTerminalWorkspace(ownerId, current.sandboxId);
+      })
+      .catch(() => {});
+  }
   return {
     reused: false as const,
     ptyId: handle.pid,
@@ -145,7 +198,37 @@ export async function startTerminalForUser(
   };
 }
 
-/** New terminal bytes since `sinceSeq` in the logical output stream. */
+/**
+ * Opens (or reattaches to) the workspace terminal. Returns the current
+ * scrollback so a reopened tab instantly shows recent output. Concurrent
+ * calls for the same owner share one in-flight start so only one PTY is
+ * ever created.
+ */
+export function startTerminalForUser(
+  ownerId: number,
+  size: { cols: number; rows: number }
+): Promise<TerminalStartResult> {
+  const existing = sessions.get(ownerId);
+  if (existing) {
+    existing.lastUsedAt = Date.now();
+    return Promise.resolve({
+      reused: true as const,
+      ptyId: existing.ptyId,
+      offset: existing.offset,
+      seq: existing.offset + existing.output.length,
+      output: existing.output,
+    });
+  }
+  const pending = pendingStarts.get(ownerId);
+  if (pending) return pending;
+  const created = createTerminalSession(ownerId, size).finally(() => {
+    if (pendingStarts.get(ownerId) === created) pendingStarts.delete(ownerId);
+  });
+  pendingStarts.set(ownerId, created);
+  return created;
+}
+
+/** New terminal bytes since `sinceSeq` (UTF-16 code units) in the output stream. */
 export function readTerminalForUser(ownerId: number, sinceSeq: number) {
   const session = sessions.get(ownerId);
   if (!session) return { active: false as const, offset: 0, seq: 0, data: "", reset: false };
@@ -168,10 +251,10 @@ export function readTerminalForUser(ownerId: number, sinceSeq: number) {
 export async function writeTerminalForUser(ownerId: number, data: string) {
   const session = sessions.get(ownerId);
   if (!session) {
-    throw new Error("Open the terminal before typing into it.");
+    throw new TerminalError("Open the terminal before typing into it.");
   }
   if (new TextEncoder().encode(data).length > TERMINAL_MAX_INPUT_BYTES) {
-    throw new Error("That terminal input was too large. Paste smaller chunks.");
+    throw new TerminalError("That terminal input was too large. Paste smaller chunks.");
   }
   session.lastUsedAt = Date.now();
   await session.sendInput(data);
@@ -184,10 +267,12 @@ export async function resizeTerminalForUser(
 ) {
   const session = sessions.get(ownerId);
   if (!session) return { resized: false as const };
-  session.cols = size.cols;
-  session.rows = size.rows;
   session.lastUsedAt = Date.now();
   await session.resize(size);
+  // Only commit the new geometry once the PTY accepted it, so the status
+  // endpoint never reports dimensions the shell did not take.
+  session.cols = size.cols;
+  session.rows = size.rows;
   return { resized: true as const };
 }
 
@@ -198,23 +283,19 @@ export async function resizeTerminalForUser(
 export async function stopTerminalForUser(ownerId: number) {
   const session = sessions.get(ownerId);
   if (!session) return { success: false as const };
-  sessions.delete(ownerId);
-  await session.kill().catch(() => false);
   try {
-    const client = getE2BClient();
-    if (client) {
-      const sandbox = await client.connect(session.sandboxId);
-      await persistE2BWorkspace(ownerId, sandbox);
-    }
-  } catch (error) {
-    console.warn(
-      `[terminal] could not import terminal-created files into Neon: ${describeTerminalError(error)}`
-    );
+    await session.kill();
+  } catch {
+    // Keep the session so the user can retry closing it.
+    throw new TerminalError("Nova could not close the terminal. Please retry.");
   }
+  sessions.delete(ownerId);
+  await persistTerminalWorkspace(ownerId, session.sandboxId);
   return { success: true as const };
 }
 
 /** Test seam: drop all in-memory sessions between tests. */
 export function resetTerminalSessionsForTests() {
   sessions.clear();
+  pendingStarts.clear();
 }

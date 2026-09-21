@@ -6,10 +6,15 @@ import type { TrpcContext } from "./_core/context";
  * terminal session module, plus error mapping for the UI.
  */
 
+class TerminalError extends Error {
+  kind: "precondition" | "bad_request";
+  constructor(message: string, kind: "precondition" | "bad_request" = "bad_request") { super(message); this.kind = kind; }
+}
+
 const status = vi.fn((ownerId: number) => ({ active: ownerId === 1, ptyId: ownerId === 1 ? 421 : null, cols: 120, rows: 30, seq: 42 }));
 const start = vi.fn(async (ownerId: number, size: { cols: number; rows: number }) => {
   if (ownerId === 1) return { reused: false as const, ptyId: 421, offset: 0, seq: 0, output: "" };
-  throw new Error("E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal.");
+  throw new TerminalError("E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal.", "precondition");
 });
 const read = vi.fn((ownerId: number, sinceSeq: number) =>
   ownerId === 1
@@ -17,8 +22,12 @@ const read = vi.fn((ownerId: number, sinceSeq: number) =>
     : { active: false as const, offset: 0, seq: 0, data: "", reset: false }
 );
 const write = vi.fn(async (ownerId: number, data: string) => {
-  if (ownerId !== 1) throw new Error("Open the terminal before typing into it.");
+  if (ownerId !== 1) throw new TerminalError("Open the terminal before typing into it.");
   return { written: true as const };
+});
+const stopThrow = vi.fn(async (ownerId: number) => {
+  if (ownerId === 3) throw new TerminalError("Nova could not close the terminal. Please retry.");
+  return { success: ownerId === 1 };
 });
 const resize = vi.fn(async (ownerId: number, size: { cols: number; rows: number }) => ({ resized: ownerId === 1 }));
 const stop = vi.fn(async (ownerId: number) => ({ success: ownerId === 1 }));
@@ -33,8 +42,9 @@ vi.mock("./db", () => ({
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
 }));
 vi.mock("./terminal", () => ({
+  TerminalError,
   getTerminalStatusForUser: status, startTerminalForUser: start, readTerminalForUser: read,
-  writeTerminalForUser: write, resizeTerminalForUser: resize, stopTerminalForUser: stop,
+  writeTerminalForUser: write, resizeTerminalForUser: resize, stopTerminalForUser: (ownerId: number) => ownerId === 3 ? stopThrow(ownerId) : stop(ownerId),
 }));
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(async () => []), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
@@ -69,6 +79,8 @@ describe("Terminal protected router", () => {
     await owner.terminal.stop();
     expect(stop).toHaveBeenCalledWith(1);
     expect(stop).not.toHaveBeenCalledWith(2);
+    // A failed PTY close keeps the session and maps to a retryable client error.
+    await expect(appRouter.createCaller(context(3)).terminal.stop()).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("retry") });
   });
 
   it("maps a missing E2B configuration to a precondition error", async () => {
@@ -76,6 +88,15 @@ describe("Terminal protected router", () => {
     await expect(stranger.terminal.start({ cols: 120, rows: 30 })).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
       message: expect.stringContaining("E2B is not connected"),
+    });
+  });
+
+  it("hides unexpected terminal errors behind a generic message", async () => {
+    start.mockRejectedValueOnce(new Error("E2B secret internals leaked here"));
+    const owner = appRouter.createCaller(context(1));
+    await expect(owner.terminal.start({ cols: 120, rows: 30 })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Nova could not open the terminal.",
     });
   });
 

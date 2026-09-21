@@ -1,4 +1,4 @@
-import { Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
 
 /** A single entry in Nova's primary dashboard navigation. */
 export type NavItem = { icon: LucideIcon; label: string; path: string; description?: string };
@@ -8,6 +8,7 @@ export const navItems: NavItem[] = [
   { icon: Folder, label: "Files", path: "/app/files", description: "Browse and manage your files" },
   { icon: MessageSquareText, label: "Chats", path: "/app/chats", description: "Continue conversations with Nova" },
   { icon: Rocket, label: "Deployments", path: "/app/deployments", description: "Manage your deployed apps and services" },
+  { icon: SquareTerminal, label: "Terminal", path: "/app/terminal", description: "A live shell in your agent VM" },
   { icon: Settings2, label: "Settings", path: "/app/settings", description: "Configure your workspace" },
 ];
 

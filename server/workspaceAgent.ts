@@ -2329,9 +2329,7 @@ ${options.continuationPlanned
     // A workspace with its own provider (BYOK) never depends on the built-in
     // gateway, so its health flags do not gate the run.
     const customModel = await getActiveCustomModel(ownerId);
-    if (customModel) {
-      // BYOK runs skip the built-in gateway status checks entirely.
-    } else {
+    if (!customModel) {
     const status = await getMistralGatewayStatus(ownerId);
     if (!status.configured) {
       const reply =

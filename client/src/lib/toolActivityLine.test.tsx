@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { ResearchToolActivity, ToolActivityLine, toolLineText } from "./toolActivityLine";
+import { CodeTaskToolActivity, ResearchToolActivity, ToolActivityLine, toolLineText } from "./toolActivityLine";
 import type { ToolActivity } from "./chatMessages";
 
 const activity = (name: string, argumentsJson: string, state: ToolActivity["state"] = "completed"): ToolActivity =>
@@ -79,6 +79,40 @@ describe("ResearchToolActivity", () => {
   it("falls back to the starting note while running without progress yet", () => {
     const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research("running") }));
     expect(html).toContain("Exa deep research is starting its web searches…");
+  });
+});
+
+describe("CodeTaskToolActivity", () => {
+  const codeTask = (state: ToolActivity["state"], detail?: string): ToolActivity =>
+    ({ id: "c1", name: "code_task", state, args: { arguments: '{"task":"write a traffic-jam game in HTML","language":"HTML"}' }, detail });
+
+  it("starts open while running and shows the full task with the live progress note", () => {
+    const html = renderToStaticMarkup(React.createElement(CodeTaskToolActivity, { activity: codeTask("running", "The coding specialist is working on your task - 30s elapsed…") }));
+    expect(html).toContain("code-task-detail-panel");
+    expect(html).toContain("write a traffic-jam game in HTML");
+    expect(html).toContain("30s elapsed");
+    expect(html).toContain("Code Task: write a traffic-jam game in HTML");
+  });
+
+  it("renders collapsed with a chevron once completed, ready to reveal the code", () => {
+    const html = renderToStaticMarkup(React.createElement(CodeTaskToolActivity, { activity: codeTask("completed", "<!DOCTYPE html>\n<html><body>game</body></html>") }));
+    expect(html).not.toContain("code-task-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("Code Task: write a traffic-jam game in HTML");
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("shows the specialist failure reason when the task failed", () => {
+    const html = renderToStaticMarkup(React.createElement(CodeTaskToolActivity, { activity: codeTask("failed", "The coding specialist failed: NIM is down.") }));
+    expect(html).not.toContain("code-task-detail-panel");
+    expect(html).toContain("(failed)");
+  });
+
+  it("survives malformed arguments without crashing", () => {
+    const broken: ToolActivity = { id: "c2", name: "code_task", state: "completed", args: { arguments: '{"task":"unclosed' }, detail: "console.log(1)" };
+    const html = renderToStaticMarkup(React.createElement(CodeTaskToolActivity, { activity: broken }));
+    expect(html).toContain('data-testid="code-task-tool-activity"');
+    expect(html).toContain("Code Task"); // header falls back to the bare tool name
+    expect(html).toContain('aria-expanded="false"');
   });
 });
 

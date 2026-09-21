@@ -292,6 +292,15 @@ describe("BYOK upstream guard", () => {
     });
   });
 
+  it("blocks 0.0.0.0 endpoints, which can address local services", async () => {
+    const model = customModelFixture({ baseUrl: "http://0.0.0.0:11434/v1" });
+    global.fetch = vi.fn();
+    await expect(chatWithCustomModel(model, [{ role: "user", content: "Hi" }])).rejects.toMatchObject({
+      kind: "configuration",
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("blocks hostnames that resolve into private networks", async () => {
     vi.mocked(dnsLookup).mockImplementation(async () => [{ address: "10.0.0.5" }]);
     const model = customModelFixture({ baseUrl: "https://internal-service.example/v1" });

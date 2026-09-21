@@ -83,7 +83,6 @@ function isLiteralLoopbackHost(hostname: string) {
     hostname === "localhost" ||
     hostname.endsWith(".localhost") ||
     hostname === "::1" ||
-    hostname === "0.0.0.0" ||
     /^127\.\d+\.\d+\.\d+$/.test(hostname)
   );
 }

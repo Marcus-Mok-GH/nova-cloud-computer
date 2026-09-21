@@ -8,7 +8,7 @@ vi.mock("./db", () => ({
   claimMistralInferenceRequestForUser: claim,
 }));
 
-const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, resetMistralGatewayHealthCache, resetMistralModelCache, MistralGatewayClientError } = await import("./mistralGateway");
+const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
 
 describe("Mistral gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -36,6 +36,7 @@ describe("Mistral gateway client", () => {
     claim.mockResolvedValue({ usedRequests: 1 });
     resetMistralGatewayHealthCache();
     resetMistralModelCache();
+    resetMistralPoolDegradation();
     vi.clearAllMocks();
   });
 
@@ -134,6 +135,67 @@ describe("Mistral gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "mistral-large-latest", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
+  it("falls back to the pool-fallback model when the primary pool is overloaded", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "The service may be temporarily overloaded, please try again later" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: "glm-4.5-flash" }), { status: 200 }));
+    const result = await completeWithMistralGateway(7, "hello");
+    expect(result).toMatchObject({ text: "fallback reply", model: "glm-4.5-flash" });
+    // The request retried on the fallback model, and the allowance was
+    // claimed once for the whole call - the retry is not double-charged.
+    const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"))
+      .map(call => JSON.parse(String(call[1]?.body)).model);
+    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash"]);
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes new requests straight to the pool fallback while degraded", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    // Prime the degradation: the primary pool overloads once.
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "The service may be temporarily overloaded, please try again later" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: "glm-4.5-flash" }), { status: 200 }));
+    await completeWithMistralGateway(7, "first");
+    // Second request inside the degradation window: must skip the congested
+    // primary entirely and go straight to the fallback.
+    (globalThis.fetch as unknown as { mock: { mockResolvedValueOnce: (r: Response) => void } }).mock
+      ? undefined : undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { content: "direct fallback" } }], model: "glm-4.5-flash" }), { status: 200 }));
+    const result = await completeWithMistralGateway(7, "second");
+    expect(result).toMatchObject({ text: "direct fallback", model: "glm-4.5-flash" });
+    const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"))
+      .map(call => JSON.parse(String(call[1]?.body)).model);
+    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.5-flash"]);
+  });
+
+  it("clears the degradation when the pool fallback is also overloaded", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }));
+    await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
+    // The next request must try the primary model again instead of pinning
+    // to the equally-dead fallback pool.
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { content: "primary recovered" } }], model: "glm-4.7-flash" }), { status: 200 }));
+    const result = await completeWithMistralGateway(7, "again");
+    expect(result).toMatchObject({ text: "primary recovered", model: "glm-4.7-flash" });
+    const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"))
+      .map(call => JSON.parse(String(call[1]?.body)).model);
+    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.7-flash"]);
+  });
+
   it("switches to the Z.ai transport and env var names when ZAI_API_KEY is set", async () => {
     process.env.ZAI_API_KEY = "z".repeat(40);
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [

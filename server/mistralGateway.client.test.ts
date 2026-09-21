@@ -15,6 +15,8 @@ describe("Mistral gateway client", () => {
   const originalUrl = process.env.MISTRAL_GATEWAY_URL;
   const originalToken = process.env.NOVA_MISTRAL_GATEWAY_TOKEN;
   const originalNimKey = process.env.MISTRAL_API_KEY;
+  const originalDefaultModel = process.env.MISTRAL_DEFAULT_MODEL;
+  const originalFallbackModel = process.env.MISTRAL_FALLBACK_MODEL;
 
   beforeEach(() => {
     delete process.env.MISTRAL_API_KEY;
@@ -32,6 +34,8 @@ describe("Mistral gateway client", () => {
     if (originalUrl === undefined) delete process.env.MISTRAL_GATEWAY_URL; else process.env.MISTRAL_GATEWAY_URL = originalUrl;
     if (originalToken === undefined) delete process.env.NOVA_MISTRAL_GATEWAY_TOKEN; else process.env.NOVA_MISTRAL_GATEWAY_TOKEN = originalToken;
     if (originalNimKey === undefined) delete process.env.MISTRAL_API_KEY; else process.env.MISTRAL_API_KEY = originalNimKey;
+    if (originalDefaultModel === undefined) delete process.env.MISTRAL_DEFAULT_MODEL; else process.env.MISTRAL_DEFAULT_MODEL = originalDefaultModel;
+    if (originalFallbackModel === undefined) delete process.env.MISTRAL_FALLBACK_MODEL; else process.env.MISTRAL_FALLBACK_MODEL = originalFallbackModel;
   });
 
   it("uses the Mistral AI API key for health and bounded completion calls", async () => {
@@ -116,6 +120,41 @@ describe("Mistral gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "mistral-large-latest", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
+  it("honors a MISTRAL_DEFAULT_MODEL override when the gateway serves it", async () => {
+    process.env.MISTRAL_DEFAULT_MODEL = "glm-4.7-flash";
+    process.env.MISTRAL_FALLBACK_MODEL = "glm-4.5-flash";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "glm-4.7-flash", modalities: ["text"] },
+      { id: "glm-4.5-flash", modalities: ["text"] },
+      { id: "glm-4.6v-flash", modalities: ["text", "image"] },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(status).toMatchObject({ model: "glm-4.7-flash", reachable: true });
+    expect(defaultMistralModel()).toBe("glm-4.7-flash");
+  });
+
+  it("ignores a MISTRAL_DEFAULT_MODEL override the gateway does not serve", async () => {
+    process.env.MISTRAL_DEFAULT_MODEL = "glm-4.7-flash";
+    process.env.MISTRAL_FALLBACK_MODEL = "glm-4.5-flash";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "ministral-14b-latest", modalities: ["text"] },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(status.model).toBe("ministral-14b-latest");
+    expect(defaultMistralModel()).toBe("ministral-14b-latest");
+  });
+
+  it("falls back to a configured text fallback on an unserved default", async () => {
+    process.env.MISTRAL_DEFAULT_MODEL = "glm-5.3";
+    process.env.MISTRAL_FALLBACK_MODEL = "glm-4.5-flash";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "glm-4.7-flash", modalities: ["text"] },
+      { id: "glm-4.5-flash", modalities: ["text"] },
+    ] }), { status: 200 }));
+    await getMistralGatewayStatus(7);
+    expect(defaultMistralModel()).toBe("glm-4.5-flash");
+  });
+
   it("defaults to the hardcoded ministral-14b model whenever it is served", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "mistral-large-latest", modalities: ["text"] },

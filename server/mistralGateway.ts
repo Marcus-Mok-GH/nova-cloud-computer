@@ -232,7 +232,7 @@ export async function getMistralGatewayStatus(ownerId: number) {
   const maxRequests = getMaxRequests();
   const base = {
     provider: "mistral" as const,
-    model: DEFAULT_MISTRAL_MODEL,
+    model: configuredDefaultChatModel(),
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -376,6 +376,27 @@ export const DEFAULT_MISTRAL_MODEL = "ministral-14b-latest";
  */
 export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 
+/**
+ * Operator override for the default chat model id. The hardcoded default is
+ * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
+ * (e.g. Z.ai's GLM API via MISTRAL_GATEWAY_URL). This override lets the
+ * deployment point the default at the provider's own model id - for example
+ * MISTRAL_DEFAULT_MODEL=glm-4.7-flash - without a code change. The override
+ * is only authoritative when the gateway actually serves that model id;
+ * otherwise discovery degrades exactly as it does for the hardcoded default.
+ */
+export function configuredDefaultChatModel(): string {
+  return process.env.MISTRAL_DEFAULT_MODEL?.trim() || DEFAULT_MISTRAL_MODEL;
+}
+
+/**
+ * Operator override for the text fallback model id, mirroring
+ * configuredDefaultChatModel for deployments on a non-Mistral provider.
+ */
+export function configuredTextFallbackModel(): string {
+  return process.env.MISTRAL_FALLBACK_MODEL?.trim() || TEXT_FALLBACK_MODEL;
+}
+
 /** Test hook: drop the discovered-model cache between suites. */
 export function resetMistralModelCache() {
   modelCache = undefined;
@@ -387,13 +408,15 @@ export function resetMistralModelCache() {
  * finds a vision model.
  */
 export function defaultMistralModel(): string {
-  if (!modelCache || modelCache.expiresAt <= Date.now()) return DEFAULT_MISTRAL_MODEL;
-  // The hardcoded default is authoritative whenever this gateway serves it.
-  if (modelCache.models.some(model => model.id === DEFAULT_MISTRAL_MODEL))
-    return DEFAULT_MISTRAL_MODEL;
+  const defaultModel = configuredDefaultChatModel();
+  const textFallbackModel = configuredTextFallbackModel();
+  if (!modelCache || modelCache.expiresAt <= Date.now()) return defaultModel;
+  // The configured default is authoritative whenever this gateway serves it.
+  if (modelCache.models.some(model => model.id === defaultModel))
+    return defaultModel;
   // This gateway does not serve the default: degrade to another vision model
   // (preferring the current medium family over the deprecated pixtral one),
-  // then to a discovered text model. The hardcoded text fallback is only
+  // then to a discovered text model. The configured text fallback is only
   // authoritative when this gateway actually serves it.
   const vision = modelCache.models.filter(model => model.kind === "vision");
   const visionPick =
@@ -402,9 +425,9 @@ export function defaultMistralModel(): string {
     vision[0]?.id;
   if (visionPick) return visionPick;
   return (
-    modelCache.models.find(model => model.id === TEXT_FALLBACK_MODEL)?.id ??
+    modelCache.models.find(model => model.id === textFallbackModel)?.id ??
     modelCache.models.find(model => model.kind === "text")?.id ??
-    TEXT_FALLBACK_MODEL
+    textFallbackModel
   );
 }
 

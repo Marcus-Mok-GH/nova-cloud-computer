@@ -21,7 +21,34 @@ export type ToolActivity = {
   summary?: string;
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
+  /**
+   * Live-only accumulation of every progress note a running tool streamed,
+   * oldest first, so long-running sub-agents (research_web, code_task) can
+   * show their process as an append-only log. Never persisted: completed
+   * activities drop it, and the server never stores it.
+   */
+  progressLog?: string[];
 };
+
+/**
+ * Merges an incoming tool activity event into the current one: ordinary
+ * fields overwrite, but a fresh progress note on a running tool is appended
+ * to progressLog so the dropdown streams the process line by line instead
+ * of replacing a single detail line. Final states (completed/failed) drop
+ * the log - the finished panel shows the result, not the history.
+ */
+export function mergeToolActivity(
+  current: ToolActivity,
+  incoming: ToolActivity
+): ToolActivity {
+  const merged: ToolActivity = { ...current, ...incoming };
+  if (incoming.state === "running" && incoming.detail && incoming.detail !== current.detail) {
+    merged.progressLog = [...(current.progressLog ?? []), incoming.detail];
+  } else if (incoming.state !== "running") {
+    merged.progressLog = undefined;
+  }
+  return merged;
+}
 
 export function parsePersistedToolActivity(
   content: string

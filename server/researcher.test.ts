@@ -82,3 +82,27 @@ describe("runResearch", () => {
     expect(runExaDeepResearch).not.toHaveBeenCalled();
   });
 });
+
+describe("runResearch progress pass-through", () => {
+  it("forwards live progress notes from the deep research stream", async () => {
+    runExaDeepResearch.mockImplementationOnce(async (options: { onProgress?: (note: string) => void }) => {
+      options.onProgress?.("Searched the live web - found 2 new sources (e.g. \"Nova docs\")");
+      options.onProgress?.("Writing the report...");
+      return { report: "Report.", sources: [] };
+    });
+    const notes: string[] = [];
+    const research = await runResearch("What is Nova?", "deep", undefined, note => notes.push(note));
+    expect(research.report).toBe("Report.");
+    expect(notes).toEqual([
+      'Searched the live web - found 2 new sources (e.g. "Nova docs")',
+      "Writing the report...",
+    ]);
+  });
+
+  it("omits onProgress entirely when no listener is given", async () => {
+    runExaDeepResearch.mockResolvedValueOnce({ report: "Report.", sources: [] });
+    await runResearch("What is Nova?");
+    const options = runExaDeepResearch.mock.calls[0][0];
+    expect(options.onProgress).toBeUndefined();
+  });
+});

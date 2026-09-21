@@ -42,6 +42,12 @@ export type ExaDeepResearchOptions = {
   systemPrompt?: string;
   /** Hard client-side cap on the request (default 270s, Vercel-bound). */
   timeoutMs?: number;
+  /**
+   * Live progress notes as the deep research streams: one note per sub-search
+   * results event ("Searched: ... found N sources"), plus a note when report
+   * synthesis starts. Lets the UI stream the researcher's actual process.
+   */
+  onProgress?: (note: string) => void;
 };
 
 export function isExaConfigured() {
@@ -88,10 +94,21 @@ function fallbackSources(results: { url?: string; title?: string }[] | undefined
     .filter((source) => source.url.length > 0);
 }
 
+type ExaStreamEvent =
+  | { type: "text-delta"; delta?: string }
+  | { type: "grounding"; grounding?: ExaGrounding[]; citations?: ExaCitation[] }
+  | { type: "results"; results?: { url?: string; title?: string }[] }
+  | { type: "stream-reset"; streamReset?: boolean }
+  | Record<string, unknown>;
+
 /**
  * Runs one Exa deep research request to completion and returns its cited
- * report. Resolves with the synthesized text (`output.content`) plus the
- * deduplicated citations; rejects when the request fails or returns no report.
+ * report. The request streams (SSE): sub-search `results` events, field-level
+ * `grounding` events, and the report's `text-delta` events arrive as the
+ * researcher works, and each sub-search also surfaces as an onProgress note
+ * so the caller can stream the process live. Resolves with the synthesized
+ * report plus the deduplicated citations; rejects when the request fails or
+ * returns no report.
  */
 export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promise<ExaDeepResearchResult> {
   if (!isExaConfigured()) {
@@ -113,6 +130,10 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
         description:
           "The complete research report: an executive summary, findings organized under clear headings, inline [1]-style citations, and a final Sources list mapping every number to Title - URL.",
       },
+      // The synthesized report only exists because outputSchema is set, and
+      // streaming only kicks in with an outputSchema: this is the verified
+      // gate from Exa's /search reference.
+      stream: true,
     }),
     signal: AbortSignal.timeout(options.timeoutMs ?? 270_000),
   });
@@ -122,15 +143,116 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
     throw new Error(`Exa deep research responded with status ${response.status}${hint ? `: ${hint}` : "."}`);
   }
 
-  const payload = (await response.json().catch(() => null)) as {
-    results?: { url?: string; title?: string }[];
-    output?: { content?: unknown; grounding?: ExaGrounding[] };
-  } | null;
-
-  const report = extractReport(payload?.output?.content);
-  if (!report) {
-    throw new Error("Exa deep research finished without a report.");
+  const contentType = response.headers.get("content-type") ?? "";
+  // Defensive: a gateway that ignores stream:true answers with plain JSON -
+  // parse it the buffered way instead of freezing on a body without SSE.
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json().catch(() => null)) as
+      | { results?: { url?: string; title?: string }[]; output?: { content?: unknown; grounding?: ExaGrounding[] } }
+      | null;
+    const report = extractReport(payload?.output?.content);
+    if (!report) throw new Error("Exa deep research finished without a report.");
+    const sources = collectSources(payload?.output);
+    return { report, sources: sources.length ? sources : fallbackSources(payload?.results) };
   }
-  const sources = collectSources(payload?.output);
-  return { report, sources: sources.length ? sources : fallbackSources(payload?.results) };
+  if (!response.body) {
+    throw new Error("Exa deep research returned an empty response body.");
+  }
+
+  let report = "";
+  let reportStarted = false;
+  let sources: ExaCitation[] = [];
+  let foundResults: { url?: string; title?: string }[] = [];
+  let hadStreamReset = false;
+  const handleEvent = (event: ExaStreamEvent) => {
+    if (!event || typeof event !== "object") return;
+    const record = event as Record<string, unknown>;
+    switch (record.type) {
+      case "results": {
+        const results = record.results as { url?: string; title?: string }[] | undefined ?? [];
+        foundResults = foundResults.concat(results);
+        const sample = results.find(result => result?.title?.trim())?.title?.trim();
+        options.onProgress?.(
+          `Searched the live web - found ${results.length} new source${results.length === 1 ? "" : "s"}${sample ? ` (e.g. "${sample.slice(0, 80)}")` : ""}`
+        );
+        return;
+      }
+      case "grounding": {
+        const grounding = record.grounding as ExaGrounding[] | undefined;
+        if (grounding?.length) {
+          const merged = collectSources({ grounding });
+          if (merged.length) sources = merged;
+        }
+        return;
+      }
+      case "text-delta": {
+        const delta = typeof record.delta === "string" ? record.delta : "";
+        report += delta;
+        if (!reportStarted && report.trim()) {
+          reportStarted = true;
+          const total = foundResults.length;
+          options.onProgress?.(
+            total > 0
+              ? `Evidence gathered from ${total} sources - writing the report...`
+              : "Writing the report..."
+          );
+        }
+        return;
+      }
+      case "stream-reset": {
+        // The researcher restarted its synthesis: drop the partial report and
+        // let the deltas rebuild it.
+        report = "";
+        reportStarted = false;
+        hadStreamReset = true;
+        return;
+      }
+    }
+  };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const emitSseLines = (chunk: string, onLine: (line: string) => void) => {
+    buffer += chunk;
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      onLine(buffer.slice(0, newlineIndex).replace(/\r$/, ""));
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    emitSseLines(decoder.decode(value, { stream: true }), line => {
+      if (!line.startsWith("data:")) return;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") return;
+      try {
+        handleEvent(JSON.parse(payload) as ExaStreamEvent);
+      } catch {
+        // A malformed fragment never kills the research: skip the line.
+      }
+    });
+  }
+  // Flush any trailing line the stream ended without a newline on.
+  if (buffer.startsWith("data:")) {
+    const payload = buffer.slice(5).trim();
+    if (payload && payload !== "[DONE]") {
+      try {
+        handleEvent(JSON.parse(payload) as ExaStreamEvent);
+      } catch {
+        // Same tolerance as mid-stream fragments.
+      }
+    }
+  }
+
+  const finished = report.trim();
+  if (!finished) {
+    throw new Error(
+      `Exa deep research finished without a report${hadStreamReset ? " (synthesis restarted, but never completed)" : ""}.`
+    );
+  }
+  return { report: finished, sources: sources.length ? sources : fallbackSources(foundResults) };
 }

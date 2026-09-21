@@ -1,3 +1,7 @@
+2026-09-21 - main-agent gateway: operator-selectable default model for any OpenAI-compatible provider
+
+- The main agent's Mistral gateway already accepts any OpenAI-compatible provider through MISTRAL_GATEWAY_URL, but the default and fallback model ids were hardcoded to Mistral family names (ministral-14b-latest / ministral-8b-latest), so switching providers meant a code change. Two new env overrides - MISTRAL_DEFAULT_MODEL and MISTRAL_FALLBACK_MODEL - let the deployment name the provider's own model ids directly (e.g. MISTRAL_DEFAULT_MODEL=glm-4.7-flash with MISTRAL_GATEWAY_URL pointed at Z.ai's GLM API). The configured default is authoritative only when the gateway actually serves that id: model discovery still runs, and an unserved default still degrades through the same vision-pick / text-fallback ladder as before, so a typo can never strand the agent on a 404 model. Unchanged behavior when neither env var is set.
+
 # Changelog
 
 2026-09-21 - autonomous coding specialist: code_task now reads, writes, runs and verifies on its own

@@ -17,9 +17,19 @@ describe("Mistral gateway client", () => {
   const originalNimKey = process.env.MISTRAL_API_KEY;
   const originalDefaultModel = process.env.MISTRAL_DEFAULT_MODEL;
   const originalFallbackModel = process.env.MISTRAL_FALLBACK_MODEL;
+  const originalZaiKey = process.env.ZAI_API_KEY;
+  const originalZaiUrl = process.env.ZAI_GATEWAY_URL;
+  const originalZaiDefaultModel = process.env.ZAI_DEFAULT_MODEL;
+  const originalZaiFallbackModel = process.env.ZAI_FALLBACK_MODEL;
 
   beforeEach(() => {
     delete process.env.MISTRAL_API_KEY;
+    delete process.env.MISTRAL_DEFAULT_MODEL;
+    delete process.env.MISTRAL_FALLBACK_MODEL;
+    delete process.env.ZAI_API_KEY;
+    delete process.env.ZAI_GATEWAY_URL;
+    delete process.env.ZAI_DEFAULT_MODEL;
+    delete process.env.ZAI_FALLBACK_MODEL;
     process.env.MISTRAL_GATEWAY_URL = "https://api-server-zeta.vercel.app";
     process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "t".repeat(32);
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -36,6 +46,10 @@ describe("Mistral gateway client", () => {
     if (originalNimKey === undefined) delete process.env.MISTRAL_API_KEY; else process.env.MISTRAL_API_KEY = originalNimKey;
     if (originalDefaultModel === undefined) delete process.env.MISTRAL_DEFAULT_MODEL; else process.env.MISTRAL_DEFAULT_MODEL = originalDefaultModel;
     if (originalFallbackModel === undefined) delete process.env.MISTRAL_FALLBACK_MODEL; else process.env.MISTRAL_FALLBACK_MODEL = originalFallbackModel;
+    if (originalZaiKey === undefined) delete process.env.ZAI_API_KEY; else process.env.ZAI_API_KEY = originalZaiKey;
+    if (originalZaiUrl === undefined) delete process.env.ZAI_GATEWAY_URL; else process.env.ZAI_GATEWAY_URL = originalZaiUrl;
+    if (originalZaiDefaultModel === undefined) delete process.env.ZAI_DEFAULT_MODEL; else process.env.ZAI_DEFAULT_MODEL = originalZaiDefaultModel;
+    if (originalZaiFallbackModel === undefined) delete process.env.ZAI_FALLBACK_MODEL; else process.env.ZAI_FALLBACK_MODEL = originalZaiFallbackModel;
   });
 
   it("uses the Mistral AI API key for health and bounded completion calls", async () => {
@@ -120,6 +134,51 @@ describe("Mistral gateway client", () => {
     expect(result).toMatchObject({ text: "Buffered reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, "https://api-server-zeta.vercel.app/chat/completions", expect.objectContaining({ method: "POST", body: JSON.stringify({ model: "mistral-large-latest", messages: [{ role: "user", content: "Draft a summary" }], stream: true }) }));
   });
+  it("switches to the Z.ai transport and env var names when ZAI_API_KEY is set", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "glm-4.7-flash", modalities: ["text"] },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api.z.ai/api/paas/v4/models", expect.anything());
+    expect(status).toMatchObject({ reachable: true });
+  });
+
+  it("honors ZAI_DEFAULT_MODEL when a Z.ai credential is configured", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    process.env.ZAI_FALLBACK_MODEL = "glm-4.5-flash";
+    // The legacy Mistral override must be ignored in Z.ai mode.
+    process.env.MISTRAL_DEFAULT_MODEL = "ministral-8b-latest";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "glm-4.7-flash", modalities: ["text"] },
+      { id: "glm-4.5-flash", modalities: ["text"] },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(status).toMatchObject({ model: "glm-4.7-flash", reachable: true });
+    expect(defaultMistralModel()).toBe("glm-4.7-flash");
+  });
+
+  it("respects ZAI_GATEWAY_URL as the Z.ai base URL override", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_GATEWAY_URL = "https://zai-mirror.example.com/v4";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    await getMistralGatewayStatus(7);
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://zai-mirror.example.com/v4/models", expect.anything());
+  });
+
+  it("keeps the legacy Mistral transport when no Z.ai credential is set", async () => {
+    process.env.MISTRAL_DEFAULT_MODEL = "glm-4.7-flash";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "ministral-14b-latest", modalities: ["text"] },
+    ] }), { status: 200 }));
+    const status = await getMistralGatewayStatus(7);
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api-server-zeta.vercel.app/models", expect.anything());
+    // The unserved override degrades to the served model instead of stranding the agent on a 404 id.
+    expect(status).toMatchObject({ model: "ministral-14b-latest", reachable: true });
+    expect(defaultMistralModel()).toBe("ministral-14b-latest");
+  });
+
   it("honors a MISTRAL_DEFAULT_MODEL override when the gateway serves it", async () => {
     process.env.MISTRAL_DEFAULT_MODEL = "glm-4.7-flash";
     process.env.MISTRAL_FALLBACK_MODEL = "glm-4.5-flash";

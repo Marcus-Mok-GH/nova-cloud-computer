@@ -156,6 +156,10 @@ async function createTerminalSession(
     cols: size.cols,
     rows: size.rows,
     cwd: E2B_WORKSPACE_DIR,
+    // The SDK default PTY timeout is 60s, which would close the shell while
+    // the tab is open; 0 disables the timeout entirely (session lifetime is
+    // governed by the Nova server and the sandbox instead).
+    timeoutMs: 0,
     onData: (data: Uint8Array) => {
       if (session) appendOutput(session, data);
     },
@@ -170,7 +174,8 @@ async function createTerminalSession(
     bytes: 0,
     decoder: new TextDecoder(),
     lastUsedAt: Date.now(),
-    sendInput: (data: string) => pty.sendInput(handle.pid, data),
+    // E2B's pty.sendInput requires Uint8Array bytes, not a string.
+    sendInput: (data: string) => pty.sendInput(handle.pid, new TextEncoder().encode(data)),
     resize: (next: { cols: number; rows: number }) => pty.resize(handle.pid, next),
     kill: () => pty.kill(handle.pid),
   };

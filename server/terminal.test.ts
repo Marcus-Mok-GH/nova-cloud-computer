@@ -55,7 +55,9 @@ function makeFakePty(basePid = 421): FakePty {
       };
     },
     async sendInput(target, data) {
-      this.inputs.push({ pid: target, data });
+      // Enforces the real E2B contract: input must arrive as bytes.
+      if (!(data instanceof Uint8Array)) throw new Error("sendInput expects Uint8Array");
+      this.inputs.push({ pid: target, data: new TextDecoder().decode(data) });
     },
     async resize(target, size) {
       this.resizes.push({ pid: target, size });
@@ -128,7 +130,7 @@ describe("terminal sessions", () => {
   it("creates a PTY in the workspace directory and streams output", async () => {
     const started = await startTerminalForUser(1, { cols: 120, rows: 30 });
     expect(started).toMatchObject({ reused: false, ptyId: 421, offset: 0, seq: 0 });
-    expect(state.pty.created[0]).toMatchObject({ cols: 120, rows: 30, cwd: "/home/user/workspace" });
+    expect(state.pty.created[0]).toMatchObject({ cols: 120, rows: 30, cwd: "/home/user/workspace", timeoutMs: 0 });
 
     state.pty.emit("$ whoami\r\n");
     const read = readTerminalForUser(1, 0);

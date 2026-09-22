@@ -920,8 +920,11 @@ export interface AgentRunContinuationClaim {
   segment: number;
   chatId: number;
   ownerId: number;
-  token: string;
-  telegramChatId: string;
+  channel: string;
+  /** Telegram-only: absent for the web channel, which needs no external delivery step. */
+  token?: string;
+  /** Telegram-only: absent for the web channel, which needs no external delivery step. */
+  telegramChatId?: string;
 }
 
 /**
@@ -929,6 +932,12 @@ export interface AgentRunContinuationClaim {
  * awaiting_continue row at the expected segment flips back to running with
  * segment + 1, so concurrent or redelivered continuation requests can never
  * double-run a segment. Rows already at the segment limit cannot be claimed.
+ *
+ * Delivery differs by channel: a Telegram run must resolve a bot token and
+ * chat id to push its reply externally, so a claim that cannot resolve them
+ * fails outright. A web run needs no external delivery - runWorkspaceAgent
+ * already persists its own reply into the chat, and the client polls chat
+ * messages - so the claim only needs the workspace owner.
  */
 export async function claimAgentRunContinuation(runId: number, expectedSegment: number) {
   const db = await requireDb();
@@ -938,13 +947,16 @@ export async function claimAgentRunContinuation(runId: number, expectedSegment: 
   if (!claimed) return undefined;
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, claimed.workspaceId));
   if (!workspace) return undefined;
+  if (claimed.channel === "web") {
+    return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, channel: "web" } satisfies AgentRunContinuationClaim;
+  }
   const credentials = await getTelegramCredentialsForUser(workspace.ownerId).catch(() => undefined);
   if (!credentials?.token || !claimed.notifyChatId) {
     // The continuation could never deliver its reply: close the run rather than leave it stuck awaiting_continue.
     await db.update(agentRuns).set({ status: "failed", errorMessage: "continuation could not resolve its Telegram delivery target", completedAt: new Date(), updatedAt: new Date() }).where(eq(agentRuns.id, claimed.id));
     return undefined;
   }
-  return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, token: credentials.token, telegramChatId: claimed.notifyChatId } satisfies AgentRunContinuationClaim;
+  return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, channel: "telegram", token: credentials.token, telegramChatId: claimed.notifyChatId } satisfies AgentRunContinuationClaim;
 }
 
 /** Starts a segmented agent run ledger row: one row per user message that begins agent work. */

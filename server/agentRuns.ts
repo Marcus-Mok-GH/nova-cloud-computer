@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { ENV } from "./_core/env";
-import { startAgentRunForUser, finishAgentRunForUser, holdAgentRunForContinue, MAX_RUN_SEGMENTS } from "./db";
+import { startAgentRunForUser, finishAgentRunForUser, holdAgentRunForContinue, appendChatMessageForUser, MAX_RUN_SEGMENTS } from "./db";
 import { autoTitleChatForUser, runWorkspaceAgent, MAX_RUN_BUDGET_MS } from "./workspaceAgent";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
@@ -119,6 +119,76 @@ export async function executeTelegramAgentRun(input: ExecuteTelegramRunInput): P
     return { delivered: false, reply: streamedText, runId: run?.id };
   } finally {
     clearInterval(typingTimer);
+  }
+}
+
+export interface ExecuteWebAgentRunInput {
+  ownerId: number;
+  /** The workspace chat the run belongs to. */
+  chatId: number;
+  /** The clean user text for this segment (the original message, or the continuation prompt). */
+  content: string;
+  imageAttachments?: string[];
+  requestStartedAtMs: number;
+  /** Continuation segments pass the claimed ledger row; fresh runs omit it. */
+  continuation?: { runId: number; segment: number };
+  onChunk?: (chunk: string) => void;
+  onEvent?: (event: unknown) => void;
+}
+
+/**
+ * Runs one agent segment for the Nova web app's own chat (the
+ * `/api/chat/stream` endpoint and the `chats.send` mutation) and returns the
+ * result unchanged, plus the run's ledger id. Unlike Telegram, a chained
+ * continuation needs no external delivery step: runWorkspaceAgent already
+ * persists its own reply into the chat, and the web client polls chat
+ * messages every few seconds, so a continuation segment's reply surfaces
+ * there automatically with no action from this function.
+ */
+export async function executeWebAgentRun(
+  input: ExecuteWebAgentRunInput
+): Promise<Awaited<ReturnType<typeof runWorkspaceAgent>> & { runId?: number }> {
+  const { ownerId, chatId, content, imageAttachments, requestStartedAtMs, continuation, onChunk, onEvent } = input;
+  const deadlineAtMs = requestStartedAtMs + MAX_RUN_BUDGET_MS;
+  const canChain = Boolean(ENV.agentContinueSecret);
+  const run = continuation
+    ? { id: continuation.runId, segment: continuation.segment }
+    : await startAgentRunForUser(ownerId, { chatId, channel: "web" }).catch(() => undefined);
+  try {
+    const result = await runWorkspaceAgent(ownerId, chatId, content, {
+      channel: "web",
+      imageAttachments,
+      deadlineAtMs,
+      continuationPlanned: canChain && run !== undefined && run.segment < MAX_RUN_SEGMENTS - 1,
+      onChunk,
+      onEvent,
+    });
+    if (run) {
+      // A segment that ran out of budget with work remaining chains to a
+      // fresh serverless invocation, exactly like the Telegram path - the
+      // only difference is there is no external message to send.
+      const canContinue = Boolean(result.outOfBudget) && run.segment < MAX_RUN_SEGMENTS - 1 && canChain;
+      if (canContinue) {
+        const held = await holdAgentRunForContinue(ownerId, run.id).catch(() => undefined);
+        const scheduled = held ? await scheduleContinuation(run.id, run.segment) : false;
+        if (!scheduled) {
+          await finishAgentRunForUser(ownerId, run.id, "completed").catch(() => {});
+          // The closing status the user already saw assumed an automatic
+          // continuation was on its way - say so plainly when it wasn't.
+          await appendChatMessageForUser(ownerId, {
+            chatId,
+            role: "assistant",
+            content: CONTINUATION_SCHEDULE_FAILED_MESSAGE,
+          }).catch(() => {});
+        }
+      } else {
+        await finishAgentRunForUser(ownerId, run.id, "completed").catch(() => {});
+      }
+    }
+    return { ...result, runId: run?.id };
+  } catch (error) {
+    if (run) await finishAgentRunForUser(ownerId, run.id, "failed", error instanceof Error ? error.message : String(error)).catch(() => {});
+    throw error;
   }
 }
 

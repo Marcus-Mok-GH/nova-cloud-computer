@@ -10,6 +10,7 @@ const spies = vi.hoisted(() => ({
   sendTelegramMessage: vi.fn(async () => ({ message_id: 77 })),
   sendChatAction: vi.fn(async () => true),
   startAgentRunForUser: vi.fn(async () => ({ id: 501, segment: 0 })),
+  appendChatMessageForUser: vi.fn(async () => ({})),
   finishAgentRunForUser: vi.fn(async () => ({})),
   holdAgentRunForContinue: vi.fn(async () => ({ id: 501, segment: 0 })),
   claimAgentRunContinuation: vi.fn(async () => ({
@@ -40,6 +41,7 @@ vi.mock("./db", () => ({
   requestAgentStopForUser: vi.fn(async () => true),
   claimTelegramUpdate: spies.claimTelegramUpdate,
   startAgentRunForUser: spies.startAgentRunForUser,
+  appendChatMessageForUser: spies.appendChatMessageForUser,
   finishAgentRunForUser: spies.finishAgentRunForUser,
   holdAgentRunForContinue: spies.holdAgentRunForContinue,
   claimAgentRunContinuation: spies.claimAgentRunContinuation,
@@ -84,6 +86,7 @@ vi.mock("./automationPlannerRoute", () => ({ automationPlannerRouter: (_req: unk
 process.env.DEFAULT_TELEGRAM_BOT_TOKEN = "bot-token";
 process.env.AGENT_CONTINUE_SECRET = "test-continue-secret";
 const { app } = await import("./app");
+const { executeWebAgentRun, CONTINUATION_SCHEDULE_FAILED_MESSAGE } = await import("./agentRuns");
 
 const realFetch = globalThis.fetch.bind(globalThis);
 
@@ -190,6 +193,32 @@ describe("Agent continuation endpoint", () => {
     expect(spies.startAgentRunForUser).not.toHaveBeenCalled();
     expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "completed", undefined);
   });
+
+  it("runs a web-channel claim through the web runner without any Telegram delivery", async () => {
+    spies.claimAgentRunContinuation.mockResolvedValueOnce({
+      runId: 601,
+      segment: 1,
+      chatId: 3,
+      ownerId: 7,
+      channel: "web",
+    });
+    const response = await signedPost(baseUrl, { runId: 601, segment: 0 });
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(body).toEqual({ ok: true, runId: 601, segment: 1 });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+    expect(spies.runWorkspaceAgent).toHaveBeenCalledWith(
+      7,
+      3,
+      CONTINUATION_PROMPT,
+      expect.objectContaining({ channel: "web", continuationPlanned: true })
+    );
+    // No bot API involved: the segment's reply lands in the chat itself.
+    expect(spies.sendTelegramMessage).not.toHaveBeenCalled();
+    expect(spies.startAgentRunForUser).not.toHaveBeenCalled();
+    await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[1] === 601));
+    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 601, "completed");
+  });
 });
 
 describe("Segment chaining inside the runner", () => {
@@ -280,6 +309,60 @@ describe("Segment chaining inside the runner", () => {
         await waitFor(() =>
           spies.sendTelegramMessage.mock.calls.some(call =>
             typeof call[2] === "string" && call[2].includes('Send "continue"')
+          )
+        )
+      ).toBe(true);
+    } finally {
+      globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
+        if (String(url).includes("/api/agent/continue")) {
+          continuationFetches.push({ url: String(url), body: String(init?.body), signature: String(init?.headers?.["x-nova-signature"] ?? "") });
+          return new Response(JSON.stringify({ ok: true }), { status: 202 });
+        }
+        return realFetch(url as string, init as RequestInit | undefined);
+      }) as unknown as typeof fetch;
+    }
+  });
+
+  it("chains an out-of-budget web segment into a signed continuation", async () => {
+    spies.startAgentRunForUser.mockResolvedValue({ id: 602, segment: 0 });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Still working." }, actions: [], outOfBudget: true });
+    const result = await executeWebAgentRun({ ownerId: 7, chatId: 3, content: "build me a site", requestStartedAtMs: Date.now() });
+    expect(result.runId).toBe(602);
+    expect(continuationFetches.length).toBe(1);
+    const call = continuationFetches[0];
+    expect(call.url).toContain("/api/agent/continue");
+    expect(JSON.parse(call.body)).toEqual({ runId: 602, segment: 0 });
+    const expected = `sha256=${createHmac("sha256", "test-continue-secret").update(call.body).digest("hex")}`;
+    expect(call.signature).toBe(expected);
+    // The runWorkspaceAgent call must promise the automatic continuation in
+    // its closing status (the passive "work continues" wording).
+    expect(spies.runWorkspaceAgent).toHaveBeenCalledWith(
+      7,
+      3,
+      "build me a site",
+      expect.objectContaining({ channel: "web", continuationPlanned: true })
+    );
+    expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 602);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed", undefined);
+  });
+
+  it("closes a web run completed and tells the chat to resume manually when scheduling fails", async () => {
+    spies.startAgentRunForUser.mockResolvedValue({ id: 603, segment: 0 });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Ran out of time." }, actions: [], outOfBudget: true });
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) =>
+      String(url).includes("/api/agent/continue")
+        ? new Response("no dice", { status: 500 })
+        : realFetch(url as string, init)
+    ) as unknown as typeof fetch;
+    try {
+      await executeWebAgentRun({ ownerId: 7, chatId: 3, content: "long job", requestStartedAtMs: Date.now() });
+      await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[1] === 603 && call[2] === "completed"));
+      // The deadline status in the chat promised an automatic continuation;
+      // when scheduling fails the chat itself must get the fallback note.
+      expect(
+        await waitFor(() =>
+          spies.appendChatMessageForUser.mock.calls.some(
+            call => call[1]?.role === "assistant" && call[1]?.content === CONTINUATION_SCHEDULE_FAILED_MESSAGE
           )
         )
       ).toBe(true);

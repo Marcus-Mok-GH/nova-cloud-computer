@@ -556,6 +556,18 @@ export const KILO_ANONYMOUS_MODEL_ID = "cohere/north-mini-code:free";
 export const KILO_ANONYMOUS_VISION_MODEL_ID = "inclusionai/ling-3.0-flash-vl:free";
 
 /**
+ * Deep-reasoning request fields for Kilo gateway hops. The Kilo gateway is
+ * OpenRouter-style: its chat models accept `reasoning: { enabled: true }`
+ * regardless of the model id (live-verified on both anonymous hops), and the
+ * thinking is served back on the message / delta `reasoning` field. Applied
+ * to every hop attempt, so operator-overridden hop models think too - a
+ * model without reasoning support simply ignores the field.
+ */
+export function kiloReasoningParams(): Record<string, unknown> {
+  return { reasoning: { enabled: true } };
+}
+
+/**
  * Operator override for the Kilo gateway base URL, mirroring the primary
  * gateway's https-only validation. An invalid value silently disables the
  * anonymous tier (the chain keeps its pre-Kilo behaviour) rather than
@@ -1009,6 +1021,21 @@ type StreamedGatewayChat = {
 };
 
 /**
+ * The model's private reasoning text from one raw field, tolerating both
+ * shapes seen across gateways: Z.ai's reasoning_content and Kilo's reasoning
+ * are plain strings, while some OpenRouter-style providers wrap the text as
+ * `{ text }`. Returns "" when the field carries no reasoning text.
+ */
+function reasoningTextFrom(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") {
+    const text = (raw as { text?: unknown }).text;
+    if (typeof text === "string") return text;
+  }
+  return "";
+}
+
+/**
  * Races a stream read against the stall deadline: resolves `null` when the
  * gateway has delivered nothing for STREAM_STALL_TIMEOUT_MS, without leaving
  * the underlying read dangling (it settles on its own later and is ignored).
@@ -1064,10 +1091,13 @@ export async function readGatewayStreamedChatResult(
     const text = typeof choice?.content === "string" ? choice.content : "";
     if (text) onChunk(text);
     const bufferedReasoning =
-      typeof (choice as { reasoning_content?: unknown } | undefined)
-        ?.reasoning_content === "string"
-        ? (choice as { reasoning_content: string }).reasoning_content
-        : "";
+      reasoningTextFrom(
+        (choice as { reasoning_content?: unknown } | undefined)
+          ?.reasoning_content
+      ) ||
+      reasoningTextFrom(
+        (choice as { reasoning?: unknown } | undefined)?.reasoning
+      );
     if (bufferedReasoning) onReasoning?.(bufferedReasoning);
     const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
       .filter(call => call?.function?.name)
@@ -1165,9 +1195,12 @@ export async function readGatewayStreamedChatResult(
           }
           const delta = lastChoice?.delta;
           if (!delta) continue;
-          const reasoningChunk = (delta as { reasoning_content?: unknown })
-            .reasoning_content;
-          if (typeof reasoningChunk === "string" && reasoningChunk.length > 0) {
+          const reasoningChunk =
+            reasoningTextFrom(
+              (delta as { reasoning_content?: unknown }).reasoning_content
+            ) ||
+            reasoningTextFrom((delta as { reasoning?: unknown }).reasoning);
+          if (reasoningChunk.length > 0) {
             reasoning += reasoningChunk;
             onReasoning?.(reasoningChunk);
           }
@@ -1413,10 +1446,13 @@ async function attemptGatewayChat(
         body: JSON.stringify({
           model: resolvedModel,
           messages,
-          // Deep thinking at maximum effort for reasoning-capable models
-          // (per-model: GLM-4.5+ takes thinking.type=enabled, GLM-5.2+
-          // also reasoning_effort=max; other models send nothing).
-          ...reasoningParamsForModel(resolvedModel),
+          // Deep thinking at maximum effort for every reasoning-capable
+          // model (per-model: GLM-4.5+ takes thinking.type=enabled,
+          // GLM-5.2+ also reasoning_effort=max; Kilo targets take the
+          // OpenRouter-style reasoning.enabled for every hop model).
+          ...(target
+            ? kiloReasoningParams()
+            : reasoningParamsForModel(resolvedModel)),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),
@@ -1581,10 +1617,13 @@ async function attemptGatewayChat(
             : "{}",
       }));
     const bufferedReasoning =
-      typeof (choice as { reasoning_content?: unknown } | undefined)
-        ?.reasoning_content === "string"
-        ? (choice as { reasoning_content: string }).reasoning_content
-        : "";
+      reasoningTextFrom(
+        (choice as { reasoning_content?: unknown } | undefined)
+          ?.reasoning_content
+      ) ||
+      reasoningTextFrom(
+        (choice as { reasoning?: unknown } | undefined)?.reasoning
+      );
     if (bufferedReasoning) options.onReasoning?.(bufferedReasoning);
     if (text || toolCalls.length) {
       buffered = { text, toolCalls, payload: payload ?? {}, ...(bufferedReasoning ? { reasoning: bufferedReasoning } : {}) };

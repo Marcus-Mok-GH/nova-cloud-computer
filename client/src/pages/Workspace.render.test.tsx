@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false },
   mistralStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
   chatMessages: [] as Array<{ id: number; role: "user" | "assistant"; content: string }>,
+  agentRunStatus: { active: false as boolean },
   composioStatus: {
     data: {
       keyLength: 64,
@@ -38,7 +39,7 @@ vi.mock("@/lib/trpc", () => ({
     mistral: { status: { useQuery: () => state.mistralStatus }, models: { useQuery: () => ({ data: [] }) } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
-    chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, send: { useMutation: () => mutation } },
+    chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, runStatus: { useQuery: () => ({ data: state.agentRunStatus, isLoading: false, refetch: vi.fn() }) }, send: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, mistral: { status: { invalidate } } }),
   },
@@ -59,6 +60,7 @@ describe("Workspace rendered browser states", () => {
     state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
     state.mistralStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
     state.chatMessages = [];
+    state.agentRunStatus = { active: false };
     state.composioStatus = {
       data: {
         keyLength: 64,
@@ -214,10 +216,23 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
-  it("renders an animated typing indicator for the working state", () => {
+  it("shows active work from the backend run ledger after a refresh", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Handle this task" },
+      { id: 2, role: "assistant", content: '__nova_tool_activity__:{"id":"tool-1","name":"read_file","state":"running","args":{}}' },
+    ];
+    state.agentRunStatus = { active: true };
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="agent-working-status"');
+    expect(markup).toContain("Nova is actively working");
+    expect(markup).toContain('data-testid="typing-indicator"');
+  });
+
+  it("renders an explicit animated status for the working state", () => {
     const markup = renderToStaticMarkup(<TypingIndicator />);
     expect(markup).toContain('data-testid="typing-indicator"');
-    expect(markup).toContain("typing-dot");
-    expect((markup.match(/typing-dot/g) || []).length).toBe(3);
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Nova is actively working");
+    expect(markup).toContain("animate-spin");
   });
 });

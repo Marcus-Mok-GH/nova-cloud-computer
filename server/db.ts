@@ -953,6 +953,23 @@ export async function claimAgentRunContinuation(runId: number, expectedSegment: 
   return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, channel: "telegram", token: credentials.token, telegramChatId: claimed.notifyChatId } satisfies AgentRunContinuationClaim;
 }
 
+/** Returns the live run for a conversation, after verifying it belongs to the owner. */
+export async function getActiveAgentRunForChat(ownerId: number, chatId: number) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  return (await db.select({
+    id: agentRuns.id,
+    status: agentRuns.status,
+    segment: agentRuns.segment,
+    startedAt: agentRuns.startedAt,
+    updatedAt: agentRuns.updatedAt,
+  }).from(agentRuns).where(and(
+    eq(agentRuns.chatId, chat.id),
+    inArray(agentRuns.status, ["running", "awaiting_continue"]),
+  )).orderBy(desc(agentRuns.createdAt)).limit(1))[0];
+}
+
 /** Starts a segmented agent run ledger row: one row per user message that begins agent work. */
 export async function startAgentRunForUser(ownerId: number, input: { chatId: number; channel?: string; notifyChatId?: string }) {
   const db = await requireDb();

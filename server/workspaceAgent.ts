@@ -282,6 +282,28 @@ export function isSubstantialCode(content: string): boolean {
   return content.split("\n").length > 15 || content.length > 800;
 }
 
+/**
+ * Prefix of the control message delivered once per run after a round whose
+ * tool calls failed: the final reply must disclose what failed instead of
+ * presenting the run as fully successful.
+ */
+export const FAILURE_NUDGE_PREFIX = "[failure control]";
+
+/**
+ * Prefix of the tool result that refuses a third execution of a call whose
+ * exact name + arguments already failed twice in the same run.
+ */
+export const REPEATED_FAILURE_PREFIX = "[repeated-failure control]";
+
+/** Builds the failure-disclosure nudge from the run's failed tool calls. */
+export function failureNudgeFor(failedSteps: string[]): string {
+  const list = failedSteps
+    .slice(-5)
+    .map((step, index) => `${index + 1}. ${step}`)
+    .join("\n");
+  return `${FAILURE_NUDGE_PREFIX} These tool calls failed during this run:\n${list}\nKeep working only if you can address the actual cause shown in each failure text. Whatever happens next, your final reply MUST state plainly which of these steps failed (with the actual error text), which you recovered or worked around, and what actually got completed - never present the run as fully successful while any step is unresolved.`;
+}
+
 /** The coder-delegation nudge for a round that bypassed the specialist. */
 export function coderNudgeFor(wroteName: string): string {
   return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
@@ -293,7 +315,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "end_turn",
       description:
-        "End your turn and deliver the final reply. This is the ONLY way your turn ends: writing text without calling a tool does NOT finish the run. When everything the user asked for is complete, call end_turn with your complete final reply to the user in the 'reply' argument - mid-run notes to the user go through send_progress_update instead, and plain text answers keep the run going.",
+        "End your turn and deliver the final reply. This is the ONLY way your turn ends: writing text without calling a tool does NOT finish the run. When everything the user asked for is complete, call end_turn with your complete final reply to the user in the 'reply' argument - the reply must disclose any step that failed during the run and was not recovered, with its actual error text. Mid-run notes to the user go through send_progress_update instead, and plain text answers keep the run going.",
       parameters: {
         type: "object",
         properties: {
@@ -960,9 +982,9 @@ Operating principles:
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
 - Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website with the deployment's ID (from the deployment list above - never guess one). When several deployments exist or the request is vague, confirm which one they mean first. Deleting every deployment (all: true) is a two-step sweep: the first call only lists the target deployment IDs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every deployment; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website creates a fresh deployment with a new ID and URL.
 - Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. From there, edit and extend the project with your regular file tools and redeploy to the same deployment ID so its URL stays stable.
-- Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue. Only surface failure after you have genuinely tried alternatives. When something is impossible with the tools available, say exactly what you would need to do it.
+- Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue - but never repeat the identical failing call unchanged, the same outcome is guaranteed. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
-- Report briefly. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn.
+- Report briefly, including failures. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn. Any step that failed during the run and was not fully recovered MUST be stated in that summary with its actual error text and what you did instead - a summary that hides a failed step is a false report of the work.
 - End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text.
 {{progress_updates}}
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
@@ -2320,6 +2342,14 @@ ${options.continuationPlanned
   // Everything streamed to the client during this run - needed by the catch
   // below to keep the partial reply when the gateway fails mid-run.
   let streamedRunText = "";
+  // Failure disclosure: every failed tool call of the run, and how many
+  // times each exact call (name + arguments) has failed. Declared outside
+  // the try so the catch can still disclose them. The list feeds the
+  // one-per-run failure nudge and the error-path close-out note; the map
+  // intercepts a model stuck repeating an identical failing call.
+  const failedSteps: string[] = [];
+  const failedAttempts = new Map<string, { count: number; firstFailure: string }>();
+  let failureNudgeSent = false;
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
 
@@ -2721,6 +2751,34 @@ ${options.continuationPlanned
           closedByDeadline = true;
           break;
         }
+        // A third identical failing call is the model stuck in a loop, not
+        // recovery: the identical call is guaranteed to fail the same way,
+        // burning rounds (and, in the screenshot case, the whole run budget)
+        // without moving the task forward. Refuse to execute it and hand
+        // back the original failure text so the model either changes the
+        // call to address the actual cause or ends the turn and tells the
+        // user what failed.
+        const attemptKey = `${call.name}:${call.arguments.slice(0, 2000)}`;
+        const priorAttempt = failedAttempts.get(attemptKey);
+        if (priorAttempt !== undefined && priorAttempt.count >= 2) {
+          const refusal =
+            `${REPEATED_FAILURE_PREFIX} This exact ${call.name} call has already failed twice in this run: ${priorAttempt.firstFailure} ` +
+            `Repeating the identical call cannot change the outcome. Diagnose the actual cause from that failure text, change the call accordingly, or call end_turn now and tell the user plainly what failed, why, and what was completed.`;
+          await emitTool({
+            id: call.id,
+            name: call.name,
+            state: "failed",
+            args: { arguments: call.arguments.slice(0, 500) },
+            summary: "Refused: this identical call already failed twice in this run.",
+          });
+          lastRoundSummaries.push(`Failed: ${call.name} - refused, the identical call already failed twice.`);
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: refusal,
+          });
+          continue;
+        }
         await emitTool({
           id: call.id,
           name: call.name,
@@ -2782,6 +2840,20 @@ ${options.continuationPlanned
         }
         if (execution.action) actions.push(execution.action);
         lastRoundSummaries.push(toolSummary(call, execution));
+        if (!execution.ok) {
+          const failureText =
+            execution.result.length > 240
+              ? `${execution.result.slice(0, 240)}…`
+              : execution.result;
+          failedSteps.push(`${call.name} - ${failureText}`);
+          const attempt = failedAttempts.get(attemptKey);
+          if (attempt) attempt.count += 1;
+          else
+            failedAttempts.set(attemptKey, {
+              count: 1,
+              firstFailure: failureText,
+            });
+        }
         await emitTool({
           id: call.id,
           name: call.name,
@@ -2854,6 +2926,14 @@ ${options.continuationPlanned
         coderNudgeSent = true;
         messages.push({ role: "user", content: coderNudgeFor(coderNudgeFile) });
       }
+      // Failure disclosure: one nudge per run, queued the first time a
+      // round's tool calls fail and delivered after the round's results
+      // (never on the closing or end_turn exits, where the reply is already
+      // final and the error-path note below carries the failures instead).
+      if (failedSteps.length > 0 && !failureNudgeSent && !closedByDeadline && !endTurnCalled) {
+        failureNudgeSent = true;
+        messages.push({ role: "user", content: failureNudgeFor(failedSteps) });
+      }
       // The deadline hit mid-tool: the closing reply is already set - leave
       // the round loop without refreshing state or starting a new round.
       if (closedByDeadline) break;
@@ -2887,6 +2967,17 @@ ${options.continuationPlanned
       error instanceof MistralGatewayClientError ? error.kind : "unavailable";
     const failureNote =
       "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
+    // A run that dies mid-flight on an inference error must still disclose
+    // the tool steps that failed before it died: without this, the error
+    // reply read as "everything so far is saved" while the steps behind
+    // "so far" had failed invisibly (e.g. the project scaffold that never
+    // landed, followed by reads of files that could never exist).
+    const failedStepsNote = failedSteps.length
+      ? `\n\nSteps that failed during this run (not completed):\n${failedSteps
+          .slice(-5)
+          .map((step, index) => `${index + 1}. ${step}`)
+          .join("\n")}`
+      : "";
     // Every failure reply carries the actual backend error (message plus
     // cause chain) so the user can diagnose it from the chat: the upstream
     // text is what says whether the provider throttled, billed, or outright
@@ -2944,8 +3035,8 @@ ${options.continuationPlanned
       }
     }
     // Only emit what the client has not already seen streamed live.
-    await options.onChunk?.(streamedRunText.trim() ? failureNote : reply);
-    const message = await persistAssistant(reply);
+    await options.onChunk?.(streamedRunText.trim() ? failureNote : reply + failedStepsNote);
+    const message = await persistAssistant(reply + failedStepsNote);
     return { message, actions, outOfBudget: false };
   } finally {
     // End of run, on every exit path (completed, stopped, deadline, error):

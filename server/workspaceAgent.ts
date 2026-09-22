@@ -2887,16 +2887,21 @@ ${options.continuationPlanned
       error instanceof MistralGatewayClientError ? error.kind : "unavailable";
     const failureNote =
       "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
-    // Every canned failure reply carries the actual backend error (message
-    // plus cause chain) so the user can diagnose it from the chat: the
-    // upstream text is what says whether the provider throttled, billed,
-    // or outright rejected the request. Capped so a runaway error body
-    // cannot flood the chat.
+    // Every failure reply carries the actual backend error (message plus
+    // cause chain) so the user can diagnose it from the chat: the upstream
+    // text is what says whether the provider throttled, billed, or outright
+    // rejected the request. Transient inference failures lead with the
+    // provider's own error text - a hardcoded narrative read as a
+    // misdiagnosis ("lockout" for plain pool congestion) - while
+    // setup-class failures keep their actionable lead and append the
+    // detail. Capped so a runaway error body cannot flood the chat.
     const detail = errorChainText(error) || String(error);
-    const actualError = ` Actual backend error: ${
-      detail.length > 500 ? `${detail.slice(0, 500)}…` : detail
-    }`;
+    const clippedDetail = (cap: number) =>
+      detail.length > cap ? `${detail.slice(0, cap)}…` : detail;
+    const actualError = ` Actual backend error: ${clippedDetail(500)}`;
     const withActualError = (lead: string) => lead + actualError;
+    const providerErrorLead = (note: string) =>
+      `Inference provider error: ${clippedDetail(500)}. ${note}`;
     let reply: string;
     if (kind === "configuration") {
       reply = withActualError(
@@ -2907,8 +2912,8 @@ ${options.continuationPlanned
         "The inference request allowance has been reached. New requests are blocked until an administrator raises the cap."
       );
     } else if (kind === "rate_limit") {
-      reply = withActualError(
-        "The inference provider's rate limit was hit. Lockouts can persist for a while, and retrying during one only extends it - so I stopped after my one patient retry instead of hammering. Please try again in a little while; everything so far is saved."
+      reply = providerErrorLead(
+        "Everything so far is saved - please try again in a little while."
       );
     } else if (kind === "client_error") {
       reply = withActualError(
@@ -2923,7 +2928,7 @@ ${options.continuationPlanned
       if (partial) {
         reply = partial + failureNote;
       } else if (kind === "invalid_response") {
-        reply = withActualError(
+        reply = providerErrorLead(
           "The inference provider returned an invalid response. Please try again shortly."
         );
       } else {

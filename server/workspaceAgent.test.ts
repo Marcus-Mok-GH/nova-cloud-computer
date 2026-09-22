@@ -2698,7 +2698,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain("Back online");
   });
 
-  it("stops after one patient 429 retry and explains the lockout", async () => {
+  it("stops after one patient 429 retry and leads with the provider's own error", async () => {
     chatWithMistralGateway
       .mockRejectedValueOnce(
         new MistralGatewayClientError("Too Many Requests", "rate_limit")
@@ -2712,11 +2712,15 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // The wait happens once per run, never as a fast-retry hammer.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(2);
-    expect(result.message.content).toContain("rate limit was hit");
-    expect(result.message.content).toContain("Lockouts can persist");
-    // The canned explanation must carry the actual backend error text.
-    expect(result.message.content).toContain("Actual backend error");
-    expect(result.message.content).toContain("Too Many Requests");
+    // The reply must lead with the provider's actual error text, not a
+    // hardcoded diagnosis ("lockout" read as a misdiagnosis of plain pool
+    // congestion).
+    expect(result.message.content).toContain(
+      "Inference provider error: Too Many Requests"
+    );
+    expect(result.message.content).toContain(
+      "Everything so far is saved - please try again in a little while."
+    );
   });
 
   it("does not retry permanent client errors from the gateway", async () => {
@@ -2741,9 +2745,10 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?", {
       deadlineAtMs: Date.now() + 10_000,
     });
-    // No time for the wait: fail immediately with the explanation.
+    // No time for the wait: fail immediately with the provider's own error
+    // leading the explanation.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
-    expect(result.message.content).toContain("rate limit was hit");
+    expect(result.message.content).toContain("Inference provider error: Too Many Requests");
   });
 
   it("returns configuration message when the chat throws a configuration error", async () => {

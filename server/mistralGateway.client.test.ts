@@ -9,7 +9,7 @@ vi.mock("./db", () => ({
   claimMistralInferenceRequestForUser: claim,
 }));
 
-const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, configuredVisionChatModel, configuredLastResortModel, configuredKiloAnonymousHopModels, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
+const { chatWithMistralGateway, completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, configuredVisionChatModel, configuredLastResortModel, configuredKiloAnonymousHopModels, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
 
 describe("Mistral gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -239,6 +239,35 @@ describe("Mistral gateway client", () => {
     expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash", "cohere/north-mini-code:free"]);
     // One allowance claim for the whole chain - the anonymous hops are not charged either.
     expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests deep thinking on every model in the chat chain, including the Kilo hops", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "kilo reply", reasoning: "kilo thought it through" } }], model: "cohere/north-mini-code:free" }), { status: 200 }));
+    const result = await chatWithMistralGateway(7, [{ role: "user", content: "hello" }], {});
+    expect(result).toMatchObject({
+      text: "kilo reply",
+      model: "cohere/north-mini-code:free",
+      reasoning: "kilo thought it through",
+    });
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"));
+    // Every primary Z.ai model requests thinking, and the Kilo hop requests
+    // the OpenRouter-style reasoning flag - no model in the chain is silent.
+    const bodies = calls.map(call => JSON.parse(String(call[1]?.body)));
+    expect(bodies).toHaveLength(4);
+    expect(bodies[0]).toMatchObject({ thinking: { type: "enabled" } });
+    expect(bodies[3]).toMatchObject({ reasoning: { enabled: true } });
+    for (const [index, body] of bodies.entries()) {
+      const asksToThink = !!body.thinking || !!body.reasoning;
+      expect({ index, asksToThink }).toEqual({ index, asksToThink: true });
+    }
   });
 
   it("tries the Kilo vision floor hop when the anonymous coding model is also congested", async () => {

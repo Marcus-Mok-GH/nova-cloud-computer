@@ -226,6 +226,60 @@ describe("Mistral gateway chat stream handling", () => {
     expect(reasoningChunks.join("")).toBe("The user wants a file listing first.");
   });
 
+  it("streams Kilo-style reasoning deltas (reasoning field) before the answer", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      sseResponse([
+        `data: ${JSON.stringify({ model: "cohere/north-mini-code:free", choices: [{ delta: { reasoning: "The user wants " } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: { reasoning: "a file listing first." } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "Here are your files." } }] })}\n\n`,
+        "data: [DONE]\n\n",
+      ])
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const reasoningChunks: string[] = [];
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "list files" }], {
+      onChunk: () => {},
+      onReasoning: chunk => reasoningChunks.push(chunk),
+    });
+    expect(result.text).toBe("Here are your files.");
+    expect(result.reasoning).toBe("The user wants a file listing first.");
+    expect(reasoningChunks.join("")).toBe("The user wants a file listing first.");
+  });
+
+  it("captures buffered Kilo-style reasoning (reasoning field) from non-streaming completions", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: "Done.", reasoning: "Planned it out." } },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    expect(result.text).toBe("Done.");
+    expect(result.reasoning).toBe("Planned it out.");
+  });
+
+  it("captures buffered reasoning wrapped as an OpenRouter-style { text } object", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: "Done.", reasoning: { text: "Planned it out." } } },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    expect(result.text).toBe("Done.");
+    expect(result.reasoning).toBe("Planned it out.");
+  });
+
   it("captures buffered reasoning_content from non-streaming completions", async () => {
     const fetchImpl = gatewayFetchStub(() =>
       new Response(

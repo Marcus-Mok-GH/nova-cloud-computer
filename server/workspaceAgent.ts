@@ -47,6 +47,15 @@ import {
   getActiveCustomModel,
 } from "./byokGateway";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
+import {
+  buildSpreadsheetWorkbook,
+  bufferToDataUrl,
+  ensureXlsxExtension,
+  isSpreadsheetColumnFormat,
+  SPREADSHEET_MIME_TYPE,
+  type SpreadsheetColumnInput,
+  type SpreadsheetSheetInput,
+} from "./spreadsheet";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
@@ -373,6 +382,62 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
         },
         required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_spreadsheet",
+      description:
+        "Create a polished, ready-to-share Excel workbook (.xlsx) in the user's workspace from tabular data. Use this whenever the user asks for an Excel file, spreadsheet, or workbook - create_file/edit_file only store plain text and cannot produce a real .xlsx. It automatically formats the result to be clean and readable: a bold, dark-filled header row, a frozen header with autofilter, sensible auto-sized column widths, thin borders, subtle zebra row shading, and per-column number formatting (currency, percent, date, etc.) so you never have to describe styling by hand - just give it the data and the intended format per column. Cannot overwrite an existing file (edit_file/delete_file first if one exists).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "File name for the workbook, e.g. \"Q1 Budget.xlsx\" - .xlsx is appended automatically if omitted.",
+          },
+          folder: {
+            type: "string",
+            description: "Optional existing folder name or id to place the file in. Omit for the workspace root.",
+          },
+          sheets: {
+            type: "array",
+            description: "One or more sheets/tabs in the workbook, each with its own columns and rows.",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string", description: "Sheet/tab name, e.g. \"Q1 Sales\". Defaults to Sheet1, Sheet2, ..." },
+                columns: {
+                  type: "array",
+                  description: "Column definitions, in left-to-right order.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      header: { type: "string", description: "Column header text shown in the bold header row." },
+                      key: { type: "string", description: "Key used to look up this column's value in each row object. Defaults to the header text." },
+                      format: {
+                        type: "string",
+                        enum: ["text", "integer", "number", "currency", "percent", "date", "datetime"],
+                        description: "How to format this column's cells - pick the type that matches the data so it reads cleanly (e.g. currency for money, percent for rates, date for dates). Defaults to text.",
+                      },
+                      width: { type: "number", description: "Optional fixed column width in characters. Omit to auto-size from the header and content." },
+                    },
+                    required: ["header"],
+                  },
+                },
+                rows: {
+                  type: "array",
+                  description: "Data rows. Each row is an object mapping a column's key to its value for that row.",
+                  items: { type: "object" },
+                },
+              },
+              required: ["columns", "rows"],
+            },
+          },
+        },
+        required: ["name", "sheets"],
       },
     },
   },
@@ -1338,6 +1403,83 @@ async function executeWorkspaceTool(
       return {
         ok: true,
         result: `Created ${created.name} (id ${created.id}).`,
+        action: { kind: "file", name: created.name, operation: "created" },
+      };
+    }
+    case "create_spreadsheet": {
+      const rawName = str(args.name);
+      if (!rawName) return { ok: false, result: "A file name is required." };
+      const name = ensureXlsxExtension(rawName);
+      const targetFolder =
+        args.folder !== undefined ? resolveFolder(computer, args.folder) : undefined;
+      if (args.folder !== undefined && !targetFolder)
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+      if (
+        computer.files.some(
+          file =>
+            (file.folderId ?? null) === (targetFolder?.id ?? null) &&
+            file.name.toLowerCase() === name.toLowerCase()
+        )
+      ) {
+        return {
+          ok: false,
+          result: `A file named ${name} already exists in that location${targetFolder ? "" : " (workspace root)"}. create_spreadsheet cannot overwrite an existing file - use edit_file (rewrite it via a new create_spreadsheet + delete_file) or delete the old one first.`,
+        };
+      }
+      const rawSheets = Array.isArray(args.sheets) ? (args.sheets as unknown[]) : [];
+      if (!rawSheets.length)
+        return { ok: false, result: "At least one sheet with columns and rows is required." };
+      const sheets: SpreadsheetSheetInput[] = [];
+      for (const rawSheet of rawSheets) {
+        if (!rawSheet || typeof rawSheet !== "object")
+          return { ok: false, result: "Each sheet must be an object with columns and rows." };
+        const sheetObj = rawSheet as Record<string, unknown>;
+        const title = str(sheetObj.title) || `Sheet${sheets.length + 1}`;
+        const rawColumns = Array.isArray(sheetObj.columns) ? (sheetObj.columns as unknown[]) : [];
+        if (!rawColumns.length)
+          return { ok: false, result: `Sheet "${title}" needs at least one column.` };
+        const columns: SpreadsheetColumnInput[] = [];
+        for (const rawColumn of rawColumns) {
+          if (!rawColumn || typeof rawColumn !== "object")
+            return { ok: false, result: `Each column in sheet "${title}" must be an object with a header.` };
+          const columnObj = rawColumn as Record<string, unknown>;
+          const header = str(columnObj.header);
+          const key = str(columnObj.key) || header;
+          if (!header || !key)
+            return { ok: false, result: `Each column in sheet "${title}" needs a header.` };
+          const format = isSpreadsheetColumnFormat(columnObj.format) ? columnObj.format : "text";
+          const width = typeof columnObj.width === "number" && columnObj.width > 0 ? columnObj.width : undefined;
+          columns.push({ header, key, format, width });
+        }
+        const rawRows = Array.isArray(sheetObj.rows) ? (sheetObj.rows as unknown[]) : [];
+        const rows = rawRows.map(rawRow =>
+          rawRow && typeof rawRow === "object"
+            ? (rawRow as Record<string, string | number | boolean | null | undefined>)
+            : {}
+        );
+        sheets.push({ title, columns, rows });
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await buildSpreadsheetWorkbook({ sheets });
+      } catch (error) {
+        return {
+          ok: false,
+          result: `Could not build the spreadsheet: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+      const created = await createWorkspaceFileForUser(ownerId, {
+        name,
+        content: bufferToDataUrl(buffer, SPREADSHEET_MIME_TYPE),
+        mimeType: SPREADSHEET_MIME_TYPE,
+        folderId: targetFolder?.id ?? null,
+      });
+      if (!created)
+        return { ok: false, result: `Could not create the file - a file named ${name} may already exist.` };
+      const totalRows = sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+      return {
+        ok: true,
+        result: `Created ${created.name} (id ${created.id}) - a formatted Excel workbook with ${sheets.length} sheet(s) and ${totalRows} data row(s) total (bold header, frozen top row, autofilter, per-column formatting). Present it to the user with present_file (Telegram) so they get the actual file, not just a description.`,
         action: { kind: "file", name: created.name, operation: "created" },
       };
     }

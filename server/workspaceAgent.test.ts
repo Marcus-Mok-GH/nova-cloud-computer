@@ -2736,6 +2736,68 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([]);
   });
 
+  it("resolves read_file by workspace path, tolerating ./ prefixes", async () => {
+    // The failed-run loop: the model wrote "ph-meter-2/index.html" (and
+    // "./ph-meter-2/index.html") instead of the bare file name and got
+    // "File not found" even though the file existed inside the folder.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "ph-meter-2", parentId: null }],
+      files: [{ id: 99, name: "index.html", content: "<h1>PH</h1>", folderId: 22 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "read_file",
+              arguments: JSON.stringify({ file: "./ph-meter-2/index.html" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Read it - the PH meter site is coming along." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "check my ph meter site");
+    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    expect(toolResult.content).toContain("Content of index.html");
+    expect(toolResult.content).toContain("<h1>PH</h1>");
+    expect(result.message.content).toContain("coming along");
+  });
+
+  it("suggests the closest existing files when a read misses, instead of a bare not-found", async () => {
+    // "ph-meter/index.html" does not exist, but "ph-meter-2.html" does: the
+    // refusal must name it so the model stops guessing path variants.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "ph-meter-2", parentId: null }],
+      files: [{ id: 99, name: "ph-meter-2.html", content: "<h1>PH</h1>", folderId: 22 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "read_file",
+              arguments: JSON.stringify({ file: "ph-meter/index.html" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Found it - reading ph-meter-2.html instead." })
+      );
+    await runWorkspaceAgent(1, 3, "check my ph meter site");
+    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    expect(toolResult.content).toContain("File not found: ph-meter/index.html.");
+    expect(toolResult.content).toContain("Closest matches: ph-meter-2/ph-meter-2.html (id 99)");
+  });
+
   it("nudges the model to disclose failed steps in its final reply", async () => {
     chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     chatWithMistralGateway

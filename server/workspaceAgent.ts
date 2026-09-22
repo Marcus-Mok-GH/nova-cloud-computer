@@ -374,7 +374,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           file: {
             type: "string",
-            description: "File name or id to read.",
+            description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to read.",
           },
         },
         required: ["file"],
@@ -392,7 +392,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           file: {
             type: "string",
-            description: "File name or id to edit.",
+            description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to edit.",
           },
           content: {
             type: "string",
@@ -858,10 +858,50 @@ function resolveFolder(
   if (typeof ref !== "string" || !ref.trim()) return undefined;
   const key = ref.trim();
   const numeric = /^\d+$/.test(key) ? Number(key) : undefined;
+  if (numeric !== undefined) {
+    const byId = computer.folders.find(folder => folder.id === numeric);
+    if (byId) return byId;
+  }
+  const normalized = normalizeWorkspaceRef(key);
+  const byName = computer.folders.find(
+    folder => folder.name.toLowerCase() === normalized
+  );
+  if (byName) return byName;
+  // Nested folder path, e.g. "sites/ph-meter": match the last segment with
+  // its parent path.
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length < 2) return undefined;
+  const base = segments[segments.length - 1];
+  const dir = segments.slice(0, -1).join("/");
+  const folderRows = folderRowsOf(computer);
   return computer.folders.find(
     folder =>
-      (numeric !== undefined && folder.id === numeric) ||
-      folder.name.toLowerCase() === key.toLowerCase()
+      folder.name.toLowerCase() === base &&
+      (folderPathOf(folderRows, folder.parentId ?? null)?.toLowerCase() ?? "") === dir
+  );
+}
+
+/** Normalizes a workspace reference the way a model might write it: a bare
+ * name, an id, or a path like "folder-name/index.html" (optionally prefixed
+ * with "./" or "/"). Returns lowercase, no leading/trailing slashes. */
+function normalizeWorkspaceRef(raw: string): string {
+  return raw.trim().replace(/^[./]+/, "").replace(/\/+$/, "").toLowerCase();
+}
+
+type FolderRowLike = { id: number; name: string; parentId: number | null };
+
+function folderRowsOf(computer: Computer): FolderRowLike[] {
+  return computer.folders as FolderRowLike[];
+}
+
+/** The workspace-relative path of a file, lowercase ("folder/index.html"). */
+function fileWorkspacePath(
+  folderRows: FolderRowLike[],
+  file: { name: string; folderId: number | null }
+): string {
+  return (
+    workspaceRelativePathOf(folderRows, file.name, file.folderId)?.toLowerCase() ??
+    file.name.toLowerCase()
   );
 }
 
@@ -869,11 +909,79 @@ function resolveFile(computer: Computer, ref: unknown): FileRow | undefined {
   if (typeof ref !== "string" || !ref.trim()) return undefined;
   const key = ref.trim();
   const numeric = /^\d+$/.test(key) ? Number(key) : undefined;
-  return computer.files.find(
-    file =>
-      (numeric !== undefined && file.id === numeric) ||
-      file.name.toLowerCase() === key.toLowerCase()
+  if (numeric !== undefined) {
+    const byId = computer.files.find(file => file.id === numeric);
+    if (byId) return byId;
+  }
+  const normalized = normalizeWorkspaceRef(key);
+  const folderRows = folderRowsOf(computer);
+  // 1. Exact name match (case-insensitive) - the common case.
+  const byName = computer.files.find(
+    file => file.name.toLowerCase() === normalized
   );
+  if (byName) return byName;
+  // 2. Full workspace-path match, e.g. "ph-meter/index.html".
+  const byPath = computer.files.find(
+    file => fileWorkspacePath(folderRows, file) === normalized
+  );
+  if (byPath) return byPath;
+  // 3. Path-style ref whose last segment names a file: resolve by basename,
+  //    preferring the file inside the folder path the ref points at.
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length < 2) return undefined;
+  const base = segments[segments.length - 1];
+  const dir = segments.slice(0, -1).join("/");
+  const basenameMatches = computer.files.filter(
+    file => file.name.toLowerCase() === base
+  );
+  if (basenameMatches.length === 0) return undefined;
+  if (dir) {
+    const inDir = basenameMatches.find(file => {
+      const parent =
+        folderPathOf(folderRows, file.folderId ?? null)?.toLowerCase() ?? "";
+      return parent === dir;
+    });
+    if (inDir) return inDir;
+  }
+  return basenameMatches[0];
+}
+
+/** A "File not found" tool result that steers the model out of path-guessing
+ * loops: the original ref, the closest existing candidates, and the one
+ * command that always works. Keeps the "File not found:" prefix the failure
+ * nudges quote. */
+function fileNotFoundResult(computer: Computer, ref: unknown): string {
+  const raw = typeof ref === "string" ? ref : String(ref ?? "");
+  const normalized = normalizeWorkspaceRef(String(raw));
+  const folderRows = folderRowsOf(computer);
+  const segments = normalized.split("/").filter(Boolean);
+  const base = segments[segments.length - 1] ?? normalized;
+  const suggestions: string[] = [];
+  const seen = new Set<string>();
+  for (const file of computer.files) {
+    const path = fileWorkspacePath(folderRows, file);
+    if (seen.has(path)) continue;
+    const pathSegments = path.split("/");
+    const matches =
+      file.name.toLowerCase() === base ||
+      path === normalized ||
+      (segments.length > 1 && path.endsWith(`/${normalized}`)) ||
+      segments.some(
+        seg =>
+          seg.length >= 3 &&
+          pathSegments.some(
+            pSeg => pSeg === seg || pSeg.includes(seg) || seg.includes(pSeg)
+          )
+      );
+    if (!matches) continue;
+    seen.add(path);
+    suggestions.push(`${path} (id ${file.id})`);
+    if (suggestions.length >= 5) break;
+  }
+  const hint = suggestions.length
+    ? ` Closest matches: ${suggestions.join(", ")}. Use the exact name or id from that list.`
+    : " No existing file looks similar - call list_workspace to see every file and folder before trying again.";
+  return `File not found: ${raw}.${hint}`;
 }
 
 function describeWorkspace(computer: Computer) {
@@ -1166,7 +1274,7 @@ async function executeWorkspaceTool(
       const targetFolder =
         args.folder !== undefined ? resolveFolder(computer, args.folder) : undefined;
       if (args.folder !== undefined && !targetFolder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
       if (
         computer.files.some(
           file =>
@@ -1216,7 +1324,7 @@ async function executeWorkspaceTool(
     case "read_file": {
       const file = resolveFile(computer, args.file);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       return {
         ok: true,
         result: `Content of ${file.name} (id ${file.id}):\n${String(file.content ?? "").slice(0, 20000)}`,
@@ -1225,7 +1333,7 @@ async function executeWorkspaceTool(
     case "edit_file": {
       const file = resolveFile(computer, args.file);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       const content = typeof args.content === "string" ? args.content : "";
       if (
         gate?.blocked &&
@@ -1260,7 +1368,7 @@ async function executeWorkspaceTool(
       const file = resolveFile(computer, args.file);
       const newName = str(args.new_name);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!newName)
         return { ok: false, result: "A new file name is required." };
       // Same root-level constraint as create_file: renames onto an existing
@@ -1299,9 +1407,9 @@ async function executeWorkspaceTool(
       const file = resolveFile(computer, args.file);
       const folder = resolveFolder(computer, args.folder);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
       if (
         computer.files.some(
           other =>
@@ -1333,7 +1441,7 @@ async function executeWorkspaceTool(
     case "delete_file": {
       const file = resolveFile(computer, args.file);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!(await deleteWorkspaceFileForUser(ownerId, file.id)))
         return { ok: false, result: `Could not delete ${file.name}.` };
       const deletedPath = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
@@ -1393,7 +1501,7 @@ async function executeWorkspaceTool(
       const folder = resolveFolder(computer, args.folder);
       const newName = str(args.new_name);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
       if (!newName)
         return { ok: false, result: "A new folder name is required." };
       const updated = await updateWorkspaceFolderForUser(ownerId, folder.id, {
@@ -1423,7 +1531,7 @@ async function executeWorkspaceTool(
       const folder = resolveFolder(computer, args.folder);
       const parent = resolveFolder(computer, args.parent);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
       if (!parent)
         return {
           ok: false,
@@ -1453,7 +1561,7 @@ async function executeWorkspaceTool(
     case "delete_folder": {
       const folder = resolveFolder(computer, args.folder);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}.` };
+        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
       if (!(await deleteWorkspaceFolderForUser(ownerId, folder.id)))
         return { ok: false, result: `Could not delete ${folder.name}.` };
       const removedFolderPath = folderPathOf(folderRows, folder.id);
@@ -1738,7 +1846,7 @@ async function executeWorkspaceTool(
     case "present_file": {
       const file = resolveFile(computer, args.file);
       if (!file)
-        return { ok: false, result: `File not found: ${str(args.file)}.` };
+        return { ok: false, result: fileNotFoundResult(computer, args.file) };
       const credentials = await getTelegramCredentialsForUser(ownerId);
       if (!credentials?.chatId)
         return {

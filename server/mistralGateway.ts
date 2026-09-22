@@ -420,6 +420,15 @@ export const ZAI_TEXT_FALLBACK_MODEL = "glm-4.5-flash";
 export const ZAI_VISION_FALLBACK_MODEL = "glm-4.6v-flash";
 
 /**
+ * Free-tier last resort for Z.ai deployments: when the default AND the
+ * text-fallback pools are both congested, the chain tries the remaining
+ * free model. It only serves a vision-capable flash model, which also
+ * accepts text-only turns, so the id matches the vision default. Like the
+ * other free flash models it is served but unlisted by /models.
+ */
+export const ZAI_LAST_RESORT_MODEL_ID = "glm-4.6v-flash";
+
+/**
  * Operator override for the default chat model id. The hardcoded default is
  * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
  * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
@@ -460,6 +469,17 @@ export function configuredTextFallbackModel(): string {
   // Mistral fallback id cannot resolve there; the other free flash model is
   // the verified-served Z.ai default (used for pool-overload degradation).
   return zaiGatewayToken() ? ZAI_TEXT_FALLBACK_MODEL : TEXT_FALLBACK_MODEL;
+}
+
+/**
+ * Third and final pool-overload tier for Z.ai deployments: when the default
+ * and fallback pools are both congested, requests retry on this model.
+ * Returns undefined in Mistral mode so the two-tier chain (default, then
+ * configured text fallback) keeps its existing behaviour there.
+ */
+export function configuredLastResortModel(): string | undefined {
+  if (!zaiGatewayToken()) return undefined;
+  return process.env.ZAI_LAST_RESORT_MODEL?.trim() || ZAI_LAST_RESORT_MODEL_ID;
 }
 
 /**
@@ -1051,9 +1071,10 @@ export async function readGatewayStreamedChatResult(
  * Runs one model attempt with pool-overload degradation: when the resolved
  * chat model fails with an upstream overload (HTTP 429 - z.ai error 1305
  * free-pool congestion), the request retries once on the configured
- * pool-fallback model, and later requests skip straight to the fallback for
- * POOL_DEGRADE_MS. The fallback attempt reuses the run's allowance claim,
- * so it is not double-charged. If the fallback pool is overloaded too, the
+ * pool-fallback model, then - on Z.ai, where a third free pool exists - the
+ * last-resort model, and later requests skip straight to the fallback for
+ * POOL_DEGRADE_MS. Fallback attempts reuse the run's allowance claim, so
+ * they are not double-charged. If every pool in the chain is overloaded, the
  * degradation window ends early so the next request retries the primary
  * model instead of pinning to a dead pool.
  */
@@ -1066,42 +1087,47 @@ async function attemptWithPoolFallback<T>(
   attempt: (model: string) => Promise<T>
 ): Promise<T> {
   const poolFallback = configuredTextFallbackModel();
+  const lastResort = configuredLastResortModel();
+  // Overload retry chain: the resolved model, then the configured pool
+  // fallback, then (Z.ai only) the last-resort model. Deduplicated so a
+  // repeated id (e.g. a vision turn resolved to the vision model, which is
+  // also the last resort) is not attempted twice.
+  const chain = [resolvedModel];
+  for (const model of [poolFallback, lastResort]) {
+    if (model && !chain.includes(model)) chain.push(model);
+  }
   const degraded = poolDegradedUntil > Date.now();
-  const firstModel =
-    degraded && poolFallback && poolFallback !== resolvedModel
-      ? poolFallback
-      : resolvedModel;
-  try {
-    return await attempt(firstModel);
-  } catch (error) {
-    const isOverload =
-      error instanceof MistralGatewayClientError && error.kind === "rate_limit";
-    if (
-      isOverload &&
-      firstModel === resolvedModel &&
-      poolFallback &&
-      poolFallback !== resolvedModel
-    ) {
-      poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
-      console.warn(
-        `[Mistral gateway] ${resolvedModel} overloaded - retrying once on pool fallback ${poolFallback}, degraded for ${
-          POOL_DEGRADE_MS / 60_000
-        }m`
-      );
-      try {
-        return await attempt(poolFallback);
-      } catch (fallbackError) {
-        if (
-          fallbackError instanceof MistralGatewayClientError &&
-          fallbackError.kind === "rate_limit"
-        )
-          poolDegradedUntil = 0;
-        throw fallbackError;
+  // While degraded, skip the congested primary and go straight to the pool
+  // fallback (chain position 1 whenever a distinct fallback exists).
+  const startIndex = degraded && chain.length > 1 ? 1 : 0;
+  for (let index = startIndex; index < chain.length; index += 1) {
+    try {
+      return await attempt(chain[index]);
+    } catch (error) {
+      const isOverload =
+        error instanceof MistralGatewayClientError && error.kind === "rate_limit";
+      if (!isOverload || index + 1 >= chain.length) {
+        // Every pool in the chain is congested (or the failure is not an
+        // overload): end the degradation window so the next request retries
+        // the primary model instead of pinning to a dead pool.
+        if (isOverload && poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
+        throw error;
+      }
+      if (chain[index] === resolvedModel) {
+        poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
+        console.warn(
+          `[Mistral gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
+            POOL_DEGRADE_MS / 60_000
+          }m`
+        );
+      } else {
+        console.warn(
+          `[Mistral gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
+        );
       }
     }
-    if (isOverload && degraded) poolDegradedUntil = 0;
-    throw error;
   }
+  throw new Error("unreachable");
 }
 
 export async function chatWithMistralGateway(

@@ -9,7 +9,7 @@ vi.mock("./db", () => ({
   claimMistralInferenceRequestForUser: claim,
 }));
 
-const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, configuredVisionChatModel, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
+const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, configuredVisionChatModel, configuredLastResortModel, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
 
 describe("Mistral gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -23,6 +23,7 @@ describe("Mistral gateway client", () => {
   const originalZaiDefaultModel = process.env.ZAI_DEFAULT_MODEL;
   const originalZaiFallbackModel = process.env.ZAI_FALLBACK_MODEL;
   const originalZaiVisionModel = process.env.ZAI_VISION_MODEL;
+  const originalZaiLastResortModel = process.env.ZAI_LAST_RESORT_MODEL;
 
   beforeEach(() => {
     delete process.env.MISTRAL_API_KEY;
@@ -33,6 +34,7 @@ describe("Mistral gateway client", () => {
     delete process.env.ZAI_DEFAULT_MODEL;
     delete process.env.ZAI_FALLBACK_MODEL;
     delete process.env.ZAI_VISION_MODEL;
+    delete process.env.ZAI_LAST_RESORT_MODEL;
     process.env.MISTRAL_GATEWAY_URL = "https://api-server-zeta.vercel.app";
     process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "t".repeat(32);
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -55,6 +57,7 @@ describe("Mistral gateway client", () => {
     if (originalZaiDefaultModel === undefined) delete process.env.ZAI_DEFAULT_MODEL; else process.env.ZAI_DEFAULT_MODEL = originalZaiDefaultModel;
     if (originalZaiFallbackModel === undefined) delete process.env.ZAI_FALLBACK_MODEL; else process.env.ZAI_FALLBACK_MODEL = originalZaiFallbackModel;
     if (originalZaiVisionModel === undefined) delete process.env.ZAI_VISION_MODEL; else process.env.ZAI_VISION_MODEL = originalZaiVisionModel;
+    if (originalZaiLastResortModel === undefined) delete process.env.ZAI_LAST_RESORT_MODEL; else process.env.ZAI_LAST_RESORT_MODEL = originalZaiLastResortModel;
   });
 
   it("uses the Mistral AI API key for health and bounded completion calls", async () => {
@@ -180,16 +183,17 @@ describe("Mistral gateway client", () => {
     expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.5-flash"]);
   });
 
-  it("clears the degradation when the pool fallback is also overloaded", async () => {
+  it("clears the degradation when every pool in the chain is overloaded", async () => {
     process.env.ZAI_API_KEY = "z".repeat(40);
     process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }));
     await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
     // The next request must try the primary model again instead of pinning
-    // to the equally-dead fallback pool.
+    // to the equally-dead fallback pools.
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(JSON.stringify({ choices: [{ message: { content: "primary recovered" } }], model: "glm-4.7-flash" }), { status: 200 }));
     const result = await completeWithMistralGateway(7, "again");
@@ -197,7 +201,62 @@ describe("Mistral gateway client", () => {
     const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .filter(call => String(call[0]).includes("/chat/completions"))
       .map(call => JSON.parse(String(call[1]?.body)).model);
-    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.7-flash"]);
+    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash", "glm-4.7-flash"]);
+  });
+
+  it("falls back to the last-resort model when both pools are overloaded", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "last resort reply" } }], model: "glm-4.6v-flash" }), { status: 200 }));
+    const result = await completeWithMistralGateway(7, "hello");
+    expect(result).toMatchObject({ text: "last resort reply", model: "glm-4.6v-flash" });
+    const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"))
+      .map(call => JSON.parse(String(call[1]?.body)).model);
+    // The whole chain shares one allowance claim - no double charge.
+    expect(chatModels).toEqual(["glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash"]);
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors a ZAI_LAST_RESORT_MODEL override in the pool chain", async () => {
+    process.env.ZAI_API_KEY = "z".repeat(40);
+    process.env.ZAI_DEFAULT_MODEL = "glm-4.7-flash";
+    process.env.ZAI_LAST_RESORT_MODEL = "glm-4.5v";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "1305", message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "override reply" } }], model: "glm-4.5v" }), { status: 200 }));
+    const result = await completeWithMistralGateway(7, "hello");
+    expect(result).toMatchObject({ text: "override reply", model: "glm-4.5v" });
+  });
+
+  it("keeps Mistral mode two-tier: no third retry after the fallback overloads", async () => {
+    // No Z.ai credential: the last-resort tier must be absent.
+    process.env.MISTRAL_DEFAULT_MODEL = "mistral-medium-latest";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "mistral-medium-latest", modalities: ["text"] }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }));
+    await expect(completeWithMistralGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
+    const chatModels = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      .filter(call => String(call[0]).includes("/chat/completions"))
+      .map(call => JSON.parse(String(call[1]?.body)).model);
+    expect(chatModels).toEqual(["mistral-medium-latest", "ministral-8b-latest"]);
+  });
+
+  it("defaults the last-resort model to Z.ai's free vision model in Z.ai mode", () => {
+    process.env.ZAI_API_KEY = "test-zai-key-0123456789abcdef0123";
+    expect(configuredLastResortModel()).toBe("glm-4.6v-flash");
+  });
+
+  it("keeps Mistral-mode pool chains two-tier (no last-resort model)", () => {
+    expect(process.env.ZAI_API_KEY).toBeUndefined();
+    expect(configuredLastResortModel()).toBeUndefined();
   });
 
   it("switches to the Z.ai transport and env var names when ZAI_API_KEY is set", async () => {

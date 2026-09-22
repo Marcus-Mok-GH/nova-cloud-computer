@@ -10,7 +10,7 @@ vi.mock("./db", () => ({
   claimMistralInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
 }));
 
-import { chatWithMistralGateway, resetMistralGatewayHealthCache } from "./mistralGateway";
+import { chatWithMistralGateway, reasoningParamsForModel, resetMistralGatewayHealthCache } from "./mistralGateway";
 
 const ORIGINAL_FETCH = global.fetch;
 
@@ -47,6 +47,8 @@ afterEach(() => {
   global.fetch = ORIGINAL_FETCH;
   delete process.env.NOVA_MISTRAL_GATEWAY_TOKEN;
   delete process.env.MISTRAL_GATEWAY_URL;
+  delete process.env.ZAI_API_KEY;
+  delete process.env.ZAI_DEFAULT_MODEL;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -202,5 +204,73 @@ describe("Mistral gateway chat stream handling", () => {
       "stopped responding"
     );
     expect(cancel).toHaveBeenCalled();
+  });
+
+  it("streams the model's private reasoning (reasoning_content) before the answer", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      sseResponse([
+        `data: ${JSON.stringify({ model: "mistral/test-model", choices: [{ delta: { reasoning_content: "The user wants " } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "a file listing first." } }] })}\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "Here are your files." } }] })}\n\n`,
+        "data: [DONE]\n\n",
+      ])
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const reasoningChunks: string[] = [];
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "list files" }], {
+      onChunk: () => {},
+      onReasoning: chunk => reasoningChunks.push(chunk),
+    });
+    expect(result.text).toBe("Here are your files.");
+    expect(result.reasoning).toBe("The user wants a file listing first.");
+    expect(reasoningChunks.join("")).toBe("The user wants a file listing first.");
+  });
+
+  it("captures buffered reasoning_content from non-streaming completions", async () => {
+    const fetchImpl = gatewayFetchStub(() =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: "Done.", reasoning_content: "Planned it out." } },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    expect(result.text).toBe("Done.");
+    expect(result.reasoning).toBe("Planned it out.");
+  });
+
+  it("requests deep thinking for GLM-4.5+ models, with max effort on GLM-5.2+", () => {
+    expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
+    expect(reasoningParamsForModel("glm-4.6v-flash")).toEqual({ thinking: { type: "enabled" } });
+    expect(reasoningParamsForModel("glm-5.2")).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "max" });
+    expect(reasoningParamsForModel("GLM-5.3-FLASH")).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "max" });
+    // No unknown fields for models without a thinking mode - strict
+    // endpoints must never see a parameter they do not implement.
+    expect(reasoningParamsForModel("ministral-14b-latest")).toEqual({});
+    expect(reasoningParamsForModel("open-mistral-nemo")).toEqual({});
+  });
+
+  it("sends the thinking fields to the provider for a GLM-family model", async () => {
+    process.env.ZAI_API_KEY = "sk-zai-test-key-0123456789abcdef0123456789";
+    process.env.ZAI_DEFAULT_MODEL = "glm-5.3-flash";
+    let requestBody: Record<string, unknown> = {};
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/models")) return modelsResponse();
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "Thought it through." } }] }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }) as unknown as typeof fetch;
+    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    expect(result.text).toBe("Thought it through.");
+    expect(requestBody.model).toBe("glm-5.3-flash");
+    expect(requestBody.thinking).toEqual({ type: "enabled" });
+    expect(requestBody.reasoning_effort).toBe("max");
   });
 });

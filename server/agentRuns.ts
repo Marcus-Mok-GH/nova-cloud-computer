@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { ENV } from "./_core/env";
-import { startAgentRunForUser, finishAgentRunForUser, holdAgentRunForContinue, appendChatMessageForUser, MAX_RUN_SEGMENTS } from "./db";
+import { startAgentRunForUser, finishAgentRunForUser, holdAgentRunForContinue, appendChatMessageForUser } from "./db";
 import { autoTitleChatForUser, runWorkspaceAgent, MAX_RUN_BUDGET_MS } from "./workspaceAgent";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
@@ -65,7 +65,7 @@ export async function executeTelegramAgentRun(input: ExecuteTelegramRunInput): P
       channel: "telegram",
       imageAttachments,
       deadlineAtMs,
-      continuationPlanned: canChain && run !== undefined && run.segment < MAX_RUN_SEGMENTS - 1,
+      continuationPlanned: canChain && run !== undefined,
       onChunk: async (chunk: string) => { streamedText += chunk; },
     });
     const reply = String(result.message?.content ?? streamedText ?? "I'm ready to help with this workspace.").trim();
@@ -87,11 +87,11 @@ export async function executeTelegramAgentRun(input: ExecuteTelegramRunInput): P
     if (run) {
       // A segment that ran out of budget with work remaining chains to a fresh
       // serverless invocation (a new 300s budget) via the continuation
-      // endpoint, up to the segment limit. If the chain cannot be scheduled,
+      // endpoint, for as many segments as the task needs. If the chain cannot be scheduled,
       // the run closes completed and the user is told to send "continue" -
       // the deadline status they already received assumed an automatic
       // continuation was on its way.
-      const canContinue = Boolean(result.outOfBudget) && run.segment < MAX_RUN_SEGMENTS - 1 && canChain;
+      const canContinue = Boolean(result.outOfBudget) && canChain;
       if (delivered && canContinue) {
         const held = await holdAgentRunForContinue(ownerId, run.id).catch(() => undefined);
         const scheduled = held ? await scheduleContinuation(run.id, run.segment) : false;
@@ -159,7 +159,7 @@ export async function executeWebAgentRun(
       channel: "web",
       imageAttachments,
       deadlineAtMs,
-      continuationPlanned: canChain && run !== undefined && run.segment < MAX_RUN_SEGMENTS - 1,
+      continuationPlanned: canChain && run !== undefined,
       onChunk,
       onEvent,
     });
@@ -167,7 +167,7 @@ export async function executeWebAgentRun(
       // A segment that ran out of budget with work remaining chains to a
       // fresh serverless invocation, exactly like the Telegram path - the
       // only difference is there is no external message to send.
-      const canContinue = Boolean(result.outOfBudget) && run.segment < MAX_RUN_SEGMENTS - 1 && canChain;
+      const canContinue = Boolean(result.outOfBudget) && canChain;
       if (canContinue) {
         const held = await holdAgentRunForContinue(ownerId, run.id).catch(() => undefined);
         const scheduled = held ? await scheduleContinuation(run.id, run.segment) : false;

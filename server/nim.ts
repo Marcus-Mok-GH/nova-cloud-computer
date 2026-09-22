@@ -27,6 +27,23 @@ export function isNimConfigured() {
   return ENV.nimApiKey.trim().length > 0;
 }
 
+/**
+ * NIM-served models with a documented deep-reasoning parameter. Kimi K3 (the
+ * default coder model) takes `reasoning_effort: "max"` in the OpenAI-style
+ * payload (per NVIDIA's own kimi-k3 example); K2.5+ thinking models accept
+ * the same field. Other NIM models (and self-hosted endpoints serving
+ * anything else) get no extra fields, so a strict endpoint can never be
+ * broken by an unknown parameter.
+ */
+const NIM_REASONING_MODEL_PATTERN = /kimi-k(3|[2-9]\.[5-9])/i;
+
+/** Deep-reasoning request fields for models that support them, else {}. */
+export function nimReasoningParamsForModel(modelId: string): Record<string, unknown> {
+  return NIM_REASONING_MODEL_PATTERN.test(modelId)
+    ? { reasoning_effort: "max" }
+    : {};
+}
+
 export type NimChatOptions = {
   /** The task prompt for the model - complete and self-contained. */
   prompt: string;
@@ -82,8 +99,9 @@ export type NimAgentChatOptions = {
 };
 
 export type NimAgentReply =
-  | { kind: "text"; text: string }
-  | { kind: "tool_calls"; text: string; toolCalls: NimAgentToolCall[] };
+  /** The reasoning text the model produced before its answer, when present. */
+  | { kind: "text"; text: string; reasoning?: string }
+  | { kind: "tool_calls"; text: string; toolCalls: NimAgentToolCall[]; reasoning?: string };
 
 /** The final text, tolerating a string or OpenAI-style content part array. */
 function extractText(content: unknown): string {
@@ -126,6 +144,7 @@ async function postNimChat(
   modelOverride?: string
 ): Promise<{ message?: { content?: unknown; tool_calls?: unknown } }> {
   const endpoint = nimChatEndpoint(modelOverride);
+  const model = modelOverride ?? ENV.nimCoderModel;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -133,8 +152,9 @@ async function postNimChat(
       authorization: `Bearer ${ENV.nimApiKey}`,
     },
     body: JSON.stringify({
-      model: modelOverride ?? ENV.nimCoderModel,
+      model,
       temperature: 0.2,
+      ...nimReasoningParamsForModel(model),
       ...body,
     }),
     signal: AbortSignal.timeout(timeoutMs),
@@ -153,9 +173,20 @@ async function postNimChat(
     throw failure;
   }
   const payload = (await response.json().catch(() => null)) as {
-    choices?: { message?: { content?: unknown; tool_calls?: unknown } }[];
+    choices?: { message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown } }[];
   } | null;
   return payload?.choices?.[0] ?? {};
+}
+
+/** The model's private reasoning text, when the endpoint returns one. */
+function extractReasoning(message: {
+  content?: unknown;
+  tool_calls?: unknown;
+  reasoning_content?: unknown;
+}): string {
+  return typeof message.reasoning_content === "string"
+    ? message.reasoning_content.trim()
+    : "";
 }
 
 /**
@@ -230,11 +261,12 @@ export async function runNimAgentChat(
     if (id && name) toolCalls.push({ id, name, arguments: args });
   }
   const text = extractText(message.message?.content);
+  const reasoning = extractReasoning(message.message ?? {});
   if (toolCalls.length > 0) {
-    return { kind: "tool_calls", text, toolCalls };
+    return { kind: "tool_calls", text, toolCalls, ...(reasoning ? { reasoning } : {}) };
   }
   if (!text) {
     throw new Error("NVIDIA NIM finished without a reply.");
   }
-  return { kind: "text", text };
+  return { kind: "text", text, ...(reasoning ? { reasoning } : {}) };
 }

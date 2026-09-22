@@ -67,7 +67,7 @@ async function handleTelegramUpdate(token: string, req: express.Request, res: We
  * of its serverless budget with work remaining, the finishing invocation
  * self-invokes this endpoint with an HMAC signature; the fresh invocation
  * claims the next segment atomically (one winner per awaiting_continue row,
- * bounded by the segment limit) and executes it with a new 300s budget.
+ * with no segment cap) and executes it with a new 300s budget.
  */
 app.post("/api/agent/continue", async (req, res) => {
   const secret = ENV.agentContinueSecret;

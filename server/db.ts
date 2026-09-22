@@ -892,16 +892,6 @@ export async function requestAgentStopForUser(ownerId: number) {
 }
 
 /** True when a stop request was recorded after `startedAt` for this workspace owner. */
-/** Total segments one user message may consume (the initial run plus continuations), bounding chained self-invocations. */
-/**
- * The hard cap on chained segments for one user message. Each segment gets its
- * own serverless invocation with a fresh ~285s budget, so this is the total
- * chained runtime one message may consume: 60 segments is just under 4.75
- * hours of continuous agent work. The cap exists only as runaway protection
- * (a model stuck in a loop must not bill the gateway indefinitely); when it
- * is finally reached the closing status tells the user to send "continue".
- */
-export const MAX_RUN_SEGMENTS = 60;
 
 /** Moves a just-delivered run to awaiting_continue so a continuation endpoint can claim its next segment. */
 export async function holdAgentRunForContinue(ownerId: number, runId: number) {
@@ -931,7 +921,8 @@ export interface AgentRunContinuationClaim {
  * Atomically claims the next segment of a segmented run: only an
  * awaiting_continue row at the expected segment flips back to running with
  * segment + 1, so concurrent or redelivered continuation requests can never
- * double-run a segment. Rows already at the segment limit cannot be claimed.
+ * double-run a segment. There is no segment cap: a run chains segments for as
+ * long as its task still has work (the user's /stop ends a runaway at any time).
  *
  * Delivery differs by channel: a Telegram run must resolve a bot token and
  * chat id to push its reply externally, so a claim that cannot resolve them
@@ -942,7 +933,10 @@ export interface AgentRunContinuationClaim {
 export async function claimAgentRunContinuation(runId: number, expectedSegment: number) {
   const db = await requireDb();
   const [claimed] = await db.update(agentRuns).set({ status: "running", segment: sql`${agentRuns.segment} + 1`, updatedAt: new Date() })
-    .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "awaiting_continue"), eq(agentRuns.segment, expectedSegment), lt(agentRuns.segment, MAX_RUN_SEGMENTS - 1)))
+    // No segment cap: agent runs are autonomous and may chain as many
+      // segments as the task needs (each claim still flips the row
+      // atomically, and /stop can end a runaway at any time).
+      .where(and(eq(agentRuns.id, runId), eq(agentRuns.status, "awaiting_continue"), eq(agentRuns.segment, expectedSegment)))
     .returning();
   if (!claimed) return undefined;
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, claimed.workspaceId));

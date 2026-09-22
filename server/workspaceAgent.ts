@@ -116,6 +116,18 @@ export const MAX_RUN_BUDGET_MS = 285_000;
 const DEADLINE_CLOSE_MODEL_CAP_MS = 8_000;
 /** Skip the final model round when less than this remains. */
 const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
+/**
+ * Thinking-block streaming cadence: reasoning-capable models emit their
+ * private reasoning as reasoning_content deltas, which are shown live as a
+ * collapsible thinking block (like the tool blocks). Deltas are coalesced -
+ * a persisted activity update goes out at most every 2s and only once a
+ * meaningful amount of new reasoning arrived - so watching the model think
+ * never floods the event stream or the chat ledger.
+ */
+const THINKING_EMIT_INTERVAL_MS = 2_000;
+const THINKING_MIN_DELTA_CHARS = 240;
+/** Cap on the reasoning text kept in a thinking block (reasoning can be long). */
+const THINKING_DETAIL_LIMIT = 20_000;
 
 /** Raised when a tool call is still running as the run deadline passes. */
 class RunDeadlineExceeded extends Error {
@@ -2305,6 +2317,8 @@ async function chatWithGatewayRetry(
     /** Model override for this round (e.g. the vision model on image turns). */
     model?: string;
     onChunk?: (chunk: string) => void;
+    /** Streams the model's private reasoning (reasoning_content) if present. */
+    onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
     /** Run deadline (epoch ms) - the patient rate-limit wait must fit. */
     deadlineAtMs?: number;
@@ -2320,6 +2334,7 @@ async function chatWithGatewayRetry(
       return await chatWithWorkspaceModel(ownerId, messages, {
         tools: options.tools,
         ...(options.model ? { model: options.model } : {}),
+        ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
           ? {
@@ -2699,11 +2714,54 @@ ${options.continuationPlanned
       // cleared by the no-vision recovery path below, rounds run on the
       // default chat model again.
       const visionModel = configuredVisionChatModel();
+      // This round's thinking block: reasoning-capable models stream their
+      // private reasoning (reasoning_content) before the answer or tool
+      // calls. It surfaces live as a collapsible "Thinking" block via the
+      // tool-activity pipeline (persisted like any activity, so a page
+      // reload replays it), and closes when the round settles.
+      let reasoningThisRound = "";
+      let reasoningEmittedChars = 0;
+      let reasoningLastEmitAt = 0;
+      // Serialize the emissions for this round's thinking block: each update
+      // chains after the previous one, so a slow "running" persist can never
+      // land after the final "completed" state and regress the activity.
+      let thinkingEmissions: Promise<unknown> = Promise.resolve();
+      const flushThinking = (state: "running" | "completed") => {
+        if (!reasoningThisRound) return;
+        if (state === "running") {
+          const now = Date.now();
+          if (
+            now - reasoningLastEmitAt < THINKING_EMIT_INTERVAL_MS ||
+            reasoningThisRound.length - reasoningEmittedChars <
+              THINKING_MIN_DELTA_CHARS
+          )
+            return;
+          reasoningLastEmitAt = now;
+        }
+        reasoningEmittedChars = reasoningThisRound.length;
+        thinkingEmissions = thinkingEmissions.then(() =>
+          emitTool({
+            id: `thinking-${round}`,
+            name: "thinking",
+            state,
+            args: {},
+            detail: reasoningThisRound.slice(0, THINKING_DETAIL_LIMIT),
+            ...(state === "completed"
+              ? { summary: "The model's thinking for this step." }
+              : {}),
+          })
+        );
+      };
+      const onReasoning = (chunk: string) => {
+        reasoningThisRound += chunk;
+        flushThinking("running");
+      };
       const runChatRound = () =>
         chatWithGatewayRetry(ownerId, messages, {
           tools: agentTools,
           ...(visionActive && visionModel ? { model: visionModel } : {}),
           ...(emitChunk ? { onChunk: emitChunk } : {}),
+          onReasoning,
           signal: stopController.signal,
           deadlineAtMs,
           retryState,
@@ -2725,6 +2783,8 @@ ${options.continuationPlanned
             : await raceToolDeadline(runChatRound, deadlineAtMs);
       } catch (error) {
         if (error instanceof RunDeadlineExceeded) {
+          flushThinking("completed");
+          await thinkingEmissions;
           reply = await composeDeadlineClose();
           streamedReplyChars = 0;
           closedByDeadline = true;
@@ -2733,9 +2793,18 @@ ${options.continuationPlanned
         if (
           stopController.signal.aborted &&
           (await hasAgentStopAfter(ownerId, runStartedAt))
-        )
+        ) {
+          flushThinking("completed");
+          await thinkingEmissions;
           return stopRun();
-        if (!visionActive) throw error;
+        }
+        if (!visionActive) {
+          // A terminal gateway error must not leave the thinking block
+          // stuck in its running state.
+          flushThinking("completed");
+          await thinkingEmissions;
+          throw error;
+        }
         // A model without vision rejects image parts outright: drop the
         // attachment instead of failing the run, and let the model say so.
         visionActive = false;
@@ -2755,6 +2824,8 @@ ${options.continuationPlanned
               : await raceToolDeadline(runChatRound, deadlineAtMs);
         } catch (error) {
           if (error instanceof RunDeadlineExceeded) {
+            flushThinking("completed");
+            await thinkingEmissions;
             reply = await composeDeadlineClose();
             streamedReplyChars = 0;
             closedByDeadline = true;
@@ -2763,6 +2834,10 @@ ${options.continuationPlanned
           throw error;
         }
       }
+      // Drain the queue before the round's tool calls or reply so the
+      // settled thinking block is persisted before anything follows it.
+      flushThinking("completed");
+      await thinkingEmissions;
       // Recover a tool call the model wrote out as text: run it as a real
       // call so the action executes instead of dumping raw JSON on the user.
       const recoveredCall =

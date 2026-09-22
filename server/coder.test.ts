@@ -169,21 +169,70 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome).toEqual({ kind: "single", code: "def solve(): pass", model: "moonshotai/kimi-k3" });
   });
 
-  it("stops at the round cap and reports exactly what was done", async () => {
+  it("has no step cap: keeps working past the old 12-round limit until the model summarizes", async () => {
     let calls = 0;
     runNimAgentChatMock.mockImplementation(async () => {
       calls += 1;
-      return toolCall(`c${calls}`, "list_files", {});
+      if (calls < 15) return toolCall(`c${calls}`, "list_files", {});
+      return textReply("All done.");
     });
 
     const outcome = await runAutonomousCoderTask({
-      task: "an endless task",
+      task: "a long task",
       sandbox: fakeSandbox() as never,
     });
 
-    expect(calls).toBe(12);
+    expect(calls).toBe(15);
     if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
-    expect(outcome.summary).toContain("ran out of steps");
+    expect(outcome.summary).toBe("All done.");
+    expect(outcome.rounds).toBe(15);
+  });
+
+  it("stops only when the segment budget runs out, reporting exactly what was done", async () => {
+    // Fake wall clock: each model call appears to consume 20s of a 100s
+    // budget, so the loop breaks on the reserve check (deterministically)
+    // after 4 calls instead of spinning forever on instant mocks.
+    const startedAt = Date.now();
+    const realNow = Date.now;
+    let calls = 0;
+    Date.now = () => startedAt + calls * 20_000;
+    try {
+      runNimAgentChatMock.mockImplementation(async () => {
+        calls += 1;
+        return toolCall(`c${calls}`, "list_files", {});
+      });
+
+      const outcome = await runAutonomousCoderTask({
+        task: "an endless task",
+        sandbox: fakeSandbox() as never,
+        deadlineAtMs: startedAt + 100_000,
+      });
+
+      // The reserve (30s) is already deducted from the budget, so the
+      // fourth round never starts: 3 calls, then the honest report.
+      expect(calls).toBe(3);
+      if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+      expect(outcome.summary).toContain("full time budget");
+      expect(outcome.rounds).toBe(3);
+      expect(outcome.writtenPaths).toEqual([]);
+      expect(outcome.commandsRun).toBe(0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("reports honestly when there is no time left to start instead of claiming failed work", async () => {
+    const outcome = await runAutonomousCoderTask({
+      task: "a task delegated with the segment already over",
+      sandbox: fakeSandbox() as never,
+      deadlineAtMs: Date.now() - 1_000,
+    });
+
+    expect(runNimAgentChatMock).not.toHaveBeenCalled();
+    if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("could not start");
+    expect(outcome.summary).toContain("0 file(s)");
+    expect(outcome.rounds).toBe(0);
     expect(outcome.writtenPaths).toEqual([]);
   });
 

@@ -7,6 +7,7 @@ import {
   completeWithMistralGateway,
   MistralGatewayClientError,
   readGatewayStreamedChatResult,
+  reasoningParamsForModel,
   sanitizeGatewayError,
   type GatewayChatMessage,
   type GatewayChatResult,
@@ -206,6 +207,7 @@ export async function chatWithCustomModel(
   options: {
     tools?: GatewayToolDefinition[];
     onChunk?: (chunk: string) => void;
+    onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
@@ -219,6 +221,10 @@ export async function chatWithCustomModel(
         body: JSON.stringify({
           model: model.modelId,
           messages,
+          // Same per-model deep-thinking logic as the built-in gateway: a
+          // GLM-family custom model thinks at maximum effort; anything else
+          // sends no unknown fields to the user's own endpoint.
+          ...reasoningParamsForModel(model.modelId),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),
@@ -239,7 +245,7 @@ export async function chatWithCustomModel(
   const EMPTY_COMPLETION_RETRIES = 1;
   if (options.onChunk) {
     let streamed:
-      | { text: string; toolCalls: GatewayToolCall[] }
+      | { text: string; toolCalls: GatewayToolCall[]; reasoning: string }
       | null = null;
     let upstreamError: string | null = null;
     for (
@@ -252,7 +258,8 @@ export async function chatWithCustomModel(
       const attemptResult = await readGatewayStreamedChatResult(
         response,
         model.modelId,
-        options.onChunk
+        options.onChunk,
+        options.onReasoning
       );
       if (attemptResult.text || attemptResult.toolCalls.length) {
         streamed = attemptResult;
@@ -281,6 +288,7 @@ export async function chatWithCustomModel(
     return {
       text: streamed.text,
       toolCalls: streamed.toolCalls,
+      ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
       model: model.modelId,
       usage: null,
       allowance: BYOK_ALLOWANCE,
@@ -288,7 +296,7 @@ export async function chatWithCustomModel(
   }
 
   let buffered:
-    | { text: string; toolCalls: GatewayToolCall[]; payload: Record<string, unknown> }
+    | { text: string; toolCalls: GatewayToolCall[]; payload: Record<string, unknown>; reasoning?: string }
     | null = null;
   let bufferedUpstreamError: string | null = null;
   for (
@@ -326,8 +334,19 @@ export async function chatWithCustomModel(
             ? call.function.arguments
             : "{}",
       }));
+    const bufferedReasoning =
+      typeof (choice as { reasoning_content?: unknown } | undefined)
+        ?.reasoning_content === "string"
+        ? (choice as { reasoning_content: string }).reasoning_content
+        : "";
+    if (bufferedReasoning) options.onReasoning?.(bufferedReasoning);
     if (text || toolCalls.length) {
-      buffered = { text, toolCalls, payload: (payload ?? {}) as Record<string, unknown> };
+      buffered = {
+        text,
+        toolCalls,
+        payload: (payload ?? {}) as Record<string, unknown>,
+        ...(bufferedReasoning ? { reasoning: bufferedReasoning } : {}),
+      };
       break;
     }
     bufferedUpstreamError =
@@ -349,6 +368,7 @@ export async function chatWithCustomModel(
   return {
     text: buffered.text,
     toolCalls: buffered.toolCalls,
+    ...(buffered.reasoning ? { reasoning: buffered.reasoning } : {}),
     model:
       (buffered.payload as { model?: string } | undefined)?.model ??
       model.modelId,
@@ -405,6 +425,7 @@ export async function chatWithWorkspaceModel(
     tools?: GatewayToolDefinition[];
     model?: string;
     onChunk?: (chunk: string) => void;
+    onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {

@@ -42,6 +42,13 @@ export function mergeToolActivity(
   incoming: ToolActivity
 ): ToolActivity {
   const merged: ToolActivity = { ...current, ...incoming };
+  // Thinking blocks carry the full accumulated reasoning in `detail` on
+  // every update, so they overwrite it wholesale instead of appending to
+  // the progress log like incremental tool progress notes do.
+  if (incoming.name === "thinking") {
+    merged.progressLog = undefined;
+    return merged;
+  }
   if (incoming.state === "running" && incoming.detail && incoming.detail !== current.detail) {
     merged.progressLog = [...(current.progressLog ?? []), incoming.detail];
   } else if (incoming.state !== "running") {

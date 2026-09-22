@@ -38,8 +38,7 @@ import {
   listAutomationsForUser,
   listAutomationRunsForUser,
   setAutomationScheduleTaskForUser,
-  updateAutomationForUser,
-} from "./db";
+  updateAutomationForUser, factoryResetWorkspaceForUser } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { getDeploymentStatusForUser } from "./siteDeploy";
@@ -137,6 +136,12 @@ export const appRouter = router({
       const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
       if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
+    }),
+    /** Factory reset: deletes every workspace file and folder and replaces
+     *  the persistent VM with a fresh machine. Guarded by a typed confirm. */
+    factoryReset: protectedProcedure.input(z.object({ confirm: z.string().trim().min(1, "Type RESET to confirm.") })).mutation(async ({ ctx, input }) => {
+      if (input.confirm !== "RESET") throw new TRPCError({ code: "BAD_REQUEST", message: "Type RESET to confirm the factory reset." });
+      return factoryResetWorkspaceForUser(ctx.user.id);
     }),
   }),
   composio: router({

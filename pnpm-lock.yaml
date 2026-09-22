@@ -61,6 +61,9 @@ importers:
       '@trpc/server':
         specifier: ^11.6.0
         version: 11.18.0(typescript@5.9.3)
+      '@vercel/analytics':
+        specifier: 2.0.1
+        version: 2.0.1(react@19.2.1)
       '@vercel/functions':
         specifier: ^3.9.8
         version: 3.9.8
@@ -2573,6 +2576,35 @@ packages:
 
   '@types/serve-static@1.15.9':
     resolution: {integrity: sha512-dOTIuqpWLyl3BBXU3maNQsS4A3zuuoYRNIvYSxxhebPfXg2mzWQEPne/nlJ37yOse6uGgR386uTpdsx4D0QZWA==}
+
+  '@vercel/analytics@2.0.1':
+    resolution: {integrity: sha512-MTQG6V9qQrt1tsDeF+2Uoo5aPjqbVPys1xvnIftXSJYG2SrwXRHnqEvVoYID7BTruDz4lCd2Z7rM1BdkUehk2g==}
+    peerDependencies:
+      '@remix-run/react': ^2
+      '@sveltejs/kit': ^1 || ^2
+      next: '>= 13'
+      nuxt: '>= 3'
+      react: ^18 || ^19 || ^19.0.0-rc
+      svelte: '>= 4'
+      vue: ^3
+      vue-router: ^4
+    peerDependenciesMeta:
+      '@remix-run/react':
+        optional: true
+      '@sveltejs/kit':
+        optional: true
+      next:
+        optional: true
+      nuxt:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+      vue-router:
+        optional: true
 
   '@vercel/build-utils@14.1.0':
     resolution: {integrity: sha512-Bxwkv5phTRgU1QZ3NHzxjC6mLWJYqtYExkm/OS6Si2t3EhLFN+wls8U0oMmCrg2nXANkB1S+eXrbeu8hCcXV0A==}
@@ -6714,6 +6746,10 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 24.7.0
       '@types/send': 0.17.5
+
+  '@vercel/analytics@2.0.1(react@19.2.1)':
+    optionalDependencies:
+      react: 19.2.1
 
   '@vercel/build-utils@14.1.0':
     dependencies:

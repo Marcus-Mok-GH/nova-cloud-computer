@@ -30,6 +30,7 @@
     "@trpc/client": "^11.6.0",
     "@trpc/react-query": "^11.6.0",
     "@trpc/server": "^11.6.0",
+    "@vercel/analytics": "2.0.1",
     "@vercel/functions": "^3.9.8",
     "@vercel/node": "^5.10.0",
     "@xterm/addon-fit": "^0.10.0",

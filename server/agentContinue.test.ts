@@ -45,7 +45,6 @@ vi.mock("./db", () => ({
   finishAgentRunForUser: spies.finishAgentRunForUser,
   holdAgentRunForContinue: spies.holdAgentRunForContinue,
   claimAgentRunContinuation: spies.claimAgentRunContinuation,
-  MAX_RUN_SEGMENTS: 4,
 }));
 
 vi.mock("./workspaceAgent", () => ({
@@ -343,7 +342,7 @@ describe("Segment chaining inside the runner", () => {
       expect.objectContaining({ channel: "web", continuationPlanned: true })
     );
     expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 602);
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed", undefined);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed");
   });
 
   it("closes a web run completed and tells the chat to resume manually when scheduling fails", async () => {
@@ -377,36 +376,30 @@ describe("Segment chaining inside the runner", () => {
     }
   });
 
-  it("does not chain past the last allowed segment", async () => {
-    spies.runWorkspaceAgent.mockResolvedValue({ message: { content: "Still working." }, actions: [], outOfBudget: true });
-    spies.claimAgentRunContinuation.mockResolvedValue({
-      runId: 501,
-      segment: 3,
-      chatId: 3,
+  it("chains with no segment cap - a run at any depth keeps going", async () => {
+    // Segment 59 once sat at the old 60-segment cap and stopped the chain;
+    // runs are now autonomous and unbounded, so a deep segment must still
+    // promise and schedule its next continuation exactly like segment 0.
+    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Still working." }, actions: [], outOfBudget: true });
+    const result = await executeWebAgentRun({
       ownerId: 7,
-      token: "bot-token",
-      telegramChatId: "42",
+      chatId: 3,
+      content: CONTINUATION_PROMPT,
+      requestStartedAtMs: Date.now(),
+      continuation: { runId: 701, segment: 59 },
     });
-    // the describe-level stub would fake the endpoint's own response.
-    globalThis.fetch = realFetch as unknown as typeof fetch;
-    try {
-      const response = await signedPost(baseUrl, { runId: 501, segment: 2 });
-      expect(response.status).toBe(202);
-      await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[2] === "completed"));
-      // Segment 3 is MAX_RUN_SEGMENTS - 1: the chain must stop there.
-      expect(spies.holdAgentRunForContinue).not.toHaveBeenCalled();
-      expect(continuationFetches.length).toBe(0);
-      const closeCall = spies.finishAgentRunForUser.mock.calls.find(call => call[2] === "completed");
-      expect(closeCall?.[0]).toBe(7);
-      expect(closeCall?.[1]).toBe(501);
-    } finally {
-      globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
-        if (String(url).includes("/api/agent/continue")) {
-          continuationFetches.push({ url: String(url), body: String(init?.body), signature: String(init?.headers?.["x-nova-signature"] ?? "") });
-          return new Response(JSON.stringify({ ok: true }), { status: 202 });
-        }
-        return realFetch(url as string, init as RequestInit | undefined);
-      }) as unknown as typeof fetch;
-    }
+    expect(result.runId).toBe(701);
+    expect(spies.runWorkspaceAgent).toHaveBeenCalledWith(
+      7,
+      3,
+      CONTINUATION_PROMPT,
+      expect.objectContaining({ channel: "web", continuationPlanned: true })
+    );
+    expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 701);
+    expect(continuationFetches.length).toBe(1);
+    expect(JSON.parse(continuationFetches[0].body)).toEqual({ runId: 701, segment: 59 });
+    // The chain carried the work on: the run is held for its next
+    // segment, not closed as completed.
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 701, "completed");
   });
 });

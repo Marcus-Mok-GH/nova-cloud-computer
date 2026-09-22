@@ -70,6 +70,7 @@ export function toolLineText(activity: ToolActivity): string {
     case "run_vm_task": return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
     case "research_web": return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
     case "code_task": return task ? `Code Task: ${brief(task)}` : "Code Task";
+    case "thinking": return "Thinking";
     case "browse": {
       const cleaned = s(args.command).replace(/^agent-browser\s+/, "");
       return cleaned ? `Browse: ${brief(cleaned)}` : "Browse";
@@ -87,6 +88,71 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
       <span className="min-w-0 truncate">{toolLineText(activity)}{activity.state === "failed" ? " (failed)" : ""}</span>
     </div>
   );
+}
+
+/**
+ * thinking blocks: the private reasoning a reasoning-capable model streams
+ * before its answer (reasoning_content), as a collapsible panel like the
+ * research and code_task blocks. While the model thinks it starts open with
+ * the live reasoning text; when the round settles it collapses so the
+ * answer leads, and expands again for the full reasoning on demand.
+ */
+export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
+  const running = activity.state === "running";
+  const [open, setOpen] = useState(running);
+  // Collapse when the round settles so the finished answer leads the panel.
+  useEffect(() => {
+    if (activity.state !== "running") setOpen(false);
+  }, [activity.state]);
+  return (
+    <div data-testid="thinking-tool-activity" className="flex w-full min-w-0 flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <span data-testid="thinking-tool-activity-line" className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+          {running ? (
+            <CircleDashed className="size-3 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+          ) : (
+            <CheckCircle2 className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          )}
+          <span className="min-w-0 truncate italic">Thinking</span>
+        </span>
+        <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div data-testid="thinking-detail-panel" className="mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
+          {activity.detail ? (
+            <div className="break-words text-sm leading-6 text-foreground">
+              <MarkdownText text={activity.detail} />
+            </div>
+          ) : (
+            <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+              The model is thinking…
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Whether an activity renders as an expandable panel rather than a one-line
+ * chip: the sub-agent specialists and the model's thinking blocks.
+ */
+export function isPanelToolActivity(name: string): boolean {
+  return name === "code_task" || name === "research_web" || name === "thinking";
+}
+
+/** Renders the matching panel component for a panel-style activity. */
+export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
+  if (activity.name === "code_task") return <CodeTaskToolActivity activity={activity} />;
+  if (activity.name === "research_web") return <ResearchToolActivity activity={activity} />;
+  return <ThinkingToolActivity activity={activity} />;
 }
 
 /**

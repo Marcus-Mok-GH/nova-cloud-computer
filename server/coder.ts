@@ -124,9 +124,13 @@ const CODER_TOOLS: NimAgentTool[] = [
   },
 ];
 
-const MAX_TOOL_ROUNDS = 12;
-/** Wall-clock budget for the whole autonomous loop when the caller passes none. */
-const AUTONOMOUS_BUDGET_MS = 8 * 60_000;
+/**
+ * No fixed step or time cap: the specialist loops until it replies with a
+ * final summary, bounded only by the caller's segment deadline (which the
+ * run chains past automatically via continuations). The step cap used to
+ * stop mid-task autonomous specialists with a misleading "ran out of
+ * steps" message even when the run had budget left to continue.
+ */
 /** Never start a model call that cannot finish before the deadline. */
 const MIN_CALL_RESERVE_MS = 30_000;
 const READ_LIMIT = 16_000;
@@ -347,22 +351,25 @@ export async function runAutonomousCoderTask(
   ];
   const writtenPaths = new Set<string>();
   let commandsRun = 0;
+  // No time cap of its own: with a deadline the specialist uses the full
+  // remaining segment budget (minus the reserve the final summary needs);
+  // without one it runs until the final summary, however long that takes.
   const budgetEndMs =
     options.deadlineAtMs !== undefined
-      ? Math.min(options.deadlineAtMs - MIN_CALL_RESERVE_MS, Date.now() + AUTONOMOUS_BUDGET_MS)
-      : Date.now() + AUTONOMOUS_BUDGET_MS;
+      ? options.deadlineAtMs - MIN_CALL_RESERVE_MS
+      : Number.POSITIVE_INFINITY;
+  let roundsRun = 0;
 
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+  while (true) {
     const remainingMs = budgetEndMs - Date.now();
     if (remainingMs < MIN_CALL_RESERVE_MS) break;
-    const lastRound = round === MAX_TOOL_ROUNDS - 1;
+    const round = roundsRun;
+    roundsRun += 1;
     let reply;
     try {
       reply = await runNimAgentChat({
         messages,
-        // On the last round the tools are withheld so the model must stop
-        // and summarize instead of starting work it cannot finish.
-        tools: lastRound ? [] : CODER_TOOLS,
+        tools: CODER_TOOLS,
         maxTokens: 8192,
         timeoutMs: Math.min(240_000, Math.max(30_000, remainingMs - 15_000)),
       });
@@ -389,11 +396,23 @@ export async function runAutonomousCoderTask(
           }). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
           writtenPaths: Array.from(writtenPaths).sort(),
           commandsRun,
-          rounds: round,
+          // roundsRun counts every attempted request (the zero-based
+          // round index would underreport by one).
+          rounds: roundsRun,
           model: ENV.nimCoderModel,
         };
       }
       throw error;
+    }
+    // Kimi's thinking (max reasoning is requested for reasoning-capable
+    // models) streams into the caller's progress notes so the user can watch
+    // the specialist reason inside the code_task panel, like its file writes
+    // and commands.
+    if (reply.reasoning) {
+      const flat = reply.reasoning.replace(/\s+/g, " ").trim();
+      options.onProgress?.(
+        `Thinking: ${flat.slice(0, 300)}${flat.length > 300 ? "…" : ""}`
+      );
     }
     if (reply.kind === "text") {
       return {
@@ -401,7 +420,7 @@ export async function runAutonomousCoderTask(
         summary: reply.text,
         writtenPaths: Array.from(writtenPaths).sort(),
         commandsRun,
-        rounds: round + 1,
+        rounds: roundsRun,
         model: ENV.nimCoderModel,
       };
     }
@@ -429,17 +448,34 @@ export async function runAutonomousCoderTask(
     }
   }
 
-  // The budget or round cap ran out before a final summary: report exactly
-  // what was done so the calling agent can verify and finish the story.
+  // The segment budget ran out before a final summary: report exactly what
+  // was done so the calling agent can verify and finish the story. There is
+  // no step cap any more, so this branch is purely about time - and when the
+  // specialist never even started (the main agent delegated with the segment
+  // already nearly over), say that plainly instead of implying it tried and
+  // failed: the automatic continuation will retry with a fresh budget.
+  if (roundsRun === 0) {
+    return {
+      kind: "autonomous",
+      summary:
+        "The coding specialist could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call code_task again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.",
+      writtenPaths: [],
+      commandsRun: 0,
+      rounds: 0,
+      model: ENV.nimCoderModel,
+    };
+  }
   return {
     kind: "autonomous",
     summary:
-      `The specialist ran out of steps before writing a final summary. It wrote ${
+      `The specialist used this segment's full time budget before writing a final summary (${
+        roundsRun
+      } round(s)). It wrote ${
         writtenPaths.size
-      } file(s) and ran ${commandsRun} command(s). Verify the changed files and finish the task yourself.`,
+      } file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`,
     writtenPaths: Array.from(writtenPaths).sort(),
     commandsRun,
-    rounds: MAX_TOOL_ROUNDS,
+    rounds: roundsRun,
     model: ENV.nimCoderModel,
   };
 }

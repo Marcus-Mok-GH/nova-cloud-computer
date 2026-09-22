@@ -150,6 +150,25 @@ function configuredGatewayToken() {
   return zaiGatewayToken() ?? mistralGatewayToken();
 }
 
+/**
+ * Best-effort upstream error text from an OpenAI-compatible error payload.
+ * Multi-gateway relays (like the Kilo AI gateway) wrap the provider's real
+ * error in error.metadata.raw behind a generic message ("Provider returned
+ * error"), so prefer the raw text when it is present.
+ */
+function gatewayErrorMessageFromPayload(
+  payload: unknown
+): string | undefined {
+  const error = (payload as { error?: unknown } | undefined)?.error;
+  if (typeof error === "string") return error.slice(0, ERROR_MESSAGE_LIMIT);
+  const record = error as
+    | { message?: unknown; metadata?: { raw?: unknown } }
+    | undefined;
+  const raw = typeof record?.metadata?.raw === "string" ? record.metadata.raw : undefined;
+  const message = typeof record?.message === "string" ? record.message : undefined;
+  return (raw ?? message)?.slice(0, ERROR_MESSAGE_LIMIT) || undefined;
+}
+
 /** Best-effort human-readable description of a failed Mistral HTTP response. */
 function describeMistralError(
   payload: unknown,
@@ -217,11 +236,16 @@ async function gatewayFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  target?: { baseUrl: string; token?: string }
 ) {
-  const baseUrl = configuredGatewayUrl();
-  const token = configuredGatewayToken();
-  if (!baseUrl || !token)
+  // The primary gateway target is resolved lazily so a call with an explicit
+  // anonymous target (the Kilo tier) never requires a configured credential.
+  const resolvedTarget = target ?? {
+    baseUrl: configuredGatewayUrl(),
+    token: configuredGatewayToken(),
+  };
+  if (!resolvedTarget.baseUrl || (!target && !resolvedTarget.token))
     throw new MistralGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must configure the server-only gateway connection.",
       "configuration"
@@ -233,9 +257,18 @@ async function gatewayFetch(
   if (externalSignal?.aborted) controller.abort();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${baseUrl}${path}`, {
+    return await fetch(`${resolvedTarget.baseUrl}${path}`, {
       ...init,
-      headers: { ...serviceHeaders(token), ...init.headers },
+      // Anonymous targets carry no token: the gateway serves their free
+      // models without credentials, and a bogus Authorization header would
+      // be rejected outright.
+      headers: {
+        ...(resolvedTarget.token
+          ? { Authorization: `Bearer ${resolvedTarget.token}` }
+          : {}),
+        "Content-Type": "application/json",
+        ...init.headers,
+      },
       signal: controller.signal,
     });
   } catch (error) {
@@ -483,6 +516,84 @@ export function configuredLastResortModel(): string | undefined {
 }
 
 /**
+ * Zero-key last-resort tier for Z.ai deployments: when the whole Z.ai chain
+ * (default, text fallback, last resort) is congested, the request is retried
+ * anonymously on the Kilo AI gateway, whose OpenAI-compatible endpoint serves
+ * ":free" models without any credential (200 requests/hour per IP upstream).
+ * The hop models were live-probed for tool calling, clean streamed output,
+ * and low congestion: cohere/north-mini-code (fast agentic coder, ~0.7s) is
+ * the text hop and inclusionai/ling-3.0-flash-vl (vision-capable, steady
+ * availability) is the floor. The vision hop also serves text-only turns, so
+ * it doubles as the text chain's second attempt; image turns skip the text
+ * hop entirely because a text-only model would reject the image input and
+ * abort the attempt. Anonymous tier only: this never uses a Kilo credential,
+ * so it cannot regress to a billed path.
+ */
+export const KILO_API_BASE_URL = "https://api.kilo.ai/api/gateway";
+export const KILO_ANONYMOUS_MODEL_ID = "cohere/north-mini-code:free";
+export const KILO_ANONYMOUS_VISION_MODEL_ID = "inclusionai/ling-3.0-flash-vl:free";
+
+/**
+ * Operator override for the Kilo gateway base URL, mirroring the primary
+ * gateway's https-only validation. An invalid value silently disables the
+ * anonymous tier (the chain keeps its pre-Kilo behaviour) rather than
+ * breaking the configured primary path.
+ */
+function configuredKiloGatewayUrl() {
+  const raw = process.env.KILO_GATEWAY_URL?.trim() || KILO_API_BASE_URL;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return undefined;
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+/** One hop id from an env override; "off"/"none"/"" removes the hop. */
+function kiloHopModel(
+  override: string | undefined,
+  fallback: string
+): string | undefined {
+  const value = override?.trim();
+  if (value === undefined) return fallback;
+  if (!value || value.toLowerCase() === "off" || value.toLowerCase() === "none")
+    return undefined;
+  return value;
+}
+
+/**
+ * Ordered Kilo anonymous hop ids for one chat turn. Vision turns (resolved
+ * to the vision model) only try the vision-capable hop; text turns try the
+ * coding hop first and the vision hop as the floor. Returns an empty list
+ * when every hop is disabled via env override.
+ */
+export function configuredKiloAnonymousHopModels(resolvedModel: string): string[] {
+  const text = kiloHopModel(
+    process.env.KILO_ANONYMOUS_MODEL,
+    KILO_ANONYMOUS_MODEL_ID
+  );
+  const vision = kiloHopModel(
+    process.env.KILO_ANONYMOUS_VISION_MODEL,
+    KILO_ANONYMOUS_VISION_MODEL_ID
+  );
+  const visionTurn =
+    !!resolvedModel && resolvedModel === configuredVisionChatModel();
+  const hops = visionTurn ? [vision] : [text, vision];
+  return Array.from(new Set(hops.filter((model): model is string => !!model)));
+}
+
+/**
+ * The anonymous Kilo target, or undefined when the deployment is not in Z.ai
+ * mode or the gateway URL is misconfigured. Carries no token on purpose: the
+ * free models are served without credentials.
+ */
+function kiloGatewayTarget(): { baseUrl: string; token?: string } | undefined {
+  const baseUrl = configuredKiloGatewayUrl();
+  return baseUrl ? { baseUrl } : undefined;
+}
+
+/**
  * Pool-overload degradation window: after the resolved chat model fails with
  * an upstream overload (HTTP 429 - z.ai error 1305 free-pool congestion),
  * later requests skip straight to the pool-fallback model until this many
@@ -655,8 +766,7 @@ async function readGatewayStreamedCompletion(
       }
     | undefined;
   if (!response.ok) {
-    const message =
-      payload && "error" in payload ? payload.error?.message : undefined;
+    const message = gatewayErrorMessageFromPayload(payload);
     throw new MistralGatewayClientError(
       message ??
         describeMistralError(payload, response.status) ??
@@ -709,7 +819,10 @@ export async function completeWithMistralGateway(
     );
   }
   const resolvedModel = modelId?.trim() || status.model;
-  return attemptWithPoolFallback(status, claim, resolvedModel, async model => {
+  const postPromptCompletion = async (
+    model: string,
+    target?: { baseUrl: string; token?: string }
+  ) => {
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
     body: JSON.stringify({
@@ -717,7 +830,7 @@ export async function completeWithMistralGateway(
       messages: [{ role: "user", content: prompt }],
       ...(onChunk ? { stream: true } : {}),
     }),
-  });
+  }, REQUEST_TIMEOUT_MS, undefined, target);
   if (onChunk) {
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -754,8 +867,7 @@ export async function completeWithMistralGateway(
       }
     | undefined;
   if (!response.ok) {
-    const message =
-      payload && "error" in payload ? payload.error?.message : undefined;
+    const message = gatewayErrorMessageFromPayload(payload);
     throw new MistralGatewayClientError(
       message ??
         describeMistralError(payload, response.status) ??
@@ -794,7 +906,15 @@ export async function completeWithMistralGateway(
         claim.usedRequests >= status.allowance.maxRequests,
     },
   };
-  });
+  };
+  const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
+  return attemptWithPoolFallback(
+    status,
+    claim,
+    resolvedModel,
+    model => postPromptCompletion(model),
+    kiloTarget ? model => postPromptCompletion(model, kiloTarget) : undefined
+  );
 }
 
 export type GatewayToolDefinition = {
@@ -1084,7 +1204,8 @@ async function attemptWithPoolFallback<T>(
     Awaited<ReturnType<typeof claimMistralInferenceRequestForUser>>
   >,
   resolvedModel: string,
-  attempt: (model: string) => Promise<T>
+  attempt: (model: string) => Promise<T>,
+  kiloAttempt?: (model: string) => Promise<T>
 ): Promise<T> {
   const poolFallback = configuredTextFallbackModel();
   const lastResort = configuredLastResortModel();
@@ -1106,25 +1227,62 @@ async function attemptWithPoolFallback<T>(
     } catch (error) {
       const isOverload =
         error instanceof MistralGatewayClientError && error.kind === "rate_limit";
-      if (!isOverload || index + 1 >= chain.length) {
-        // Every pool in the chain is congested (or the failure is not an
-        // overload): end the degradation window so the next request retries
-        // the primary model instead of pinning to a dead pool.
-        if (isOverload && poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
+      if (!isOverload) throw error;
+      if (index + 1 < chain.length) {
+        if (chain[index] === resolvedModel) {
+          poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
+          console.warn(
+            `[Mistral gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
+              POOL_DEGRADE_MS / 60_000
+            }m`
+          );
+        } else {
+          console.warn(
+            `[Mistral gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
+          );
+        }
+        continue;
+      }
+      // Every pool in the Z.ai chain is congested: try the zero-key Kilo
+      // anonymous tier before giving up (Z.ai deployments only).
+      const hops = kiloAttempt
+        ? configuredKiloAnonymousHopModels(resolvedModel)
+        : [];
+      if (!kiloAttempt || hops.length === 0) {
+        // No zero-key tier available (or every hop is disabled): end the
+        // degradation window so the next request retries the primary model
+        // instead of pinning to a dead pool.
+        if (poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
         throw error;
       }
-      if (chain[index] === resolvedModel) {
-        poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
-        console.warn(
-          `[Mistral gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
-            POOL_DEGRADE_MS / 60_000
-          }m`
-        );
-      } else {
-        console.warn(
-          `[Mistral gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
-        );
+      for (let hopIndex = 0; hopIndex < hops.length; hopIndex += 1) {
+        try {
+          const result = await kiloAttempt(hops[hopIndex]);
+          // Keep the degradation window open: the primary pools are still
+          // congested, so the next request should skip straight past them
+          // (and reach this tier again) instead of re-probing each dead pool.
+          console.warn(
+            `[Mistral gateway] Z.ai chain fully congested - served by the Kilo anonymous tier ${hops[hopIndex]}`
+          );
+          return result;
+        } catch (kiloError) {
+          const kiloOverload =
+            kiloError instanceof MistralGatewayClientError &&
+            kiloError.kind === "rate_limit";
+          if (!kiloOverload) throw kiloError;
+          if (hopIndex + 1 < hops.length) {
+            console.warn(
+              `[Mistral gateway] Kilo anonymous hop ${hops[hopIndex]} also overloaded - trying ${hops[hopIndex + 1]}`
+            );
+            continue;
+          }
+          // The zero-key floor is congested too: end the degradation window
+          // so the next request retries the primary model.
+          if (poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
+          throw kiloError;
+        }
       }
+      throw new Error("unreachable");
     }
   }
   throw new Error("unreachable");
@@ -1164,8 +1322,16 @@ export async function chatWithMistralGateway(
     );
   }
   const resolvedModel = options.model?.trim() || status.model;
-  return attemptWithPoolFallback(status, claim, resolvedModel, model =>
-    attemptGatewayChat(status, claim, messages, options, model)
+  const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
+  return attemptWithPoolFallback(
+    status,
+    claim,
+    resolvedModel,
+    model => attemptGatewayChat(status, claim, messages, options, model),
+    kiloTarget
+      ? model =>
+          attemptGatewayChat(status, claim, messages, options, model, kiloTarget)
+      : undefined
   );
 }
 
@@ -1186,7 +1352,8 @@ async function attemptGatewayChat(
     onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
   },
-  resolvedModel: string
+  resolvedModel: string,
+  target?: { baseUrl: string; token?: string }
 ): Promise<GatewayChatResult> {
   // The gateway occasionally returns a 200 completion with no text and no
   // tool calls (seen on long tool-calling runs). One automatic retry absorbs
@@ -1208,7 +1375,8 @@ async function attemptGatewayChat(
         }),
       },
       CHAT_REQUEST_TIMEOUT_MS,
-      options.signal
+      options.signal,
+      target
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";
@@ -1230,8 +1398,7 @@ async function attemptGatewayChat(
           | GatewayCompletion
           | { error?: { message?: string } }
           | undefined;
-        const message =
-          payload && "error" in payload ? payload.error?.message : undefined;
+        const message = gatewayErrorMessageFromPayload(payload);
         throw new MistralGatewayClientError(
           message ??
             describeMistralError(payload, response.status) ??
@@ -1308,10 +1475,7 @@ async function attemptGatewayChat(
         | GatewayCompletion
         | { error?: { message?: string } }
         | undefined;
-      const message =
-        errorPayload && "error" in errorPayload
-          ? errorPayload.error?.message
-          : undefined;
+      const message = gatewayErrorMessageFromPayload(errorPayload);
       throw new MistralGatewayClientError(
         message ??
           describeMistralError(errorPayload, response.status) ??

@@ -2768,6 +2768,91 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain("coming along");
   });
 
+  it("resolves dotfiles like .env without stripping the leading dot", async () => {
+    // normalizeWorkspaceRef used to strip leading dots, mapping ".env" to
+    // "env" and making the dotfile unresolvable.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [],
+      files: [{ id: 90, name: ".env", content: "KEY=1", folderId: null }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "read_file",
+              arguments: JSON.stringify({ file: ".env" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Got your env file." }));
+    await runWorkspaceAgent(1, 3, "read my env file");
+    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    expect(toolResult.content).toContain("Content of .env");
+    expect(toolResult.content).toContain("KEY=1");
+  });
+
+  it("refuses to delete a basename match from the wrong folder in strict mode", async () => {
+    // delete_file("wrong-folder/report.md") must not fall back to deleting
+    // the first report.md it finds elsewhere.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "reports", parentId: null }],
+      files: [{ id: 90, name: "report.md", content: "quarter", folderId: 22 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "delete_file",
+              arguments: JSON.stringify({ file: "wrong-folder/report.md" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "That path does not exist, so nothing was deleted." })
+      );
+    const result = await runWorkspaceAgent(1, 3, "delete my report");
+    expect(deleteFile).not.toHaveBeenCalled();
+    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    expect(toolResult.content).toContain("File not found: wrong-folder/report.md.");
+    expect(toolResult.content).toContain("reports/report.md (id 90)");
+    expect(result.actions).toEqual([]);
+  });
+
+  it("deletes a path-qualified file when the folder matches exactly", async () => {
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [{ id: 22, name: "reports", parentId: null }],
+      files: [{ id: 90, name: "report.md", content: "quarter", folderId: 22 }],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "delete_file",
+              arguments: JSON.stringify({ file: "reports/report.md" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Deleted the report." }));
+    const result = await runWorkspaceAgent(1, 3, "delete my report");
+    expect(deleteFile).toHaveBeenCalledWith(1, 90);
+    expect(result.actions[0]).toMatchObject({ kind: "file", name: "report.md" });
+  });
+
   it("suggests the closest existing files when a read misses, instead of a bare not-found", async () => {
     // "ph-meter/index.html" does not exist, but "ph-meter-2.html" does: the
     // refusal must name it so the model stops guessing path variants.

@@ -411,7 +411,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name or id to rename." },
+          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to rename." },
           new_name: {
             type: "string",
             description: "The new file name, including its extension.",
@@ -429,7 +429,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name or id to move." },
+          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to move." },
           folder: {
             type: "string",
             description: "Target folder name or id.",
@@ -447,7 +447,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name or id to delete." },
+          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to delete." },
         },
         required: ["file"],
       },
@@ -885,7 +885,7 @@ function resolveFolder(
  * name, an id, or a path like "folder-name/index.html" (optionally prefixed
  * with "./" or "/"). Returns lowercase, no leading/trailing slashes. */
 function normalizeWorkspaceRef(raw: string): string {
-  return raw.trim().replace(/^[./]+/, "").replace(/\/+$/, "").toLowerCase();
+  return raw.trim().replace(/^(?:\.?\/)+/, "").replace(/\/+$/, "").toLowerCase();
 }
 
 type FolderRowLike = { id: number; name: string; parentId: number | null };
@@ -905,7 +905,11 @@ function fileWorkspacePath(
   );
 }
 
-function resolveFile(computer: Computer, ref: unknown): FileRow | undefined {
+function resolveFile(
+  computer: Computer,
+  ref: unknown,
+  options: { strict?: boolean } = {}
+): FileRow | undefined {
   if (typeof ref !== "string" || !ref.trim()) return undefined;
   const key = ref.trim();
   const numeric = /^\d+$/.test(key) ? Number(key) : undefined;
@@ -943,6 +947,10 @@ function resolveFile(computer: Computer, ref: unknown): FileRow | undefined {
     });
     if (inDir) return inDir;
   }
+  // Mutating tools must not act on a loose basename match for a
+  // path-qualified ref: deleting "wrong-folder/report.md" should never
+  // delete some other folder's report.md.
+  if (options.strict) return undefined;
   return basenameMatches[0];
 }
 
@@ -1331,7 +1339,7 @@ async function executeWorkspaceTool(
       };
     }
     case "edit_file": {
-      const file = resolveFile(computer, args.file);
+      const file = resolveFile(computer, args.file, { strict: true });
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       const content = typeof args.content === "string" ? args.content : "";
@@ -1365,7 +1373,7 @@ async function executeWorkspaceTool(
       };
     }
     case "rename_file": {
-      const file = resolveFile(computer, args.file);
+      const file = resolveFile(computer, args.file, { strict: true });
       const newName = str(args.new_name);
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
@@ -1404,7 +1412,7 @@ async function executeWorkspaceTool(
       };
     }
     case "move_file": {
-      const file = resolveFile(computer, args.file);
+      const file = resolveFile(computer, args.file, { strict: true });
       const folder = resolveFolder(computer, args.folder);
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
@@ -1439,7 +1447,7 @@ async function executeWorkspaceTool(
       };
     }
     case "delete_file": {
-      const file = resolveFile(computer, args.file);
+      const file = resolveFile(computer, args.file, { strict: true });
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!(await deleteWorkspaceFileForUser(ownerId, file.id)))

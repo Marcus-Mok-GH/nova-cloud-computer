@@ -8,7 +8,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 1, email
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() } },
+    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
     mistral: { status: { useQuery: () => ({ data: { model: "mistral-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
@@ -25,6 +25,8 @@ describe("Workspace settings page", () => {
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("How Nova should help");
+    expect(markup).toContain("Factory reset workspace");
+    expect(markup).toContain("Reset everything from scratch");
     expect(markup).toContain("Telegram Bot");
     // Telegram is connected in this mock, so the card flips to its disconnect form.
     expect(markup).toContain("Disconnect your Telegram account");

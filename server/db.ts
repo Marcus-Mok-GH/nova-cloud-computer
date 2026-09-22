@@ -27,7 +27,7 @@ import {
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
-import { getE2BClient, initWorkspacePersistentVm } from "./e2b";
+import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
 import { wouldCreateWorkspaceFolderCycle } from "./workspaceFolderTree";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -176,6 +176,51 @@ export async function ensureUserWorkspaceProvisioned(ownerId: number): Promise<v
   if (workspace?.persistentSandboxId) return;
 
   await getOrCreateWorkspace(ownerId);
+}
+
+/**
+ * Factory reset: wipes every workspace file and folder, cancels in-flight
+ * agent VM runs, destroys the persistent sandbox (and every file on its
+ * disk), and provisions a brand-new machine in its place. Chat history and
+ * workspace settings survive; nothing about the reset touches other users.
+ */
+export async function factoryResetWorkspaceForUser(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+
+  // Cancel runs first so no in-flight agent keeps writing into the machine
+  // that is about to be destroyed.
+  const cancelledRuns = await cancelActiveAgentVmRunsForUser(ownerId);
+
+  // Wipe the recorded file and folder records (files reference folders, so
+  // files go first to respect the foreign key).
+  const deletedFiles = await db
+    .delete(workspaceFiles)
+    .where(eq(workspaceFiles.workspaceId, workspace.id))
+    .returning({ id: workspaceFiles.id });
+  const deletedFolders = await db
+    .delete(workspaceFolders)
+    .where(eq(workspaceFolders.workspaceId, workspace.id))
+    .returning({ id: workspaceFolders.id });
+
+  // Destroy the old machine, then detach its id so the next VM access
+  // provisions a fresh one from the base template.
+  const previousSandboxId = workspace.persistentSandboxId ?? null;
+  if (previousSandboxId) await destroyPersistentSandbox(previousSandboxId);
+  await db
+    .update(workspaces)
+    .set({ persistentSandboxId: null })
+    .where(eq(workspaces.id, workspace.id));
+
+  const sandboxId = await initWorkspacePersistentVm(workspace.id, ownerId, null);
+  return {
+    success: true,
+    cancelledRuns,
+    deletedFiles: deletedFiles.length,
+    deletedFolders: deletedFolders.length,
+    previousSandboxId,
+    sandboxId: sandboxId ?? null,
+  };
 }
 
 export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {

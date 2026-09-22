@@ -72,6 +72,7 @@ const deleteCustomModelSpy = vi.fn(async (ownerId: number, modelId: number) => {
   customModels.delete(modelId);
   return true;
 });
+const factoryResetSpy = vi.fn(async (ownerId: number) => ({ success: true, cancelledRuns: 1, deletedFiles: 3, deletedFolders: 2, previousSandboxId: "sbx-old", sandboxId: "sbx-new" }));
 const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsRecord>) => {
   const previous = modelSettings.get(ownerId) ?? { activeProvider: "anthropic" as const, activeModelId: "claude-sonnet", activeCustomModelId: null, workspaceRules: null };
   if (input.activeCustomModelId && customModels.get(input.activeCustomModelId)?.workspaceId !== ownerId) return undefined;
@@ -97,6 +98,7 @@ vi.mock("./db", () => ({
   updateProjectForUser: updateProjectSpy,
   updateTaskStatusForUser: updateTaskSpy,
   updateWorkspaceModelSettingsForUser: updateSettingsSpy,
+  factoryResetWorkspaceForUser: factoryResetSpy,
 }));
 
 const { appRouter } = await import("./routers");
@@ -141,6 +143,25 @@ describe("Nova workspace authenticated API", () => {
     await expect(stranger.tasks.create({ projectId: project.id, title: "Not allowed" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.tasks.updateStatus({ id: task.id, status: "done" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.tasks.delete({ id: task.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("factory-resets the workspace only after the typed confirmation", async () => {
+    const caller = appRouter.createCaller(contextFor(41));
+    await expect(caller.workspace.factoryReset({ confirm: "reset" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(factoryResetSpy).not.toHaveBeenCalled();
+    const result = await caller.workspace.factoryReset({ confirm: " RESET " });
+    expect(result).toMatchObject({ success: true, deletedFiles: 3, deletedFolders: 2, sandboxId: "sbx-new" });
+    expect(factoryResetSpy).toHaveBeenCalledTimes(1);
+    expect(factoryResetSpy).toHaveBeenCalledWith(41);
+  });
+
+  it("does not leak the factory reset into another user's workspace", async () => {
+    const owner = appRouter.createCaller(contextFor(41));
+    const intruder = appRouter.createCaller(contextFor(42));
+    await owner.workspace.factoryReset({ confirm: "RESET" });
+    await intruder.workspace.factoryReset({ confirm: "RESET" });
+    expect(factoryResetSpy).toHaveBeenCalledWith(41);
+    expect(factoryResetSpy).toHaveBeenCalledWith(42);
   });
 
   it("keeps custom model credentials and selections inside the owning workspace", async () => {

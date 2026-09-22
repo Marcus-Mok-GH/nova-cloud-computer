@@ -253,6 +253,17 @@ export async function presentTelegramFile(
       }
     }
   }
+  // Non-image binaries (spreadsheets, PDFs, ...) are stored as base64 data
+  // URIs too - decode them into real bytes so the document Telegram receives
+  // is the actual file, not the literal "data:...;base64,..." text.
+  const documentDataUri = content.match(/^data:([^;]+);base64,([\s\S]*)$/);
+  if (documentDataUri) {
+    const bytes = Buffer.from(documentDataUri[2], "base64");
+    return {
+      messageId: await upload("sendDocument", "document", new Blob([new Uint8Array(bytes)], { type: mime || documentDataUri[1] })),
+      as: "document",
+    };
+  }
   return { messageId: await upload("sendDocument", "document", new Blob([content], { type: mime || "text/plain" })), as: "document" };
 }
 

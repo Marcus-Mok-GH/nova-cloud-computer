@@ -183,6 +183,28 @@ describe("Telegram Bot API client", () => {
     expect((fetchImpl.mock.calls[0] as unknown[])[0]).toContain("/sendDocument");
   });
 
+  it("decodes a base64 data URI into real bytes for non-image documents (e.g. a generated .xlsx)", async () => {
+    const fetchImpl = vi.fn(async () => telegramResponse({ ok: true, result: { message_id: 35 } }));
+    const originalBytes = "PK\u0003\u0004fake-xlsx-bytes";
+    const base64 = Buffer.from(originalBytes, "binary").toString("base64");
+    const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const result = await presentTelegramFile(
+      "token",
+      "42",
+      { name: "Budget.xlsx", content: `data:${mimeType};base64,${base64}`, mimeType },
+      "Your budget",
+      fetchImpl
+    );
+    expect(result).toEqual({ messageId: 35, as: "document" });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/sendDocument");
+    const document = (init.body as FormData).get("document") as File;
+    expect(document.name).toBe("Budget.xlsx");
+    expect(document.type).toBe(mimeType);
+    const sentBytes = Buffer.from(await document.arrayBuffer()).toString("binary");
+    expect(sentBytes).toBe(originalBytes);
+  });
+
   it("reports Telegram failures when presenting a file", async () => {
     const failureFetch = vi.fn(async () => telegramResponse({ ok: false, description: "Bad Request: file is too big" }, 400));
     await expect(presentTelegramFile("token", "42", { name: "big.txt", content: "x".repeat(100), mimeType: "text/plain" }, undefined, failureFetch)).rejects.toThrow("file is too big");

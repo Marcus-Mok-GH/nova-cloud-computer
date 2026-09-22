@@ -470,6 +470,28 @@ export const ZAI_LAST_RESORT_MODEL_ID = "glm-4.6v-flash";
  * is only authoritative when the gateway actually serves that model id;
  * otherwise discovery degrades exactly as it does for the hardcoded default.
  */
+/**
+ * Per-model deep-thinking request fields. GLM-4.5-and-newer models (this
+ * gateway's Z.ai family) accept `thinking: { type: "enabled" }` in the
+ * OpenAI-compatible body; GLM-5.2 and newer additionally take
+ * `reasoning_effort`, where "max" is the deepest reasoning Z.ai serves.
+ * Mistral-mode models (ministral) have no thinking mode, and sending unknown
+ * fields to a strict endpoint risks a rejection, so everything else gets
+ * none. Exported so the BYOK gateway applies the same per-model logic to a
+ * workspace's custom GLM-family models.
+ */
+export function reasoningParamsForModel(modelId: string): Record<string, unknown> {
+  const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
+  if (!match) return {};
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  const thinks = major > 4 || (major === 4 && minor >= 5);
+  if (!thinks) return {};
+  const params: Record<string, unknown> = { thinking: { type: "enabled" } };
+  if (major > 5 || (major === 5 && minor >= 2)) params.reasoning_effort = "max";
+  return params;
+}
+
 export function configuredDefaultChatModel(): string {
   const override = zaiGatewayToken()
     ? process.env.ZAI_DEFAULT_MODEL?.trim()
@@ -953,6 +975,8 @@ export type GatewayChatMessage = {
 export type GatewayChatResult = {
   text: string;
   toolCalls: GatewayToolCall[];
+  /** The model's private reasoning, when the provider returned one. */
+  reasoning?: string;
   model: string;
   usage: GatewayCompletion["usage"] | null;
   allowance: {
@@ -980,6 +1004,8 @@ type StreamedGatewayChat = {
   finishReason: string | null;
   /** Number of SSE data lines that failed JSON parsing. */
   malformedFragments: number;
+  /** The model's private reasoning (reasoning_content deltas), when present. */
+  reasoning: string;
 };
 
 /**
@@ -1012,7 +1038,8 @@ async function readWithStallGuard(
 export async function readGatewayStreamedChatResult(
   response: Response,
   resolvedModel: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  onReasoning?: (chunk: string) => void
 ): Promise<StreamedGatewayChat> {
   const isEventStream =
     response.body !== null &&
@@ -1036,6 +1063,12 @@ export async function readGatewayStreamedChatResult(
     const choice = payload?.choices?.[0]?.message;
     const text = typeof choice?.content === "string" ? choice.content : "";
     if (text) onChunk(text);
+    const bufferedReasoning =
+      typeof (choice as { reasoning_content?: unknown } | undefined)
+        ?.reasoning_content === "string"
+        ? (choice as { reasoning_content: string }).reasoning_content
+        : "";
+    if (bufferedReasoning) onReasoning?.(bufferedReasoning);
     const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
       .filter(call => call?.function?.name)
       .map(call => ({
@@ -1058,9 +1091,11 @@ export async function readGatewayStreamedChatResult(
           | { choices?: Array<{ finish_reason?: string }> }
           | undefined)?.choices?.[0]?.finish_reason ?? null,
       malformedFragments: 0,
+      reasoning: bufferedReasoning,
     };
   }
   let text = "";
+  let reasoning = "";
   let model: string | null = null;
   let streamError: string | null = null;
   let finishReason: string | null = null;
@@ -1130,6 +1165,12 @@ export async function readGatewayStreamedChatResult(
           }
           const delta = lastChoice?.delta;
           if (!delta) continue;
+          const reasoningChunk = (delta as { reasoning_content?: unknown })
+            .reasoning_content;
+          if (typeof reasoningChunk === "string" && reasoningChunk.length > 0) {
+            reasoning += reasoningChunk;
+            onReasoning?.(reasoningChunk);
+          }
           if (typeof delta.content === "string" && delta.content.length > 0) {
             text += delta.content;
             onChunk(delta.content);
@@ -1184,6 +1225,7 @@ export async function readGatewayStreamedChatResult(
     error: streamError,
     finishReason,
     malformedFragments,
+    reasoning,
   };
 }
 
@@ -1296,6 +1338,8 @@ export async function chatWithMistralGateway(
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
+    /** When set, the model's private reasoning streams as it arrives. */
+    onReasoning?: (chunk: string) => void;
     /** Abort in-flight completions when the user stops the run (/stop). */
     signal?: AbortSignal;
   } = {}
@@ -1350,6 +1394,7 @@ async function attemptGatewayChat(
   options: {
     tools?: GatewayToolDefinition[];
     onChunk?: (chunk: string) => void;
+    onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   },
   resolvedModel: string,
@@ -1368,6 +1413,10 @@ async function attemptGatewayChat(
         body: JSON.stringify({
           model: resolvedModel,
           messages,
+          // Deep thinking at maximum effort for reasoning-capable models
+          // (per-model: GLM-4.5+ takes thinking.type=enabled, GLM-5.2+
+          // also reasoning_effort=max; other models send nothing).
+          ...reasoningParamsForModel(resolvedModel),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),
@@ -1409,7 +1458,8 @@ async function attemptGatewayChat(
       const attemptResult = await readGatewayStreamedChatResult(
         response,
         resolvedModel,
-        options.onChunk
+        options.onChunk,
+        options.onReasoning
       );
       if (attemptResult.text || attemptResult.toolCalls.length) {
         streamed = attemptResult;
@@ -1440,6 +1490,7 @@ async function attemptGatewayChat(
     return {
       text: streamed.text,
       toolCalls: streamed.toolCalls,
+      ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
       model: streamed.model ?? resolvedModel,
       usage: streamed.usage,
       allowance: {
@@ -1462,6 +1513,7 @@ async function attemptGatewayChat(
     text: string;
     toolCalls: GatewayToolCall[];
     payload: GatewayCompletion | Record<string, unknown>;
+    reasoning?: string;
   } | null = null;
   let bufferedUpstreamError: string | null = null;
   for (
@@ -1528,8 +1580,14 @@ async function attemptGatewayChat(
             ? call.function.arguments
             : "{}",
       }));
+    const bufferedReasoning =
+      typeof (choice as { reasoning_content?: unknown } | undefined)
+        ?.reasoning_content === "string"
+        ? (choice as { reasoning_content: string }).reasoning_content
+        : "";
+    if (bufferedReasoning) options.onReasoning?.(bufferedReasoning);
     if (text || toolCalls.length) {
-      buffered = { text, toolCalls, payload: payload ?? {} };
+      buffered = { text, toolCalls, payload: payload ?? {}, ...(bufferedReasoning ? { reasoning: bufferedReasoning } : {}) };
       break;
     }
     bufferedUpstreamError =
@@ -1551,6 +1609,7 @@ async function attemptGatewayChat(
   return {
     text: buffered.text,
     toolCalls: buffered.toolCalls,
+    ...(buffered.reasoning ? { reasoning: buffered.reasoning } : {}),
     model:
       (buffered.payload as { model?: string } | undefined)?.model ??
       resolvedModel,

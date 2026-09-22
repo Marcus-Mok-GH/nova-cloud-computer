@@ -123,7 +123,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
         <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div data-testid="thinking-detail-panel" className="mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
+        <div data-testid="thinking-detail-panel" className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
           {activity.detail ? (
             <div className="break-words text-sm leading-6 text-foreground">
               <MarkdownText text={activity.detail} />
@@ -176,7 +176,7 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
         <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div data-testid="research-detail-panel" className="mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
+        <div data-testid="research-detail-panel" className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
           {running ? (
             (activity.progressLog?.length ?? 0) > 0 ? (
               <ProgressLog log={activity.progressLog!} />

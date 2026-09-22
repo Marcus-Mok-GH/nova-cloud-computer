@@ -229,6 +229,7 @@ vi.mock("./telegram", () => ({
 const {
   runWorkspaceAgent,
   END_TURN_NUDGE_PREFIX,
+  FAILURE_NUDGE_PREFIX,
   autoTitleChatForUser,
   setGatewayRetryDelaysForTests,
   setGatewayRateLimitRetryDelayForTests,
@@ -2696,6 +2697,99 @@ describe("Nova tool-calling workspace agent", () => {
     // One patient retry, then the reply, then the explicit end_turn round.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
     expect(result.message.content).toContain("Back online");
+  });
+
+  it("refuses a third identical failing tool call instead of executing it again", async () => {
+    // The model keeps re-calling the same read of a file that does not
+    // exist - the exact loop from the failed project run screenshot.
+    // Earlier tests leave persistent mock rejections behind: start clean.
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    const doomedRead = chatResult({
+      toolCalls: [
+        { id: "call-1", name: "read_file", arguments: JSON.stringify({ file: "ph-meter/index.html" }) },
+      ],
+    });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(doomedRead)
+      .mockResolvedValueOnce(doomedRead)
+      .mockResolvedValueOnce(doomedRead);
+    const result = await runWorkspaceAgent(1, 3, "show me the ph meter site");
+    // The first two rounds execute the read for real; the third identical
+    // attempt is refused without execution and the loop answers with the
+    // end_turn echo, so the gateway sees exactly 4 rounds.
+    expect(chatWithMistralGateway).toHaveBeenCalledTimes(4);
+    // The refusal reaches the model as a tool result naming the earlier
+    // failure, not as another dead-end "File not found".
+    const refusal = lastToolResult(chatWithMistralGateway.mock.calls[3][1])!;
+    expect(refusal.content).toContain("already failed twice");
+    expect(refusal.content).toContain("[repeated-failure control]");
+    // The refused attempt is persisted as a failed activity with a summary
+    // that says why it never executed.
+    const persistedToolActivities = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX));
+    expect(
+      persistedToolActivities.some(activity =>
+        activity.content.includes("Refused: this identical call already failed twice")
+      )
+    ).toBe(true);
+    expect(result.actions).toEqual([]);
+  });
+
+  it("nudges the model to disclose failed steps in its final reply", async () => {
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: JSON.stringify({ file: "missing.txt" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Everything is set up - here is your site!" })
+      );
+    const result = await runWorkspaceAgent(1, 3, "make a site");
+    // After the failing round, a one-per-run control message tells the
+    // model the final reply must disclose the failure.
+    const messagesAfterFailure = chatWithMistralGateway.mock.calls[1][1];
+    const nudge = messagesAfterFailure.find(
+      m => m.role === "user" && typeof m.content === "string" && m.content.startsWith(FAILURE_NUDGE_PREFIX)
+    );
+    expect(nudge?.content).toContain("read_file");
+    expect(nudge?.content).toContain("File not found: missing.txt");
+    expect(nudge?.content).toContain("final reply MUST state plainly");
+    // Only ever one nudge per run: the messages array carries forward, so
+    // count within the final round's snapshot rather than across rounds.
+    const finalRoundMessages = chatWithMistralGateway.mock.calls.at(-1)![1];
+    const nudgesInFinalRound = finalRoundMessages.filter(
+      m => m.role === "user" && typeof m.content === "string" && m.content.startsWith(FAILURE_NUDGE_PREFIX)
+    );
+    expect(nudgesInFinalRound.length).toBe(1);
+    expect(result.message.content).toContain("Everything is set up");
+  });
+
+  it("discloses failed steps when an inference error ends the run mid-flight", async () => {
+    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: JSON.stringify({ file: "ph-meter/index.html" }) },
+          ],
+        })
+      )
+      .mockRejectedValue(
+        new MistralGatewayClientError("The service may be temporarily overloaded, please try again later", "rate_limit")
+      );
+    const result = await runWorkspaceAgent(1, 3, "make me a ph meter site");
+    // The provider's own error leads, and the tool steps that failed
+    // before the run died are listed instead of "everything so far" hiding
+    // them.
+    expect(result.message.content).toContain("Inference provider error: The service may be temporarily overloaded");
+    expect(result.message.content).toContain("Steps that failed during this run");
+    expect(result.message.content).toContain("read_file");
+    expect(result.message.content).toContain("File not found: ph-meter/index.html");
   });
 
   it("stops after one patient 429 retry and leads with the provider's own error", async () => {

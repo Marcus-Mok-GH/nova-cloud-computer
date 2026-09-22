@@ -17,8 +17,10 @@ import {
   deleteWorkspaceFileForUser,
   deleteWorkspaceFolderForUser,
   getProjectForUser,
+  getChatForUser,
   getOrCreateWorkspace,
   getAutomationRecordForUser,
+  getActiveAgentRunForChat,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
@@ -225,6 +227,12 @@ export const appRouter = router({
   chats: router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
     messages: protectedProcedure.input(z.object({ chatId: z.number().int().positive() })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),
+    runStatus: protectedProcedure.input(z.object({ chatId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const chat = await getChatForUser(ctx.user.id, input.chatId);
+      if (!chat) throwIfNotFound(chat, "conversation");
+      const run = await getActiveAgentRunForChat(ctx.user.id, input.chatId);
+      return run ? { active: true as const, ...run } : { active: false as const };
+    }),
     send: protectedProcedure.input(z.object({ chatId: z.number().int().positive().nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => { const chat = input.chatId ? undefined : await createChatForUser(ctx.user.id, "New conversation"); const chatId = input.chatId ?? chat?.id; if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." }); const result = await executeWebAgentRun({ ownerId: ctx.user.id, chatId, content: input.content, requestStartedAtMs: Date.now() }); void autoTitleChatForUser(ctx.user.id, chatId).catch(() => {}); return { chatId, ...(await result) }; }),
   }),
   models: router({ createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)), deleteCustom: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteCustomModelForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "custom model"); return { success: true } as const; }), /** Tests a candidate BYOK endpoint (base URL + key + model ID) without saving it. */ testCustom: protectedProcedure.input(z.object({ baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), apiKey: z.string().trim().min(1, "An API key is required.").max(4096), modelId: z.string().trim().min(1, "A model ID is required.").max(240) })).mutation(async ({ input }) => { try { return await testCustomModelEndpoint(input); } catch (error) { if (error instanceof MistralGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The provider endpoint could not be reached." }); } }) }),

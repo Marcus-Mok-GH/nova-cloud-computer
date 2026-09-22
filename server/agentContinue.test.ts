@@ -342,7 +342,7 @@ describe("Segment chaining inside the runner", () => {
       expect.objectContaining({ channel: "web", continuationPlanned: true })
     );
     expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 602);
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed", undefined);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed");
   });
 
   it("closes a web run completed and tells the chat to resume manually when scheduling fails", async () => {
@@ -400,6 +400,6 @@ describe("Segment chaining inside the runner", () => {
     expect(JSON.parse(continuationFetches[0].body)).toEqual({ runId: 701, segment: 59 });
     // The chain carried the work on: the run is held for its next
     // segment, not closed as completed.
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 701, "completed", undefined);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 701, "completed");
   });
 });

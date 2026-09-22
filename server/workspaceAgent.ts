@@ -2722,6 +2722,10 @@ ${options.continuationPlanned
       let reasoningThisRound = "";
       let reasoningEmittedChars = 0;
       let reasoningLastEmitAt = 0;
+      // Serialize the emissions for this round's thinking block: each update
+      // chains after the previous one, so a slow "running" persist can never
+      // land after the final "completed" state and regress the activity.
+      let thinkingEmissions: Promise<unknown> = Promise.resolve();
       const flushThinking = (state: "running" | "completed") => {
         if (!reasoningThisRound) return;
         if (state === "running") {
@@ -2735,16 +2739,18 @@ ${options.continuationPlanned
           reasoningLastEmitAt = now;
         }
         reasoningEmittedChars = reasoningThisRound.length;
-        void emitTool({
-          id: `thinking-${round}`,
-          name: "thinking",
-          state,
-          args: {},
-          detail: reasoningThisRound.slice(0, THINKING_DETAIL_LIMIT),
-          ...(state === "completed"
-            ? { summary: "The model's thinking for this step." }
-            : {}),
-        });
+        thinkingEmissions = thinkingEmissions.then(() =>
+          emitTool({
+            id: `thinking-${round}`,
+            name: "thinking",
+            state,
+            args: {},
+            detail: reasoningThisRound.slice(0, THINKING_DETAIL_LIMIT),
+            ...(state === "completed"
+              ? { summary: "The model's thinking for this step." }
+              : {}),
+          })
+        );
       };
       const onReasoning = (chunk: string) => {
         reasoningThisRound += chunk;
@@ -2778,6 +2784,7 @@ ${options.continuationPlanned
       } catch (error) {
         if (error instanceof RunDeadlineExceeded) {
           flushThinking("completed");
+          await thinkingEmissions;
           reply = await composeDeadlineClose();
           streamedReplyChars = 0;
           closedByDeadline = true;
@@ -2788,9 +2795,16 @@ ${options.continuationPlanned
           (await hasAgentStopAfter(ownerId, runStartedAt))
         ) {
           flushThinking("completed");
+          await thinkingEmissions;
           return stopRun();
         }
-        if (!visionActive) throw error;
+        if (!visionActive) {
+          // A terminal gateway error must not leave the thinking block
+          // stuck in its running state.
+          flushThinking("completed");
+          await thinkingEmissions;
+          throw error;
+        }
         // A model without vision rejects image parts outright: drop the
         // attachment instead of failing the run, and let the model say so.
         visionActive = false;
@@ -2811,6 +2825,7 @@ ${options.continuationPlanned
         } catch (error) {
           if (error instanceof RunDeadlineExceeded) {
             flushThinking("completed");
+            await thinkingEmissions;
             reply = await composeDeadlineClose();
             streamedReplyChars = 0;
             closedByDeadline = true;
@@ -2819,7 +2834,10 @@ ${options.continuationPlanned
           throw error;
         }
       }
+      // Drain the queue before the round's tool calls or reply so the
+      // settled thinking block is persisted before anything follows it.
       flushThinking("completed");
+      await thinkingEmissions;
       // Recover a tool call the model wrote out as text: run it as a real
       // call so the action executes instead of dumping raw JSON on the user.
       const recoveredCall =

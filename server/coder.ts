@@ -396,7 +396,9 @@ export async function runAutonomousCoderTask(
           }). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
           writtenPaths: Array.from(writtenPaths).sort(),
           commandsRun,
-          rounds: round,
+          // roundsRun counts every attempted request (the zero-based
+          // round index would underreport by one).
+          rounds: roundsRun,
           model: ENV.nimCoderModel,
         };
       }

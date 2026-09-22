@@ -109,7 +109,12 @@ export async function executeTelegramAgentRun(input: ExecuteTelegramRunInput): P
     return { delivered, reply, runId: run?.id };
   } catch (error) {
     console.error("[Telegram run] agent run failed", error);
-    await sendTelegramMessage(token, telegramChatId, "\u26A0\uFE0F Nova hit an error handling that message. Please try again shortly.").catch(() => {});
+    // Lead with the actual error text (capped) so the Telegram user can
+    // diagnose provider failures from the bot message itself - a hardcoded
+    // "try again shortly" hid what actually went wrong.
+    const detail = error instanceof Error ? error.message : String(error);
+    const clipped = detail.length > 400 ? `${detail.slice(0, 400)}…` : detail;
+    await sendTelegramMessage(token, telegramChatId, `\u26A0\uFE0F Nova hit an error handling that message: ${clipped}`).catch(() => {});
     if (run) await finishAgentRunForUser(ownerId, run.id, "failed", error instanceof Error ? error.message : String(error)).catch(() => {});
     return { delivered: false, reply: streamedText, runId: run?.id };
   } finally {

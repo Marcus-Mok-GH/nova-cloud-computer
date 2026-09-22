@@ -82,6 +82,23 @@ describe("ResearchToolActivity", () => {
   });
 });
 
+describe("panel width containment on narrow screens", () => {
+  it("keeps the research detail panel from stretching past its container when the report has a long unbroken code line", () => {
+    const research: ToolActivity = {
+      id: "r2",
+      name: "research_web",
+      state: "running", // running starts the panel open so the detail markup renders
+      args: { arguments: '{"topic":"long line test"}' },
+      detail: "```\n" + "x".repeat(500) + "\n```",
+    };
+    const html = renderToStaticMarkup(React.createElement(ResearchToolActivity, { activity: research }));
+    // The panel must clip/scroll its own overflow (min-w-0 + overflow-x-hidden)
+    // instead of letting a long unbroken line force the panel - and the whole
+    // chat bubble - wider than the screen.
+    expect(html).toMatch(/research-detail-panel"[^>]*class="[^"]*min-w-0[^"]*overflow-x-hidden/);
+  });
+});
+
 describe("CodeTaskToolActivity", () => {
   const codeTask = (state: ToolActivity["state"], detail?: string): ToolActivity =>
     ({ id: "c1", name: "code_task", state, args: { arguments: '{"task":"write a traffic-jam game in HTML","language":"HTML"}' }, detail });

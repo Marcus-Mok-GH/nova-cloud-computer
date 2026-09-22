@@ -31,8 +31,31 @@ export default function WorkspaceSettings() {
     <ConnectorCard toolkit="github" />
     <ConnectorCard toolkit="gmail" />
     <UserAutomationsCard />
+    <FactoryResetCard />
     <AccountManagementCard />
   </div></DashboardLayout>;
+}
+
+/**
+ * Danger-zone card: factory reset. Deletes every workspace file and folder,
+ * cancels running agent jobs, and replaces the persistent VM with a fresh
+ * machine. Chats, settings, and the account itself are untouched.
+ */
+function FactoryResetCard() {
+  const utils = trpc.useUtils();
+  const [resetDialogOpen, setResetDialogOpen] = useState(false); const [confirmText, setConfirmText] = useState("");
+  const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+  const factoryReset = trpc.workspace.factoryReset.useMutation({
+    onSuccess: async result => {
+      setResetDialogOpen(false); setConfirmText("");
+      await Promise.all([utils.workspace.computer.invalidate(), utils.workspace.dashboard.invalidate()]);
+      toast.success(`Workspace reset from scratch: ${plural(result.deletedFiles, "file")} and ${plural(result.deletedFolders, "folder")} deleted, ${result.cancelledRuns} running job${result.cancelledRuns === 1 ? "" : "s"} cancelled, and a fresh machine is ready.`);
+    },
+    onError: error => toast.error(error.message || "The factory reset could not be completed. Nothing was changed.")
+  });
+  return <section className="rise-in rounded-2xl border border-red-500/20 bg-red-500/[0.03] p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-red-600">Danger zone</p><h2 className="mt-1 text-xl font-bold tracking-tight">Factory reset workspace</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Deletes every file and folder, cancels running jobs, and replaces the workspace VM with a brand-new machine - everything starts from scratch. Your account, chats, and settings are kept.</p></div><div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-600 ring-1 ring-red-500/15"><RefreshCw size={22} /></div></div>
+    <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-bold text-red-600">Reset everything from scratch</p><p className="text-xs text-muted-foreground">This cannot be undone. All workspace files on the VM disk and in the file browser are permanently deleted.</p></div><AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}><AlertDialogTrigger asChild><Button variant="destructive" className="gap-2"><RefreshCw size={16} /> Factory reset</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reset the workspace from scratch?</AlertDialogTitle><AlertDialogDescription>Every file and folder will be permanently deleted, running jobs cancelled, and a fresh VM provisioned. Type RESET to confirm.</AlertDialogDescription></AlertDialogHeader><Input value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder='Type "RESET" to confirm' /><AlertDialogFooter><AlertDialogCancel disabled={factoryReset.isPending}>Cancel</AlertDialogCancel><AlertDialogAction disabled={confirmText !== "RESET" || factoryReset.isPending} onClick={e => { e.preventDefault(); factoryReset.mutate({ confirm: confirmText }); }}>{factoryReset.isPending && <Loader2 size={15} className="animate-spin" />} Reset the workspace</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div></div>
+  </section>;
 }
 
 /**

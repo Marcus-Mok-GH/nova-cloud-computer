@@ -502,6 +502,30 @@ export async function runE2BTaskInPersistentSandbox(
   }
 }
 
+/**
+ * Destroys a workspace's persistent sandbox outright - the factory reset
+ * path. Unlike pause/kill-and-forget recovery flows this reclaims the
+ * machine and every file on its disk. A sandbox that is already gone
+ * (expired or killed behind our back) is treated as destroyed rather than
+ * an error, so a reset always proceeds to provisioning a fresh machine.
+ */
+export async function destroyPersistentSandbox(sandboxId: string): Promise<boolean> {
+  const client = getE2BClient();
+  if (!client) return false;
+  try {
+    const sandbox = await client.connect(sandboxId, {
+      timeoutMs: PERSISTENT_SANDBOX_TIMEOUT_MS,
+    });
+    const killed = await sandbox.kill?.();
+    return killed !== false;
+  } catch (error) {
+    console.warn(
+      `[E2B] Persistent sandbox ${sandboxId} could not be destroyed (treating as gone): ${safeE2BError(error)}`
+    );
+    return false;
+  }
+}
+
 export async function initWorkspacePersistentVm(
   workspaceId: number,
   ownerId: number,

@@ -413,6 +413,13 @@ export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 export const ZAI_TEXT_FALLBACK_MODEL = "glm-4.5-flash";
 
 /**
+ * Default model for chat turns that carry image attachments: Z.ai's free
+ * vision model. Its /models endpoint omits the free flash models, so (like
+ * the text fallback) the id is hardcoded rather than discovered.
+ */
+export const ZAI_VISION_FALLBACK_MODEL = "glm-4.6v-flash";
+
+/**
  * Operator override for the default chat model id. The hardcoded default is
  * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
  * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
@@ -426,6 +433,18 @@ export function configuredDefaultChatModel(): string {
     ? process.env.ZAI_DEFAULT_MODEL?.trim()
     : process.env.MISTRAL_DEFAULT_MODEL?.trim();
   return override || DEFAULT_MISTRAL_MODEL;
+}
+
+/**
+ * Operator override for the vision model id used on chat turns with image
+ * attachments. Returns undefined in Mistral mode so model resolution keeps
+ * its discovery-based vision preference there; in Z.ai mode the override (or
+ * the hardcoded free vision model) is authoritative, mirroring the
+ * configured-default behaviour.
+ */
+export function configuredVisionChatModel(): string | undefined {
+  if (!zaiGatewayToken()) return undefined;
+  return process.env.ZAI_VISION_MODEL?.trim() || ZAI_VISION_FALLBACK_MODEL;
 }
 
 /**

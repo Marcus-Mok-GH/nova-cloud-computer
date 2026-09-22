@@ -156,10 +156,13 @@ class MistralGatewayClientError extends Error {
     this.kind = kind;
   }
 }
+const configuredVisionChatModel = vi.fn(() => undefined);
+
 vi.mock("./mistralGateway", () => ({
   completeWithMistralGateway,
   chatWithMistralGateway,
   getMistralGatewayStatus,
+  configuredVisionChatModel,
   MistralGatewayClientError,
 }));
 
@@ -2093,6 +2096,39 @@ describe("Nova tool-calling workspace agent", () => {
         { type: "image_url", image_url: { url: dataUri } },
       ],
     });
+  });
+
+  it("routes image turns to the configured vision model", async () => {
+    configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
+    const dataUri = "data:image/jpeg;base64,aGVsbG8=";
+    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "A dog." }));
+    await runWorkspaceAgent(1, 3, "what is in this picture?", {
+      channel: "telegram",
+      imageAttachments: [dataUri],
+    });
+    expect(chatWithMistralGateway.mock.calls[0][2]).toMatchObject({
+      model: "glm-4.6v-flash",
+    });
+  });
+
+  it("keeps text turns on the default chat model when a vision model is configured", async () => {
+    configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
+    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "Hello!" }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const options = chatWithMistralGateway.mock.calls[0][2] ?? {};
+    expect(options.model).toBeUndefined();
+  });
+
+  it("keeps image turns on the default chat model when no vision model is configured", async () => {
+    configuredVisionChatModel.mockReturnValue(undefined);
+    const dataUri = "data:image/jpeg;base64,aGVsbG8=";
+    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "A dog." }));
+    await runWorkspaceAgent(1, 3, "what is in this picture?", {
+      channel: "telegram",
+      imageAttachments: [dataUri],
+    });
+    const options = chatWithMistralGateway.mock.calls[0][2] ?? {};
+    expect(options.model).toBeUndefined();
   });
 
   it("drops the attachment instead of failing when the model cannot see images", async () => {

@@ -39,6 +39,7 @@ import {
   type GatewayToolCall,
   type GatewayToolDefinition,
   MistralGatewayClientError,
+  configuredVisionChatModel,
 } from "./mistralGateway";
 import {
   chatWithWorkspaceModel,
@@ -2163,6 +2164,8 @@ async function chatWithGatewayRetry(
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
+    /** Model override for this round (e.g. the vision model on image turns). */
+    model?: string;
     onChunk?: (chunk: string) => void;
     signal?: AbortSignal;
     /** Run deadline (epoch ms) - the patient rate-limit wait must fit. */
@@ -2178,6 +2181,7 @@ async function chatWithGatewayRetry(
     try {
       return await chatWithWorkspaceModel(ownerId, messages, {
         tools: options.tools,
+        ...(options.model ? { model: options.model } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
           ? {
@@ -2543,9 +2547,16 @@ ${options.continuationPlanned
           }
         : undefined;
       let result: Awaited<ReturnType<typeof chatWithGatewayRetry>>;
+      // Chat turns that still carry image parts go to the configured vision
+      // model (Z.ai: glm-4.6v-flash) instead of the text default, so the
+      // images are actually seen rather than dropped. Once visionActive is
+      // cleared by the no-vision recovery path below, rounds run on the
+      // default chat model again.
+      const visionModel = configuredVisionChatModel();
       const runChatRound = () =>
         chatWithGatewayRetry(ownerId, messages, {
           tools: agentTools,
+          ...(visionActive && visionModel ? { model: visionModel } : {}),
           ...(emitChunk ? { onChunk: emitChunk } : {}),
           signal: stopController.signal,
           deadlineAtMs,

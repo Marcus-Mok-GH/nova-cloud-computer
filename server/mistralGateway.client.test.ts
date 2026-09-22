@@ -9,7 +9,7 @@ vi.mock("./db", () => ({
   claimMistralInferenceRequestForUser: claim,
 }));
 
-const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
+const { completeWithMistralGateway, getMistralGatewayStatus, listMistralModels, defaultMistralModel, configuredVisionChatModel, resetMistralGatewayHealthCache, resetMistralModelCache, resetMistralPoolDegradation, MistralGatewayClientError } = await import("./mistralGateway");
 
 describe("Mistral gateway client", () => {
   const originalFetch = globalThis.fetch;
@@ -22,6 +22,7 @@ describe("Mistral gateway client", () => {
   const originalZaiUrl = process.env.ZAI_GATEWAY_URL;
   const originalZaiDefaultModel = process.env.ZAI_DEFAULT_MODEL;
   const originalZaiFallbackModel = process.env.ZAI_FALLBACK_MODEL;
+  const originalZaiVisionModel = process.env.ZAI_VISION_MODEL;
 
   beforeEach(() => {
     delete process.env.MISTRAL_API_KEY;
@@ -31,6 +32,7 @@ describe("Mistral gateway client", () => {
     delete process.env.ZAI_GATEWAY_URL;
     delete process.env.ZAI_DEFAULT_MODEL;
     delete process.env.ZAI_FALLBACK_MODEL;
+    delete process.env.ZAI_VISION_MODEL;
     process.env.MISTRAL_GATEWAY_URL = "https://api-server-zeta.vercel.app";
     process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "t".repeat(32);
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -52,6 +54,7 @@ describe("Mistral gateway client", () => {
     if (originalZaiUrl === undefined) delete process.env.ZAI_GATEWAY_URL; else process.env.ZAI_GATEWAY_URL = originalZaiUrl;
     if (originalZaiDefaultModel === undefined) delete process.env.ZAI_DEFAULT_MODEL; else process.env.ZAI_DEFAULT_MODEL = originalZaiDefaultModel;
     if (originalZaiFallbackModel === undefined) delete process.env.ZAI_FALLBACK_MODEL; else process.env.ZAI_FALLBACK_MODEL = originalZaiFallbackModel;
+    if (originalZaiVisionModel === undefined) delete process.env.ZAI_VISION_MODEL; else process.env.ZAI_VISION_MODEL = originalZaiVisionModel;
   });
 
   it("uses the Mistral AI API key for health and bounded completion calls", async () => {
@@ -228,6 +231,22 @@ describe("Mistral gateway client", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
     await getMistralGatewayStatus(7);
     expect(globalThis.fetch).toHaveBeenCalledWith("https://zai-mirror.example.com/v4/models", expect.anything());
+  });
+
+  it("defaults the vision model to Z.ai's free vision model in Z.ai mode", () => {
+    process.env.ZAI_API_KEY = "test-zai-key-0123456789abcdef0123";
+    expect(configuredVisionChatModel()).toBe("glm-4.6v-flash");
+  });
+
+  it("honors a ZAI_VISION_MODEL override in Z.ai mode", () => {
+    process.env.ZAI_API_KEY = "test-zai-key-0123456789abcdef0123";
+    process.env.ZAI_VISION_MODEL = "glm-4.5v";
+    expect(configuredVisionChatModel()).toBe("glm-4.5v");
+  });
+
+  it("keeps Mistral-mode vision resolution discovery-based (no override)", () => {
+    expect(process.env.ZAI_API_KEY).toBeUndefined();
+    expect(configuredVisionChatModel()).toBeUndefined();
   });
 
   it("trusts a ZAI_DEFAULT_MODEL the gateway does not list (z.ai serves unlisted free models)", async () => {

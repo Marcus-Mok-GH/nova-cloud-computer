@@ -27,7 +27,7 @@ Rules:
 - Return complete, working code - full files or full functions, never "..." placeholders or instructions to imagine the rest.
 - Match the language, framework, and style the task asks for; when the task includes existing code, extend or fix it in place without gratuitous rewrites.
 - Prefer clarity over cleverness. Handle the obvious edge cases; comment only what is genuinely non-obvious.
-- When the request is ambiguous, make the most reasonable choice and note the assumption in one short comment - do not stall with questions.
+- Never assume. Inspect the relevant files, repository state, installed skills, documentation, or other reliable source before making a choice, even when uncertainty is slight. If an important ambiguity remains after checking, ask one focused question or return the smallest safe change and clearly identify what is unresolved. Never invent APIs, paths, dependencies, data, or requirements.
 - You may add a brief explanation before or after the code (a few sentences at most), but the code is the deliverable: no filler, no self-description, no apologies.
 - If the task is impossible as stated (contradictory requirements, missing dependency that cannot be assumed), return the closest workable version and say in one line what you changed.`;
 
@@ -54,7 +54,7 @@ How to work:
 
 Rules:
 - Complete, working code only - never "..." placeholders or instructions to imagine the rest.
-- When the request is ambiguous, make the most reasonable choice and note the assumption in one short comment - do not stall with questions.
+- Never assume. Inspect the relevant files, repository state, installed skills, documentation, or other reliable source before making a choice, even when uncertainty is slight. If an important ambiguity remains after checking, ask one focused question or return the smallest safe change and clearly identify what is unresolved. Never invent APIs, paths, dependencies, data, or requirements.
 - If the task is impossible as stated, build the closest workable version and say in one line what you changed.`;
 
 /** The tools the autonomous specialist may call in the sandbox. */

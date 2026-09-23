@@ -1,4 +1,5 @@
 import {
+  claimDailyCreditForUser,
   claimMistralInferenceRequestForUser,
   getMistralInferenceAllowanceForUser,
 } from "./db";
@@ -71,6 +72,7 @@ export type MistralGatewayClientErrorKind =
   | "unavailable"
   | "rate_limit"
   | "allowance_reached"
+  | "credits_exhausted"
   | "invalid_response"
   | "client_error"
   | "stopped";
@@ -825,6 +827,16 @@ async function readGatewayStreamedCompletion(
   };
 }
 
+async function claimDailyCreditOrThrow(ownerId: number) {
+  const claim = await claimDailyCreditForUser(ownerId);
+  if (!claim) {
+    throw new MistralGatewayClientError(
+      "Your daily Nova credits are used up. They reset tomorrow.",
+      "credits_exhausted"
+    );
+  }
+}
+
 export async function completeWithMistralGateway(
   ownerId: number,
   prompt: string,
@@ -842,6 +854,7 @@ export async function completeWithMistralGateway(
       "configuration"
     );
   }
+  await claimDailyCreditOrThrow(ownerId);
   const claim = await claimMistralInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests
@@ -1388,6 +1401,7 @@ export async function chatWithMistralGateway(
       "configuration"
     );
   }
+  await claimDailyCreditOrThrow(ownerId);
   const claim = await claimMistralInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests

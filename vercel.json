@@ -8,8 +8,8 @@
       "destination": "/api/[...path].ts"
     },
     {
-      "source": "/((?!assets/).*)",
-      "destination": "/index.html"
+      "source": "/((?!api/|assets/).*)",
+      "destination": "/api/spa.ts"
     }
   ],
   "headers": [
@@ -27,7 +27,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
+          "value": "no-store, no-cache, must-revalidate, max-age=0"
         }
       ]
     }
@@ -36,6 +36,9 @@
     "api/[...path].ts": {
       "maxDuration": 300,
       "includeFiles": "dist/server/**"
+    },
+    "api/spa.ts": {
+      "includeFiles": "dist/public/index.html"
     }
   }
 }

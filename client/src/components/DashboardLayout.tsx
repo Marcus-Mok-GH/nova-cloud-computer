@@ -54,7 +54,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showUsernamePrompt = user && !user.username && !usernamePromptSkipped;
 
   return (
-    <div className="dashboard-shell flex h-svh min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground pt-[env(safe-area-inset-top)]">
+    <div className={`dashboard-shell flex min-w-0 flex-col bg-background text-foreground pt-[env(safe-area-inset-top)] ${hasChatId ? "h-svh min-h-0 overflow-hidden" : "min-h-svh overflow-visible md:h-svh md:min-h-0 md:overflow-hidden"}`}>
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/88 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
         <div className="flex min-w-0 items-center gap-1">
           <button onClick={() => setMobileNavOpen(true)} aria-label="Open workspace menu" className="grid size-9 shrink-0 place-items-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 md:hidden"><Menu className="size-4.5" /></button>
@@ -76,7 +76,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Desktop rail */}
       <aside aria-label="Workspace navigation" className={`fixed bottom-0 left-0 z-30 hidden border-r border-border bg-muted dark:border-white/5 dark:bg-card md:flex top-[calc(3.5rem+env(safe-area-inset-top))] ${sidebarCollapsed ? "w-[68px]" : "w-[204px] lg:w-[228px]"}`}><div className="flex h-full flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{!sidebarCollapsed && <p className="px-2 pb-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Your space</p>}<div className="space-y-1">{navButtons(() => {}, { collapsed: sidebarCollapsed })}</div><button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="mt-auto grid size-9 shrink-0 place-items-center self-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" aria-label={sidebarCollapsed ? "Expand menu" : "Compress menu"}>{sidebarCollapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}</button></div></aside>
 
-      <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}` : `overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+2rem)] ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}`}`}>{children}</main>
+      <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}` : `overflow-visible overscroll-contain md:overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+2rem)] ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}`}`}>{children}</main>
 
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
     </div>

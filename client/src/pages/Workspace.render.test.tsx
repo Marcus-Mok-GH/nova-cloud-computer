@@ -223,8 +223,8 @@ describe("Workspace rendered browser states", () => {
     ];
     state.agentRunStatus = { active: true };
     const markup = renderChat();
-    expect(markup).toContain('data-testid="agent-working-status"');
-    expect(markup).toContain("Nova is actively working");
+    expect(markup).not.toContain('data-testid="agent-working-status"');
+    expect(markup).not.toContain("Nova is actively working");
     expect(markup).toContain('data-testid="typing-indicator"');
   });
 
@@ -232,7 +232,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderToStaticMarkup(<TypingIndicator />);
     expect(markup).toContain('data-testid="typing-indicator"');
     expect(markup).toContain('role="status"');
-    expect(markup).toContain("Nova is actively working");
+    expect(markup).not.toContain("Nova is actively working");
     expect(markup).toContain("animate-spin");
   });
 });

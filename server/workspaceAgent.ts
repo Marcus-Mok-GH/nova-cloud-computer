@@ -47,7 +47,17 @@ import {
   getActiveCustomModel,
 } from "./byokGateway";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
-import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
+import {
+  COMPOSIO_TOOLKITS,
+  GITHUB_OPERATIONS,
+  type ComposioToolkit,
+  ComposioApiError,
+  executeComposioTool,
+  executeGithubOperation,
+  getComposioConnectionStatus,
+  isGithubOperation,
+  listComposioTools,
+} from "./composio";
 
 export type AgentAction = {
   kind: "folder" | "file" | "telegram" | "vm" | "browser" | "connector" | "research" | "deployment" | "project" | "tool";
@@ -687,14 +697,55 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "list_connector_tools",
+      name: "github",
       description:
-        "Search a connector catalog (GitHub or Gmail) and get the exact action slugs with their parameter schemas. Use this whenever you are unsure which action exists or what parameters it takes - never guess a slug or a parameter name, look it up here first. Requires the connector to be connected (Settings).",
+        "Use GitHub through Nova's stable connector interface. Do not search for raw GitHub actions, GitHub App installations, or event endpoints. For every repository operation, pass repo as owner/name (for example 'octocat/Hello-World'). Use number for an issue or pull request number. Only include fields relevant to the selected operation. Requires GitHub to be connected in Settings.",
       parameters: {
         type: "object",
         properties: {
-          connector: { type: "string", enum: ["github", "gmail"], description: "Which connector's catalog to search." },
-          search: { type: "string", description: "Optional words to filter actions, e.g. 'create issue' or 'send email'." },
+          operation: {
+            type: "string",
+            enum: GITHUB_OPERATIONS,
+            description:
+              "search_repositories finds repositories (omit repo); get_repository reads repo metadata; read_file reads a file; list_pull_requests lists PRs; get_pull_request reads one PR; get_issue reads one issue; list_issue_comments reads an issue/PR discussion; create_issue opens an issue; comment_on_issue comments on an issue/PR; create_pull_request opens a PR from an existing branch; write_file creates or updates one file.",
+          },
+          repo: {
+            type: "string",
+            description: "Repository in owner/name format, for example 'Marcus-Mok-GH/nova-cloud-computer'. Omit only for search_repositories.",
+          },
+          query: { type: "string", description: "Repository search text. Omit to search repositories accessible to the connected account." },
+          owner: { type: "string", description: "Optional owner filter for search_repositories." },
+          path: { type: "string", description: "File path relative to the repository root for read_file or write_file." },
+          ref: { type: "string", description: "Optional branch, tag, or commit to read from with read_file." },
+          number: { type: "integer", description: "Issue or pull request number for get_issue, get_pull_request, list_issue_comments, or comment_on_issue." },
+          state: { type: "string", enum: ["open", "closed", "all"], description: "Pull request state for list_pull_requests. Defaults to open." },
+          per_page: { type: "integer", description: "Optional page size, maximum 100." },
+          title: { type: "string", description: "Issue or pull request title for create_issue or create_pull_request." },
+          body: { type: "string", description: "Markdown body for create_issue, comment_on_issue, or create_pull_request." },
+          labels: { type: "array", items: { type: "string" }, description: "Optional labels for create_issue." },
+          head: { type: "string", description: "Existing source branch for create_pull_request." },
+          base: { type: "string", description: "Existing target branch for create_pull_request." },
+          draft: { type: "boolean", description: "Whether create_pull_request should create a draft PR." },
+          content: { type: "string", description: "Plain-text file contents for write_file." },
+          message: { type: "string", description: "Commit message for write_file." },
+          branch: { type: "string", description: "Optional branch for write_file; defaults to the repository's default branch." },
+          sha: { type: "string", description: "Optional current file SHA for write_file updates." },
+        },
+        required: ["operation"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_connector_tools",
+      description:
+        "Search the Gmail connector catalog and return exact Gmail action slugs and parameter schemas. Use only for Gmail; GitHub has its own github tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          connector: { type: "string", enum: ["gmail"], description: "Must be gmail." },
+          search: { type: "string", description: "Optional words to filter Gmail actions." },
           limit: { type: "number", description: "Max actions to return, 1-50 (default 25)." },
         },
         required: ["connector"],
@@ -706,12 +757,12 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "use_connector_tool",
       description:
-        "Execute a GitHub or Gmail action on the user's behalf through the connector - e.g. list or star repositories, create issues, open pull requests; search, send or reply to Gmail; draft and manage emails. The action slug must come from list_connector_tools with exactly the parameters it declares. Requires the connector to be connected (Settings).",
+        "Execute a Gmail action on the user's behalf through the connector. The action slug must come from list_connector_tools with exactly the parameters it declares. GitHub uses the dedicated github tool instead.",
       parameters: {
         type: "object",
         properties: {
-          connector: { type: "string", enum: ["github", "gmail"], description: "Which connector to run the action through." },
-          action: { type: "string", description: "The exact action slug, e.g. GITHUB_CREATE_AN_ISSUE or GMAIL_SEND_EMAIL." },
+          connector: { type: "string", enum: ["gmail"], description: "Must be gmail." },
+          action: { type: "string", description: "The exact Gmail action slug." },
           params: { type: "object", description: "The action's parameters as a JSON object, exactly as listed by list_connector_tools." },
         },
         required: ["connector", "action", "params"],
@@ -1030,24 +1081,25 @@ import {
   slugifyProjectName,
 } from "./projectTemplates";
 
-const CONNECTOR_TOOL_NAMES = new Set(["list_connector_tools", "use_connector_tool"]);
+const CONNECTOR_TOOL_NAMES = new Set(["github", "list_connector_tools", "use_connector_tool"]);
 
 /** Resolves which connector toolkits the user has actually connected. Failures degrade to "not connected". */
 export async function getConnectedConnectorToolkits(
   ownerId: number,
   statusCheck: (ownerId: number, toolkit: ComposioToolkit) => Promise<{ connected: boolean }> = getComposioConnectionStatus
 ): Promise<ComposioToolkit[]> {
-  try {
-    const results = await Promise.all(
-      COMPOSIO_TOOLKITS.map(async toolkit => ({
-        toolkit,
-        status: await statusCheck(ownerId, toolkit),
-      }))
-    );
-    return results.filter(entry => entry.status.connected).map(entry => entry.toolkit);
-  } catch {
-    return [];
-  }
+  const results = await Promise.all(
+    COMPOSIO_TOOLKITS.map(async toolkit => {
+      try {
+        return { toolkit, connected: (await statusCheck(ownerId, toolkit)).connected };
+      } catch {
+        // One broken optional connector must not hide another connector that
+        // is healthy and should still be available to the model.
+        return { toolkit, connected: false };
+      }
+    })
+  );
+  return results.filter(entry => entry.connected).map(entry => entry.toolkit);
 }
 
 /** Builds the model tool list: connector tools are exposed only for connected toolkits. */
@@ -1056,26 +1108,16 @@ export function workspaceToolsForConnectors(
 ): GatewayToolDefinition[] {
   const nonConnector = WORKSPACE_TOOLS.filter(tool => !CONNECTOR_TOOL_NAMES.has(tool.function.name));
   if (!connected.length) return nonConnector;
-  const connectorTools = WORKSPACE_TOOLS.filter(tool => CONNECTOR_TOOL_NAMES.has(tool.function.name)).map(tool => {
-    const parameters = (tool.function.parameters ?? {}) as { properties?: Record<string, unknown>; required?: string[] };
-    return {
-      ...tool,
-      function: {
-        ...tool.function,
-        parameters: {
-          ...parameters,
-          properties: {
-            ...parameters.properties,
-            connector: {
-              type: "string",
-              enum: connected,
-              description: `Which connector to use. Connected: ${connected.join(", ")}.`,
-            },
-          },
-        },
-      },
-    };
-  });
+  const connectorTools: GatewayToolDefinition[] = [];
+  if (connected.includes("github")) {
+    const githubTool = WORKSPACE_TOOLS.find(tool => tool.function.name === "github");
+    if (githubTool) connectorTools.push(githubTool);
+  }
+  if (connected.includes("gmail")) {
+    connectorTools.push(
+      ...WORKSPACE_TOOLS.filter(tool => ["list_connector_tools", "use_connector_tool"].includes(tool.function.name))
+    );
+  }
   return [...nonConnector, ...connectorTools];
 }
 
@@ -1106,7 +1148,7 @@ Operating principles:
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
 - Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
 - Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
-- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
+- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work only after checking the relevant files, records, skills, or other reliable sources. Do not call an unverified choice a sensible default. Switch to collaborative - pause and ask one focused question - when a reliable source cannot resolve an important ambiguity, guessing has a real cost (irreversible or destructive actions beyond the literal request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation), or the user must decide. Never improvise facts, targets, recipients, IDs, or permissions.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
 - Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website with the deployment's ID (from the deployment list above - never guess one). When several deployments exist or the request is vague, confirm which one they mean first. Deleting every deployment (all: true) is a two-step sweep: the first call only lists the target deployment IDs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every deployment; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website creates a fresh deployment with a new ID and URL.
@@ -1898,10 +1940,38 @@ async function executeWorkspaceTool(
         };
       }
     }
+    case "github": {
+      const operation = str(args.operation);
+      if (!isGithubOperation(operation))
+        return {
+          ok: false,
+          result: `GitHub operation must be one of: ${GITHUB_OPERATIONS.join(", ")}.`,
+          action: { kind: "connector", name: "GitHub", operation: "failed" },
+        };
+      try {
+        const execution = await executeGithubOperation(ownerId, operation, args);
+        const payload = JSON.stringify(execution.data, null, 2);
+        const label = operation.replace(/_/g, " ");
+        return {
+          ok: execution.ok,
+          result: execution.ok
+            ? `GitHub ${label} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
+            : `GitHub ${label} failed: ${execution.error ?? "unknown error"}.`,
+          detail: payload?.slice(0, 20_000),
+          action: { kind: "connector", name: `GitHub: ${label}`, operation: execution.ok ? "executed" : "failed" },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: error instanceof ComposioApiError ? error.message : `The GitHub request failed: ${str((error as Error)?.message)}.`,
+          action: { kind: "connector", name: `GitHub: ${operation}`, operation: "failed" },
+        };
+      }
+    }
     case "list_connector_tools": {
       const connector = str(args.connector);
-      if (!isComposioToolkit(connector))
-        return { ok: false, result: "connector must be 'github' or 'gmail'." };
+      if (connector !== "gmail")
+        return { ok: false, result: "This catalog tool is only for Gmail. Use the github tool for GitHub." };
       const search = str(args.search) || undefined;
       const limitRaw = Number(args.limit);
       const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
@@ -1936,8 +2006,8 @@ async function executeWorkspaceTool(
       const connector = str(args.connector);
       const action = str(args.action);
       const params = (args.params ?? {}) as Record<string, unknown>;
-      if (!isComposioToolkit(connector))
-        return { ok: false, result: "connector must be 'github' or 'gmail'." };
+      if (connector !== "gmail")
+        return { ok: false, result: "This raw action tool is only for Gmail. Use the github tool for GitHub." };
       if (!action) return { ok: false, result: "An action slug is required." };
       try {
         const execution = await executeComposioTool(ownerId, connector, action, params);
@@ -2270,7 +2340,7 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
   if (action.kind === "connector")
     return action.operation === "listed"
       ? `Listed ${action.name}.`
-      : `${action.operation === "failed" ? "Failed running" : "Ran"} GitHub action: ${action.name}.`;
+      : `${action.operation === "failed" ? "Failed running" : "Ran"} connector operation: ${action.name}.`;
   return `${action.operation === "deleted" ? "Delet" : action.operation === "updated" ? "Updat" : "Creat"}ed ${action.kind}: ${action.name}.`;
 }
 

@@ -1978,7 +1978,7 @@ async function executeWorkspaceTool(
       try {
         const { tools } = await listComposioTools(ownerId, connector, { search, limit });
         if (!tools.length)
-          return { ok: true, result: `No GitHub actions matched "${search ?? ""}". Try a broader search.` };
+          return { ok: true, result: `No Gmail actions matched "${search ?? ""}". Try a broader search.` };
         const lines = tools
           .map(tool => {
             const params = Object.entries(tool.inputParameters ?? {})
@@ -1992,8 +1992,8 @@ async function executeWorkspaceTool(
           .join("\n");
         return {
           ok: true,
-          result: `${connector === "gmail" ? "Gmail" : "GitHub"} actions available:\n${lines}`,
-          action: { kind: "connector", name: `${tools.length} GitHub actions`, operation: "listed" },
+          result: "Gmail actions available:\n" + lines,
+          action: { kind: "connector", name: `${tools.length} Gmail actions`, operation: "listed" },
         };
       } catch (error) {
         return {

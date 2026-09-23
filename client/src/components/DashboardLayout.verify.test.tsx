@@ -18,6 +18,7 @@ vi.mock("@/lib/trpc", () => ({
         }),
       },
     },
+    credits: { status: { useQuery: () => ({ data: { remainingCredits: 500, dailyCredits: 500, creditValueCents: 1 } }) } },
     useUtils: () => ({ workspace: { computer: { invalidate: vi.fn() } } }),
   },
 }));

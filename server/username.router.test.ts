@@ -12,6 +12,7 @@ const setUsernameForUserSpy = vi.fn(async (userId: number, username: string) => 
 });
 
 vi.mock("./db", () => ({
+  getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   isUsernameTaken: isUsernameTakenSpy,
   setUsernameForUser: setUsernameForUserSpy,

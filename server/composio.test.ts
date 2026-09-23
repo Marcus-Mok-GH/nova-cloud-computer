@@ -275,6 +275,30 @@ describe("Composio connector client", () => {
     });
   });
 
+  it("preserves write_file content exactly, including whitespace and emptiness", () => {
+    expect(githubOperationRequest("write_file", {
+      repo: "octocat/Hello-World",
+      path: "src/example.ts",
+      content: "\n  export const value = 1;\n",
+      message: "Keep formatting",
+    })).toEqual({
+      action: "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS",
+      args: {
+        owner: "octocat",
+        repo: "Hello-World",
+        path: "src/example.ts",
+        content: "\n  export const value = 1;\n",
+        message: "Keep formatting",
+      },
+    });
+    expect(githubOperationRequest("write_file", {
+      repo: "octocat/Hello-World",
+      path: "empty.txt",
+      content: "",
+      message: "Create empty file",
+    }).args.content).toBe("");
+  });
+
   it("rejects ambiguous repository names before making a connector call", async () => {
     const fetchImpl = vi.fn();
     await expect(executeGithubOperation(12, "get_repository", { repo: "Hello-World" }, fetchImpl)).rejects.toThrow(

@@ -372,11 +372,13 @@ export function githubOperationRequest(
   if (operation === "search_repositories") {
     const requestedQuery = optionalString(input, "query");
     const query = requestedQuery ?? "*";
+    const scope = optionalString(input, "scope") ?? "mine";
+    if (scope !== "mine" && scope !== "public") githubInputError('scope must be "mine" or "public".');
     const args: Record<string, unknown> = {
       query,
       per_page: typeof input.per_page === "number" ? input.per_page : 25,
       response_detail: "minimal",
-      ...(requestedQuery ? {} : { for_authenticated_user: true }),
+      ...(scope === "mine" ? { for_authenticated_user: true } : {}),
     };
     const owner = optionalString(input, "owner");
     if (owner) args.owner = owner;

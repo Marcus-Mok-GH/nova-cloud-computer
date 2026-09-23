@@ -243,6 +243,26 @@ describe("Composio connector client", () => {
         for_authenticated_user: true,
       },
     });
+    expect(githubOperationRequest("search_repositories", { query: "nova" })).toEqual({
+      action: "GITHUB_FIND_REPOSITORIES",
+      args: {
+        query: "nova",
+        per_page: 25,
+        response_detail: "minimal",
+        for_authenticated_user: true,
+      },
+    });
+    expect(githubOperationRequest("search_repositories", { query: "react", scope: "public" })).toEqual({
+      action: "GITHUB_FIND_REPOSITORIES",
+      args: {
+        query: "react",
+        per_page: 25,
+        response_detail: "minimal",
+      },
+    });
+    expect(() => githubOperationRequest("search_repositories", { scope: "other" })).toThrow(
+      'scope must be "mine" or "public"'
+    );
     expect(GITHUB_OPERATIONS).toEqual(expect.not.arrayContaining(["list_accessible_repositories", "list_app_installations"]));
   });
 

@@ -699,7 +699,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "github",
       description:
-        "Use GitHub through Nova's stable connector interface. Do not search for raw GitHub actions, GitHub App installations, or event endpoints. For every repository operation, pass repo as owner/name (for example 'octocat/Hello-World'). Use number for an issue or pull request number. Only include fields relevant to the selected operation. Requires GitHub to be connected in Settings.",
+        "Use GitHub through Nova's stable connector interface. Do not search for raw GitHub actions, GitHub App installations, or event endpoints. For every repository operation, pass repo as owner/name (for example 'octocat/Hello-World'). Use number for an issue or pull request number. Search repositories is limited to the connected account by default; use scope:'public' only when the user explicitly asks for public repositories outside their account. When the user says 'my repo' or asks to clone a repository, never accept an arbitrary public match: verify the returned owner and repository before proceeding, and ask for clarification when multiple matches remain. Only include fields relevant to the selected operation. Requires GitHub to be connected in Settings.",
       parameters: {
         type: "object",
         properties: {
@@ -713,8 +713,9 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             description: "Repository in owner/name format, for example 'Marcus-Mok-GH/nova-cloud-computer'. Omit only for search_repositories.",
           },
-          query: { type: "string", description: "Repository search text. Omit to search repositories accessible to the connected account." },
+          query: { type: "string", description: "Repository search text. By default, results are limited to repositories accessible to the connected account." },
           owner: { type: "string", description: "Optional owner filter for search_repositories." },
+          scope: { type: "string", enum: ["mine", "public"], description: "Search scope. Defaults to mine; use public only when the user explicitly requests repositories outside the connected account." },
           path: { type: "string", description: "File path relative to the repository root for read_file or write_file." },
           ref: { type: "string", description: "Optional branch, tag, or commit to read from with read_file." },
           number: { type: "integer", description: "Issue or pull request number for get_issue, get_pull_request, list_issue_comments, or comment_on_issue." },

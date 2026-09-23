@@ -8,6 +8,7 @@ const createHeartbeatJob = vi.fn();
 const updateHeartbeatJob = vi.fn();
 
 vi.mock("./db", () => ({
+  getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getAutomationRecordForUser,
   setAutomationScheduleTaskForUser,

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // into "Mistral returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({
+  claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getMistralInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
   claimMistralInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),

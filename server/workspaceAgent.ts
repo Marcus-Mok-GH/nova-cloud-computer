@@ -3265,6 +3265,10 @@ ${options.continuationPlanned
       reply = withActualError(
         "The inference request allowance has been reached. New requests are blocked until an administrator raises the cap."
       );
+    } else if (kind === "credits_exhausted") {
+      reply = withActualError(
+        "Your daily Nova credits are used up (1 credit = 1¢). They reset tomorrow; everything so far is saved."
+      );
     } else if (kind === "rate_limit") {
       reply = providerErrorLead(
         "Everything so far is saved - please try again in a little while."

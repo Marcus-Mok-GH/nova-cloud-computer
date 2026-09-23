@@ -157,7 +157,7 @@ export default function Workspace() {
           <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2.5 px-3 sm:px-5">
             <button onClick={() => setLocation("/app/chats")} className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-neutral-800 dark:hover:text-white" aria-label="Back to chats"><ArrowLeft className="size-4" /></button>
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><NovaLogo size={12} /></span>
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p>{agentIsWorking ? <p data-testid="agent-working-status" role="status" aria-live="polite" className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400"><CircleDashed className="size-3 animate-spin" />Nova is actively working</p> : <p className="hidden text-[11px] text-muted-foreground sm:block">Private workspace context</p>}</div>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold tracking-tight">Nova conversation</p><p className="hidden text-[11px] text-muted-foreground sm:block">Private workspace context</p></div>
             <button onClick={() => setLocation("/app")} className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1.5 text-[11px] font-bold text-foreground/80 transition-colors hover:border-primary/30 hover:text-foreground dark:border-white/10 dark:bg-card dark:text-foreground/80"><MessageSquareText className="size-3.5 text-primary" />New chat</button>
           </div>
         </header>
@@ -285,16 +285,15 @@ export default function Workspace() {
 
 export function TypingIndicator() {
   return (
-    <div
+    <span
       data-testid="typing-indicator"
       role="status"
       aria-live="polite"
-      aria-label="Nova is actively working"
-      className="inline-flex items-center gap-2 break-words rounded-2xl rounded-tl-md border border-amber-200/80 bg-amber-50/80 px-3.5 py-2.5 text-xs font-semibold text-amber-700 shadow-[0_2px_8px_rgba(10,10,10,0.05)] dark:border-amber-500/20 dark:bg-amber-950/25 dark:text-amber-300"
+      aria-label="Working"
+      className="inline-flex items-center text-muted-foreground"
     >
-      <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-      <span>Nova is actively working…</span>
-    </div>
+      <CircleDashed className="size-4 animate-spin" />
+    </span>
   );
 }
 

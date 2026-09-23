@@ -12,14 +12,14 @@ vi.mock("@/lib/authCallbackUrl", () => ({ getMagicLinkCallbackUrl: () => "http:/
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()], Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 
 describe("landing and sign-in render", () => {
-  it("renders the calmer landing page", () => {
+  it("renders the landing page", () => {
     const markup = renderToStaticMarkup(<Home />);
-    expect(markup).toContain("Your work, in one calm place.");
-    expect(markup).toContain("Create your workspace");
-    expect(markup).toContain("A place that remembers");
-    expect(markup).toContain("An agent that takes action");
+    expect(markup).toContain("Give your AI a computer of its own.");
+    expect(markup).toContain("Get your own Nova");
+    expect(markup).toContain("A real computer, not a chat window");
+    expect(markup).toContain("An agent that finishes the job");
     expect(markup).not.toContain("Useful help, in context");
-    expect(markup).toContain("A little less juggling. A lot more follow-through.");
+    expect(markup).toContain("An agent that actually finishes things.");
   });
 
   it("optimizes the workspace preview for phones", () => {

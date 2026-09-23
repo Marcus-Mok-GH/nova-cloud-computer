@@ -7,12 +7,13 @@
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/app.ts --platform=node --bundle --format=cjs --outfile=dist/server/app.cjs && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "start": "NODE_ENV=production node dist/index.js",
-    "check": "tsc --noEmit",
+    "check": "pnpm run check:spa-cache && tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "drizzle-kit migrate",
-    "db:migrate:deploy": "if [ \"$VERCEL_ENV\" = \"production\" ]; then pnpm run db:migrate; else echo \"Skipping migrations ($VERCEL_ENV build)\"; fi"
+    "db:migrate:deploy": "if [ \"$VERCEL_ENV\" = \"production\" ]; then pnpm run db:migrate; else echo \"Skipping migrations ($VERCEL_ENV build)\"; fi",
+    "check:spa-cache": "node scripts/check-spa-cache-convention.mjs"
   },
   "dependencies": {
     "@neondatabase/neon-js": "0.7.0-beta",

@@ -316,22 +316,26 @@ export async function executeComposioTool(
 
 type GithubOperationInput = Record<string, unknown>;
 
+/** Raises a client-facing validation error for malformed GitHub input. */
 function githubInputError(message: string): never {
   throw new ComposioApiError(`GitHub ${message}`, 400);
 }
 
+/** Reads a required non-empty, trimmed string argument. */
 function requiredString(input: GithubOperationInput, name: string): string {
   const value = typeof input[name] === "string" ? input[name].trim() : "";
   if (!value) githubInputError(`requires ${name}.`);
   return value;
 }
 
+/** Reads a required positive integer argument, accepting numeric strings. */
 function positiveInteger(input: GithubOperationInput, name: string): number {
   const value = typeof input[name] === "number" ? input[name] : Number(input[name]);
   if (!Number.isInteger(value) || value < 1) githubInputError(`${name} must be a positive integer.`);
   return value;
 }
 
+/** Splits and validates the model-facing owner/name repository format. */
 function repositoryParts(input: GithubOperationInput): { owner: string; repo: string } {
   const repository = requiredString(input, "repo").replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
   const separator = repository.indexOf("/");
@@ -343,9 +347,17 @@ function repositoryParts(input: GithubOperationInput): { owner: string; repo: st
   };
 }
 
+/** Reads an optional string argument and omits blank values. */
 function optionalString(input: GithubOperationInput, name: string): string | undefined {
   const value = typeof input[name] === "string" ? input[name].trim() : "";
   return value || undefined;
+}
+
+/** Reads a string argument without modifying file content whitespace. */
+function rawString(input: GithubOperationInput, name: string): string {
+  const value = input[name];
+  if (typeof value !== "string") githubInputError(`requires ${name}.`);
+  return value;
 }
 
 /**
@@ -440,7 +452,7 @@ export function githubOperationRequest(
         args: {
           ...base,
           path: requiredString(input, "path"),
-          content: requiredString(input, "content"),
+          content: rawString(input, "content"),
           message: requiredString(input, "message"),
           ...(optionalString(input, "branch") ? { branch: optionalString(input, "branch") } : {}),
           ...(optionalString(input, "sha") ? { sha: optionalString(input, "sha") } : {}),

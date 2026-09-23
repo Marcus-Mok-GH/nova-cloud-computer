@@ -54,6 +54,47 @@ export type ComposioToolExecution = {
   error: string | null;
 };
 
+/**
+ * Stable, model-facing GitHub operations.
+ *
+ * Keep this list intentionally small. The raw Composio catalog also contains
+ * GitHub App installation actions and event endpoints with parameters that are
+ * not available for a normal OAuth connection. Exposing those actions makes
+ * the model spend turns discovering tools that cannot work.
+ */
+export const GITHUB_OPERATIONS = [
+  "search_repositories",
+  "get_repository",
+  "read_file",
+  "list_pull_requests",
+  "get_pull_request",
+  "get_issue",
+  "list_issue_comments",
+  "create_issue",
+  "comment_on_issue",
+  "create_pull_request",
+  "write_file",
+] as const;
+export type GithubOperation = (typeof GITHUB_OPERATIONS)[number];
+
+const GITHUB_OPERATION_ACTIONS: Record<GithubOperation, string> = {
+  search_repositories: "GITHUB_FIND_REPOSITORIES",
+  get_repository: "GITHUB_GET_A_REPOSITORY",
+  read_file: "GITHUB_GET_REPOSITORY_CONTENT",
+  list_pull_requests: "GITHUB_GET_PULL_REQUESTS",
+  get_pull_request: "GITHUB_GET_A_PULL_REQUEST",
+  get_issue: "GITHUB_GET_AN_ISSUE",
+  list_issue_comments: "GITHUB_GET_ISSUE_COMMENTS",
+  create_issue: "GITHUB_CREATE_AN_ISSUE",
+  comment_on_issue: "GITHUB_CREATE_AN_ISSUE_COMMENT",
+  create_pull_request: "GITHUB_CREATE_A_PULL_REQUEST",
+  write_file: "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS",
+};
+
+export function isGithubOperation(value: unknown): value is GithubOperation {
+  return typeof value === "string" && (GITHUB_OPERATIONS as readonly string[]).includes(value);
+}
+
 export function isComposioConfigured() {
   return Boolean(ENV.composioApiKey);
 }
@@ -271,6 +312,152 @@ export async function executeComposioTool(
     data: result.data ?? null,
     error: result.error ?? null,
   };
+}
+
+type GithubOperationInput = Record<string, unknown>;
+
+function githubInputError(message: string): never {
+  throw new ComposioApiError(`GitHub ${message}`, 400);
+}
+
+function requiredString(input: GithubOperationInput, name: string): string {
+  const value = typeof input[name] === "string" ? input[name].trim() : "";
+  if (!value) githubInputError(`requires ${name}.`);
+  return value;
+}
+
+function positiveInteger(input: GithubOperationInput, name: string): number {
+  const value = typeof input[name] === "number" ? input[name] : Number(input[name]);
+  if (!Number.isInteger(value) || value < 1) githubInputError(`${name} must be a positive integer.`);
+  return value;
+}
+
+function repositoryParts(input: GithubOperationInput): { owner: string; repo: string } {
+  const repository = requiredString(input, "repo").replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  const separator = repository.indexOf("/");
+  if (separator <= 0 || separator === repository.length - 1 || repository.indexOf("/", separator + 1) !== -1)
+    githubInputError(`repo must use the owner/name format, for example "octocat/Hello-World".`);
+  return {
+    owner: repository.slice(0, separator),
+    repo: repository.slice(separator + 1),
+  };
+}
+
+function optionalString(input: GithubOperationInput, name: string): string | undefined {
+  const value = typeof input[name] === "string" ? input[name].trim() : "";
+  return value || undefined;
+}
+
+/**
+ * Converts one predictable GitHub operation into the exact Composio action
+ * and parameters it needs. The model never has to discover action slugs,
+ * split owner/repo, or know that issue comments also cover pull requests.
+ */
+export function githubOperationRequest(
+  operation: GithubOperation,
+  input: GithubOperationInput
+): { action: string; args: Record<string, unknown> } {
+  if (operation === "search_repositories") {
+    const requestedQuery = optionalString(input, "query");
+    const query = requestedQuery ?? "*";
+    const args: Record<string, unknown> = {
+      query,
+      per_page: typeof input.per_page === "number" ? input.per_page : 25,
+      response_detail: "minimal",
+      ...(requestedQuery ? {} : { for_authenticated_user: true }),
+    };
+    const owner = optionalString(input, "owner");
+    if (owner) args.owner = owner;
+    if (typeof input.language === "string" && input.language.trim()) args.language = input.language.trim();
+    if (typeof input.archived === "boolean") args.archived = input.archived;
+    if (typeof input.for_authenticated_user === "boolean") args.for_authenticated_user = input.for_authenticated_user;
+    return { action: GITHUB_OPERATION_ACTIONS[operation], args };
+  }
+
+  const { owner, repo } = repositoryParts(input);
+  const base = { owner, repo };
+
+  switch (operation) {
+    case "get_repository":
+      return { action: GITHUB_OPERATION_ACTIONS[operation], args: base };
+    case "read_file":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: { ...base, path: requiredString(input, "path"), ...(optionalString(input, "ref") ? { ref: optionalString(input, "ref") } : {}) },
+      };
+    case "list_pull_requests":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: {
+          ...base,
+          state: optionalString(input, "state") ?? "open",
+          per_page: typeof input.per_page === "number" ? input.per_page : 25,
+        },
+      };
+    case "get_pull_request":
+      return { action: GITHUB_OPERATION_ACTIONS[operation], args: { ...base, pull_number: positiveInteger(input, "number") } };
+    case "get_issue":
+      return { action: GITHUB_OPERATION_ACTIONS[operation], args: { ...base, issue_number: positiveInteger(input, "number") } };
+    case "list_issue_comments":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: {
+          ...base,
+          issue_number: positiveInteger(input, "number"),
+          per_page: typeof input.per_page === "number" ? input.per_page : 100,
+        },
+      };
+    case "create_issue":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: {
+          ...base,
+          title: requiredString(input, "title"),
+          ...(optionalString(input, "body") ? { body: optionalString(input, "body") } : {}),
+          ...(Array.isArray(input.labels) ? { labels: input.labels } : {}),
+        },
+      };
+    case "comment_on_issue":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: { ...base, issue_number: positiveInteger(input, "number"), body: requiredString(input, "body") },
+      };
+    case "create_pull_request":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: {
+          ...base,
+          title: requiredString(input, "title"),
+          head: requiredString(input, "head"),
+          base: requiredString(input, "base"),
+          ...(optionalString(input, "body") ? { body: optionalString(input, "body") } : {}),
+          ...(typeof input.draft === "boolean" ? { draft: input.draft } : {}),
+        },
+      };
+    case "write_file":
+      return {
+        action: GITHUB_OPERATION_ACTIONS[operation],
+        args: {
+          ...base,
+          path: requiredString(input, "path"),
+          content: requiredString(input, "content"),
+          message: requiredString(input, "message"),
+          ...(optionalString(input, "branch") ? { branch: optionalString(input, "branch") } : {}),
+          ...(optionalString(input, "sha") ? { sha: optionalString(input, "sha") } : {}),
+        },
+      };
+  }
+}
+
+/** Executes a stable GitHub operation without exposing the raw action catalog to the model. */
+export async function executeGithubOperation(
+  ownerId: number,
+  operation: GithubOperation,
+  input: GithubOperationInput,
+  fetchImpl: typeof fetch = fetch
+): Promise<ComposioToolExecution> {
+  const request = githubOperationRequest(operation, input);
+  return executeComposioTool(ownerId, "github", request.action, request.args, fetchImpl);
 }
 
 /** Throws a clear ComposioApiError when the toolkit is not usable for this user. */

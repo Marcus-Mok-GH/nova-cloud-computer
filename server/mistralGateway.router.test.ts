@@ -24,6 +24,7 @@ class MockMistralGatewayClientError extends Error {
 }
 
 vi.mock("./db", () => ({
+  getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getOrCreateWorkspace: vi.fn(), getWorkspaceComputer: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
   createWorkspaceFolderForUser: vi.fn(), updateWorkspaceFolderForUser: vi.fn(), deleteWorkspaceFolderForUser: vi.fn(), createWorkspaceFileForUser: vi.fn(), updateWorkspaceFileForUser: vi.fn(), deleteWorkspaceFileForUser: vi.fn(),

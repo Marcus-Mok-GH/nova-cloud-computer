@@ -3130,26 +3130,33 @@ describe("connector tool gating", () => {
     expect(tools.find(tool => tool.function.name === "run_vm_task")).toBeDefined();
   });
 
-  it("exposes connector tools restricted to the connected toolkit", () => {
+  it("exposes the dedicated GitHub tool without the raw action catalog", () => {
     const tools = workspaceToolsForConnectors(["github"]);
-    const listTool = tools.find(tool => tool.function.name === "list_connector_tools");
-    expect(listTool).toBeDefined();
-    const properties = (listTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
-    expect(properties.connector.enum).toEqual(["github"]);
-    const useTool = tools.find(tool => tool.function.name === "use_connector_tool");
-    expect((useTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties.connector.enum).toEqual(["github"]);
+    expect(tools.find(tool => tool.function.name === "github")).toBeDefined();
+    expect(tools.find(tool => tool.function.name === "list_connector_tools")).toBeUndefined();
+    expect(tools.find(tool => tool.function.name === "use_connector_tool")).toBeUndefined();
   });
 
-  it("exposes both connector toolkits when both are connected", () => {
+  it("exposes Gmail's raw catalog only when Gmail is connected", () => {
     const tools = workspaceToolsForConnectors(["github", "gmail"]);
     const listTool = tools.find(tool => tool.function.name === "list_connector_tools");
-    expect((listTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties.connector.enum).toEqual(["github", "gmail"]);
+    expect((listTool!.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties.connector.enum).toEqual(["gmail"]);
+    expect(tools.find(tool => tool.function.name === "github")).toBeDefined();
   });
 
   it("status failures degrade to no connected toolkits", async () => {
     const failing = vi.fn(async () => { throw new Error("composio down"); });
     const connected = await getConnectedConnectorToolkits(1, failing as never);
     expect(connected).toEqual([]);
+  });
+
+  it("keeps a healthy connector when another connector status check fails", async () => {
+    const check = async (_owner: number, toolkit: string) => {
+      if (toolkit === "gmail") throw new Error("gmail status unavailable");
+      return { connected: true };
+    };
+    const connected = await getConnectedConnectorToolkits(1, check as never);
+    expect(connected).toEqual(["github"]);
   });
 
   it("reports only connected toolkits", async () => {

@@ -33,6 +33,7 @@ const resize = vi.fn(async (ownerId: number, size: { cols: number; rows: number 
 const stop = vi.fn(async (ownerId: number) => ({ success: ownerId === 1 }));
 
 vi.mock("./db", () => ({
+  getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getTelegramSettingsForUser: vi.fn(), saveTelegramSettingsForUser: vi.fn(), getTelegramCredentialsForUser: vi.fn(), updateTelegramChatForUser: vi.fn(), deleteTelegramSettingsForUser: vi.fn(),
   createWorkspaceFolderForUser: vi.fn(), updateWorkspaceFolderForUser: vi.fn(), deleteWorkspaceFolderForUser: vi.fn(),

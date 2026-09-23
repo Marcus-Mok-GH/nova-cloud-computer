@@ -23,8 +23,10 @@ import {
   automationRuns,
   siteDeployments,
   agentRuns,
+  dailyCredits,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, getDailyCreditPolicy, getCreditDay } from "./credits";
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
@@ -809,6 +811,44 @@ export async function claimMistralInferenceRequestForUser(ownerId: number, maxRe
   const rows = Array.isArray(result) ? result : result.rows ?? [];
   const claimed = rows[0];
   return claimed ? { usedRequests: Number(claimed.usedRequests) } : undefined;
+}
+
+export async function getDailyCreditStatusForUser(ownerId: number) {
+  const db = await requireDb();
+  const creditDay = getCreditDay();
+  const [row] = await db.select().from(dailyCredits)
+    .where(and(eq(dailyCredits.ownerId, ownerId), eq(dailyCredits.creditDay, creditDay)))
+    .limit(1);
+  const policy = getDailyCreditPolicy(row?.region ?? DEFAULT_CREDIT_REGION);
+  const dailyCreditsTotal = Number(row?.allocatedCredits ?? policy.dailyCredits);
+  const usedCredits = Number(row?.usedCredits ?? 0);
+  return {
+    region: row?.region ?? policy.region,
+    creditDay,
+    dailyCredits: dailyCreditsTotal,
+    usedCredits,
+    remainingCredits: Math.max(0, dailyCreditsTotal - usedCredits),
+    creditValueCents: CREDIT_VALUE_CENTS,
+  };
+}
+
+/** Atomically claim one built-in inference credit for the current UTC day. */
+export async function claimDailyCreditForUser(ownerId: number) {
+  const db = await requireDb();
+  const creditDay = getCreditDay();
+  const policy = getDailyCreditPolicy(DEFAULT_CREDIT_REGION);
+  const result = await db.execute(sql`
+    INSERT INTO "daily_credits" ("ownerId", "creditDay", "region", "allocatedCredits", "usedCredits", "createdAt", "updatedAt")
+    VALUES (${ownerId}, ${creditDay}, ${policy.region}, ${policy.dailyCredits}, 1, now(), now())
+    ON CONFLICT ("ownerId", "creditDay") DO UPDATE
+    SET "usedCredits" = "daily_credits"."usedCredits" + 1,
+        "updatedAt" = now()
+    WHERE "daily_credits"."usedCredits" < "daily_credits"."allocatedCredits"
+    RETURNING "usedCredits", "allocatedCredits"
+  `) as unknown as { rows?: Array<{ usedCredits: number; allocatedCredits: number }> } | Array<{ usedCredits: number; allocatedCredits: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  const claimed = rows[0];
+  return claimed ? { usedCredits: Number(claimed.usedCredits), allocatedCredits: Number(claimed.allocatedCredits) } : undefined;
 }
 
 type AgentVmRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "disabled";

@@ -47,6 +47,8 @@ import {
   getActiveCustomModel,
 } from "./byokGateway";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
+import { deleteAgentMemoryForUser, listRecentAgentMemoriesForUser, memoriesPromptLine, saveAgentMemoryForUser, searchAgentMemoriesForUser, isAgentMemoryKind } from "./memories";
+import { formatPlanForTool, getActiveAgentPlanForChat, planPromptLine, upsertAgentPlanForChat, normalizePlanSteps } from "./plans";
 import { COMPOSIO_TOOLKITS, type ComposioToolkit, ComposioApiError, executeComposioTool, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 
 export type AgentAction = {
@@ -739,6 +741,95 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "memory_save",
+      description:
+        "Save a durable memory about this user - a fact, a preference, or a standing instruction. Memories persist across every chat and are injected into future runs, so save the things worth knowing weeks from now: who they are, what they are working on, how they like replies, their recurring needs, their explicit preferences. Do not save transient task details or things the workspace files already hold. Save the memory as soon as it surfaces - do not wait to be asked.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["fact", "preference", "instruction"],
+            description: "fact: who the user is or what is true about their world. preference: what they like or want done differently. instruction: a standing rule they want followed.",
+          },
+          content: {
+            type: "string",
+            description: "The memory, one clear sentence written to be understood months from now without this conversation's context.",
+          },
+        },
+        required: ["kind", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "memory_recall",
+      description:
+        "Search your saved durable memories about this user by keyword. Use it instead of guessing whenever a past fact, preference, or standing instruction might exist and is not in the recent memory list - it returns every matching memory with its id. Use memory_save for new memories, not this tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Keywords to search for, e.g. 'timezone', 'deployment preferences', 'project names'.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "memory_delete",
+      description:
+        "Delete one of your saved memories by its id - use when the user corrects or revokes it, or it is plainly outdated. The id comes from the memory list in your context or from memory_recall results.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "integer",
+            description: "The numeric id of the memory to delete.",
+          },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "plan_update",
+      description:
+        "Create or replace your explicit working plan for this chat. Write the plan BEFORE starting any task with more than a few steps: a short title and the ordered steps with their statuses (pending, in_progress, done, skipped). Send the full plan every time - the new plan replaces the old one. Update it after each meaningful step, and whenever reality diverges, rewrite the plan instead of silently drifting. The current plan is always shown back to you in your context.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Short name for the task, e.g. 'Fix the portfolio deploy'.",
+          },
+          steps: {
+            type: "array",
+            description: "Ordered steps. Send every step each time, with its current status.",
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string", description: "What the step does." },
+                status: { type: "string", enum: ["pending", "in_progress", "done", "skipped"] },
+              },
+              required: ["text", "status"],
+            },
+          },
+        },
+        required: ["title", "steps"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "research_web",
       description:
         "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling - never omit it, never default lazily. Say nothing about the choice unless asked.",
@@ -1105,6 +1196,9 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
 - Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
+
+- Plan with plan_update, not in your head. For any task with more than a few steps, call plan_update FIRST with a short title and the ordered steps, then execute one step at a time and keep the plan current - mark steps done, in_progress, or skipped as they change, and rewrite the plan when reality diverges instead of silently drifting. The current plan is always in your context, so an interrupted run can pick up exactly where it left off. This is your working state machine, not decoration.
+- Keep durable memories. When a durable fact, preference, or standing instruction about the user surfaces, save it immediately with memory_save - it persists across every chat and is shown to your future runs. Before assuming anything about the user's world, check the memory list in your context or search with memory_recall. Delete a memory with memory_delete when the user corrects or revokes it.
 - Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. When it is connected, search the exact action slug and its parameters with list_connector_tools (never guess them), then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work only after checking the relevant files, records, skills, or other reliable sources. Do not call an unverified choice a sensible default. Switch to collaborative - pause and ask one focused question - when a reliable source cannot resolve an important ambiguity, guessing has a real cost (irreversible or destructive actions beyond the literal request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation), or the user must decide. Never improvise facts, targets, recipients, IDs, or permissions.
@@ -1130,10 +1224,12 @@ Workspace rules:
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 {{style}}
+{{memories}}
 This request arrived via: {{channel}}.
 
 Current folders: {{folders}}
-Current files: {{files}}`;
+Current files: {{files}}
+{{plan}}`;
 
 type ToolExecution = {
   ok: boolean;
@@ -1246,6 +1342,7 @@ const SPECIALIST_DOWN_BLOCK_RESULT =
 
 async function executeWorkspaceTool(
   ownerId: number,
+  chatId: number,
   computer: Computer,
   call: GatewayToolCall,
   onProgress?: (detail: string) => void,
@@ -2245,6 +2342,61 @@ async function executeWorkspaceTool(
         },
       };
     }
+    case "memory_save": {
+      const content = str(args.content);
+      const kind = isAgentMemoryKind(args.kind) ? args.kind : "fact";
+      if (!content) return { ok: false, result: "A memory needs content." };
+      const saved = await saveAgentMemoryForUser(ownerId, { kind, content, chatId });
+      return {
+        ok: true,
+        result: `Memory saved (${saved.kind}): "${saved.content.slice(0, 200)}". It now persists across all chats.`,
+        action: { kind: "tool", name: "memory_save", operation: "completed" },
+      };
+    }
+    case "memory_recall": {
+      const query = str(args.query);
+      if (!query) return { ok: false, result: "A search query is required." };
+      const matches = await searchAgentMemoriesForUser(ownerId, query);
+      if (!matches.length)
+        return { ok: true, result: `No saved memories match "${query}".` };
+      const lines = matches.map(m => `#${m.id} [${m.kind}] ${m.content}`);
+      return {
+        ok: true,
+        result: `Matching memories (oldest last):\n${lines.join("\n")}\nUse memory_delete with the id to remove one.`,
+        action: { kind: "tool", name: "memory_recall", operation: "listed" },
+      };
+    }
+    case "memory_delete": {
+      const id = typeof args.id === "number" ? args.id : Number(str(args.id));
+      if (!Number.isInteger(id) || id <= 0)
+        return { ok: false, result: "A valid memory id is required." };
+      const deleted = await deleteAgentMemoryForUser(ownerId, id);
+      return {
+        ok: deleted,
+        result: deleted ? `Memory #${id} deleted.` : `No memory #${id} found.`,
+        action: { kind: "tool", name: "memory_delete", operation: deleted ? "deleted" : "failed" },
+      };
+    }
+    case "plan_update": {
+      const title = str(args.title);
+      const steps = normalizePlanSteps(args.steps);
+      if (!steps.length)
+        return { ok: false, result: "A plan needs a title and at least one step with text." };
+      try {
+        const plan = await upsertAgentPlanForChat(ownerId, chatId, { title, steps });
+        return {
+          ok: true,
+          result: formatPlanForTool(plan),
+          action: { kind: "tool", name: "plan_update", operation: "updated" },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: `Could not save the plan: ${error instanceof Error ? error.message : "unknown error"}`,
+          action: { kind: "tool", name: "plan_update", operation: "failed" },
+        };
+      }
+    }
     default:
       return { ok: false, result: `Unknown tool: ${call.name}.` };
   }
@@ -2549,6 +2701,26 @@ ${options.continuationPlanned
     // along in the system prompt so targeting deployments stays explicit
     // across every chat.
     const deploymentsLine = await describeDeploymentsForUser(ownerId);
+    // Durable memories and the chat's active plan ride in the system prompt
+    // like the deployment registry, so every run starts knowing what matters.
+    const loadMemoriesLine = async () => {
+      try {
+        return memoriesPromptLine(await listRecentAgentMemoriesForUser(ownerId));
+      } catch (error) {
+        console.error("[Memories] could not load", error);
+        return "";
+      }
+    };
+    const loadPlanLine = async () => {
+      try {
+        return planPromptLine(await getActiveAgentPlanForChat(ownerId, chatId));
+      } catch (error) {
+        console.error("[Plan] could not load", error);
+        return "";
+      }
+    };
+    let memoriesLine = await loadMemoriesLine();
+    let planLine = await loadPlanLine();
     const userLine = identity.username
       ? `@${identity.username}${identity.name ? ` (${identity.name})` : ""}`
       : identity.name || identity.email || "the user";
@@ -2570,7 +2742,7 @@ ${options.continuationPlanned
           files
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
           .replace("{{deployments}}", deploymentsLine)
-          .replace(
+          .replace("{{memories}}", memoriesLine).replace("{{plan}}", planLine).replace(
             "{{style}}",
             communicationStyle
               ? `The user's saved preferred communication style: "${communicationStyle}" - follow it in every reply.`
@@ -2981,7 +3153,7 @@ ${options.continuationPlanned
         try {
           execution = await raceToolDeadline(
             () =>
-              executeWorkspaceTool(ownerId, computer, call, detail => {
+              executeWorkspaceTool(ownerId, chatId, computer, call, detail => {
               // Progress updates stream live to the open chat only - they are
               // not persisted, so long research runs don't flood the archive.
               Promise.resolve(
@@ -3135,6 +3307,8 @@ ${options.continuationPlanned
       // Refresh workspace state so later rounds resolve names/ids created
       // or removed by this round's tools.
       computer = await getWorkspaceComputer(ownerId);
+      memoriesLine = await loadMemoriesLine();
+      planLine = await loadPlanLine();
       messages[0] = systemMessage();
     }
 

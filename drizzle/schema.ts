@@ -73,3 +73,32 @@ export const agentRuns = pgTable("agent_runs", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("agent_runs_workspace_status_idx").on(table.workspaceId, table.status), index("agent_runs_chat_idx").on(table.chatId)]);
+
+/** Durable agent memory: facts, preferences, and instructions Nova keeps across chats. */
+export const agentMemoryKind = pgEnum("agent_memory_kind", ["fact", "preference", "instruction"]);
+export type AgentMemoryKindValue = (typeof agentMemoryKind.enumValues)[number];
+export const agentMemories = pgTable("agent_memories", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind: agentMemoryKind("kind").default("fact").notNull(),
+  content: text("content").notNull(),
+  chatId: integer("chatId").references(() => chats.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("agent_memories_owner_created_idx").on(table.ownerId, table.createdAt)]);
+export type AgentMemory = typeof agentMemories.$inferSelect; export type InsertAgentMemory = typeof agentMemories.$inferInsert;
+
+/** The agent's explicit working plan for a chat: one active plan, replaced via plan_update. */
+export const agentPlanStepStatus = pgEnum("agent_plan_step_status", ["pending", "in_progress", "done", "skipped"]);
+export type AgentPlanStepStatusValue = (typeof agentPlanStepStatus.enumValues)[number];
+export type AgentPlanStep = { text: string; status: AgentPlanStepStatusValue };
+export const agentPlans = pgTable("agent_plans", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  chatId: integer("chatId").notNull().references(() => chats.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 240 }).notNull(),
+  steps: jsonb("steps").$type<AgentPlanStep[]>().notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("agent_plans_chat_unique").on(table.chatId)]);
+export type AgentPlan = typeof agentPlans.$inferSelect; export type InsertAgentPlan = typeof agentPlans.$inferInsert;

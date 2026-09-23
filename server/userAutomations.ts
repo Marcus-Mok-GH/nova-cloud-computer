@@ -1,8 +1,8 @@
 import { asc, and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { invokeLLM } from "./_core/llm";
-import { createWorkspaceFileForUser, getOrCreateWorkspace } from "./db";
+import { createWorkspaceFileForUser, getOrCreateWorkspace, createChatForUser, listChatsForUser } from "./db";
+import { runWorkspaceAgent } from "./workspaceAgent";
 import { userAutomations, type UserAutomation } from "../drizzle/schema";
 
 let db: ReturnType<typeof drizzle> | null = null;
@@ -39,23 +39,20 @@ export async function runUserAutomationForScheduleTask(taskUid: string, now = ne
   const database = await getDb(); const automation = await getUserAutomationForScheduleTask(taskUid); if (!automation || !automation.enabled) return { skipped: true };
   try {
     const workspace = await getOrCreateWorkspace(automation.ownerId);
-    const prompt = `${automation.executionPrompt}\n\nStructured automation arguments:\n${JSON.stringify(automation.args, null, 2)}\n\nExecution constraints:\n${JSON.stringify((automation.definition as Record<string, unknown>)?.constraints ?? {}, null, 2)}\n\nRun time: ${now.toISOString()}\nWorkspace: ${workspace.name}`;
-    const result = await invokeLLM({ messages: [{ role: "system", content: "You are Nova's scheduled automation worker. Follow the compiled automation prompt and arguments. Use only capabilities actually available to this worker. Never invent actions, credentials, external access, or completed work. If the requested work cannot be performed, clearly report the limitation instead of pretending. Return a concise Markdown report." }, { role: "user", content: prompt }] });
-    const message = result.choices?.[0]?.message?.content;
-    const content = typeof message === "string"
-      ? message
-      : Array.isArray(message)
-        ? message.map(part => {
-            if (typeof part === "string") return part;
-            if (!part || typeof part !== "object") return "";
-            if (part.type === "text" && typeof part.text === "string") return part.text;
-            return "";
-          }).join("\n")
-        : "Nova completed the automation without a report.";
+    const prompt = `${automation.executionPrompt}\n\nStructured automation arguments:\n${JSON.stringify(automation.args, null, 2)}\n\nExecution constraints:\n${JSON.stringify((automation.definition as Record<string, unknown>)?.constraints ?? {}, null, 2)}\n\nRun time: ${now.toISOString()}\nWorkspace: ${workspace.name}\n\nThis is a scheduled automation run. It must be fully self-directed: use your tools to actually do the work - workspace files, research_web, solve_equation, run_vm_task, code_task, connectors, memory and planning as needed - then end_turn with a concise Markdown report of what was done, what failed, and any follow-up worth knowing. Never invent completed work.`;
+    // Self-directed run: the full agent loop with every tool, not a single
+    // bare LLM call. Each automation keeps one dedicated chat, so the run
+    // history (and the plan it wrote) stays inspectable in the Chats page.
+    const chatTitle = `Automation · ${automation.name}`.slice(0, 160);
+    const existingChat = (await listChatsForUser(automation.ownerId)).find(chat => chat.title === chatTitle);
+    const chat = existingChat ?? (await createChatForUser(automation.ownerId, chatTitle));
+    if (!chat) throw new Error("Nova could not open the automation chat.");
+    const run = await runWorkspaceAgent(automation.ownerId, chat.id, prompt, { channel: "web" });
+    const content = run?.message?.content?.trim() || "Nova completed the automation without a report.";
     const safeName = automation.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "automation";
-    const artifact = await createWorkspaceFileForUser(automation.ownerId, { name: `${safeName}-${now.toISOString().slice(0, 10)}.md`, content: `# ${automation.name}\n\n${content.trim()}\n`, mimeType: "text/markdown" });
+    const artifact = await createWorkspaceFileForUser(automation.ownerId, { name: `${safeName}-${now.toISOString().slice(0, 10)}.md`, content: `# ${automation.name}\n\n${content}\n`, mimeType: "text/markdown" });
     if (!artifact) throw new Error("Nova could not save the automation report.");
     await database.update(userAutomations).set({ lastRunAt: now, lastError: null, updatedAt: now }).where(eq(userAutomations.id, automation.id));
-    return { skipped: false, success: true, artifactId: artifact.id };
+    return { skipped: false, success: true, artifactId: artifact.id, chatId: chat.id, outOfBudget: Boolean(run?.outOfBudget) };
   } catch (error) { const message = error instanceof Error ? error.message : "Nova could not complete this automation."; await database.update(userAutomations).set({ lastError: message.slice(0, 1200), updatedAt: now }).where(eq(userAutomations.id, automation.id)); return { skipped: false, success: false, error: message }; }
 }

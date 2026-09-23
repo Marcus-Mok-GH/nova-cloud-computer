@@ -11,10 +11,13 @@ vi.mock("./_core/env", () => ({
 
 import {
   ComposioApiError,
+  GITHUB_OPERATIONS,
   composioUserId,
   createComposioConnectionLink,
   deleteComposioConnection,
   executeComposioTool,
+  executeGithubOperation,
+  githubOperationRequest,
   getComposioConnectionStatus,
   listComposioTools,
 } from "./composio";
@@ -212,6 +215,96 @@ describe("Composio connector client", () => {
       ],
     });
     expect(fetchImpl.mock.calls[1][0]).toContain("/tools?toolkit_slug=github&limit=25&query=create+issue");
+  });
+
+  it("maps a simple owner/repo file read to the stable GitHub action", () => {
+    expect(githubOperationRequest("read_file", {
+      repo: "octocat/Hello-World",
+      path: "README.md",
+      ref: "main",
+    })).toEqual({
+      action: "GITHUB_GET_REPOSITORY_CONTENT",
+      args: {
+        owner: "octocat",
+        repo: "Hello-World",
+        path: "README.md",
+        ref: "main",
+      },
+    });
+  });
+
+  it("uses repository search instead of GitHub App installation actions", () => {
+    expect(githubOperationRequest("search_repositories", {})).toEqual({
+      action: "GITHUB_FIND_REPOSITORIES",
+      args: {
+        query: "*",
+        per_page: 25,
+        response_detail: "minimal",
+        for_authenticated_user: true,
+      },
+    });
+    expect(GITHUB_OPERATIONS).toEqual(expect.not.arrayContaining(["list_accessible_repositories", "list_app_installations"]));
+  });
+
+  it("normalizes issue creation and executes only the selected stable action", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acc_active", user_id: "nova-user-12", status: "ACTIVE", toolkit: { slug: "github" } }] }))
+      .mockResolvedValueOnce(composioResponse({ data: { number: 42 }, successful: true }));
+
+    await expect(executeGithubOperation(12, "create_issue", {
+      repo: "octocat/Hello-World",
+      title: "Make connector simpler",
+      body: "Use the stable GitHub interface.",
+      labels: ["enhancement"],
+    }, fetchImpl)).resolves.toEqual({
+      ok: true,
+      data: { number: 42 },
+      error: null,
+    });
+
+    expect(fetchImpl.mock.calls[1][0]).toContain("/tools/execute/GITHUB_CREATE_AN_ISSUE");
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1].body))).toEqual({
+      user_id: "nova-user-12",
+      arguments: {
+        owner: "octocat",
+        repo: "Hello-World",
+        title: "Make connector simpler",
+        body: "Use the stable GitHub interface.",
+        labels: ["enhancement"],
+      },
+    });
+  });
+
+  it("preserves write_file content exactly, including whitespace and emptiness", () => {
+    expect(githubOperationRequest("write_file", {
+      repo: "octocat/Hello-World",
+      path: "src/example.ts",
+      content: "\n  export const value = 1;\n",
+      message: "Keep formatting",
+    })).toEqual({
+      action: "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS",
+      args: {
+        owner: "octocat",
+        repo: "Hello-World",
+        path: "src/example.ts",
+        content: "\n  export const value = 1;\n",
+        message: "Keep formatting",
+      },
+    });
+    expect(githubOperationRequest("write_file", {
+      repo: "octocat/Hello-World",
+      path: "empty.txt",
+      content: "",
+      message: "Create empty file",
+    }).args.content).toBe("");
+  });
+
+  it("rejects ambiguous repository names before making a connector call", async () => {
+    const fetchImpl = vi.fn();
+    await expect(executeGithubOperation(12, "get_repository", { repo: "Hello-World" }, fetchImpl)).rejects.toThrow(
+      'repo must use the owner/name format'
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("refuses to execute a tool when GitHub is not connected", async () => {

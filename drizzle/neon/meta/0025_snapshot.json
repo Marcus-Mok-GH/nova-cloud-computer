@@ -1,6 +1,6 @@
 {
-  "id": "7c4b9f0e-3b85-4cd6-8c9e-9f5d9c0b4e25",
-  "prevId": "c020dcda-cfc1-4ad7-88d0-716e4a3818b4",
+  "id": "9e0f2d61-9c3a-4b7c-8d18-2b2c6f4e6026",
+  "prevId": "7c4b9f0e-3b85-4cd6-8c9e-9f5d9c0b4e25",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2219,6 +2219,20 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "inputTokens": {
+          "name": "inputTokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "outputTokens": {
+          "name": "outputTokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {

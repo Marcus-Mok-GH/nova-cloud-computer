@@ -26,7 +26,7 @@ import {
   dailyCredits,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
-import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, getDailyCreditPolicy, getCreditDay } from "./credits";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, getDailyCreditPolicy, getCreditDay, type InferenceTokenUsage } from "./credits";
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
@@ -827,6 +827,8 @@ export async function getDailyCreditStatusForUser(ownerId: number) {
     creditDay,
     dailyCredits: dailyCreditsTotal,
     usedCredits,
+    inputTokens: Number(row?.inputTokens ?? 0),
+    outputTokens: Number(row?.outputTokens ?? 0),
     remainingCredits: Math.max(0, dailyCreditsTotal - usedCredits),
     creditValueCents: CREDIT_VALUE_CENTS,
   };
@@ -849,6 +851,29 @@ export async function claimDailyCreditForUser(ownerId: number) {
   const rows = Array.isArray(result) ? result : result.rows ?? [];
   const claimed = rows[0];
   return claimed ? { usedCredits: Number(claimed.usedCredits), allocatedCredits: Number(claimed.allocatedCredits) } : undefined;
+}
+
+/** Records provider token usage and adds any cost above the one-credit preflight reservation. */
+export async function settleDailyCreditUsageForUser(ownerId: number, chargedCredits: number, usage: InferenceTokenUsage) {
+  const db = await requireDb();
+  const creditDay = getCreditDay();
+  const additionalCredits = Math.max(0, Math.ceil(chargedCredits) - 1);
+  const inputValue = Number(usage?.prompt_tokens ?? 0);
+  const outputValue = Number(usage?.completion_tokens ?? 0);
+  const inputTokens = Number.isFinite(inputValue) ? Math.max(0, Math.floor(inputValue)) : 0;
+  const outputTokens = Number.isFinite(outputValue) ? Math.max(0, Math.floor(outputValue)) : 0;
+  const result = await db.execute(sql`
+    UPDATE "daily_credits"
+    SET "usedCredits" = "daily_credits"."usedCredits" + ${additionalCredits},
+        "inputTokens" = "daily_credits"."inputTokens" + ${inputTokens},
+        "outputTokens" = "daily_credits"."outputTokens" + ${outputTokens},
+        "updatedAt" = now()
+    WHERE "ownerId" = ${ownerId} AND "creditDay" = ${creditDay}
+    RETURNING "usedCredits", "inputTokens", "outputTokens"
+  `) as unknown as { rows?: Array<{ usedCredits: number; inputTokens: number; outputTokens: number }> } | Array<{ usedCredits: number; inputTokens: number; outputTokens: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  const settled = rows[0];
+  return settled ? { usedCredits: Number(settled.usedCredits), inputTokens: Number(settled.inputTokens), outputTokens: Number(settled.outputTokens) } : undefined;
 }
 
 type AgentVmRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "disabled";

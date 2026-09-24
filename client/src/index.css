@@ -209,3 +209,40 @@ button, a, [role="button"] { touch-action: manipulation; }
   .rise-in-delay-2 { animation: rise-in .6s .12s cubic-bezier(0,0,.2,1) both; }
   .rise-in-delay-3 { animation: rise-in .6s .18s cubic-bezier(0,0,.2,1) both; }
 }
+
+
+/* ---------------- Editorial chat workbench ---------------- */
+.chat-editorial-shell {
+  isolation: isolate;
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.chat-editorial-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(700px 420px at 88% -5%, color-mix(in srgb, var(--primary) 11%, transparent), transparent 72%);
+}
+.dark .chat-editorial-shell {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.045) 1px, transparent 1px);
+}
+.dark .chat-editorial-shell::before {
+  background: radial-gradient(700px 420px at 88% -5%, oklch(0.70 0.11 35 / 0.13), transparent 72%);
+}
+.chat-editorial-orbit {
+  opacity: .7;
+  transform: rotate(-16deg);
+}
+.chat-editorial-composer {
+  background: linear-gradient(to top, var(--background) 34%, color-mix(in srgb, var(--background) 92%, transparent), transparent);
+}
+.chat-blank-state {
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent), transparent 34%);
+}

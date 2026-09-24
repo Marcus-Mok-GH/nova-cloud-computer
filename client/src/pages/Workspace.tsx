@@ -8,7 +8,7 @@ import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ToolActivityLine, ToolActivityPanel, isPanelToolActivity } from "@/lib/toolActivityLine";
 import { dedupeToolActivityMessages, isInternalChatMessage, mergeToolActivity, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { Activity, AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, FileText, Github, Mail, MessageSquareText, Send, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, CornerDownLeft, FileText, Github, Mail, MessageSquareText, Send, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";

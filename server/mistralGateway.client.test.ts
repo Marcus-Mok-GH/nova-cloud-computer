@@ -5,6 +5,7 @@ const claim = vi.fn(async () => ({ usedRequests: 1 }));
 
 vi.mock("./db", () => ({
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
+  settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getMistralInferenceAllowanceForUser: getAllowance,
   claimMistralInferenceRequestForUser: claim,

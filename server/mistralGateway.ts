@@ -2,7 +2,9 @@ import {
   claimDailyCreditForUser,
   claimMistralInferenceRequestForUser,
   getMistralInferenceAllowanceForUser,
+  settleDailyCreditUsageForUser,
 } from "./db";
+import { calculateInferenceCredits } from "./credits";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -837,6 +839,16 @@ async function claimDailyCreditOrThrow(ownerId: number) {
   }
 }
 
+async function settleGatewayCredit(ownerId: number, model: string | undefined, usage: GatewayCompletion["usage"] | null) {
+  const chargedCredits = calculateInferenceCredits(model, usage);
+  try {
+    await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
+  } catch (error) {
+    console.error("[Credits] Could not settle provider token usage", error instanceof Error ? error.message : error);
+  }
+  return chargedCredits;
+}
+
 export async function completeWithMistralGateway(
   ownerId: number,
   prompt: string,
@@ -955,13 +967,15 @@ export async function completeWithMistralGateway(
   };
   };
   const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
-  return attemptWithPoolFallback(
+  const result = await attemptWithPoolFallback(
     status,
     claim,
     resolvedModel,
     model => postPromptCompletion(model),
     kiloTarget ? model => postPromptCompletion(model, kiloTarget) : undefined
   );
+  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
+  return { ...result, creditsCharged };
 }
 
 export type GatewayToolDefinition = {
@@ -1414,7 +1428,7 @@ export async function chatWithMistralGateway(
   }
   const resolvedModel = options.model?.trim() || status.model;
   const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
-  return attemptWithPoolFallback(
+  const result = await attemptWithPoolFallback(
     status,
     claim,
     resolvedModel,
@@ -1424,6 +1438,8 @@ export async function chatWithMistralGateway(
           attemptGatewayChat(status, claim, messages, options, model, kiloTarget)
       : undefined
   );
+  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
+  return { ...result, creditsCharged };
 }
 
 /**

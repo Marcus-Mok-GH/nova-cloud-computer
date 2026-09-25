@@ -138,6 +138,23 @@ function nimChatEndpoint(modelOverride?: string): URL {
 }
 
 /** One OpenAI-style chat completion. Returns the raw message object. */
+/** HTTP statuses whose failure is usually momentary (overload, rate limit). */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const MAX_NIM_ATTEMPTS = 4;
+const MAX_RETRY_WAIT_MS = 90_000;
+const RETRY_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Retry delay from a Retry-After header when present and sane. */
+function retryAfterMs(response: Response): number | undefined {
+  const seconds = Number(response.headers.get("retry-after"));
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(seconds * 1_000, 60_000);
+}
+
 async function postNimChat(
   body: Record<string, unknown>,
   timeoutMs: number,
@@ -145,21 +162,51 @@ async function postNimChat(
 ): Promise<{ message?: { content?: unknown; tool_calls?: unknown } }> {
   const endpoint = nimChatEndpoint(modelOverride);
   const model = modelOverride ?? ENV.nimCoderModel;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.nimApiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      ...nimReasoningParamsForModel(model),
-      ...body,
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!response.ok) {
+  // Rate limits and pool overloads are routine on the shared NIM fleet;
+  // a specialist that exits on the first 429 fails otherwise-completable
+  // tasks. Retry transient failures with backoff, and give a request that
+  // timed out exactly one second chance (NIM stalls are often momentary,
+  // while a genuinely too-long generation would just reproduce itself).
+  let attempt = 0;
+  let retryWaitTotalMs = 0;
+  let timedOutOnce = false;
+  while (true) {
+    attempt += 1;
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ENV.nimApiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          ...nimReasoningParamsForModel(model),
+          ...body,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError" && !timedOutOnce) {
+        timedOutOnce = true;
+        continue;
+      }
+      if (attempt < MAX_NIM_ATTEMPTS && retryWaitTotalMs < MAX_RETRY_WAIT_MS) {
+        const wait = RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)];
+        retryWaitTotalMs += wait;
+        await sleep(wait);
+        continue;
+      }
+      throw error;
+    }
+    if (response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        choices?: { message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown } }[];
+      } | null;
+      return payload?.choices?.[0] ?? {};
+    }
     const detail = await response.text().catch(() => "");
     const hint = detail.slice(0, 300).replace(/\s+/g, " ").trim();
     const failure = new Error(
@@ -170,12 +217,13 @@ async function postNimChat(
     if (response.status === 400 || response.status === 404 || response.status === 422) {
       throw new NimToolsUnsupportedError(failure.message);
     }
-    throw failure;
+    if (!RETRYABLE_STATUS.has(response.status) || attempt >= MAX_NIM_ATTEMPTS || retryWaitTotalMs >= MAX_RETRY_WAIT_MS) {
+      throw failure;
+    }
+    const wait = retryAfterMs(response) ?? RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)];
+    retryWaitTotalMs += wait;
+    await sleep(wait);
   }
-  const payload = (await response.json().catch(() => null)) as {
-    choices?: { message?: { content?: unknown; tool_calls?: unknown; reasoning_content?: unknown } }[];
-  } | null;
-  return payload?.choices?.[0] ?? {};
 }
 
 /** The model's private reasoning text, when the endpoint returns one. */

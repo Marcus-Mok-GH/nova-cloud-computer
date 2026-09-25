@@ -1,5 +1,7 @@
 2026-09-25 - Repair main: broken Workspace JSX and gateway result type (from 257c705)
 
+Render tests updated to pin the new editorial UI instead of the removed copy ("Start a chat" -> "Open thread", "Connectors Nova can use" -> "Tools on hand", assistant label "Nova App" -> "Nova"), and the Admin render test's trpc mock now covers credits.status, which DashboardLayout has queried since the daily-credits system. Full suite: 606 passed, 4 skipped; `pnpm run check` clean.
+
 Commit 257c705 ("Add editorial chat visual system") landed two type-level breaks that turned every branch's "Quality checks and production smoke test" red: client/src/pages/Workspace.tsx lost the closing </DashboardLayout> tag in the rewritten return block (TS1708 cascade), and server/mistralGateway.ts's chatWithMistralGateway - annotated Promise<GatewayChatResult> - returned an extra creditsCharged property (TS2353); credit settlement still runs, the unused property is simply no longer spread into the result. `pnpm run check` (SPA cache + tsc --noEmit) is clean and the gateway + admin suites pass (25 tests).
 
 2026-09-25 - Admin inspect: fix chat message loading (Postgres identifier quoting)

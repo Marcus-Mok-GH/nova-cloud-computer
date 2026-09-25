@@ -14,6 +14,7 @@ vi.mock("wouter", () => ({ useLocation: () => ["/app/admin", vi.fn()], useSearch
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
+    credits: { status: { useQuery: () => ({ data: undefined, isLoading: false }) } },
     useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { users: 2, admins: 1, chats: 3, messages: 12, projects: 1, tasks: 4, automations: 0, workspaces: 2, telegramLinked: 1, activeAgentRuns: 0 }, recentUsers: [], recentAgentRuns: [] }, isLoading: false }) },

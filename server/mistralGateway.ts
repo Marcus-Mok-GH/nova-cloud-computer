@@ -1438,8 +1438,8 @@ export async function chatWithMistralGateway(
           attemptGatewayChat(status, claim, messages, options, model, kiloTarget)
       : undefined
   );
-  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
-  return { ...result, creditsCharged };
+  await settleGatewayCredit(ownerId, result.model, result.usage);
+  return result;
 }
 
 /**

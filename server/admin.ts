@@ -219,12 +219,12 @@ export async function getUserChatsForAdmin(userId: number): Promise<AdminInspect
   // of a shared result limit: each selected chat always gets its own newest N.
   const chatIdList = sql.join(chatRows.map(chat => sql`${chat.id}`), sql`, `);
   const rankedResult = (await db.execute(sql`
-    SELECT id, chat_id AS "chatId", role, content, created_at AS "createdAt"
+    SELECT id, "chatId", role, content, "createdAt"
     FROM (
-      SELECT id, chat_id, role, content, created_at,
-             ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC, id DESC) AS rn
+      SELECT id, "chatId", role, content, "createdAt",
+             ROW_NUMBER() OVER (PARTITION BY "chatId" ORDER BY "createdAt" DESC, id DESC) AS rn
       FROM chat_messages
-      WHERE chat_id IN (${chatIdList})
+      WHERE "chatId" IN (${chatIdList})
     ) ranked
     WHERE rn <= ${ADMIN_INSPECT_MESSAGES_PER_CHAT}
   `)) as unknown as

@@ -79,7 +79,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("<textarea");
     expect(markup).toContain("What do you want Nova to help with?");
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Start a chat/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Open thread/);
   });
 
   it("renders workspace asset counts without folder browsing controls", () => {
@@ -94,9 +94,9 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("What are we working on?");
-    expect(markup).toContain("Ask Nova anything about your work");
-    expect(markup).toContain("Connectors Nova can use");
+    expect(markup).toContain("Start with the thing that is taking up space.");
+    expect(markup).toContain("Tools on hand");
+    expect(markup).toContain("Private workbench /");
     expect(markup).toContain("GitHub");
     expect(markup).toContain("Gmail");
     expect(markup).not.toContain("Cloud VM");
@@ -148,10 +148,10 @@ describe("Workspace rendered browser states", () => {
 
   it("renders loading, empty, and error states for the workspace summary", () => {
     state.computer = { data: undefined, isError: false, isLoading: true, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("What are we working on?");
+    expect(renderWorkspace()).toContain("Start with the thing that is taking up space.");
 
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("Connectors Nova can use");
+    expect(renderWorkspace()).toContain("Tools on hand");
 
     state.computer = { data: undefined, isError: true, isLoading: false, refetch: vi.fn() };
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
@@ -163,8 +163,8 @@ describe("Workspace rendered browser states", () => {
     state.mistralStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Start a chat");
-    expect(markup).toContain("Connectors Nova can use");
+    expect(markup).toContain("Open thread");
+    expect(markup).toContain("Tools on hand");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask Mistral");
@@ -197,7 +197,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderChat();
     expect(markup).not.toContain('data-testid="assistant-error"');
     expect(markup).toContain("Hello there");
-    expect((markup.match(/Nova App/g) || []).length).toBe(1);
+    expect((markup.match(/<p[^>]*>Nova<\/p>/g) || []).length).toBe(1);
   });
 
   it("shows exactly one label for two consecutive assistant messages", () => {
@@ -207,7 +207,7 @@ describe("Workspace rendered browser states", () => {
     ];
     const markup = renderChat();
     expect(markup).toContain("Second reply");
-    expect((markup.match(/Nova App/g) || []).length).toBe(1);
+    expect((markup.match(/<p[^>]*>Nova<\/p>/g) || []).length).toBe(1);
   });
 
   it("does not render the typing indicator while idle", () => {

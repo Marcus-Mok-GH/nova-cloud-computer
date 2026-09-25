@@ -63,7 +63,7 @@ export async function listAgentVmRuns(ownerId: number) {
 
 export async function startAgentVmRun(
   ownerId: number,
-  input: { task: string; code?: string },
+  input: { task: string; code?: string; chatId?: number | null },
   options: { skipRestore?: boolean } = {}
 ) {
   const client = getE2BClient();
@@ -76,7 +76,7 @@ export async function startAgentVmRun(
     };
   }
   const computer = await getWorkspaceComputer(ownerId);
-  const run = await createAgentVmRunForUser(ownerId, { task: input.task });
+  const run = await createAgentVmRunForUser(ownerId, { task: input.task, chatId: input.chatId });
   try {
     return await withE2BWorkspaceLock(
       ownerId,

@@ -91,6 +91,8 @@ export const appRouter = router({
   admin: adminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    /** Lets the sign-in page tell a banned account apart from a broken deployment. */
+    banStatus: publicProcedure.query(opts => ({ banned: opts.ctx.banned })),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),
     deleteAccount: protectedProcedure.mutation(async ({ ctx }) => { const success = await deleteUserAccount(ctx.user.id); if (!success) throw new TRPCError({ code: "NOT_FOUND", message: "Account deletion could not be completed." }); return { success }; }),
     /** Claim the app-wide username the agent and other surfaces know you by. */

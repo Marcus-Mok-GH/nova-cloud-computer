@@ -1,3 +1,7 @@
+2026-09-25 - Repair main: broken Workspace JSX and gateway result type (from 257c705)
+
+Commit 257c705 ("Add editorial chat visual system") landed two type-level breaks that turned every branch's "Quality checks and production smoke test" red: client/src/pages/Workspace.tsx lost the closing </DashboardLayout> tag in the rewritten return block (TS1708 cascade), and server/mistralGateway.ts's chatWithMistralGateway - annotated Promise<GatewayChatResult> - returned an extra creditsCharged property (TS2353); credit settlement still runs, the unused property is simply no longer spread into the result. `pnpm run check` (SPA cache + tsc --noEmit) is clean and the gateway + admin suites pass (25 tests).
+
 2026-09-25 - Admin inspect: fix chat message loading (Postgres identifier quoting)
 
 The admin console's chat inspection always failed with Postgres error 42703 ("column \"chatid\" does not exist"): the ranked-messages SQL in getUserChatsForAdmin wrote unquoted snake_case identifiers (chat_id, created_at), but the chat_messages table defines mixed-case columns (chatId, createdAt) that must be quoted in raw SQL, so the raw query 500'd and the UI showed "Couldn't load chats." The query now quotes the real column names ("chatId", "createdAt") with the same output aliases, so the JSON shape the client expects is unchanged. Verified against the live database (chats return with messages, roles, and content) and the unit suite (12 passed).

@@ -1,3 +1,29 @@
+2026-09-25 - Code task resilience + sandbox sync fix for blank sites
+
+Two safeguards so delegated coding tasks actually finish and their output
+reaches the workspace:
+
+1. NIM retries (server/nim.ts): the coding specialist's chat endpoint now
+   retries transient failures instead of failing the task on the first rate
+   limit or pool hiccup. 429/500/502/503/504 and network errors retry up to
+   four attempts with backoff (1s/3s/8s/15s), honoring Retry-After (capped at
+   60s, 90s total budget). A timed-out request gets exactly one second chance
+   (NIM stalls are often momentary). Tools-rejection statuses (400/404/422)
+   are never retried so the single-shot fallback still triggers.
+
+2. Sandbox sync hardening (server/workspaceSync.ts): production logs showed
+   the end-of-run sync failing entirely because it tried to import the
+   sandbox's .git/index (binary DIRC data) into the text-only
+   workspace_files.content column - one invalid insert aborted the whole
+   batch, so completed websites synced zero files and showed up blank. The
+   sync now (a) skips hidden dot-paths (.git/, .cache/, ...), (b) skips
+   non-UTF-8 content via a fatal TextDecoder before touching the database,
+   and (c) isolates per-file failures so one bad file can never zero out the
+   rest of the import. Folder resolution moved after the content check so
+   skipped files leave no phantom folders.
+
+Tests: 4 new NIM retry cases, 2 new sync cases (615 total passing).
+
 2026-09-25 - Chat composer: stop button for running workflows
 
 The send button in a chat now turns into a stop button while Nova (or any

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isNimConfigured, runNimChat } from "./nim";
+import { isNimConfigured, NimToolsUnsupportedError, runNimChat, runNimAgentChat } from "./nim";
 
 const state = vi.hoisted(() => ({
   nimKey: "test-nim-key",
@@ -120,12 +120,14 @@ describe("runNimChat", () => {
   });
 
   it("surfaces the HTTP status and a trimmed error detail", async () => {
-    fetchStub.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { detail: "rate limited" } }), { status: 429 })
+    // 429 is retried; stub both attempts so the final error carries the status.
+    fetchStub.mockResolvedValue(
+      new Response(JSON.stringify({ error: { detail: "rate limited" } }), { status: 429, headers: { "retry-after": "0" } })
     );
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
       "NVIDIA NIM responded with status 429"
     );
+    expect(fetchStub).toHaveBeenCalledTimes(4);
   });
 
   it("rejects when the model returns no text", async () => {
@@ -133,5 +135,48 @@ describe("runNimChat", () => {
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
       "NVIDIA NIM finished without a reply."
     );
+  });
+});
+
+describe("NIM transient-failure retries", () => {
+  it("retries a 429 with Retry-After: 0 and succeeds on the next attempt", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "rate limited" }, { status: 429, headers: { "retry-after": "0" } }));
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await expect(runNimChat({ systemPrompt: "s", prompt: "p" })).resolves.toBe("ok");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries transient 5xx responses and succeeds once the pool recovers", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "overloaded" }, { status: 503, headers: { "retry-after": "0" } }));
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "overloaded" }, { status: 503, headers: { "retry-after": "0" } }));
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "done" } }] }));
+    await expect(runNimChat({ systemPrompt: "s", prompt: "p" })).resolves.toBe("done");
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up after four failed attempts instead of exiting on the first rate limit", async () => {
+    for (let i = 0; i < 4; i += 1) {
+      fetchStub.mockResolvedValueOnce(jsonResponse({ error: "rate limited" }, { status: 429, headers: { "retry-after": "0" } }));
+    }
+    await expect(runNimChat({ systemPrompt: "s", prompt: "p" })).rejects.toThrow(/status 429/);
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+  });
+
+  it("gives a timed-out request exactly one second chance", async () => {
+    fetchStub.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("aborted"), { name: "TimeoutError" })));
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "recovered" } }] }));
+    await expect(runNimChat({ systemPrompt: "s", prompt: "p" })).resolves.toBe("recovered");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 4; i += 1) {
+      fetchStub.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("aborted"), { name: "TimeoutError" })));
+    }
+    await expect(runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })).rejects.toThrow("aborted");
+    expect(fetchStub).toHaveBeenCalledTimes(6);
+  }, 15_000);
+
+  it("does not retry tools-rejection statuses so the single-shot fallback still triggers", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "no tools" }, { status: 400 }));
+    await expect(runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })).rejects.toBeInstanceOf(NimToolsUnsupportedError);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });

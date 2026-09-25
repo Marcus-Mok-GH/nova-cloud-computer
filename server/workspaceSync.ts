@@ -9,6 +9,8 @@ import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from ".
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
+/** Throws on invalid UTF-8, which is how non-text files are detected. */
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const INTERNAL_PATHS = new Set([".nova-task.py", "nova-manifest.json"]);
 
 function cleanPath(value: string) {
@@ -148,6 +150,13 @@ export async function persistE2BWorkspace(
       if (!relative) return false;
       if (relative.startsWith("input/")) return false;
       if (relative.startsWith("output/")) return false;
+      // Hidden dot-paths are tooling metadata, not user files (.git/ holds
+      // binary index and object files that cannot round-trip through the
+      // text-only workspace_files.content column - a single DIRC insert
+      // used to abort the whole sync and blank out completed sites).
+      if (relative.split("/").some(segment => segment.startsWith("."))) {
+        return false;
+      }
       return !INTERNAL_PATHS.has(relative.split("/").pop() ?? "");
     })
     .slice(0, MAX_SYNC_FILES);
@@ -164,41 +173,55 @@ export async function persistE2BWorkspace(
     const name = parts.pop();
     if (!name) continue;
     const folderName = parts.join("/");
-    const folderId = await ensureFolderPath(ownerId, folderName, computer);
-    if (folderName && folderId === null) continue;
-    const existing = computer.files.find(
-      file =>
-        file.name === name && (file.folderId ?? null) === (folderId ?? null)
-    );
-    const bytes = await sandbox.files.read(entry.path, { format: "bytes" });
-    if (
-      !(bytes instanceof Uint8Array) ||
-      bytes.byteLength > MAX_SYNC_FILE_BYTES
-    )
-      continue;
-    const content = Buffer.from(bytes).toString("utf8");
-    const mimeType =
-      typeof entry.mimeType === "string" ? entry.mimeType : "text/plain";
-    let saved = existing;
-    if (saved) {
-      if (saved.content !== content || saved.mimeType !== mimeType) {
+    try {
+      const bytes = await sandbox.files.read(entry.path, { format: "bytes" });
+      if (
+        !(bytes instanceof Uint8Array) ||
+        bytes.byteLength > MAX_SYNC_FILE_BYTES
+      )
+        continue;
+      // The durable store keeps file content as text: skip files that are
+      // not valid UTF-8 instead of storing replacement-char garbage (and,
+      // before that guard existed, failing the insert and the whole sync).
+      // Skip before resolving folders so skipped files leave no phantom
+      // folders behind.
+      const content = utf8Decoder.decode(bytes);
+      const folderId = await ensureFolderPath(ownerId, folderName, computer);
+      if (folderName && folderId === null) continue;
+      const existing = computer.files.find(
+        file =>
+          file.name === name && (file.folderId ?? null) === (folderId ?? null)
+      );
+      const mimeType =
+        typeof entry.mimeType === "string" ? entry.mimeType : "text/plain";
+      let saved = existing;
+      if (saved) {
+        if (saved.content !== content || saved.mimeType !== mimeType) {
+          saved =
+            (await updateWorkspaceFileForUser(ownerId, saved.id, {
+              content,
+              folderId,
+            })) ?? saved;
+        }
+      } else {
         saved =
-          (await updateWorkspaceFileForUser(ownerId, saved.id, {
+          (await createWorkspaceFileForUser(ownerId, {
+            name,
             content,
+            mimeType,
             folderId,
-          })) ?? saved;
+          })) ?? undefined;
       }
-    } else {
-      saved =
-        (await createWorkspaceFileForUser(ownerId, {
-          name,
-          content,
-          mimeType,
-          folderId,
-        })) ?? undefined;
+      if (!saved) continue;
+      imported += 1;
+    } catch (error) {
+      // One unreadable or unsavable file must not zero out the rest of the
+      // import - the user's completed work lives in the other files.
+      console.error(
+        `[Sandbox] sync skipped file ${relative}:`,
+        error instanceof Error ? error.message : error
+      );
     }
-    if (!saved) continue;
-    imported += 1;
   }
 
   return imported;

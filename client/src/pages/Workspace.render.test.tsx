@@ -39,7 +39,7 @@ vi.mock("@/lib/trpc", () => ({
     mistral: { status: { useQuery: () => state.mistralStatus }, models: { useQuery: () => ({ data: [] }) } },
     folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
     files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
-    chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, runStatus: { useQuery: () => ({ data: state.agentRunStatus, isLoading: false, refetch: vi.fn() }) }, send: { useMutation: () => mutation } },
+    chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, runStatus: { useQuery: () => ({ data: state.agentRunStatus, isLoading: false, refetch: vi.fn() }) }, send: { useMutation: () => mutation }, stop: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, mistral: { status: { invalidate } } }),
   },

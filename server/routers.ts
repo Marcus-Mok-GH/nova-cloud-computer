@@ -43,6 +43,7 @@ import {
   setAutomationScheduleTaskForUser,
   updateAutomationForUser, factoryResetWorkspaceForUser } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { getDeploymentStatusForUser } from "./siteDeploy";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
@@ -236,6 +237,14 @@ export const appRouter = router({
       if (!chat) throwIfNotFound(chat, "conversation");
       const run = await getActiveAgentRunForChat(ctx.user.id, input.chatId);
       return run ? { active: true as const, ...run } : { active: false as const };
+    }),
+    /** Stops the chat's in-flight agent run and its queued/running VM workflows. */
+    stop: protectedProcedure.input(z.object({ chatId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const chat = await getChatForUser(ctx.user.id, input.chatId);
+      if (!chat) throwIfNotFound(chat, "conversation");
+      const cancelledVmRuns = await cancelActiveAgentVmRunsForUser(ctx.user.id, input.chatId);
+      await requestAgentStopForUser(ctx.user.id, input.chatId);
+      return { stopped: true as const, cancelledVmRuns };
     }),
     send: protectedProcedure.input(z.object({ chatId: z.number().int().positive().nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => { const chat = input.chatId ? undefined : await createChatForUser(ctx.user.id, "New conversation"); const chatId = input.chatId ?? chat?.id; if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." }); const result = await executeWebAgentRun({ ownerId: ctx.user.id, chatId, content: input.content, requestStartedAtMs: Date.now() }); void autoTitleChatForUser(ctx.user.id, chatId).catch(() => {}); return { chatId, ...(await result) }; }),
   }),

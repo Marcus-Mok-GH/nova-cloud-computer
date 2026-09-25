@@ -1,3 +1,13 @@
+2026-09-25 - Chat composer: stop button for running workflows
+
+The send button in a chat now turns into a stop button while Nova (or any
+delegated workflow) is active in that chat. Clicking it — or pressing Enter
+in the composer — records a chat-scoped stop request that ends the streaming
+reply, cancels queued and running agent VM runs for that chat only, and skips
+any scheduled next rounds. Workspace-wide `/stop` (deleting the workspace)
+still stops everything. `agent_stop_requests` and `agent_vm_runs` gained a
+`chatId` column (migration 0027).
+
 2026-09-25 - Sign-in: clear message for banned accounts
 
 A banned account completing sign-in saw "Signed in, but Nova could not load your

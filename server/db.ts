@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -908,10 +908,10 @@ export async function listAgentVmRunsForUser(ownerId: number) {
   return runs.map(toSafeAgentVmRun);
 }
 
-export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "e2b" }) {
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "e2b"; chatId?: number | null }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "e2b", task: input.task, status: "queued" }).returning();
+  const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "e2b", task: input.task, status: "queued", chatId: input.chatId ?? null }).returning();
   if (!created) throw new Error("Nova could not queue the agent VM run.");
   return toSafeAgentVmRun(created);
 }
@@ -948,11 +948,15 @@ export async function claimTelegramUpdate(updateId: number): Promise<boolean> {
   return claimed.length > 0;
 }
 
-/** Records a fresh stop request for the workspace, replacing any older one. */
-export async function requestAgentStopForUser(ownerId: number) {
+/**
+ * Records a fresh stop request, replacing any older one. A `chatId` scopes the
+ * stop to one chat's workflows (the web composer's stop button); without one
+ * the stop is workspace-wide (Telegram /stop).
+ */
+export async function requestAgentStopForUser(ownerId: number, chatId?: number | null) {
   const db = await requireDb();
   await db.delete(agentStopRequests).where(eq(agentStopRequests.ownerId, ownerId));
-  const [created] = await db.insert(agentStopRequests).values({ ownerId }).returning();
+  const [created] = await db.insert(agentStopRequests).values({ ownerId, chatId: chatId ?? null }).returning();
   return created;
 }
 
@@ -1065,24 +1069,33 @@ export async function finishAgentRunForUser(ownerId: number, runId: number, stat
   return updated;
 }
 
-export async function hasAgentStopAfter(ownerId: number, startedAt: Date) {
+/** True when a stop request was recorded after `startedAt` - either for `chatId`'s workflows or workspace-wide. */
+export async function hasAgentStopAfter(ownerId: number, chatId: number | undefined, startedAt: Date) {
   const db = await requireDb();
   const rows = await db
     .select({ id: agentStopRequests.id })
     .from(agentStopRequests)
-    .where(and(eq(agentStopRequests.ownerId, ownerId), gt(agentStopRequests.createdAt, startedAt)))
+    .where(and(
+      eq(agentStopRequests.ownerId, ownerId),
+      gt(agentStopRequests.createdAt, startedAt),
+      ...(chatId === undefined ? [] : [or(isNull(agentStopRequests.chatId), eq(agentStopRequests.chatId, chatId))]),
+    ))
     .limit(1);
   return rows.length > 0;
 }
 
-/** Cancels the owner's queued/running agent VM runs; returns how many were cancelled. */
-export async function cancelActiveAgentVmRunsForUser(ownerId: number) {
+/** Cancels queued/running agent VM runs - scoped to one chat when `chatId` is given, the whole workspace otherwise. */
+export async function cancelActiveAgentVmRunsForUser(ownerId: number, chatId?: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const cancelled = await db
     .update(agentVmRuns)
-    .set({ status: "cancelled", errorMessage: "Cancelled by /stop.", completedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(agentVmRuns.workspaceId, workspace.id), inArray(agentVmRuns.status, ["queued", "running"])))
+    .set({ status: "cancelled", errorMessage: "Cancelled by a stop request.", completedAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(agentVmRuns.workspaceId, workspace.id),
+      inArray(agentVmRuns.status, ["queued", "running"]),
+      ...(chatId === undefined ? [] : [eq(agentVmRuns.chatId, chatId)]),
+    ))
     .returning({ id: agentVmRuns.id });
   return cancelled.length;
 }

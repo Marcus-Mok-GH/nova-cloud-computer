@@ -1,3 +1,11 @@
+2026-09-25 - Sign-in: clear message for banned accounts
+
+A banned account completing sign-in saw "Signed in, but Nova could not load your
+account session. Check your deployment auth configuration." — a misleading
+deployment error. Authentication now carries a `banned` flag through the tRPC
+context, a public `auth.banStatus` query exposes it, and the sign-in page shows
+"Your account has been disabled by a Nova administrator" when it applies.
+
 2026-09-25 - Repair main: broken Workspace JSX and gateway result type (from 257c705)
 
 Render tests updated to pin the new editorial UI instead of the removed copy ("Start a chat" -> "Open thread", "Connectors Nova can use" -> "Tools on hand", assistant label "Nova App" -> "Nova"), and the Admin render test's trpc mock now covers credits.status, which DashboardLayout has queried since the daily-credits system. Full suite: 606 passed, 4 skipped; `pnpm run check` clean.

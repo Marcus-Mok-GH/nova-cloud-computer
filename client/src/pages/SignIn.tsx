@@ -94,7 +94,12 @@ export default function SignIn() {
             updateLastActiveTimestamp(user.id);
             setLocation("/app");
           } else {
-            setError("Signed in, but Nova could not load your account session. Check your deployment auth configuration.");
+            const status = await utils.auth.banStatus.fetch().catch(() => null);
+            if (status?.banned) {
+              setError("Your account has been disabled by a Nova administrator. Contact the Nova team if you believe this is a mistake.");
+            } else {
+              setError("Signed in, but Nova could not load your account session. Check your deployment auth configuration.");
+            }
           }
         } else {
           setError("Signed in, but Nova could not load your session. Please refresh.");

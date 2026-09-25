@@ -8,7 +8,7 @@ import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import { sdk } from "./sdk";
 
-export type TrpcContext = { req: CreateExpressContextOptions["req"]; res: CreateExpressContextOptions["res"]; user: User | null };
+export type TrpcContext = { req: CreateExpressContextOptions["req"]; res: CreateExpressContextOptions["res"]; user: User | null; banned: boolean };
 
 type NeonIdentity = {
   openId: string;
@@ -37,7 +37,9 @@ function getJwks() {
   return jwks;
 }
 
-async function authenticateBearerToken(header: string | undefined): Promise<BearerAuthentication | null> {
+type BannedAuthentication = { banned: true };
+
+async function authenticateBearerToken(header: string | undefined): Promise<BearerAuthentication | BannedAuthentication | null> {
   if (!header?.startsWith("Bearer ")) return null;
   const keySet = getJwks();
   if (!keySet || !ENV.neonAuthIssuer || !ENV.neonAuthAudience) return null;
@@ -50,7 +52,7 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
     if (!identity) return null;
     await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
     const user = await getUserByOpenId(identity.openId);
-    if (user?.bannedAt) return null; // Banned accounts cannot sign in, even with a valid Neon token.
+    if (user?.bannedAt) return { banned: true }; // Banned accounts cannot sign in, even with a valid Neon token.
     if (user) void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
     return user ? { user, identity } : null;
   } catch (error) {
@@ -59,14 +61,15 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
   }
 }
 
-async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<{ user: User; identity: NeonIdentity } | null> {
+async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<{ user: User; identity: NeonIdentity } | BannedAuthentication | null> {
   if (!ENV.cookieSecret) return null;
   const sessionToken = parseCookieHeader(cookieHeader ?? "")[COOKIE_NAME];
   if (!sessionToken) return null;
   const session = await sdk.verifySession(sessionToken);
   if (!session) return null;
   const user = await getUserByOpenId(session.openId);
-  if (!user || user.bannedAt) return null; // Banned accounts are treated as signed out.
+  if (!user) return null;
+  if (user.bannedAt) return { banned: true }; // Banned accounts are treated as signed out, but the sign-in flow can tell them apart.
   void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
   return {
     user,
@@ -90,16 +93,22 @@ async function persistFirstPartySession(opts: CreateExpressContextOptions, ident
 
 export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
   const bearer = await authenticateBearerToken(opts.req.header("authorization"));
+  if (bearer && "banned" in bearer) {
+    return { req: opts.req, res: opts.res, user: null, banned: true };
+  }
   if (bearer) {
     await persistFirstPartySession(opts, bearer.identity);
-    return { req: opts.req, res: opts.res, user: bearer.user };
+    return { req: opts.req, res: opts.res, user: bearer.user, banned: false };
   }
 
   const firstParty = await authenticateFirstPartySession(opts.req.header("cookie"));
+  if (firstParty && "banned" in firstParty) {
+    return { req: opts.req, res: opts.res, user: null, banned: true };
+  }
   if (firstParty) {
     await persistFirstPartySession(opts, firstParty.identity);
-    return { req: opts.req, res: opts.res, user: firstParty.user };
+    return { req: opts.req, res: opts.res, user: firstParty.user, banned: false };
   }
 
-  return { req: opts.req, res: opts.res, user: null };
+  return { req: opts.req, res: opts.res, user: null, banned: false };
 }

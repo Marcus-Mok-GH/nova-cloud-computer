@@ -1295,7 +1295,8 @@ async function executeWorkspaceTool(
   sandbox?: E2BSandboxLike,
   gate?: OwnCodingGate,
   channel?: "telegram" | "web",
-  deadlineAtMs?: number
+  deadlineAtMs?: number,
+  chatId?: number
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -2294,6 +2295,7 @@ async function executeWorkspaceTool(
         {
           task,
           code: str(args.code) || undefined,
+          chatId,
         },
         // The sandbox already woke with this run and its files are current,
         // so a mid-run restore (which wipes and re-uploads the workspace,
@@ -2709,7 +2711,7 @@ ${options.continuationPlanned
     // run at the next safe point (round boundary or between tool calls).
     const runStartedAt = await getDatabaseTime();
     const stopRun = async () => {
-      const stoppedReply = "⏹️ Stopped - this run was cancelled with /stop.";
+      const stoppedReply = "⏹️ Stopped - this run was cancelled at your request.";
       await options.onChunk?.(stoppedReply);
       const message = await persistAssistant(stoppedReply);
       return { message, actions: [], outOfBudget: false };
@@ -2724,7 +2726,7 @@ ${options.continuationPlanned
       const now = Date.now();
       if (now - lastStopCheckMs < 250) return;
       lastStopCheckMs = now;
-      void hasAgentStopAfter(ownerId, runStartedAt)
+      void hasAgentStopAfter(ownerId, chatId, runStartedAt)
         .then(stop => {
           if (stop) stopController.abort();
         })
@@ -2760,7 +2762,7 @@ ${options.continuationPlanned
     // must stop without refreshing state or starting another gateway round.
     let closedByDeadline = false;
     for (let round = 0; ; round += 1) {
-      if (round > 0 && (await hasAgentStopAfter(ownerId, runStartedAt))) return stopRun();
+      if (round > 0 && (await hasAgentStopAfter(ownerId, chatId, runStartedAt))) return stopRun();
       // A deploy or long research can consume nearly the whole request
       // budget. Starting another gateway round this close to the maxDuration
       // limit risks the function being killed before the reply persists -
@@ -2864,7 +2866,7 @@ ${options.continuationPlanned
         }
         if (
           stopController.signal.aborted &&
-          (await hasAgentStopAfter(ownerId, runStartedAt))
+          (await hasAgentStopAfter(ownerId, chatId, runStartedAt))
         ) {
           flushThinking("completed");
           await thinkingEmissions;
@@ -2996,7 +2998,7 @@ ${options.continuationPlanned
           endTurnCalled = true;
           break;
         }
-        if (await hasAgentStopAfter(ownerId, runStartedAt)) return stopRun();
+        if (await hasAgentStopAfter(ownerId, chatId, runStartedAt)) return stopRun();
         // The budget is already gone: starting the call would begin its side
         // effects (a file write, a deploy) after the run has effectively
         // ended. Skip it, record why, and close the run instead.
@@ -3067,7 +3069,7 @@ ${options.continuationPlanned
                   },
                 })
               ).catch(() => {});
-            }, agentSandbox, ownCodingGate, options.channel, deadlineAtMs),
+            }, agentSandbox, ownCodingGate, options.channel, deadlineAtMs, chatId),
             deadlineAtMs
           );
         } catch (error) {

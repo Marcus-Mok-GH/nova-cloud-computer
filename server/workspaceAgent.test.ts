@@ -2491,7 +2491,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(createFile).toHaveBeenCalledTimes(1);
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
-    expect(result.message.content).toContain("/stop");
+    expect(result.message.content).toContain("at your request");
     chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
@@ -2517,7 +2517,7 @@ describe("Nova tool-calling workspace agent", () => {
       onChunk: () => {},
     });
     expect(result.message.content).toContain("\u23f9\ufe0f Stopped");
-    expect(result.message.content).toContain("/stop");
+    expect(result.message.content).toContain("at your request");
     chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });

@@ -8,7 +8,7 @@ import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ToolActivityLine, ToolActivityPanel, isPanelToolActivity } from "@/lib/toolActivityLine";
 import { dedupeToolActivityMessages, isInternalChatMessage, mergeToolActivity, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
-import { Activity, AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, CornerDownLeft, FileText, Github, Mail, MessageSquareText, Send, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, CornerDownLeft, FileText, Github, Mail, MessageSquareText, Send, ShieldCheck, Sparkles, Square, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
@@ -35,6 +35,16 @@ export default function Workspace() {
   // continuation segment, where this browser does not own the fetch stream.
   const runStatus = trpc.chats.runStatus.useQuery({ chatId: chatId ?? 1 }, { enabled: Boolean(chatId), retry: false, refetchOnWindowFocus: true, refetchInterval: Boolean(chatId) ? 1000 : false, refetchIntervalInBackground: false });
   const agentIsWorking = isStreaming || Boolean(runStatus.data?.active);
+  // Stops the chat's in-flight agent run and its queued/running VM workflows
+  // (the composer's send button turns into this stop button while Nova works).
+  const stopRun = trpc.chats.stop.useMutation({
+    onSuccess: () => runStatus.refetch(),
+    onError: error => toast.error(error instanceof Error ? error.message : "Nova could not be stopped. Please try again."),
+  });
+  const handleStopRun = () => {
+    if (!chatId || stopRun.isPending) return;
+    stopRun.mutate({ chatId });
+  };
   // Connector/Telegram status feeds the home dashboard cards. These hooks
   // MUST run before any early return (React error #300 when the chat view
   // renders fewer hooks than the home view did), so they live up here with the
@@ -112,7 +122,9 @@ export default function Workspace() {
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
-    if (!draft.trim() || !chatId || agentIsWorking) return;
+    // While Nova works, both the Enter key and the composer button stop the run.
+    if (agentIsWorking) { handleStopRun(); return; }
+    if (!draft.trim() || !chatId) return;
     const content = draft.trim(); setDraft("");
     await sendMessage(chatId, content);
   };
@@ -210,7 +222,7 @@ export default function Workspace() {
             <div className="mx-auto w-full max-w-[1240px]">
               <div className="border border-foreground/[0.14] bg-card/85 p-2 shadow-[0_14px_45px_rgba(36,40,34,0.10)] backdrop-blur-xl transition focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]">
                 <div className="flex items-center gap-2 px-2.5 pb-1.5"><span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-primary"><Sparkles className="size-3.5" />Nova</span><span className="size-1 bg-foreground/20 dark:bg-white/20" /><span className="text-[10px] font-medium text-muted-foreground">Private workspace</span><span className="ml-auto hidden text-[10px] font-medium text-muted-foreground sm:inline">Enter to send</span></div>
-                <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]"><Textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(event); } }} placeholder="What is worth moving forward today?" rows={1} className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]" /><button type="submit" disabled={!draft.trim() || agentIsWorking} aria-label="Send message" className={draft.trim() && !agentIsWorking ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black" : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"}>{agentIsWorking ? <CircleDashed className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}</button></div>
+                <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]"><Textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(event); } }} placeholder="What is worth moving forward today?" rows={1} className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]" />{agentIsWorking ? <button type="submit" aria-label="Stop Nova" className="grid size-10 shrink-0 place-items-center rounded-lg bg-red-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-500 hover:shadow-md"><Square className="size-4 fill-current" /></button> : <button type="submit" disabled={!draft.trim()} aria-label="Send message" className={draft.trim() ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black" : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"}><ArrowUp className="size-4" /></button>}</div>
               </div>
               <p className="mt-2 hidden text-center text-[10px] font-medium text-muted-foreground sm:block"><CornerDownLeft className="mr-1 inline size-3" />Shift+Enter for a new line</p>
             </div>

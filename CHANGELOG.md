@@ -1,3 +1,38 @@
+2026-09-26 - Live chat transcript now stacks in true arrival order
+
+When Nova said a quick line before calling tools ("let me check that..."), the
+web app rendered every tool activity ABOVE the streamed text, because the live
+render always drew all tool lines first and the streaming bubble after them -
+so the intro text hung below tools that arrived later, out of order. Runs with
+text between tool rounds had the same problem: all text lumped into one final
+bubble below all tools.
+
+The live state is now one ordered transcript (LiveChatEvent[]: text segments
+interleaved with tool events) instead of two parallel accumulators. Text
+deltas extend the trailing segment (appendLiveTextDelta); a tool event
+appends after the text that preceded it and merges state updates in place
+(upsertLiveToolEvent), so the transcript reads top-to-bottom exactly as the
+run happened: intro text, then the tools it announced, then more text, then
+the final reply. Once the persisted reply lands, live text segments drop out
+in favor of the committed copy, exactly like the old streaming bubble did.
+The typing indicator now only shows while no live text exists, the stream
+caret sits on the last live text segment, and the sidebar "Tool runs" count
+no longer double-counts live tools (persisted rows + unpersisted live ones).
+
+Six new unit tests pin the interleaving semantics; full suite 622 passing,
+pnpm check clean.
+
+2026-09-26 - System prompt now carries the exact current date, day, and time
+
+The workspace agent had no clock: date math, scheduling, and "today" questions
+relied on the model's internal sense of time. The system prompt now includes
+"Current date and time: <Weekday, Month D, YYYY at HH:MM> UTC" - built fresh
+on every round of a run (systemMessage() is regenerated per round, so long runs
+never carry a stale timestamp). The time is explicitly labeled UTC with an
+instruction not to present it as the user's local time, because the server
+never learns the user's timezone. formatSystemPromptTime() is exported and
+pinned by a fake-timer regression test (616 passing).
+
 2026-09-26 - Chat UI de-templating: same theme, less telltale polish
 
 The chat view read as generic AI output - sparkles, badge rows, poetic filler,

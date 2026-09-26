@@ -1,3 +1,30 @@
+2026-09-26 - New Status page with live service and page health
+
+Added /app/status: one screen showing the live health of every page and
+backend service in the deployment, with a Status entry in the sidebar and
+More grid.
+
+Backend: new GET /api/status (auth required) collects a per-service snapshot
+via collectServiceStatus() in server/status.ts - API server uptime, a timed
+Neon `select 1` round-trip, the Mistral inference gateway (configured /
+reachable / remaining daily allowance, degraded when exhausted), the Telegram
+bot (live getMe probe with a 4s timeout, cached 60s), Composio connectors,
+and the account's persistent sandbox. Each check is isolated, so one failed
+dependency never sinks the report, and optional integrations report
+"unconfigured" instead of "offline". Shared response types live in
+shared/serviceStatus.ts.
+
+Frontend: Status.tsx probes every app route in parallel (HTTP 200 + HTML
+content type, with latency), renders a summary banner (all operational vs
+issues needing attention), a Services list with state chips, and a Pages list
+where each row opens its route. Auto-refreshes every 60s with a manual
+refresh button.
+
+Tests: 6 server tests cover the collector states (all-healthy, db failure,
+exhausted allowance, unconfigured integrations, unreachable bot); 3 client
+tests pin the chip labels, the complete page probe list, and the page
+skeleton. 625 passing, pnpm check clean.
+
 2026-09-26 - Live chat transcript now stacks in true arrival order
 
 When Nova said a quick line before calling tools ("let me check that..."), the

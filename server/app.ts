@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { getDb } from "./db";
+import { collectServiceStatus } from "./status";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
@@ -105,3 +106,4 @@ app.post("/api/telegram/webhook/default", (req, res) => { const token = ENV.defa
 app.post("/api/telegram/webhook/:token", (req, res) => { const token = req.params.token; if (!token) return res.status(400).json({ error: "missing-token" }); const requestStartedAtMs = Date.now(); res.status(200).json({ ok: true, accepted: true }); trackBackgroundWork(handleTelegramUpdate(token, req, backgroundWebhookSink(), { requestStartedAtMs }).catch(error => console.error("[Telegram webhook] background processing failed", error))); });
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));
+app.get("/api/status", async (req: express.Request, res: express.Response) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await collectServiceStatus(user.id)); } catch (error) { console.error("Status endpoint error", error); return res.status(500).json({ error: "Could not collect service status." }); } });

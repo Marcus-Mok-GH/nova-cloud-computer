@@ -1,3 +1,33 @@
+2026-09-26 - Chat UI de-templating: same theme, less telltale polish
+
+The chat view read as generic AI output - sparkles, badge rows, poetic filler,
+and metadata nobody asked for. The editorial theme stays (serif display type,
+grid-paper surface, warm accent, orbit motif); the stock-mistake layer goes:
+
+- Header: no more "Conversation / Private workspace" breadcrumb, "Protected
+  context" shield badge, or "Nova conversation" title card. Just the starburst
+  mark, the name, and a "Working…" chip that only appears while a run is live.
+- Removed the fake "Thread 01 / A live working session / Ready" strip.
+- Blank state: "Give the next thought a place to land." and "Read the room /
+  Shape an idea / Find the next move" chips replaced with "How can I help?",
+  a plain one-line explanation of what Nova can actually do, and three
+  concrete starter tasks. Sparkle eyebrow and blur blob dropped.
+- Bubbles: user messages no longer carry a redundant "YOU" label; assistant
+  messages keep the "Nova" label but drop the "/ workspace intelligence"
+  epithet. The exactly-one-label render guarantee still holds (header title
+  moved to a span so the tests keep their meaning).
+- Sidebar: "Session signal / Live|Quiet", the emerald "Ready when you are"
+  chip, the "Context: Private" row, and the shield-scoped-to-this-workspace
+  note are gone. What remains is an honest "In this thread" panel: message
+  count and tool-run count.
+- Composer: "What is worth moving forward today?" is now "Message Nova"; the
+  sparkles row above the box is gone (the Enter-to-send hint stays).
+- Home: headline is now "What are we working on today?" (sub line rewritten to
+  match), the privacy row is one plain sentence, and the composer footer
+  slogan became "Nova sees only your workspace."
+
+Render tests updated for the new headline; full suite 615 passing, pnpm check clean.
+
 2026-09-25 - Code task resilience + sandbox sync fix for blank sites
 
 Two safeguards so delegated coding tasks actually finish and their output

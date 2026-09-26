@@ -1722,6 +1722,21 @@ describe("Nova tool-calling workspace agent", () => {
     expect(system?.content).toContain("Short, direct replies. No filler.");
   });
 
+  it("injects the exact current date, day, and time into the system prompt", async () => {
+    const fixedNow = new Date("2026-09-26T10:34:56.789Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+    try {
+      chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+      await runWorkspaceAgent(1, 3, "what day is it?", {});
+      const messages = chatWithMistralGateway.mock.calls[0][1] as Array<{ role: string; content: string }>;
+      const system = messages.find(message => message.role === "system");
+      expect(system?.content).toContain("Current date and time: Saturday, September 26, 2026 at 10:34 UTC");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deploys a chosen directory when the model passes one", async () => {
     chatWithMistralGateway
       .mockResolvedValueOnce(

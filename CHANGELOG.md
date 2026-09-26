@@ -1,3 +1,14 @@
+2026-09-26 - System prompt now carries the exact current date, day, and time
+
+The workspace agent had no clock: date math, scheduling, and "today" questions
+relied on the model's internal sense of time. The system prompt now includes
+"Current date and time: <Weekday, Month D, YYYY at HH:MM> UTC" - built fresh
+on every round of a run (systemMessage() is regenerated per round, so long runs
+never carry a stale timestamp). The time is explicitly labeled UTC with an
+instruction not to present it as the user's local time, because the server
+never learns the user's timezone. formatSystemPromptTime() is exported and
+pinned by a fake-timer regression test (616 passing).
+
 2026-09-26 - Chat UI de-templating: same theme, less telltale polish
 
 The chat view read as generic AI output - sparkles, badge rows, poetic filler,

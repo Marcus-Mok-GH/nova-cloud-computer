@@ -1132,6 +1132,25 @@ export function connectorStatusLine(connected: ComposioToolkit[]): string {
   return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
 }
 
+/**
+ * Exact date, day of week, and clock time for the agent system prompt. Labeled
+ * UTC (and formatted so it reads unambiguously) because the server never knows
+ * the user's timezone - the model must not present it as the user's local time.
+ */
+export function formatSystemPromptTime(now: Date = new Date()): string {
+  const utc = now.toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
+  return `${utc} UTC`;
+}
+
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
 
 You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors), the computation (solve_equation, run_vm_task, run_bash, code_task), and the memory (workspace files). You are the traffic cop; they are the engine.
@@ -1174,6 +1193,7 @@ Workspace rules:
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 {{style}}
 This request arrived via: {{channel}}.
+Current date and time: {{now}} - the day of the week, date, and clock time right now, given in UTC because the user's timezone is unknown. Use it for anything time-sensitive (scheduling, "today", date math) and never state a date or time you were not given.
 
 Current folders: {{folders}}
 Current files: {{files}}`;
@@ -2638,7 +2658,8 @@ ${options.continuationPlanned
       const { folders, files } = describeWorkspace(computer);
       return {
         role: "system",
-        content: WORKSPACE_AGENT_PROMPT.replace("{{folders}}", folders).replace(
+        content: WORKSPACE_AGENT_PROMPT.replace("{{now}}", formatSystemPromptTime())
+          .replace("{{folders}}", folders).replace(
           "{{files}}",
           files
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))

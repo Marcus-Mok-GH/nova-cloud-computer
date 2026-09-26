@@ -94,7 +94,7 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Start with the thing that is taking up space.");
+    expect(markup).toContain("What are we working on today?");
     expect(markup).toContain("Tools on hand");
     expect(markup).toContain("Private workbench /");
     expect(markup).toContain("GitHub");
@@ -148,7 +148,7 @@ describe("Workspace rendered browser states", () => {
 
   it("renders loading, empty, and error states for the workspace summary", () => {
     state.computer = { data: undefined, isError: false, isLoading: true, refetch: vi.fn() };
-    expect(renderWorkspace()).toContain("Start with the thing that is taking up space.");
+    expect(renderWorkspace()).toContain("What are we working on today?");
 
     state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
     expect(renderWorkspace()).toContain("Tools on hand");

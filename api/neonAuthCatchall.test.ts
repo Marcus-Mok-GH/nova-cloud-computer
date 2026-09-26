@@ -37,6 +37,8 @@ describe("Neon Auth catch-all dispatch", () => {
   it("keeps the authenticated chat namespace co-deployed", () => {
     expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
     expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
+    expect(isCoDeployedApiPath(["status"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/status")).toBe(true);
     expect(isCoDeployedApiPath("chat/stream")).toBe(true);
     expect(isCoDeployedApiPath(["chat", "delete"])).toBe(true);
     expect(isCoDeployedApiPath("chat/delete")).toBe(true);

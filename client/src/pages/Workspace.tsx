@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
 import { ToolActivityLine, ToolActivityPanel, isPanelToolActivity } from "@/lib/toolActivityLine";
-import { dedupeToolActivityMessages, isInternalChatMessage, mergeToolActivity, parsePersistedToolActivity, reconcileChatMessages, type ToolActivity } from "@/lib/chatMessages";
+import { appendLiveTextDelta, dedupeToolActivityMessages, isInternalChatMessage, parsePersistedToolActivity, reconcileChatMessages, upsertLiveToolEvent, type LiveChatEvent, type ToolActivity } from "@/lib/chatMessages";
 import { AlertTriangle, ArrowLeft, ArrowUp, CheckCircle2, CircleDashed, CornerDownLeft, FileText, Github, Mail, MessageSquareText, Send, Square, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -21,8 +21,7 @@ export default function Workspace() {
   const [draft, setDraft] = useState("");
   const [startPrompt, setStartPrompt] = useState("");
   const [pendingUserContent, setPendingUserContent] = useState("");
-  const [streamingContent, setStreamingContent] = useState("");
-  const [toolActivities, setToolActivities] = useState<ToolActivity[]>([]);
+  const [liveEvents, setLiveEvents] = useState<LiveChatEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId = typeof window === "undefined" ? undefined : Number(new URLSearchParams(window.location.search).get("chatId")) || undefined;
@@ -69,7 +68,7 @@ export default function Workspace() {
     if (!el) return;
     if (userScrolledUpRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [chatId, savedMessages.data?.length, streamingContent, toolActivities, agentIsWorking]);
+  }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
 
   const isUnavailableReply = (content: string) => content.startsWith(MISTRAL_UNAVAILABLE_PREFIX);
 
@@ -87,8 +86,7 @@ export default function Workspace() {
     setIsStreaming(false);
     if (refreshed) {
       setPendingUserContent("");
-      setStreamingContent("");
-      setToolActivities([]);
+      setLiveEvents([]);
     } else {
       toast.error("Nova replied, but it could not be reloaded yet. Please wait a moment before sending again.");
     }
@@ -97,7 +95,7 @@ export default function Workspace() {
   /** Streams a message into `targetChatId`, reused by the active-chat composer and the "Start a chat" prompt box. */
   const sendMessage = async (targetChatId: number, content: string) => {
     userScrolledUpRef.current = false;
-    const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setStreamingContent(""); setToolActivities([]); setIsStreaming(true);
+    const toPersist = savedMessages.data ?? []; setBaselineMessageId(toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0); setPendingUserContent(content); setLiveEvents([]); setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
       const response = await fetch("/api/chat/stream", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId: targetChatId, content }) });
@@ -112,8 +110,8 @@ export default function Workspace() {
           if (data === "[DONE]") { await finalizeStream(); await utils.workspace.computer.invalidate(); return; }
           try {
             const parsed = JSON.parse(data) as { type?: string; tool?: ToolActivity; choices?: Array<{ delta?: { content?: string } }> };
-            if (parsed.type === "tool" && parsed.tool?.id) { setToolActivities(previous => { const incoming = parsed.tool!; const index = previous.findIndex(activity => activity.id === incoming.id); if (index === -1) return [...previous, mergeToolActivity({ id: incoming.id, name: incoming.name, state: "running", args: incoming.args ?? {} }, incoming)]; const next = [...previous]; next[index] = mergeToolActivity(next[index], incoming); return next; }); continue; }
-            setStreamingContent(prev => prev + (parsed.choices?.[0]?.delta?.content || ""));
+            if (parsed.type === "tool" && parsed.tool?.id) { setLiveEvents(previous => upsertLiveToolEvent(previous, parsed.tool!)); continue; }
+            setLiveEvents(previous => appendLiveTextDelta(previous, parsed.choices?.[0]?.delta?.content || ""));
           } catch { /* Ignore malformed stream fragments. */ }
         }
       }
@@ -155,12 +153,24 @@ export default function Workspace() {
           !isInternalChatMessage(message.content)
       )
     );
-    const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, baselineMessageId, pendingUserContent, streamingContent, toolActivities);
+    const liveTextContent = liveEvents.reduce((acc, event) => event.kind === "text" ? acc + event.content : acc, "");
+    const liveTools = liveEvents.flatMap(event => event.kind === "tool" ? [event.activity] : []);
+    const { userCommitted, replyCommitted, liveActivities } = reconcileChatMessages(persisted, baselineMessageId, pendingUserContent, liveTextContent, liveTools);
     const lastPersistedRole = persisted.length ? persisted[persisted.length - 1].role : null;
     const pendingBubbleRendered = Boolean(pendingUserContent) && !userCommitted;
     const liveLabel = (index: number) =>
       index === 0 ? (pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null) : false;
-    const streamingLabel = liveActivities.length > 0 ? false : pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null;
+    // The live transcript renders in arrival order: text segments and tool
+    // events interleaved exactly as they streamed, so a quick "checking that..."
+    // line stays above the tool lines that follow it. Once the persisted reply
+    // lands the text segments drop out (the committed copy takes over); tool
+    // events already persisted as rows are skipped the same way.
+    const liveToolIds = new Set(liveActivities.map(activity => activity.id));
+    const visibleLiveEvents = (replyCommitted ? liveEvents.filter(event => event.kind === "tool") : liveEvents)
+      .filter(event => event.kind === "text" || liveToolIds.has(event.activity.id));
+    const hasLiveText = visibleLiveEvents.some(event => event.kind === "text");
+    const typingLabel = visibleLiveEvents.length === 0 ? (pendingBubbleRendered ? true : lastPersistedRole === "user" || lastPersistedRole === null) : false;
+    const persistedToolRuns = visibleMessages.filter(message => parsePersistedToolActivity(message.content)).length;
     return (
       <DashboardLayout>
         <section className="chat-editorial-shell relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-foreground">
@@ -201,15 +211,15 @@ export default function Workspace() {
                     return <div key={message.id} className="chat-in flex w-full shrink-0 items-start gap-3"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.75rem)]"><div className="mb-2 flex items-center gap-2">{showLabel && <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}</div>{isUnavailableReply(message.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{message.content}</span></div></div> : <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]"><div className="break-words text-foreground"><MarkdownText text={message.content} /></div></div>}</div></div>;
                   })}
                   {pendingUserContent && !userCommitted && <div className="chat-in flex w-full shrink-0 justify-end"><div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">{pendingUserContent}</div></div>}
-                  {liveActivities.map((activity, index) => <div key={activity.id} className="chat-in flex w-full shrink-0 pl-0 sm:pl-12">{isPanelToolActivity(activity.name) ? <div className="flex w-full min-w-0 flex-col border border-foreground/[0.10] border-l-2 border-l-primary/60 bg-card/55 px-3 py-2 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">{liveLabel(index) && <p className="mb-1 ml-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}<ToolActivityPanel activity={activity} /></div> : <div className="flex min-w-0 items-center gap-1 border border-foreground/[0.10] bg-card/60 px-3 py-1.5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">{liveLabel(index) && <p className="mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}<ToolActivityLine activity={activity} /></div>}</div>)}
-                  {agentIsWorking && !replyCommitted && <div className="chat-in flex w-full shrink-0 items-start gap-3"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.75rem)]"><div className="mb-2 flex items-center gap-2">{streamingLabel && <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}{streamingLabel && <span className="size-1 animate-pulse rounded-full bg-primary" />}</div>{isUnavailableReply(streamingContent) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{streamingContent}</span></div></div> : streamingContent ? <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]"><div className="break-words text-foreground"><MarkdownText text={streamingContent} /><span className="stream-caret" /></div></div> : <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]"><TypingIndicator /></div>}</div></div>}
+                  {visibleLiveEvents.map((event, index) => event.kind === "tool" ? (() => { const activity = event.activity; return <div key={`tool-${activity.id}`} className="chat-in flex w-full shrink-0 pl-0 sm:pl-12">{isPanelToolActivity(activity.name) ? <div className="flex w-full min-w-0 flex-col border border-foreground/[0.10] border-l-2 border-l-primary/60 bg-card/55 px-3 py-2 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">{liveLabel(index) && <p className="mb-1 ml-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}<ToolActivityPanel activity={activity} /></div> : <div className="flex min-w-0 items-center gap-1 border border-foreground/[0.10] bg-card/60 px-3 py-1.5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">{liveLabel(index) && <p className="mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}<ToolActivityLine activity={activity} /></div>}</div>; })() : (() => { const isLast = index === visibleLiveEvents.length - 1; return <div key={`text-${index}`} className="chat-in flex w-full shrink-0 items-start gap-3"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.75rem)]"><div className="mb-2 flex items-center gap-2">{liveLabel(index) && <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}{agentIsWorking && isLast && <span className="size-1 animate-pulse rounded-full bg-primary" />}</div>{isUnavailableReply(event.content) ? <div data-testid="assistant-error" className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Nova is offline</p><span>{event.content}</span></div></div> : <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]"><div className="break-words text-foreground"><MarkdownText text={event.content} />{agentIsWorking && !replyCommitted && isLast && <span className="stream-caret" />}</div></div>}</div></div>; })())}
+                  {agentIsWorking && !replyCommitted && !hasLiveText && <div className="chat-in flex w-full shrink-0 items-start gap-3"><span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black"><NovaLogo size={12} /></span><div className="min-w-0 max-w-[calc(100%-2.75rem)]"><div className="mb-2 flex items-center gap-2">{typingLabel && <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Nova</p>}{typingLabel && <span className="size-1 animate-pulse rounded-full bg-primary" />}</div><div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]"><TypingIndicator /></div></div></div>}
                 </div>
               </div>
 
               <aside className="hidden lg:block">
                 <div className="sticky top-5 border-t-2 border-primary bg-card/55 pt-4 dark:bg-white/[0.035]">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">In this thread</p>
-                  <div className="mt-4 divide-y divide-foreground/[0.08] text-xs dark:divide-white/[0.08]"><div className="flex items-center justify-between py-3"><span className="text-muted-foreground">Messages</span><span className="font-bold text-foreground">{visibleMessages.length}</span></div><div className="flex items-center justify-between py-3"><span className="text-muted-foreground">Tool runs</span><span className="font-bold text-foreground">{liveActivities.length + toolActivities.length}</span></div></div>
+                  <div className="mt-4 divide-y divide-foreground/[0.08] text-xs dark:divide-white/[0.08]"><div className="flex items-center justify-between py-3"><span className="text-muted-foreground">Messages</span><span className="font-bold text-foreground">{visibleMessages.length}</span></div><div className="flex items-center justify-between py-3"><span className="text-muted-foreground">Tool runs</span><span className="font-bold text-foreground">{persistedToolRuns + liveActivities.length}</span></div></div>
                 </div>
               </aside>
             </div>

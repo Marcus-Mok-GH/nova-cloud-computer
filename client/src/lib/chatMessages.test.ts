@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendLiveTextDelta,
   dedupeToolActivityMessages,
   parsePersistedToolActivity,
+  upsertLiveToolEvent,
   reconcileChatMessages,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   type PersistedChatMessage,
@@ -246,5 +248,58 @@ describe("mergeToolActivity", () => {
     const done = mergeToolActivity(running, { ...running, state: "completed", detail: "Final result." });
     expect(done.state).toBe("completed");
     expect(done.progressLog).toBeUndefined();
+  });
+});
+
+describe("appendLiveTextDelta", () => {
+  it("extends the trailing text segment with consecutive deltas", () => {
+    const events = appendLiveTextDelta([], "Let me check ");
+    const grown = appendLiveTextDelta(events, "that for you.");
+    expect(grown).toEqual([{ kind: "text", content: "Let me check that for you." }]);
+  });
+
+  it("starts a new segment when a tool call separates the text bursts", () => {
+    let events = appendLiveTextDelta([], "Checking that now.");
+    events = upsertLiveToolEvent(events, { id: "t-1", name: "read_file", state: "running", args: {} });
+    events = appendLiveTextDelta(events, "Here is what I found.");
+    expect(events.map(event => event.kind)).toEqual(["text", "tool", "text"]);
+    expect(events[2]).toEqual({ kind: "text", content: "Here is what I found." });
+  });
+
+  it("ignores empty deltas", () => {
+    const events = [{ kind: "text" as const, content: "hello" }];
+    expect(appendLiveTextDelta(events, "")).toBe(events);
+  });
+});
+
+describe("upsertLiveToolEvent", () => {
+  const firstSighting = { id: "t-1", name: "read_file", state: "running" as const, args: {} };
+
+  it("appends a new tool after the text that announced it, keeping arrival order", () => {
+    let events = appendLiveTextDelta([], "One moment.");
+    events = upsertLiveToolEvent(events, firstSighting);
+    expect(events).toEqual([
+      { kind: "text", content: "One moment." },
+      { kind: "tool", activity: expect.objectContaining({ id: "t-1", state: "running" }) },
+    ]);
+  });
+
+  it("merges a state update in place instead of moving the tool", () => {
+    let events = appendLiveTextDelta([], "Looking.");
+    events = upsertLiveToolEvent(events, firstSighting);
+    events = upsertLiveToolEvent(events, { id: "t-2", name: "run_bash", state: "running", args: {} });
+    events = appendLiveTextDelta(events, "Almost done.");
+    events = upsertLiveToolEvent(events, { ...firstSighting, state: "completed", detail: "done" });
+    expect(events.map(event => event.kind)).toEqual(["text", "tool", "tool", "text"]);
+    expect(events[1]).toMatchObject({ kind: "tool", activity: { id: "t-1", state: "completed" } });
+    expect(events[3]).toEqual({ kind: "text", content: "Almost done." });
+  });
+
+  it("accumulates progress notes on a running tool like the previous accumulator did", () => {
+    let events = upsertLiveToolEvent([], firstSighting);
+    events = upsertLiveToolEvent(events, { ...firstSighting, detail: "step one" });
+    events = upsertLiveToolEvent(events, { ...firstSighting, detail: "step two" });
+    const tool = events[0] as { kind: "tool"; activity: { progressLog?: string[] } };
+    expect(tool.activity.progressLog).toEqual(["step one", "step two"]);
   });
 });

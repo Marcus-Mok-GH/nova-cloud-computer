@@ -57,6 +57,78 @@ export function mergeToolActivity(
   return merged;
 }
 
+/**
+ * One chronological entry in the live (un-persisted) transcript: either a
+ * segment of streamed assistant text or a tool activity. Text that arrives
+ * between tool calls starts a new segment, so the live view stacks events in
+ * the order they actually happened - text first, then the tools it announced,
+ * then more text - instead of lumping all text into one bubble after the tools.
+ */
+export type LiveChatEvent =
+  | { kind: "text"; content: string }
+  | { kind: "tool"; activity: ToolActivity };
+
+/**
+ * Appends a streamed text delta to the live transcript. Consecutive deltas
+ * extend the trailing text segment; a delta that arrives after a tool event
+ * starts a NEW segment, because a tool call separates the two text bursts.
+ */
+export function appendLiveTextDelta(
+  events: LiveChatEvent[],
+  delta: string
+): LiveChatEvent[] {
+  if (!delta) return events;
+  const last = events[events.length - 1];
+  if (last && last.kind === "text") {
+    return [
+      ...events.slice(0, -1),
+      { kind: "text", content: last.content + delta },
+    ];
+  }
+  return [...events, { kind: "text", content: delta }];
+}
+
+/**
+ * Adds or updates a tool event in the live transcript. A state update for a
+ * tool already in the list merges in place, keeping the tool at its original
+ * chronological position; a first sighting appends after whatever text
+ * preceded it. This is what keeps tool lines stacked below the intro text
+ * that announced them.
+ */
+export function upsertLiveToolEvent(
+  events: LiveChatEvent[],
+  incoming: ToolActivity
+): LiveChatEvent[] {
+  const index = events.findIndex(
+    event => event.kind === "tool" && event.activity.id === incoming.id
+  );
+  if (index === -1) {
+    return [
+      ...events,
+      {
+        kind: "tool",
+        activity: mergeToolActivity(
+          {
+            id: incoming.id,
+            name: incoming.name,
+            state: "running",
+            args: incoming.args ?? {},
+          },
+          incoming
+        ),
+      },
+    ];
+  }
+  const current = events[index];
+  if (current.kind !== "tool") return events;
+  const next = events.slice();
+  next[index] = {
+    kind: "tool",
+    activity: mergeToolActivity(current.activity, incoming),
+  };
+  return next;
+}
+
 export function parsePersistedToolActivity(
   content: string
 ): ToolActivity | null {

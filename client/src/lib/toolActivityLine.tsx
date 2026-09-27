@@ -82,12 +82,34 @@ export function toolLineText(activity: ToolActivity): string {
 export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
   const StatusIcon = activity.state === "completed" ? CheckCircle2 : activity.state === "failed" ? XCircle : CircleDashed;
   const stateClass = activity.state === "completed" ? "text-emerald-600 dark:text-emerald-400" : activity.state === "failed" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
+  // A tool that is still running is the one thing worth reading at a glance
+  // while Nova works, so it gets the same bright text as an actual reply
+  // instead of the muted tone settled (completed/failed) rows keep.
+  const textClass = activity.state === "running" ? "text-foreground" : "text-muted-foreground dark:text-muted-foreground";
   return (
-    <div data-testid="tool-activity-line" className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+    <div data-testid="tool-activity-line" className={`flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium ${textClass}`}>
       <StatusIcon className={`size-3 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`} />
       <span className="min-w-0 truncate">{toolLineText(activity)}{activity.state === "failed" ? " (failed)" : ""}</span>
     </div>
   );
+}
+
+/**
+ * Container class for a tool activity's chat-list chip. A running tool - the
+ * one Nova is doing right now - gets a clearly visible card so it reads as
+ * "happening" instead of blending into the background; once it settles
+ * (completed/failed) it steps back to the quieter resting style.
+ */
+export function toolChipContainerClass(activity: ToolActivity, variant: "line" | "panel"): string {
+  const base =
+    variant === "panel"
+      ? "flex w-full min-w-0 flex-col border border-l-2 border-l-primary/60 px-3 py-2 shadow-sm"
+      : "flex min-w-0 items-center gap-1 border px-3 py-1.5 shadow-sm";
+  const tone =
+    activity.state === "running"
+      ? "border-foreground/[0.18] bg-card/80 dark:border-white/25 dark:bg-white/[0.10]"
+      : "border-foreground/[0.10] bg-card/60 dark:border-white/10 dark:bg-white/[0.04]";
+  return `${base} ${tone}`;
 }
 
 /**

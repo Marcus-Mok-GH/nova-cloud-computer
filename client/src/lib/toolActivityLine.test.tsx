@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { CodeTaskToolActivity, ResearchToolActivity, ToolActivityLine, toolLineText } from "./toolActivityLine";
+import { CodeTaskToolActivity, ResearchToolActivity, ToolActivityLine, toolChipContainerClass, toolLineText } from "./toolActivityLine";
 import type { ToolActivity } from "./chatMessages";
 
 const activity = (name: string, argumentsJson: string, state: ToolActivity["state"] = "completed"): ToolActivity =>
@@ -147,6 +147,37 @@ describe("ToolActivityLine", () => {
     expect(failed).toContain("(failed)");
     const running = renderToStaticMarkup(React.createElement(ToolActivityLine, { activity: activity("create_file", '{"name":"dup.txt"}', "running") }));
     expect(running).toContain("animate-spin");
+  });
+
+  it("gives a running tool the bright reply-text color instead of the muted resting tone", () => {
+    const running = renderToStaticMarkup(React.createElement(ToolActivityLine, { activity: activity("create_file", '{"name":"dup.txt"}', "running") }));
+    expect(running).toContain("text-foreground");
+    expect(running).not.toContain("text-muted-foreground");
+    const completed = renderToStaticMarkup(React.createElement(ToolActivityLine, { activity: activity("create_file", '{"name":"dup.txt"}', "completed") }));
+    expect(completed).toContain("text-muted-foreground");
+  });
+});
+
+describe("toolChipContainerClass", () => {
+  it("gives a running tool a clearly visible card in both variants, not the near-invisible resting tone", () => {
+    const running = activity("code_task", '{"task":"x"}', "running");
+    const settled = activity("code_task", '{"task":"x"}', "completed");
+    for (const variant of ["line", "panel"] as const) {
+      const runningClass = toolChipContainerClass(running, variant);
+      const settledClass = toolChipContainerClass(settled, variant);
+      // The resting style keeps the original near-transparent dark-mode tone;
+      // running must be visibly stronger so it does not blend into the page.
+      expect(settledClass).toContain("dark:bg-white/[0.04]");
+      expect(runningClass).toContain("dark:bg-white/[0.10]");
+      expect(runningClass).not.toContain("dark:bg-white/[0.04]");
+      expect(runningClass).toContain("border-foreground/[0.18]");
+    }
+  });
+
+  it("keeps the line/panel-specific layout classes for each variant", () => {
+    const running = activity("code_task", '{"task":"x"}', "running");
+    expect(toolChipContainerClass(running, "line")).toContain("items-center gap-1");
+    expect(toolChipContainerClass(running, "panel")).toContain("flex-col");
   });
 });
 

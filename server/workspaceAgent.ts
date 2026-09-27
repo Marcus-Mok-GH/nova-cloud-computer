@@ -17,6 +17,14 @@ import { evaluate } from "mathjs";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
 import {
+  appendConversationTurn,
+  deleteMemoryForUser,
+  listRecentMemoriesForPrompt,
+  readMemoryForUser,
+  saveMemoryForUser,
+  searchMemoriesForUser,
+} from "./memories";
+import {
   appendChatMessageForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
@@ -909,6 +917,76 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "search_memories",
+      description:
+        "Search the user's conversation memories - records of past conversations and saved notes, each with a title, a summary, and the full transcript. Use this whenever the user references earlier work, a past decision, a previous conversation, or anything you cannot see in the current chat. With no query, returns the most recent memories.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Optional keyword or phrase to search titles, summaries, tags, and transcripts.",
+          },
+          limit: {
+            type: "number",
+            description: "Max results (1-25, default 8).",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_memory",
+      description:
+        "Read one full memory record (the complete transcript or note) by its id, as listed by search_memories or the recent memories in the system prompt.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The memory id to read." },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_memory",
+      description:
+        "Save a durable memory: a fact, decision, preference, or the running state of a long multi-step task. Long context is not reliable storage - do not carry multi-step state in the conversation alone; save it here and read it back with read_memory before resuming. Conversation histories are captured automatically - use this for standalone notes, not for copying the current chat.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short title for the memory." },
+          summary: { type: "string", description: "One or two sentences capturing what this memory holds." },
+          content: { type: "string", description: "The full text to remember." },
+          tags: { type: "string", description: "Optional comma-separated keywords for later search." },
+        },
+        required: ["title", "summary", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_memory",
+      description:
+        "Delete one memory record by id - for example when the user asks to forget something or a saved note turned out wrong. This cannot be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "The memory id to delete." },
+        },
+        required: ["id"],
+      },
+    },
+  },
 ];
 
 type Computer = Awaited<ReturnType<typeof getWorkspaceComputer>>;
@@ -1147,7 +1225,7 @@ Operating principles:
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
-- Keep a notebook for long work. Long context is not reliable storage - do not carry a multi-step task's state in the conversation alone. When a task has more than a few steps, create or update a working note in the workspace (e.g. _notes/<task>.md) recording the goal, the key facts and decisions, and the progress after each meaningful step; read it back before resuming or whenever you lose the thread. Workspace files are your external memory, not just your deliverables.
+- Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
 - Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work only after checking the relevant files, records, skills, or other reliable sources. Do not call an unverified choice a sensible default. Switch to collaborative - pause and ask one focused question - when a reliable source cannot resolve an important ambiguity, guessing has a real cost (irreversible or destructive actions beyond the literal request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation), or the user must decide. Never improvise facts, targets, recipients, IDs, or permissions.
@@ -1175,8 +1253,8 @@ The user you are helping: {{user}}. Address them by that name or username natura
 {{style}}
 This request arrived via: {{channel}}.
 
-Current folders: {{folders}}
-Current files: {{files}}`;
+Recent memories (search_memories finds more, read_memory returns the full record; list_workspace lists every file and folder):
+{{memories}}`;
 
 type ToolExecution = {
   ok: boolean;
@@ -1323,6 +1401,93 @@ async function executeWorkspaceTool(
     }
   };
   switch (call.name) {
+    case "search_memories": {
+      const query = str(args.query).trim();
+      const limitArg = Number(args.limit);
+      const limit =
+        Number.isFinite(limitArg) && limitArg >= 1 ? limitArg : 8;
+      const records = await searchMemoriesForUser(ownerId, query, limit);
+      return {
+        ok: true,
+        result: records.length
+          ? records
+              .map(
+                record =>
+                  `Memory ${record.id} - ${record.title} (updated ${record.updatedAt.toISOString().slice(0, 10)}): ${record.summary}`
+              )
+              .join("\n")
+          : "No memories matched that search.",
+        action: {
+          kind: "tool",
+          name: query.slice(0, 60) || "recent memories",
+          operation: records.length ? "listed" : "failed",
+        },
+      };
+    }
+    case "read_memory": {
+      const id = Number(args.id);
+      const record =
+        Number.isFinite(id) && id > 0
+          ? await readMemoryForUser(ownerId, id)
+          : null;
+      if (!record)
+        return {
+          ok: false,
+          result: `No memory with id ${str(args.id)} - search_memories lists the valid ids.`,
+          action: { kind: "tool", name: `memory ${str(args.id)}`, operation: "failed" },
+        };
+      return {
+        ok: true,
+        result: `Memory ${record.id} - ${record.title}\n\n${record.content}`,
+        action: { kind: "tool", name: `memory ${record.id}`, operation: "listed" },
+      };
+    }
+    case "save_memory": {
+      const title = str(args.title).trim();
+      const summary = str(args.summary).trim();
+      const content = str(args.content);
+      if (!title || !summary || !content.trim())
+        return {
+          ok: false,
+          result: "A memory needs a title, a summary, and content.",
+          action: { kind: "tool", name: "save_memory", operation: "failed" },
+        };
+      const record = await saveMemoryForUser(ownerId, {
+        title,
+        summary,
+        content,
+        tags: args.tags !== undefined ? str(args.tags) : null,
+      });
+      if (!record)
+        return {
+          ok: false,
+          result: "The memory store is unavailable right now.",
+          action: { kind: "tool", name: title.slice(0, 60), operation: "failed" },
+        };
+      return {
+        ok: true,
+        result: `Saved memory ${record.id}: ${record.title}.`,
+        action: { kind: "tool", name: title.slice(0, 60), operation: "created" },
+      };
+    }
+    case "delete_memory": {
+      const id = Number(args.id);
+      const deleted =
+        Number.isFinite(id) && id > 0
+          ? await deleteMemoryForUser(ownerId, id)
+          : false;
+      if (!deleted)
+        return {
+          ok: false,
+          result: `No memory with id ${str(args.id)} - search_memories lists the valid ids.`,
+          action: { kind: "tool", name: `memory ${str(args.id)}`, operation: "failed" },
+        };
+      return {
+        ok: true,
+        result: `Deleted memory ${id}.`,
+        action: { kind: "tool", name: `memory ${id}`, operation: "deleted" },
+      };
+    }
     case "list_workspace": {
       const { folders, files } = describeWorkspace(computer);
       return {
@@ -2484,13 +2649,25 @@ export async function runWorkspaceAgent(
       console.error("[Tool activity] failed to persist", error);
     }
   };
-  /** Appends the assistant's reply to the chat and returns the persisted message. */
-  const persistAssistant = async (reply: string) =>
-    appendChatMessageForUser(ownerId, {
+  /**
+   * Appends the assistant's reply to the chat and returns the persisted
+   * message. Every call is an end-of-run reply, so the completed turn is
+   * also captured into the chat's conversation memory (the record the
+   * search_memories / read_memory tools serve). appendConversationTurn
+   * never throws - a memory failure must not break the run.
+   */
+  const persistAssistant = async (reply: string) => {
+    const message = await appendChatMessageForUser(ownerId, {
       chatId,
       role: "assistant",
       content: reply,
     });
+    await appendConversationTurn(ownerId, chatId, {
+      userText: content,
+      assistantText: reply,
+    });
+    return message;
+  };
 
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
@@ -2634,13 +2811,13 @@ ${options.continuationPlanned
         options.channel === "telegram" ||
         (tool.function.name !== "present_file" && tool.function.name !== "send_progress_update")
     );
+    const memoriesLine = await listRecentMemoriesForPrompt(ownerId);
     const systemMessage = (): GatewayChatMessage => {
-      const { folders, files } = describeWorkspace(computer);
       return {
         role: "system",
-        content: WORKSPACE_AGENT_PROMPT.replace("{{folders}}", folders).replace(
-          "{{files}}",
-          files
+        content: WORKSPACE_AGENT_PROMPT.replace(
+          "{{memories}}",
+          memoriesLine
         ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
           .replace("{{deployments}}", deploymentsLine)
           .replace(

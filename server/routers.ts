@@ -43,6 +43,7 @@ import {
   setAutomationScheduleTaskForUser,
   updateAutomationForUser, factoryResetWorkspaceForUser } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
+import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, revokeApiKeyForUser } from "./apiKeys";
 import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { getDeploymentStatusForUser } from "./siteDeploy";
@@ -120,6 +121,28 @@ export const appRouter = router({
       }),
   }),
   credits: router({ status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)) }),
+  apiKeys: router({
+    list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),
+    /** Returns the full key value exactly once; Nova stores only its hash. */
+    create: protectedProcedure
+      .input(z.object({ name: z.string().trim().min(1, "Give the key a name.").max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await createApiKeyForUser(ctx.user.id, input.name);
+        } catch (error) {
+          if (error instanceof ApiKeyLimitError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          if (error instanceof ApiKeyStorageError) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: error.message });
+          throw error;
+        }
+      }),
+    revoke: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const revoked = await revokeApiKeyForUser(ctx.user.id, input.id);
+        if (!revoked) throw new TRPCError({ code: "NOT_FOUND", message: "That API key does not exist." });
+        return { success: true };
+      }),
+  }),
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),
     computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),

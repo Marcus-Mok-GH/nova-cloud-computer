@@ -1,3 +1,21 @@
+2026-09-27 - OpenAI-compatible Inference API with user-created API keys
+
+Settings now has an "Inference API keys" card: create, inspect and revoke up
+to 10 keys per account. Keys use the nova_sk_ prefix, are shown in full
+exactly once at creation, and Nova stores only their SHA-256 hash.
+
+New public API (co-deployed under /api/v1, authenticated with the key):
+- POST /api/v1/chat/completions - OpenAI-compatible chat completions with
+  buffered JSON and SSE streaming; rejects tools/function calling for now.
+- GET /api/v1/models - list the gateway models available to the key's owner.
+- GET /api/v1/me - confirm the key and inspect its remaining daily credits.
+
+Every inference call is charged against the owner's daily Nova credits and
+workspace inference allowance, exactly like chat inside the app, and quota
+errors come back as OpenAI-style 429 error payloads.
+
+Database: new api_keys table (migration 0028_add_api_keys).
+
 2026-09-26 - New Status page with live service and page health
 
 Added /app/status: one screen showing the live health of every page and

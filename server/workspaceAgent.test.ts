@@ -1584,6 +1584,85 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
+  it("retries the model gateway from the start instead of the canned line when end_turn is empty", async () => {
+    // The model did the work (a create_file round) but ended its turn with
+    // no reply text at all. The old behavior persisted the canned "could
+    // not complete" apology; now the run retries the gateway with a fresh
+    // no-tools completion briefed with the request and the run summaries,
+    // and the retried text becomes the reply.
+    // Earlier suites may leave a persistent createFile implementation
+    // (clearAllMocks does not reset implementations); set it explicitly
+    // so the run summary names this test's file.
+    createFile.mockResolvedValue({ id: 9, name: "todo.md", content: "- ship it" });
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            { id: "call-1", name: "create_file", arguments: JSON.stringify({ name: "todo.md", content: "- ship it" }) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [endTurnCall("")],
+        })
+      );
+    completeWithMistralGateway.mockResolvedValueOnce({
+      text: "I created todo.md with your first task.",
+    });
+    const result = await runWorkspaceAgent(1, 3, "make a todo list");
+    expect(result.message.content).toBe("I created todo.md with your first task.");
+    // The retry brief carries the user's request and the run's step summary.
+    const retryPrompt = completeWithMistralGateway.mock.calls.at(-1)[1];
+    expect(retryPrompt).toContain("make a todo list");
+    expect(retryPrompt).toContain("todo.md");
+    expect(completeWithMistralGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the canned line only when the empty-reply retry also fails", async () => {
+    // Both retry attempts come back empty (gateway unavailable or returning
+    // nothing): the honest canned fallback is the final safety net.
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [endTurnCall("")],
+        })
+      );
+    completeWithMistralGateway.mockResolvedValue({ text: "" });
+    const result = await runWorkspaceAgent(1, 3, "make a todo list");
+    expect(result.message.content).toBe(
+      "I could not complete that request. Please try again, or rephrase it more specifically."
+    );
+    // The retry was actually attempted twice before giving up.
+    expect(completeWithMistralGateway).toHaveBeenCalledTimes(2);
+  });
+
+  it("mentions an interrupted deadline step in the empty-reply retry brief", async () => {
+    // The deadline close itself came back empty (gateway busy at the buzzer):
+    // the retry asks again, and the brief names the step that was cut short.
+    deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
+    chatWithMistralGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          { id: "call-1", name: "deploy_website", arguments: JSON.stringify({ directory: "/" }) },
+        ],
+      })
+    );
+    completeWithMistralGateway.mockResolvedValueOnce(undefined); // deadline close fails
+    completeWithMistralGateway.mockResolvedValueOnce({
+      text: "The deploy was interrupted, but everything is saved.",
+    });
+    const result = await runWorkspaceAgent(1, 3, "research and deploy", {
+      deadlineAtMs: Date.now() + 50,
+    });
+    expect(result.message.content).toBe(
+      "The deploy was interrupted, but everything is saved."
+    );
+    const retryPrompt = completeWithMistralGateway.mock.calls.at(-1)[1];
+    expect(retryPrompt).toContain("deploy_website");
+    expect(retryPrompt).toContain("cut short");
+  });
+
   it("interrupts a tool that outlasts the run deadline and still persists a closing reply", async () => {
     // A single long call (a VM task, a deploy) used to blow straight past
     // the 285s budget between the round-level checks: Vercel killed the

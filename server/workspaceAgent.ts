@@ -2498,6 +2498,13 @@ export async function runWorkspaceAgent(
   // Summaries of the tool calls in the current round - they brief the model
   // on the closing reply when the run runs out of time before the final round.
   let lastRoundSummaries: string[] = [];
+  // Every completed tool summary of the run, across rounds (the per-round
+  // list resets each round): the empty-reply retry briefs the model with
+  // the full picture, not just the final round.
+  let runSummaries: string[] = [];
+  // The tool that was interrupted or skipped when the budget ran out, for
+  // the same retry brief. Null when no specific tool was in flight.
+  let deadlineUnfinishedTool: string | null = null;
   // The run ends ONLY when the model calls end_turn. A text-only round is
   // kept as the running draft reply and nudged, so the final answer is never
   // lost if the model forgets the explicit end. The chars companion records
@@ -2710,6 +2717,54 @@ ${options.continuationPlanned
     // /stop support: a stop request recorded after the run started aborts the
     // run at the next safe point (round boundary or between tool calls).
     const runStartedAt = await getDatabaseTime();
+
+  /**
+   * The empty-reply retry: a run that ends without a single word from the
+   * model (an empty end_turn, or a deadline close the gateway could not
+   * write) used to jump straight to a canned apology. Instead, retry from
+   * the start of the model gateway: a fresh no-tools completion briefed
+   * with the user's request and the run's step summaries, so the only
+   * possible outcome is text. The gateway call itself already falls back
+   * across model pools when the default model is unavailable, so pool
+   * congestion does not sink the retry either. Up to two attempts with a
+   * short backoff, each race-capped like the deadline close so the retry
+   * cannot overrun the request budget before the reply persists; if even
+   * this comes back empty (gateway down, credits gone, timeout), the
+   * caller falls through to the honest canned line.
+   */
+  const retryEmptyReplyFromGateway = async (): Promise<string> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) await waitFor(400);
+      if (await hasAgentStopAfter(ownerId, chatId, runStartedAt)) return "";
+      try {
+        const completion = await Promise.race([
+          completeWithWorkspaceModel(
+            ownerId,
+            `You are Nova, an AI assistant working inside the user's personal cloud workspace. Your previous turn ended without a reply to the user. Write your complete final reply now.
+
+The user asked: ${content.slice(0, 4000)}
+
+Completed steps this run:
+${(runSummaries.length ? runSummaries : ["(none recorded)"]).map(summary => `- ${summary}`).join("\n")}
+${failedSteps.length ? `\nSteps that failed during this run (not completed):\n${failedSteps.slice(-5).map(step => `- ${step}`).join("\n")}` : ""}${
+            deadlineUnfinishedTool
+              ? `\nThe \`${deadlineUnfinishedTool}\` step was cut short when time ran out and was not finished.`
+              : ""
+          }
+
+Answer the user directly and completely, in your own words, based on the steps above. Do not mention this retry, internal steps, turns, or time limits. Output only the reply.`
+          ).catch(() => null),
+          waitFor(DEADLINE_CLOSE_MODEL_CAP_MS),
+        ]) as { text?: unknown } | null | undefined;
+        const text = typeof completion?.text === "string" ? completion.text.trim() : "";
+        if (text && text.length <= 4000) return text;
+      } catch {
+        // Unavailable model or gateway: the next attempt (if any) retries;
+        // the canned fallback is the final safety net.
+      }
+    }
+    return "";
+  };
     const stopRun = async () => {
       const stoppedReply = "⏹️ Stopped - this run was cancelled at your request.";
       await options.onChunk?.(stoppedReply);
@@ -3011,6 +3066,7 @@ ${options.continuationPlanned
             args: { arguments: call.arguments.slice(0, 500) },
             summary: skipped,
           });
+          deadlineUnfinishedTool = call.name;
           reply = await composeDeadlineClose(call.name, false);
           streamedReplyChars = 0;
           closedByDeadline = true;
@@ -3086,6 +3142,7 @@ ${options.continuationPlanned
               args: { arguments: call.arguments.slice(0, 500) },
               summary: `${call.name} was still running when the request budget ran out and was interrupted mid-flight.`,
             });
+            deadlineUnfinishedTool = call.name;
             reply = await composeDeadlineClose(call.name, true);
             streamedReplyChars = 0;
             closedByDeadline = true;
@@ -3105,6 +3162,7 @@ ${options.continuationPlanned
         }
         if (execution.action) actions.push(execution.action);
         lastRoundSummaries.push(toolSummary(call, execution));
+        runSummaries.push(toolSummary(call, execution));
         if (!execution.ok) {
           const failureText =
             execution.result.length > 240
@@ -3216,6 +3274,12 @@ ${options.continuationPlanned
       // chat pending so the NEXT user turn can accept (and only that turn,
       // via accept_own_coding, unlocks Nova's own coding).
       await recordSpecialistAcceptance(ownerId, chatId, "pending");
+    }
+    if (!reply.trim()) {
+      // The run produced no reply at all: retry from the start of the model
+      // gateway (fresh completion, model-pool fallback included) before
+      // falling back to the canned line.
+      reply = await retryEmptyReplyFromGateway();
     }
     if (!reply.trim()) {
       reply =

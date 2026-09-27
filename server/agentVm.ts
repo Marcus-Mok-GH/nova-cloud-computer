@@ -1,6 +1,5 @@
 import {
   createAgentVmRunForUser,
-  createWorkspaceFileForUser,
   getWorkspaceComputer,
   getStoredWorkspaceSandboxId,
   listAgentVmRunsForUser,
@@ -121,15 +120,14 @@ export async function startAgentVmRun(
           syncedComputer.workspace.id,
           result.sandboxId
         );
-        const artifact = await createWorkspaceFileForUser(ownerId, {
-          name: `nova-run-${run.id}.txt`,
-          content: `Task: ${input.task}\n\n${result.output}\n`,
-          mimeType: "text/plain",
-        });
+        // The full output is stored on the run record itself (resultSummary).
+        // Earlier versions also wrote a nova-run-<id>.txt artifact into the
+        // workspace file tree, which cluttered the listing, bloated every
+        // sandbox restore, and shipped with site deploys; the record keeps
+        // the complete text queryable without any of that.
         const completed = await updateAgentVmRunForUser(ownerId, run.id, {
           status: "succeeded",
           resultSummary: result.output,
-          artifactFileId: artifact?.id ?? null,
           sandboxId: result.sandboxId,
           completedAt: new Date(),
         });

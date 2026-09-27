@@ -176,6 +176,28 @@ describe("conversation memory store", () => {
     );
   });
 
+  it("clamps oversized tags and content on explicit saves", async () => {
+    const inserted = vi.fn((values: Row) => memoryRow({ ...values }));
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({ onInsert: inserted }) as never
+    );
+    await saveMemoryForUser(1, {
+      title: "Big note",
+      summary: "s",
+      content: "x".repeat(30_000),
+      tags: "t".repeat(600),
+    });
+    const values = inserted.mock.calls[0][0];
+    expect((values.tags as string).length).toBeLessThanOrEqual(500);
+    expect((values.content as string).length).toBeLessThan(30_000);
+    expect(values.content).toContain("(content truncated)");
+  });
+
+  it("strips backslashes from search terms before the ILIKE query", async () => {
+    vi.mocked(getDb).mockResolvedValue(makeFakeDb({ rows: [] }) as never);
+    await expect(searchMemoriesForUser(1, "foo\\")).resolves.toEqual([]);
+  });
+
   it("reads and deletes only for the owning user", async () => {
     vi.mocked(getDb).mockResolvedValue(
       makeFakeDb({ rows: [memoryRow()], onDelete: () => [7] }) as never

@@ -38,6 +38,7 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
     expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
     expect(isCoDeployedApiPath(["status"])).toBe(true);
+    expect(isCoDeployedApiPath(["v1", "chat", "completions"])).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/status")).toBe(true);
     expect(isCoDeployedApiPath("chat/stream")).toBe(true);
     expect(isCoDeployedApiPath(["chat", "delete"])).toBe(true);

@@ -3,6 +3,7 @@ import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import UserAutomationsCard from "@/components/UserAutomationsCard";
+import ApiKeysCard from "@/components/ApiKeysCard";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ export default function WorkspaceSettings() {
     <ConnectorCard toolkit="github" />
     <ConnectorCard toolkit="gmail" />
     <UserAutomationsCard />
+    <ApiKeysCard />
     <FactoryResetCard />
     <AccountManagementCard />
   </div></DashboardLayout>;

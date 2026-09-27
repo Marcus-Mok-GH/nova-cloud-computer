@@ -1,3 +1,21 @@
+2026-09-27 - Tool activity now stays visible while Nova is actively working
+
+Reported from a live session: while Nova works, the tool call in progress
+was easy to miss - it shared the same near-transparent dark-mode background
+(4% white) and dim, muted text as a settled/completed row, so it barely
+registered against the page next to the much bolder reply text.
+
+The running tool now gets a clearly visible card (stronger border/background
+opacity in both themes) and reply-bright text, so "what Nova is doing right
+now" reads at a glance; once a tool settles (completed/failed) it steps back
+to the quieter resting style. Applies to both the inline one-liner chip and
+the code_task/research_web/thinking dropdown panels, live-streaming and
+already-persisted rows alike.
+
+New toolChipContainerClass() helper in toolActivityLine.tsx keeps that
+running-vs-settled styling in one place instead of duplicated inline classes.
+653 tests passing (+3 new), typecheck and build clean.
+
 2026-09-27 - OpenAI-compatible Inference API with user-created API keys
 
 Settings now has an "Inference API keys" card: create, inspect and revoke up

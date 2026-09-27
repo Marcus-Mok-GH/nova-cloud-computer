@@ -179,6 +179,24 @@ vi.mock("./e2b", () => ({
   E2B_WORKSPACE_DIR: "/home/user/workspace",
 }));
 
+// Memory tools and conversation auto-capture: mocked here so the agent's
+// prompt build and run flow can be tested without the memory store; the
+// store itself is covered by memories.test.ts.
+const appendConversationTurn = vi.fn(async () => null);
+const listRecentMemoriesForPrompt = vi.fn(async () => "none yet");
+const searchMemoriesForUser = vi.fn(async () => []);
+const readMemoryForUser = vi.fn(async () => null);
+const saveMemoryForUser = vi.fn(async () => null);
+const deleteMemoryForUser = vi.fn(async () => false);
+vi.mock("./memories", () => ({
+  appendConversationTurn,
+  listRecentMemoriesForPrompt,
+  searchMemoriesForUser,
+  readMemoryForUser,
+  saveMemoryForUser,
+  deleteMemoryForUser,
+}));
+
 const deployWebsite = vi.fn(async () => ({
   ok: true,
   deployment: {
@@ -275,6 +293,16 @@ const chatResult = (
   },
 });
 
+// Queues the well-behaved end_turn echo a text-only reply round needs to
+// finish the run (tests near the file end override the gateway's base
+// implementation, so the default echo-on-nudge cannot be relied on).
+const endTurnReply = ({ reply }: { reply: string }) =>
+  chatResult({
+    toolCalls: [
+      { id: "call-end", name: "end_turn", arguments: JSON.stringify({ reply }) },
+    ],
+  });
+
 // A fake live sandbox: records writes and commands, echoes back results.
 const fakeSandbox = () => {
   const writes: Array<{ path: string; content: string }> = [];
@@ -334,7 +362,10 @@ describe("Nova tool-calling workspace agent", () => {
     );
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("Notes");
-    expect(messages[0].content).toContain("welcome.md");
+    // The workspace file listing is no longer inlined: recent memories took
+    // its place, files are reachable through list_workspace instead.
+    expect(messages[0].content).toContain("Recent memories");
+    expect(messages[0].content).not.toContain("welcome.md");
     expect(messages).toEqual(
       expect.arrayContaining([{ role: "user", content: "hi" }])
     );
@@ -357,10 +388,13 @@ describe("Nova tool-calling workspace agent", () => {
     // State-machine execution: one action at a time, not a 5-step leap.
     expect(system).toContain("Decide one action at a time");
     expect(system).toContain("state machine");
-    // Weakness offload: math AND data manipulation, plus a notebook rule.
+    // Weakness offload: math AND data manipulation, plus the memory rule.
     expect(system).toContain("Never do math or data work in your head");
-    expect(system).toContain("Keep a notebook for long work");
-    expect(system).toContain("_notes/<task>.md");
+    expect(system).toContain("Your memory is tool-backed, not file-backed");
+    expect(system).toContain("search_memories");
+    // Memories replace the inline workspace file listing.
+    expect(system).toContain("Recent memories");
+    expect(system).not.toContain("Current files");
     // Explicit triggers on the SLM-facing tool descriptions.
     const tool = (name: string) =>
       options.tools.find((t: { function: { name: string } }) => t.function.name === name).function;
@@ -3164,5 +3198,85 @@ describe("connector tool gating", () => {
     const check = async (_owner: number, toolkit: string) => ({ connected: toolkit === "gmail" });
     const connected = await getConnectedConnectorToolkits(1, check as never);
     expect(connected).toEqual(["gmail"]);
+  });
+
+  it("exposes the memory tools to the model", async () => {
+    chatWithMistralGateway.mockReset();
+    chatWithMistralGateway
+      .mockResolvedValueOnce(chatResult({ text: "Hi!" }))
+      .mockResolvedValueOnce(endTurnReply({ reply: "Hi!" }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const [, , options] = chatWithMistralGateway.mock.calls[0];
+    const names = options.tools.map(
+      (t: { function: { name: string } }) => t.function.name
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "search_memories",
+        "read_memory",
+        "save_memory",
+        "delete_memory",
+      ])
+    );
+  });
+
+  it("feeds search_memories results back to the model", async () => {
+    chatWithMistralGateway.mockReset();
+    searchMemoriesForUser.mockClear();
+    appendConversationTurn.mockClear();
+    searchMemoriesForUser.mockResolvedValueOnce([
+      {
+        id: 9,
+        chatId: 3,
+        kind: "conversation",
+        title: "Deploy the portfolio site",
+        summary: "Built and deployed the portfolio site to Netlify.",
+        tags: null,
+        content: "User: deploy the portfolio site\nNova: Live at https://example.netlify.app",
+        s3Uri: null,
+        updatedAt: new Date("2026-09-20T10:00:00Z"),
+      },
+    ]);
+    chatWithMistralGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-mem",
+              name: "search_memories",
+              arguments: JSON.stringify({ query: "portfolio" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Found it." }))
+      .mockResolvedValueOnce(endTurnReply({ reply: "Found it." }));
+    await runWorkspaceAgent(1, 3, "what did we do with the portfolio site?");
+    expect(searchMemoriesForUser).toHaveBeenCalledWith(1, "portfolio", 8);
+    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-mem",
+          content: expect.stringContaining(
+            "Memory 9 - Deploy the portfolio site"
+          ),
+        }),
+      ])
+    );
+  });
+
+  it("captures the completed turn into the conversation memory", async () => {
+    chatWithMistralGateway.mockReset();
+    appendConversationTurn.mockClear();
+    chatWithMistralGateway
+      .mockResolvedValueOnce(chatResult({ text: "Done." }))
+      .mockResolvedValueOnce(endTurnReply({ reply: "Done." }));
+    await runWorkspaceAgent(1, 3, "remember this task");
+    expect(appendConversationTurn).toHaveBeenCalledWith(1, 3, {
+      userText: "remember this task",
+      assistantText: "Done.",
+    });
   });
 });

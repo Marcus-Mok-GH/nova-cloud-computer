@@ -14,6 +14,7 @@ import { conversationMemories } from "../drizzle/schema";
 
 const TITLE_LIMIT = 300;
 const SUMMARY_LIMIT = 280;
+const TAGS_LIMIT = 500; // matches the varchar(500) tags column
 // The DB row keeps a rolling window of the transcript; S3 (when configured)
 // receives the same full text so nothing is lost.
 const CONTENT_WINDOW = 24_000;
@@ -67,6 +68,12 @@ export async function saveMemoryForUser(
   if (!db) return null;
   const title = clip(input.title || "Untitled memory", TITLE_LIMIT);
   const summary = clip(input.summary || input.content, SUMMARY_LIMIT);
+  // Explicit notes get the same window as conversation records: read_memory
+  // feeds the full record back into the model, so an oversized note would
+  // otherwise blow the context of the round that reads it.
+  const content = input.content.length > CONTENT_WINDOW
+    ? `${input.content.slice(0, CONTENT_WINDOW)}\n\n(content truncated)`
+    : input.content;
   const inserted = await db
     .insert(conversationMemories)
     .values({
@@ -75,8 +82,8 @@ export async function saveMemoryForUser(
       kind: input.kind ?? "note",
       title,
       summary,
-      tags: input.tags?.trim() || null,
-      content: input.content,
+      tags: clip(input.tags ?? "", TAGS_LIMIT) || null,
+      content,
     })
     .returning();
   const record = toRecord(inserted[0]);
@@ -171,7 +178,9 @@ export async function searchMemoriesForUser(
 ): Promise<ConversationMemoryRecord[]> {
   const db = await getDb();
   if (!db) return [];
-  const trimmed = (query ?? "").trim();
+  // Backslashes would corrupt the ILIKE pattern (Postgres treats them as
+  // the LIKE escape character, and a trailing one is a hard error).
+  const trimmed = (query ?? "").replace(/\\/g, " ").trim();
   const where = trimmed
     ? and(
         eq(conversationMemories.ownerId, ownerId),

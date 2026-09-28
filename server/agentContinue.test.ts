@@ -1,11 +1,22 @@
-import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  beforeAll,
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { createHmac } from "node:crypto";
 
 const spies = vi.hoisted(() => ({
   findWorkspaceOwnerByTelegramToken: vi.fn(async () => 7),
   claimTelegramUpdate: vi.fn(async () => true),
   isUserBanned: vi.fn(async () => false),
-  getTelegramCredentialsForUser: vi.fn(async () => ({ token: "bot-token", chatId: "42" })),
+  getTelegramCredentialsForUser: vi.fn(async () => ({
+    token: "bot-token",
+    chatId: "42",
+  })),
   listChatsForUser: vi.fn(async () => [{ id: 3 }]),
   sendTelegramMessage: vi.fn(async () => ({ message_id: 77 })),
   sendChatAction: vi.fn(async () => true),
@@ -21,12 +32,23 @@ const spies = vi.hoisted(() => ({
     token: "bot-token",
     telegramChatId: "42",
   })),
-  runWorkspaceAgent: vi.fn(async () => ({ message: { content: "It's a corgi!" }, actions: [], outOfBudget: false })),
+  runWorkspaceAgent: vi.fn(async () => ({
+    message: { content: "It's a corgi!" },
+    actions: [],
+    outOfBudget: false,
+  })),
   autoTitleChatForUser: vi.fn(async () => true),
 }));
 
 vi.mock("./db", () => ({
-  getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
+  getDailyCreditStatusForUser: vi.fn(async () => ({
+    region: "global",
+    creditDay: "2026-09-24",
+    dailyCredits: 500,
+    usedCredits: 0,
+    remainingCredits: 500,
+    creditValueCents: 1,
+  })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getDb: vi.fn(),
   findWorkspaceOwnerByTelegramLinkCode: vi.fn(async () => null),
@@ -61,7 +83,9 @@ vi.mock("./telegram", async requireActual => ({
   presentTelegramFile: vi.fn(async () => ({ messageId: 78, as: "document" })),
 }));
 
-vi.mock("./automations", () => ({ runAutomationForScheduleTask: vi.fn(async () => null) }));
+vi.mock("./automations", () => ({
+  runAutomationForScheduleTask: vi.fn(async () => null),
+}));
 vi.mock("./userAutomations", () => ({
   getUserAutomation: vi.fn(async () => null),
   createUserAutomation: vi.fn(async () => ({})),
@@ -76,28 +100,54 @@ vi.mock("./_core/heartbeat", () => ({
   createHeartbeatJob: vi.fn(async () => ({ taskUid: "task" })),
   updateHeartbeatJob: vi.fn(async () => ({})),
 }));
-vi.mock("./_core/sdk", () => ({ sdk: { authenticateRequest: vi.fn(async () => null) } }));
-vi.mock("./_core/cookies", () => ({ sessionToken: vi.fn(() => "test-session") }));
+vi.mock("./_core/sdk", () => ({
+  sdk: { authenticateRequest: vi.fn(async () => null) },
+}));
+vi.mock("./_core/cookies", () => ({
+  sessionToken: vi.fn(() => "test-session"),
+}));
 vi.mock("./routers", () => ({ appRouter: {} }));
 vi.mock("./_core/context", () => ({ createContext: vi.fn(async () => ({})) }));
-vi.mock("@trpc/server/adapters/express", () => ({ createExpressMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next() }));
-vi.mock("./automationPlannerRoute", () => ({ automationPlannerRouter: (_req: unknown, _res: unknown, next: () => void) => next() }));
+vi.mock("@trpc/server/adapters/express", () => ({
+  createExpressMiddleware:
+    () => (_req: unknown, _res: unknown, next: () => void) =>
+      next(),
+}));
+vi.mock("./automationPlannerRoute", () => ({
+  automationPlannerRouter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
+}));
 
 process.env.DEFAULT_TELEGRAM_BOT_TOKEN = "bot-token";
 process.env.AGENT_CONTINUE_SECRET = "test-continue-secret";
 const { app } = await import("./app");
-const { executeWebAgentRun, CONTINUATION_SCHEDULE_FAILED_MESSAGE } = await import("./agentRuns");
+const {
+  executeWebAgentRun,
+  executeTelegramAgentRun,
+  CONTINUATION_SCHEDULE_FAILED_MESSAGE,
+  STILL_WORKING_MESSAGE,
+  TRANSIENT_ERROR_CONTINUING_MESSAGE,
+} = await import("./agentRuns");
+const { MistralGatewayClientError } = await import("./mistralGateway");
 
 const realFetch = globalThis.fetch.bind(globalThis);
 
-const CONTINUATION_PROMPT = "Continue the task in this conversation from where the previous segment left off. That segment ran out of its execution budget; finish the remaining work and deliver the result.";
+const CONTINUATION_PROMPT =
+  "Continue the task in this conversation from where the previous segment left off. That segment ended before the work was finished (its execution time ran out or it hit a temporary service error); finish the remaining work and deliver the result.";
 
-const signedPost = (baseUrl: string, body: unknown, secret = "test-continue-secret") => {
+const signedPost = (
+  baseUrl: string,
+  body: unknown,
+  secret = "test-continue-secret"
+) => {
   const raw = JSON.stringify(body);
   const signature = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
   return fetch(`${baseUrl}/api/agent/continue`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-nova-signature": signature },
+    headers: {
+      "content-type": "application/json",
+      "x-nova-signature": signature,
+    },
     body: raw,
   });
 };
@@ -119,7 +169,8 @@ describe("Agent continuation endpoint", () => {
     server = app.listen(0);
     await new Promise(resolve => server.once("listening", resolve));
     const address = server.address();
-    if (address === null || typeof address === "string") throw new Error("no port");
+    if (address === null || typeof address === "string")
+      throw new Error("no port");
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
@@ -149,16 +200,25 @@ describe("Agent continuation endpoint", () => {
   });
 
   it("rejects a signature made with the wrong secret", async () => {
-    const response = await signedPost(baseUrl, { runId: 501, segment: 0 }, "wrong-secret");
+    const response = await signedPost(
+      baseUrl,
+      { runId: 501, segment: 0 },
+      "wrong-secret"
+    );
     expect(response.status).toBe(401);
   });
 
   it("rejects tampered payloads (signature over different bytes)", async () => {
     const raw = JSON.stringify({ runId: 501, segment: 0 });
-    const signature = `sha256=${createHmac("sha256", "test-continue-secret").update(JSON.stringify({ runId: 502, segment: 0 })).digest("hex")}`;
+    const signature = `sha256=${createHmac("sha256", "test-continue-secret")
+      .update(JSON.stringify({ runId: 502, segment: 0 }))
+      .digest("hex")}`;
     const response = await fetch(`${baseUrl}/api/agent/continue`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-nova-signature": signature },
+      headers: {
+        "content-type": "application/json",
+        "x-nova-signature": signature,
+      },
       body: raw,
     });
     expect(response.status).toBe(401);
@@ -186,12 +246,24 @@ describe("Agent continuation endpoint", () => {
       7,
       3,
       CONTINUATION_PROMPT,
-      expect.objectContaining({ channel: "telegram", continuationPlanned: true })
+      expect.objectContaining({
+        channel: "telegram",
+        continuationPlanned: true,
+      })
     );
-    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => call[2] === "It's a corgi!"));
+    await waitFor(() =>
+      spies.sendTelegramMessage.mock.calls.some(
+        call => call[2] === "It's a corgi!"
+      )
+    );
     expect(spies.autoTitleChatForUser).not.toHaveBeenCalled();
     expect(spies.startAgentRunForUser).not.toHaveBeenCalled();
-    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "completed", undefined);
+    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(
+      7,
+      501,
+      "completed",
+      undefined
+    );
   });
 
   it("runs a web-channel claim through the web runner without any Telegram delivery", async () => {
@@ -216,30 +288,50 @@ describe("Agent continuation endpoint", () => {
     // No bot API involved: the segment's reply lands in the chat itself.
     expect(spies.sendTelegramMessage).not.toHaveBeenCalled();
     expect(spies.startAgentRunForUser).not.toHaveBeenCalled();
-    await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[1] === 601));
-    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 601, "completed");
+    await waitFor(() =>
+      spies.finishAgentRunForUser.mock.calls.some(call => call[1] === 601)
+    );
+    expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(
+      7,
+      601,
+      "completed"
+    );
   });
 });
 
 describe("Segment chaining inside the runner", () => {
   let server: ReturnType<typeof app.listen>;
   let baseUrl: string;
-  let continuationFetches: Array<{ url: string; body: string; signature: string }>;
+  let continuationFetches: Array<{
+    url: string;
+    body: string;
+    signature: string;
+  }>;
 
   beforeAll(async () => {
     server = app.listen(0);
     await new Promise(resolve => server.once("listening", resolve));
     const address = server.address();
-    if (address === null || typeof address === "string") throw new Error("no port");
+    if (address === null || typeof address === "string")
+      throw new Error("no port");
     baseUrl = `http://127.0.0.1:${address.port}`;
     continuationFetches = [];
-    globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
-      if (String(url).includes("/api/agent/continue")) {
-        continuationFetches.push({ url: String(url), body: String(init?.body), signature: String(init?.headers?.["x-nova-signature"] ?? "") });
-        return new Response(JSON.stringify({ ok: true }), { status: 202 });
+    globalThis.fetch = vi.fn(
+      async (
+        url: unknown,
+        init?: { headers?: Record<string, string>; body?: string }
+      ) => {
+        if (String(url).includes("/api/agent/continue")) {
+          continuationFetches.push({
+            url: String(url),
+            body: String(init?.body),
+            signature: String(init?.headers?.["x-nova-signature"] ?? ""),
+          });
+          return new Response(JSON.stringify({ ok: true }), { status: 202 });
+        }
+        return realFetch(url as string, init as RequestInit | undefined);
       }
-      return realFetch(url as string, init as RequestInit | undefined);
-    }) as unknown as typeof fetch;
+    ) as unknown as typeof fetch;
   });
 
   afterAll(async () => {
@@ -253,7 +345,10 @@ describe("Segment chaining inside the runner", () => {
     spies.findWorkspaceOwnerByTelegramToken.mockResolvedValue(7);
     spies.claimTelegramUpdate.mockResolvedValue(true);
     spies.isUserBanned.mockResolvedValue(false);
-    spies.getTelegramCredentialsForUser.mockResolvedValue({ token: "bot-token", chatId: "42" });
+    spies.getTelegramCredentialsForUser.mockResolvedValue({
+      token: "bot-token",
+      chatId: "42",
+    });
     spies.listChatsForUser.mockResolvedValue([{ id: 3 }]);
     spies.holdAgentRunForContinue.mockResolvedValue({ id: 501, segment: 0 });
   });
@@ -266,7 +361,11 @@ describe("Segment chaining inside the runner", () => {
     });
 
   it("schedules a signed continuation when the segment runs out of budget", async () => {
-    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Ran out of time, resuming shortly." }, actions: [], outOfBudget: true });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Ran out of time, resuming shortly." },
+      actions: [],
+      outOfBudget: true,
+    });
     const response = await postUpdate({
       update_id: 700,
       message: { message_id: 30, chat: { id: 42 }, text: "build me a report" },
@@ -281,11 +380,20 @@ describe("Segment chaining inside the runner", () => {
     expect(call.signature).toBe(expected);
     // The row waits for its claim instead of closing completed.
     expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 501);
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 501, "completed", undefined);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      501,
+      "completed",
+      undefined
+    );
   });
 
   it("closes the run completed when the continuation self-call fails", async () => {
-    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Ran out of time." }, actions: [], outOfBudget: true });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Ran out of time." },
+      actions: [],
+      outOfBudget: true,
+    });
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) =>
       String(url).includes("/api/agent/continue")
         ? new Response("no dice", { status: 500 })
@@ -297,8 +405,14 @@ describe("Segment chaining inside the runner", () => {
         message: { message_id: 31, chat: { id: 42 }, text: "long job" },
       });
       expect(response.status).toBe(200);
-      await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[2] === "completed"));
-      const closeCall = spies.finishAgentRunForUser.mock.calls.find(call => call[2] === "completed");
+      await waitFor(() =>
+        spies.finishAgentRunForUser.mock.calls.some(
+          call => call[2] === "completed"
+        )
+      );
+      const closeCall = spies.finishAgentRunForUser.mock.calls.find(
+        call => call[2] === "completed"
+      );
       expect(closeCall?.[0]).toBe(7);
       expect(closeCall?.[1]).toBe(501);
       // The closing status assumed an automatic continuation was coming; when
@@ -307,26 +421,312 @@ describe("Segment chaining inside the runner", () => {
       // asserting on it keeps this test honest if the fallback never lands.
       expect(
         await waitFor(() =>
-          spies.sendTelegramMessage.mock.calls.some(call =>
-            typeof call[2] === "string" && call[2].includes('Send "continue"')
+          spies.sendTelegramMessage.mock.calls.some(
+            call =>
+              typeof call[2] === "string" && call[2].includes('Send "continue"')
           )
         )
       ).toBe(true);
     } finally {
-      globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
-        if (String(url).includes("/api/agent/continue")) {
-          continuationFetches.push({ url: String(url), body: String(init?.body), signature: String(init?.headers?.["x-nova-signature"] ?? "") });
-          return new Response(JSON.stringify({ ok: true }), { status: 202 });
+      globalThis.fetch = vi.fn(
+        async (
+          url: unknown,
+          init?: { headers?: Record<string, string>; body?: string }
+        ) => {
+          if (String(url).includes("/api/agent/continue")) {
+            continuationFetches.push({
+              url: String(url),
+              body: String(init?.body),
+              signature: String(init?.headers?.["x-nova-signature"] ?? ""),
+            });
+            return new Response(JSON.stringify({ ok: true }), { status: 202 });
+          }
+          return realFetch(url as string, init as RequestInit | undefined);
         }
-        return realFetch(url as string, init as RequestInit | undefined);
-      }) as unknown as typeof fetch;
+      ) as unknown as typeof fetch;
     }
+  });
+
+  it("keeps the chain alive when the closing reply fails to deliver to Telegram", async () => {
+    // A Telegram delivery hiccup once cancelled the automatic continuation
+    // entirely: the task died mid-way even though scheduling itself was
+    // fine. Chaining must not depend on delivery of the progress note.
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Progress note." },
+      actions: [],
+      outOfBudget: true,
+    });
+    spies.sendTelegramMessage.mockRejectedValueOnce(new Error("telegram 429"));
+    const response = await postUpdate({
+      update_id: 710,
+      message: { message_id: 40, chat: { id: 42 }, text: "long build" },
+    });
+    expect(response.status).toBe(200);
+    expect(await waitFor(() => continuationFetches.length > 0)).toBe(true);
+    expect(continuationFetches.length).toBe(1);
+    expect(JSON.parse(continuationFetches[0].body)).toEqual({
+      runId: 501,
+      segment: 0,
+    });
+    // The next segment owns the ledger row: this one neither finishes nor
+    // fails it.
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      501,
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("chains and says so with a canned note when the deadline status comes back empty", async () => {
+    // The gateway can stay silent when the closing status is written: an
+    // out-of-budget segment with no model-written note must still chain
+    // instead of closing failed with "could not finish that reply".
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "" },
+      actions: [],
+      outOfBudget: true,
+    });
+    const response = await postUpdate({
+      update_id: 711,
+      message: { message_id: 41, chat: { id: 42 }, text: "another long build" },
+    });
+    expect(response.status).toBe(200);
+    expect(await waitFor(() => continuationFetches.length > 0)).toBe(true);
+    expect(continuationFetches.length).toBe(1);
+    expect(
+      await waitFor(() =>
+        spies.sendTelegramMessage.mock.calls.some(
+          call => call[2] === STILL_WORKING_MESSAGE
+        )
+      )
+    ).toBe(true);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      501,
+      "failed",
+      expect.anything()
+    );
+  });
+
+  it("rescues a transient gateway failure after substantial work with a continuation", async () => {
+    // A single upstream 503 mid-task once killed the whole run: minutes of
+    // completed work were thrown away. A segment that already did real work
+    // chains a fresh segment that resumes where it broke off.
+    spies.runWorkspaceAgent.mockRejectedValueOnce(
+      new MistralGatewayClientError(
+        "the upstream provider returned 503",
+        "unavailable"
+      )
+    );
+    const result = await executeTelegramAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      token: "bot-token",
+      telegramChatId: "42",
+      agentText: "big task",
+      requestStartedAtMs: Date.now() - 180_000,
+    });
+    expect(result.runId).toBe(501);
+    expect(await waitFor(() => continuationFetches.length > 0)).toBe(true);
+    expect(JSON.parse(continuationFetches[0].body)).toEqual({
+      runId: 501,
+      segment: 0,
+    });
+    expect(
+      await waitFor(() =>
+        spies.sendTelegramMessage.mock.calls.some(
+          call => call[2] === TRANSIENT_ERROR_CONTINUING_MESSAGE
+        )
+      )
+    ).toBe(true);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      501,
+      "failed",
+      expect.anything()
+    );
+  });
+
+  it("fails fast without chaining when the same transient error strikes immediately", async () => {
+    // A failure in the first seconds means the service is hard down:
+    // chaining would only burn another invocation to fail identically.
+    spies.runWorkspaceAgent.mockRejectedValueOnce(
+      new MistralGatewayClientError(
+        "the upstream provider returned 503",
+        "unavailable"
+      )
+    );
+    const result = await executeTelegramAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      token: "bot-token",
+      telegramChatId: "42",
+      agentText: "big task",
+      requestStartedAtMs: Date.now() - 10_000,
+    });
+    expect(result.runId).toBe(501);
+    expect(
+      await waitFor(() =>
+        spies.finishAgentRunForUser.mock.calls.some(
+          call => call[2] === "failed"
+        )
+      )
+    ).toBe(true);
+    expect(continuationFetches.length).toBe(0);
+  });
+
+  it("does not rescue permanent failures even after substantial work", async () => {
+    // A wrong credential or spent allowance fails identically in a fresh
+    // segment, so the run must fail outright instead of chaining.
+    spies.runWorkspaceAgent.mockRejectedValueOnce(
+      new MistralGatewayClientError("gateway not configured", "configuration")
+    );
+    const result = await executeTelegramAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      token: "bot-token",
+      telegramChatId: "42",
+      agentText: "big task",
+      requestStartedAtMs: Date.now() - 180_000,
+    });
+    expect(
+      await waitFor(() =>
+        spies.finishAgentRunForUser.mock.calls.some(
+          call => call[2] === "failed"
+        )
+      )
+    ).toBe(true);
+    expect(continuationFetches.length).toBe(0);
+    expect(
+      await waitFor(() =>
+        spies.sendTelegramMessage.mock.calls.some(
+          call =>
+            typeof call[2] === "string" &&
+            call[2].includes("gateway not configured")
+        )
+      )
+    ).toBe(true);
+  });
+
+  it("retries scheduling and succeeds on the second attempt", async () => {
+    // One dropped self-call between two segments once ended the whole
+    // chain; the scheduler now retries before telling the user to resume
+    // manually.
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Progress note." },
+      actions: [],
+      outOfBudget: true,
+    });
+    let calls = 0;
+    globalThis.fetch = vi.fn(
+      async (url: unknown, init?: RequestInit | undefined) => {
+        if (String(url).includes("/api/agent/continue")) {
+          calls += 1;
+          continuationFetches.push({
+            url: String(url),
+            body: String(init?.body),
+            signature: String(
+              (init?.headers as Record<string, string>)?.["x-nova-signature"] ??
+                ""
+            ),
+          });
+          return calls === 1
+            ? new Response("no dice", { status: 500 })
+            : new Response(JSON.stringify({ ok: true }), { status: 202 });
+        }
+        return realFetch(url as string, init);
+      }
+    ) as unknown as typeof fetch;
+    try {
+      const response = await postUpdate({
+        update_id: 712,
+        message: { message_id: 42, chat: { id: 42 }, text: "retry the chain" },
+      });
+      expect(response.status).toBe(200);
+      expect(await waitFor(() => continuationFetches.length === 2)).toBe(true);
+      // The chain carried the work on: no manual-resume fallback, no close.
+      expect(
+        spies.sendTelegramMessage.mock.calls.some(
+          call => call[2] === CONTINUATION_SCHEDULE_FAILED_MESSAGE
+        )
+      ).toBe(false);
+      expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+        7,
+        501,
+        expect.anything(),
+        expect.anything()
+      );
+    } finally {
+      globalThis.fetch = vi.fn(
+        async (
+          url: unknown,
+          init?: { headers?: Record<string, string>; body?: string }
+        ) => {
+          if (String(url).includes("/api/agent/continue")) {
+            continuationFetches.push({
+              url: String(url),
+              body: String(init?.body),
+              signature: String(init?.headers?.["x-nova-signature"] ?? ""),
+            });
+            return new Response(JSON.stringify({ ok: true }), { status: 202 });
+          }
+          return realFetch(url as string, init as RequestInit | undefined);
+        }
+      ) as unknown as typeof fetch;
+    }
+  });
+
+  it("rescues an out-of-budget web segment's transient failure with a continuation and a persisted note", async () => {
+    spies.startAgentRunForUser.mockResolvedValue({ id: 604, segment: 0 });
+    spies.runWorkspaceAgent.mockRejectedValueOnce(
+      new MistralGatewayClientError(
+        "the upstream stream stalled",
+        "unavailable"
+      )
+    );
+    const result = await executeWebAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      content: "long web task",
+      requestStartedAtMs: Date.now() - 180_000,
+    });
+    expect(result.runId).toBe(604);
+    expect(await waitFor(() => continuationFetches.length > 0)).toBe(true);
+    expect(JSON.parse(continuationFetches[0].body)).toEqual({
+      runId: 604,
+      segment: 0,
+    });
+    expect(
+      await waitFor(() =>
+        spies.appendChatMessageForUser.mock.calls.some(
+          call =>
+            call[1]?.role === "assistant" &&
+            call[1]?.content === TRANSIENT_ERROR_CONTINUING_MESSAGE
+        )
+      )
+    ).toBe(true);
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      604,
+      "failed",
+      expect.anything()
+    );
   });
 
   it("chains an out-of-budget web segment into a signed continuation", async () => {
     spies.startAgentRunForUser.mockResolvedValue({ id: 602, segment: 0 });
-    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Still working." }, actions: [], outOfBudget: true });
-    const result = await executeWebAgentRun({ ownerId: 7, chatId: 3, content: "build me a site", requestStartedAtMs: Date.now() });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Still working." },
+      actions: [],
+      outOfBudget: true,
+    });
+    const result = await executeWebAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      content: "build me a site",
+      requestStartedAtMs: Date.now(),
+    });
     expect(result.runId).toBe(602);
     expect(continuationFetches.length).toBe(1);
     const call = continuationFetches[0];
@@ -343,37 +743,65 @@ describe("Segment chaining inside the runner", () => {
       expect.objectContaining({ channel: "web", continuationPlanned: true })
     );
     expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 602);
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 602, "completed");
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      602,
+      "completed"
+    );
   });
 
   it("closes a web run completed and tells the chat to resume manually when scheduling fails", async () => {
     spies.startAgentRunForUser.mockResolvedValue({ id: 603, segment: 0 });
-    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Ran out of time." }, actions: [], outOfBudget: true });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Ran out of time." },
+      actions: [],
+      outOfBudget: true,
+    });
     globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) =>
       String(url).includes("/api/agent/continue")
         ? new Response("no dice", { status: 500 })
         : realFetch(url as string, init)
     ) as unknown as typeof fetch;
     try {
-      await executeWebAgentRun({ ownerId: 7, chatId: 3, content: "long job", requestStartedAtMs: Date.now() });
-      await waitFor(() => spies.finishAgentRunForUser.mock.calls.some(call => call[1] === 603 && call[2] === "completed"));
+      await executeWebAgentRun({
+        ownerId: 7,
+        chatId: 3,
+        content: "long job",
+        requestStartedAtMs: Date.now(),
+      });
+      await waitFor(() =>
+        spies.finishAgentRunForUser.mock.calls.some(
+          call => call[1] === 603 && call[2] === "completed"
+        )
+      );
       // The deadline status in the chat promised an automatic continuation;
       // when scheduling fails the chat itself must get the fallback note.
       expect(
         await waitFor(() =>
           spies.appendChatMessageForUser.mock.calls.some(
-            call => call[1]?.role === "assistant" && call[1]?.content === CONTINUATION_SCHEDULE_FAILED_MESSAGE
+            call =>
+              call[1]?.role === "assistant" &&
+              call[1]?.content === CONTINUATION_SCHEDULE_FAILED_MESSAGE
           )
         )
       ).toBe(true);
     } finally {
-      globalThis.fetch = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
-        if (String(url).includes("/api/agent/continue")) {
-          continuationFetches.push({ url: String(url), body: String(init?.body), signature: String(init?.headers?.["x-nova-signature"] ?? "") });
-          return new Response(JSON.stringify({ ok: true }), { status: 202 });
+      globalThis.fetch = vi.fn(
+        async (
+          url: unknown,
+          init?: { headers?: Record<string, string>; body?: string }
+        ) => {
+          if (String(url).includes("/api/agent/continue")) {
+            continuationFetches.push({
+              url: String(url),
+              body: String(init?.body),
+              signature: String(init?.headers?.["x-nova-signature"] ?? ""),
+            });
+            return new Response(JSON.stringify({ ok: true }), { status: 202 });
+          }
+          return realFetch(url as string, init as RequestInit | undefined);
         }
-        return realFetch(url as string, init as RequestInit | undefined);
-      }) as unknown as typeof fetch;
+      ) as unknown as typeof fetch;
     }
   });
 
@@ -381,7 +809,11 @@ describe("Segment chaining inside the runner", () => {
     // Segment 59 once sat at the old 60-segment cap and stopped the chain;
     // runs are now autonomous and unbounded, so a deep segment must still
     // promise and schedule its next continuation exactly like segment 0.
-    spies.runWorkspaceAgent.mockResolvedValueOnce({ message: { content: "Still working." }, actions: [], outOfBudget: true });
+    spies.runWorkspaceAgent.mockResolvedValueOnce({
+      message: { content: "Still working." },
+      actions: [],
+      outOfBudget: true,
+    });
     const result = await executeWebAgentRun({
       ownerId: 7,
       chatId: 3,
@@ -398,9 +830,16 @@ describe("Segment chaining inside the runner", () => {
     );
     expect(spies.holdAgentRunForContinue).toHaveBeenCalledWith(7, 701);
     expect(continuationFetches.length).toBe(1);
-    expect(JSON.parse(continuationFetches[0].body)).toEqual({ runId: 701, segment: 59 });
+    expect(JSON.parse(continuationFetches[0].body)).toEqual({
+      runId: 701,
+      segment: 59,
+    });
     // The chain carried the work on: the run is held for its next
     // segment, not closed as completed.
-    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(7, 701, "completed");
+    expect(spies.finishAgentRunForUser).not.toHaveBeenCalledWith(
+      7,
+      701,
+      "completed"
+    );
   });
 });

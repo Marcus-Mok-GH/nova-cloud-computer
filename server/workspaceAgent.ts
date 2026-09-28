@@ -18,6 +18,7 @@ import {
 } from "./sandboxWorkspace";
 import { runBrowserCommand, warmBrowserInBackground } from "./agentBrowser";
 import { evaluate } from "mathjs";
+import { decodeBase44Text, encodeBase44Text } from "./base44";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import { startAgentVmRun } from "./agentVm";
 import {
@@ -960,6 +961,29 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
         },
         required: ["equation"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "base44",
+      description:
+        "Encode UTF-8 text to Base44 or decode a Base44 string back to UTF-8 text. Uses the QR-compatible alphabet 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$%*+-./: with two bytes encoded as three characters and one byte as two characters. Use this whenever the user asks for Base44 conversion.",
+      parameters: {
+        type: "object",
+        properties: {
+          operation: {
+            type: "string",
+            enum: ["encode", "decode"],
+            description: "Whether to encode text as Base44 or decode Base44 back to UTF-8 text.",
+          },
+          value: {
+            type: "string",
+            description: "UTF-8 text to encode, or a Base44 string to decode.",
+          },
+        },
+        required: ["operation", "value"],
       },
     },
   },
@@ -2636,6 +2660,42 @@ async function executeWorkspaceTool(
             name: equation.slice(0, 60),
             operation: "failed",
           },
+        };
+      }
+    }
+    case "base44": {
+      const operation = str(args.operation);
+      if (operation !== "encode" && operation !== "decode")
+        return {
+          ok: false,
+          result: "Base44 operation must be either encode or decode.",
+          action: { kind: "tool", name: "base44", operation: "failed" },
+        };
+      if (typeof args.value !== "string")
+        return {
+          ok: false,
+          result: "A value is required for Base44 encoding or decoding.",
+          action: { kind: "tool", name: `base44 ${operation}`, operation: "failed" },
+        };
+      try {
+        const value = args.value;
+        const result =
+          operation === "encode"
+            ? encodeBase44Text(value)
+            : decodeBase44Text(value);
+        return {
+          ok: true,
+          result,
+          detail: result,
+          action: { kind: "tool", name: `base44 ${operation}`, operation: "completed" },
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "invalid Base44 value";
+        return {
+          ok: false,
+          result: `Base44 ${operation} failed: ${message}.`,
+          action: { kind: "tool", name: `base44 ${operation}`, operation: "failed" },
         };
       }
     }

@@ -1,6 +1,10 @@
 import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
-import { runAutonomousCoderTask, runCoderTask, type CoderOutcome } from "./coder";
+import {
+  runAutonomousCoderTask,
+  runCoderTask,
+  type CoderOutcome,
+} from "./coder";
 import { NimConfigError } from "./nim";
 import type { E2BSandboxLike } from "./e2b";
 import {
@@ -68,7 +72,17 @@ import {
 } from "./composio";
 
 export type AgentAction = {
-  kind: "folder" | "file" | "telegram" | "vm" | "browser" | "connector" | "research" | "deployment" | "project" | "tool";
+  kind:
+    | "folder"
+    | "file"
+    | "telegram"
+    | "vm"
+    | "browser"
+    | "connector"
+    | "research"
+    | "deployment"
+    | "project"
+    | "tool";
   name: string;
   operation?:
     | "created"
@@ -176,7 +190,10 @@ async function raceToolDeadline<T>(
     return await Promise.race([
       work(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new RunDeadlineExceeded()), remainingMs);
+        timer = setTimeout(
+          () => reject(new RunDeadlineExceeded()),
+          remainingMs
+        );
       }),
     ]);
   } finally {
@@ -187,12 +204,13 @@ async function raceToolDeadline<T>(
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 /**
  * Internal bookkeeping rows recording the specialist-down acceptance state
- * ("pending" after a run whose code_task failed, "accepted" once the user
- * OK'd Nova's own coding in a later turn, "cleared" when code_task next
+ * ("pending" after a run whose editor call failed, "accepted" once the user
+ * OK'd Nova's own coding in a later turn, "cleared" when the editor next
  * succeeds). They are persisted as chat messages, filtered out of the
  * model's history and the client UI, and never shown to anyone.
  */
-export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX = "__nova_specialist_acceptance__:";
+export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
+  "__nova_specialist_acceptance__:";
 
 type SpecialistAcceptanceState = "pending" | "accepted" | "none";
 
@@ -289,22 +307,54 @@ export const END_TURN_NUDGE_PREFIX = "[end-turn control]";
  * wrote substantial code itself without delegating to the coding
  * specialist. Regular users never ask for a sub-agent by name, so the loop
  * itself keeps the specialist in play: one nudge per run, only when the
- * agent's own code write shows it skipped code_task.
+ * agent's own code write shows it skipped the editor.
  */
 export const CODER_NUDGE_PREFIX = "[coder control]";
 
 /** File extensions whose content is real code the specialist should own. */
 const CODE_FILE_EXTENSIONS = new Set([
-  "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rb", "php", "java", "kt",
-  "swift", "go", "rs", "c", "h", "cpp", "hpp", "cs", "scala", "sh", "bash",
-  "sql", "vue", "svelte", "html", "htm", "css", "scss", "less",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "py",
+  "rb",
+  "php",
+  "java",
+  "kt",
+  "swift",
+  "go",
+  "rs",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cs",
+  "scala",
+  "sh",
+  "bash",
+  "sql",
+  "vue",
+  "svelte",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "less",
 ]);
 
 /** True when the file name marks it as code (not notes, docs or data). */
 export function isCodeFileName(name: string): boolean {
   const dot = name.lastIndexOf(".");
   if (dot === -1) return false;
-  return CODE_FILE_EXTENSIONS.has(name.slice(dot + 1).trim().toLowerCase());
+  return CODE_FILE_EXTENSIONS.has(
+    name
+      .slice(dot + 1)
+      .trim()
+      .toLowerCase()
+  );
 }
 
 /** A write this large is beyond the tiny tweak the agent may do itself. */
@@ -336,7 +386,7 @@ export function failureNudgeFor(failedSteps: string[]): string {
 
 /** The coder-delegation nudge for a round that bypassed the specialist. */
 export function coderNudgeFor(wroteName: string): string {
-  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the coding specialist. Nova's code_task (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the coding work to code_task with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If code_task reports the specialist is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
+  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the editor sub-agent. Nova's editor (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the file work to the editor tool with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If the editor reports the sub-agent is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
 }
 
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
@@ -404,7 +454,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           file: {
             type: "string",
-            description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to read.",
+            description:
+              'File name, id, or workspace path (e.g. "folder-name/index.html") to read.',
           },
         },
         required: ["file"],
@@ -422,7 +473,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           file: {
             type: "string",
-            description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to edit.",
+            description:
+              'File name, id, or workspace path (e.g. "folder-name/index.html") to edit.',
           },
           content: {
             type: "string",
@@ -441,7 +493,11 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to rename." },
+          file: {
+            type: "string",
+            description:
+              'File name, id, or workspace path (e.g. "folder-name/index.html") to rename.',
+          },
           new_name: {
             type: "string",
             description: "The new file name, including its extension.",
@@ -459,7 +515,11 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to move." },
+          file: {
+            type: "string",
+            description:
+              'File name, id, or workspace path (e.g. "folder-name/index.html") to move.',
+          },
           folder: {
             type: "string",
             description: "Target folder name or id.",
@@ -477,7 +537,11 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "File name, id, or workspace path (e.g. \"folder-name/index.html\") to delete." },
+          file: {
+            type: "string",
+            description:
+              'File name, id, or workspace path (e.g. "folder-name/index.html") to delete.',
+          },
         },
         required: ["file"],
       },
@@ -580,8 +644,14 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          file: { type: "string", description: "Name or id of the workspace file to present." },
-          caption: { type: "string", description: "Optional one-line note to show alongside the file." },
+          file: {
+            type: "string",
+            description: "Name or id of the workspace file to present.",
+          },
+          caption: {
+            type: "string",
+            description: "Optional one-line note to show alongside the file.",
+          },
         },
         required: ["file"],
       },
@@ -598,7 +668,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           style: {
             type: "string",
-            description: "Concise description of how the user wants you to communicate, e.g. 'Short, direct replies. No filler.' - or an empty string to clear the saved style.",
+            description:
+              "Concise description of how the user wants you to communicate, e.g. 'Short, direct replies. No filler.' - or an empty string to clear the saved style.",
           },
         },
         required: ["style"],
@@ -614,7 +685,11 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          text: { type: "string", description: "The progress note, e.g. \"I'll get this done within about 1-2 minutes.\"" },
+          text: {
+            type: "string",
+            description:
+              'The progress note, e.g. "I\'ll get this done within about 1-2 minutes."',
+          },
         },
         required: ["text"],
       },
@@ -690,12 +765,14 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           name: {
             type: "string",
-            description: "Project name - becomes the folder name (e.g. 'My Portfolio' -> 'my-portfolio').",
+            description:
+              "Project name - becomes the folder name (e.g. 'My Portfolio' -> 'my-portfolio').",
           },
           template: {
             type: "string",
             enum: ["static", "react", "next"],
-            description: "The project type to scaffold. If the user did not specify a stack, choose the best fit for their request: 'react' for web apps and interactive sites (the default), 'static' only for a genuinely simple single page or when the user explicitly wants plain HTML, 'next' when they explicitly want Next.js. Omitting it scaffolds 'react'.",
+            description:
+              "The project type to scaffold. If the user did not specify a stack, choose the best fit for their request: 'react' for web apps and interactive sites (the default), 'static' only for a genuinely simple single page or when the user explicitly wants plain HTML, 'next' when they explicitly want Next.js. Omitting it scaffolds 'react'.",
           },
         },
         required: ["name"],
@@ -719,26 +796,94 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
           repo: {
             type: "string",
-            description: "Repository in owner/name format, for example 'Marcus-Mok-GH/nova-cloud-computer'. Omit only for search_repositories.",
+            description:
+              "Repository in owner/name format, for example 'Marcus-Mok-GH/nova-cloud-computer'. Omit only for search_repositories.",
           },
-          query: { type: "string", description: "Repository search text. By default, results are limited to repositories accessible to the connected account." },
-          owner: { type: "string", description: "Optional owner filter for search_repositories." },
-          scope: { type: "string", enum: ["mine", "public"], description: "Search scope. Defaults to mine; use public only when the user explicitly requests repositories outside the connected account." },
-          path: { type: "string", description: "File path relative to the repository root for read_file or write_file." },
-          ref: { type: "string", description: "Optional branch, tag, or commit to read from with read_file." },
-          number: { type: "integer", description: "Issue or pull request number for get_issue, get_pull_request, list_issue_comments, or comment_on_issue." },
-          state: { type: "string", enum: ["open", "closed", "all"], description: "Pull request state for list_pull_requests. Defaults to open." },
-          per_page: { type: "integer", description: "Optional page size, maximum 100." },
-          title: { type: "string", description: "Issue or pull request title for create_issue or create_pull_request." },
-          body: { type: "string", description: "Markdown body for create_issue, comment_on_issue, or create_pull_request." },
-          labels: { type: "array", items: { type: "string" }, description: "Optional labels for create_issue." },
-          head: { type: "string", description: "Existing source branch for create_pull_request." },
-          base: { type: "string", description: "Existing target branch for create_pull_request." },
-          draft: { type: "boolean", description: "Whether create_pull_request should create a draft PR." },
-          content: { type: "string", description: "Plain-text file contents for write_file." },
-          message: { type: "string", description: "Commit message for write_file." },
-          branch: { type: "string", description: "Optional branch for write_file; defaults to the repository's default branch." },
-          sha: { type: "string", description: "Optional current file SHA for write_file updates." },
+          query: {
+            type: "string",
+            description:
+              "Repository search text. By default, results are limited to repositories accessible to the connected account.",
+          },
+          owner: {
+            type: "string",
+            description: "Optional owner filter for search_repositories.",
+          },
+          scope: {
+            type: "string",
+            enum: ["mine", "public"],
+            description:
+              "Search scope. Defaults to mine; use public only when the user explicitly requests repositories outside the connected account.",
+          },
+          path: {
+            type: "string",
+            description:
+              "File path relative to the repository root for read_file or write_file.",
+          },
+          ref: {
+            type: "string",
+            description:
+              "Optional branch, tag, or commit to read from with read_file.",
+          },
+          number: {
+            type: "integer",
+            description:
+              "Issue or pull request number for get_issue, get_pull_request, list_issue_comments, or comment_on_issue.",
+          },
+          state: {
+            type: "string",
+            enum: ["open", "closed", "all"],
+            description:
+              "Pull request state for list_pull_requests. Defaults to open.",
+          },
+          per_page: {
+            type: "integer",
+            description: "Optional page size, maximum 100.",
+          },
+          title: {
+            type: "string",
+            description:
+              "Issue or pull request title for create_issue or create_pull_request.",
+          },
+          body: {
+            type: "string",
+            description:
+              "Markdown body for create_issue, comment_on_issue, or create_pull_request.",
+          },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional labels for create_issue.",
+          },
+          head: {
+            type: "string",
+            description: "Existing source branch for create_pull_request.",
+          },
+          base: {
+            type: "string",
+            description: "Existing target branch for create_pull_request.",
+          },
+          draft: {
+            type: "boolean",
+            description:
+              "Whether create_pull_request should create a draft PR.",
+          },
+          content: {
+            type: "string",
+            description: "Plain-text file contents for write_file.",
+          },
+          message: {
+            type: "string",
+            description: "Commit message for write_file.",
+          },
+          branch: {
+            type: "string",
+            description:
+              "Optional branch for write_file; defaults to the repository's default branch.",
+          },
+          sha: {
+            type: "string",
+            description: "Optional current file SHA for write_file updates.",
+          },
         },
         required: ["operation"],
       },
@@ -753,9 +898,19 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          connector: { type: "string", enum: ["gmail"], description: "Must be gmail." },
-          search: { type: "string", description: "Optional words to filter Gmail actions." },
-          limit: { type: "number", description: "Max actions to return, 1-50 (default 25)." },
+          connector: {
+            type: "string",
+            enum: ["gmail"],
+            description: "Must be gmail.",
+          },
+          search: {
+            type: "string",
+            description: "Optional words to filter Gmail actions.",
+          },
+          limit: {
+            type: "number",
+            description: "Max actions to return, 1-50 (default 25).",
+          },
         },
         required: ["connector"],
       },
@@ -770,9 +925,20 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          connector: { type: "string", enum: ["gmail"], description: "Must be gmail." },
-          action: { type: "string", description: "The exact Gmail action slug." },
-          params: { type: "object", description: "The action's parameters as a JSON object, exactly as listed by list_connector_tools." },
+          connector: {
+            type: "string",
+            enum: ["gmail"],
+            description: "Must be gmail.",
+          },
+          action: {
+            type: "string",
+            description: "The exact Gmail action slug.",
+          },
+          params: {
+            type: "object",
+            description:
+              "The action's parameters as a JSON object, exactly as listed by list_connector_tools.",
+          },
         },
         required: ["connector", "action", "params"],
       },
@@ -789,7 +955,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           equation: {
             type: "string",
-            description: "A single mathematical expression to evaluate, e.g. '20 - 11.33' or 'sqrt(196) * 3.5'.",
+            description:
+              "A single mathematical expression to evaluate, e.g. '20 - 11.33' or 'sqrt(196) * 3.5'.",
           },
         },
         required: ["equation"],
@@ -812,11 +979,13 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           difficulty: {
             type: "string",
             enum: ["deep-lite", "deep", "deep-reasoning"],
-            description: "The research depth you estimate this question needs - decide deliberately every call. deep-lite (~10 seconds): a single factual lookup with one clear answer - current versions, prices, release dates, simple facts, definitions. deep: questions needing multiple searches or several sources synthesized - comparisons, how things work, market overviews, current events with context, anything with 2-3 facets. deep-reasoning: the deepest level - complex investigations with many facets, conflicting or hard-to-find evidence, technical analysis, forecasts, or multi-hop questions where the answer depends on other answers. Calibrate: most questions land on deep; only unambiguous single-fact lookups justify deep-lite; escalate to deep-reasoning when evidence conflicts or the question has 4+ facets.",
+            description:
+              "The research depth you estimate this question needs - decide deliberately every call. deep-lite (~10 seconds): a single factual lookup with one clear answer - current versions, prices, release dates, simple facts, definitions. deep: questions needing multiple searches or several sources synthesized - comparisons, how things work, market overviews, current events with context, anything with 2-3 facets. deep-reasoning: the deepest level - complex investigations with many facets, conflicting or hard-to-find evidence, technical analysis, forecasts, or multi-hop questions where the answer depends on other answers. Calibrate: most questions land on deep; only unambiguous single-fact lookups justify deep-lite; escalate to deep-reasoning when evidence conflicts or the question has 4+ facets.",
           },
           instructions: {
             type: "string",
-            description: "Optional focus, constraints or specific questions the research should answer.",
+            description:
+              "Optional focus, constraints or specific questions the research should answer.",
           },
         },
         required: ["topic", "difficulty"],
@@ -828,30 +997,33 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "accept_own_coding",
       description:
-        "Records that the user explicitly accepted Nova writing the code itself while the coding specialist is down. Call this ONLY when code_task failed in an EARLIER conversation turn AND the user's latest message clearly said yes to Nova's own attempt. It refuses inside the same run as the failure (the user must answer first), and while it has not succeeded, create_file and edit_file are blocked for non-trivial code.",
+        "Records that the user explicitly accepted Nova writing the code itself while the coding specialist is down. Call this ONLY when the editor sub-agent failed in an EARLIER conversation turn AND the user's latest message clearly said yes to Nova's own attempt. It refuses inside the same run as the failure (the user must answer first), and while it has not succeeded, create_file and edit_file are blocked for non-trivial code.",
       parameters: { type: "object", properties: {} },
     },
   },
   {
     type: "function",
     function: {
-      name: "code_task",
+      name: "editor",
       description:
-        "Delegate a coding task to Nova's coding specialist sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL real code that needs to be written, refactored, explained, debugged or optimized: whole files, functions, components, scripts, algorithms, tricky bug fixes, sites and apps. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context. The specialist works autonomously: it reads, writes and verifies the workspace files itself, and the files it writes are synced into the workspace before the result returns - so read the changed files it reports back, verify the work, and fix anything it left broken. Only when the result is bare code (no sandbox available) do you place it into the workspace with your file tools yourself. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
+        "Delegate file editing and creation to Nova's editor sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL substantial file work: creating a whole app or site, writing whole files, functions, components, scripts, algorithms, refactoring, tricky bug fixes, or making big changes in bulk across many files. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context. The specialist works autonomously: it reads, writes and verifies the workspace files itself, and the files it writes are synced into the workspace before the result returns - so read the changed files it reports back, verify the work, and fix anything it left broken. Only when the result is bare code (no sandbox available) do you place it into the workspace with your file tools yourself. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
       parameters: {
         type: "object",
         properties: {
           task: {
             type: "string",
-            description: "The coding task, described completely: what to build or fix, in which language or framework, and any constraints.",
+            description:
+              "The file editing or creation task, described completely: what to build, edit or fix, in which language or framework, and any constraints.",
           },
           context: {
             type: "string",
-            description: "Optional supporting material: existing code to extend or fix, the exact error output, file or API layouts the code must fit.",
+            description:
+              "Optional supporting material: existing code to extend or fix, the exact error output, file or API layouts the code must fit.",
           },
           language: {
             type: "string",
-            description: "Optional explicit target language or framework, e.g. 'Python', 'React SPA', 'plain HTML/CSS/JS'.",
+            description:
+              "Optional explicit target language or framework, e.g. 'Python', 'React SPA', 'plain HTML/CSS/JS'.",
           },
         },
         required: ["task"],
@@ -869,7 +1041,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           command: {
             type: "string",
-            description: "The bash command to run, e.g. 'wc -l notes.txt' or 'grep -c TODO *.md'.",
+            description:
+              "The bash command to run, e.g. 'wc -l notes.txt' or 'grep -c TODO *.md'.",
           },
         },
         required: ["command"],
@@ -887,7 +1060,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           command: {
             type: "string",
-            description: "The agent-browser command to run, without the binary, e.g. 'open https://example.com' or 'snapshot'.",
+            description:
+              "The agent-browser command to run, without the binary, e.g. 'open https://example.com' or 'snapshot'.",
           },
         },
         required: ["command"],
@@ -928,7 +1102,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         properties: {
           query: {
             type: "string",
-            description: "Optional keyword or phrase to search titles, summaries, tags, and transcripts.",
+            description:
+              "Optional keyword or phrase to search titles, summaries, tags, and transcripts.",
           },
           limit: {
             type: "number",
@@ -964,9 +1139,19 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
         type: "object",
         properties: {
           title: { type: "string", description: "Short title for the memory." },
-          summary: { type: "string", description: "One or two sentences capturing what this memory holds." },
-          content: { type: "string", description: "The full text to remember." },
-          tags: { type: "string", description: "Optional comma-separated keywords for later search." },
+          summary: {
+            type: "string",
+            description:
+              "One or two sentences capturing what this memory holds.",
+          },
+          content: {
+            type: "string",
+            description: "The full text to remember.",
+          },
+          tags: {
+            type: "string",
+            description: "Optional comma-separated keywords for later search.",
+          },
         },
         required: ["title", "summary", "content"],
       },
@@ -1019,7 +1204,8 @@ function resolveFolder(
   return computer.folders.find(
     folder =>
       folder.name.toLowerCase() === base &&
-      (folderPathOf(folderRows, folder.parentId ?? null)?.toLowerCase() ?? "") === dir
+      (folderPathOf(folderRows, folder.parentId ?? null)?.toLowerCase() ??
+        "") === dir
   );
 }
 
@@ -1027,7 +1213,11 @@ function resolveFolder(
  * name, an id, or a path like "folder-name/index.html" (optionally prefixed
  * with "./" or "/"). Returns lowercase, no leading/trailing slashes. */
 function normalizeWorkspaceRef(raw: string): string {
-  return raw.trim().replace(/^(?:\.?\/)+/, "").replace(/\/+$/, "").toLowerCase();
+  return raw
+    .trim()
+    .replace(/^(?:\.?\/)+/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 
 type FolderRowLike = { id: number; name: string; parentId: number | null };
@@ -1042,8 +1232,11 @@ function fileWorkspacePath(
   file: { name: string; folderId: number | null }
 ): string {
   return (
-    workspaceRelativePathOf(folderRows, file.name, file.folderId)?.toLowerCase() ??
-    file.name.toLowerCase()
+    workspaceRelativePathOf(
+      folderRows,
+      file.name,
+      file.folderId
+    )?.toLowerCase() ?? file.name.toLowerCase()
   );
 }
 
@@ -1152,7 +1345,11 @@ function describeWorkspace(computer: Computer) {
   return { folders, files };
 }
 
-import { deleteWorkspaceSite, deployWorkspaceSite, describeDeploymentsForUser } from "./siteDeploy";
+import {
+  deleteWorkspaceSite,
+  deployWorkspaceSite,
+  describeDeploymentsForUser,
+} from "./siteDeploy";
 import {
   isProjectTemplateKey,
   PROJECT_TEMPLATE_KEYS,
@@ -1160,17 +1357,27 @@ import {
   slugifyProjectName,
 } from "./projectTemplates";
 
-const CONNECTOR_TOOL_NAMES = new Set(["github", "list_connector_tools", "use_connector_tool"]);
+const CONNECTOR_TOOL_NAMES = new Set([
+  "github",
+  "list_connector_tools",
+  "use_connector_tool",
+]);
 
 /** Resolves which connector toolkits the user has actually connected. Failures degrade to "not connected". */
 export async function getConnectedConnectorToolkits(
   ownerId: number,
-  statusCheck: (ownerId: number, toolkit: ComposioToolkit) => Promise<{ connected: boolean }> = getComposioConnectionStatus
+  statusCheck: (
+    ownerId: number,
+    toolkit: ComposioToolkit
+  ) => Promise<{ connected: boolean }> = getComposioConnectionStatus
 ): Promise<ComposioToolkit[]> {
   const results = await Promise.all(
     COMPOSIO_TOOLKITS.map(async toolkit => {
       try {
-        return { toolkit, connected: (await statusCheck(ownerId, toolkit)).connected };
+        return {
+          toolkit,
+          connected: (await statusCheck(ownerId, toolkit)).connected,
+        };
       } catch {
         // One broken optional connector must not hide another connector that
         // is healthy and should still be available to the model.
@@ -1185,16 +1392,24 @@ export async function getConnectedConnectorToolkits(
 export function workspaceToolsForConnectors(
   connected: ComposioToolkit[]
 ): GatewayToolDefinition[] {
-  const nonConnector = WORKSPACE_TOOLS.filter(tool => !CONNECTOR_TOOL_NAMES.has(tool.function.name));
+  const nonConnector = WORKSPACE_TOOLS.filter(
+    tool => !CONNECTOR_TOOL_NAMES.has(tool.function.name)
+  );
   if (!connected.length) return nonConnector;
   const connectorTools: GatewayToolDefinition[] = [];
   if (connected.includes("github")) {
-    const githubTool = WORKSPACE_TOOLS.find(tool => tool.function.name === "github");
+    const githubTool = WORKSPACE_TOOLS.find(
+      tool => tool.function.name === "github"
+    );
     if (githubTool) connectorTools.push(githubTool);
   }
   if (connected.includes("gmail")) {
     connectorTools.push(
-      ...WORKSPACE_TOOLS.filter(tool => ["list_connector_tools", "use_connector_tool"].includes(tool.function.name))
+      ...WORKSPACE_TOOLS.filter(tool =>
+        ["list_connector_tools", "use_connector_tool"].includes(
+          tool.function.name
+        )
+      )
     );
   }
   return [...nonConnector, ...connectorTools];
@@ -1204,15 +1419,16 @@ export function workspaceToolsForConnectors(
 export function connectorStatusLine(connected: ComposioToolkit[]): string {
   if (!connected.length)
     return "no connectors are connected right now, so connector tools are unavailable";
-  const parts = COMPOSIO_TOOLKITS.map(toolkit =>
-    `${toolkit === "github" ? "GitHub" : "Gmail"} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
+  const parts = COMPOSIO_TOOLKITS.map(
+    toolkit =>
+      `${toolkit === "github" ? "GitHub" : "Gmail"} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
   );
   return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
 }
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
 
-You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors), the computation (solve_equation, run_vm_task, run_bash, code_task), and the memory (workspace files). You are the traffic cop; they are the engine.
+You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors), the computation (solve_equation, run_vm_task, run_bash, editor), and the memory (workspace files). You are the traffic cop; they are the engine.
 
 Operating principles:
 - Classify first. Triage every request before touching a tool: simple (a greeting, a quick clarification, summarizing a short passage, recalling the conversation) you answer directly - no tools, no round-trips, no latency. Complex (code, research, math, data work, files, outside services, multi-step tasks) you route to tools and specialists. Never turn a simple question into a tool parade, and never swallow a complex one with a one-line guess - the classification itself is your highest-value skill.
@@ -1226,7 +1442,7 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
 - Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
-- Coding goes through code_task - your coding specialist. Whenever the user wants code written, refactored, explained, debugged or optimized - whole files, functions, components, scripts, algorithms, sites, apps, tricky bugs - delegate it to code_task: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the specialist (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to code_task. Write code yourself only when code_task reports the specialist is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
+- Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work only after checking the relevant files, records, skills, or other reliable sources. Do not call an unverified choice a sensible default. Switch to collaborative - pause and ask one focused question - when a reliable source cannot resolve an important ambiguity, guessing has a real cost (irreversible or destructive actions beyond the literal request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation), or the user must decide. Never improvise facts, targets, recipients, IDs, or permissions.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -1265,7 +1481,7 @@ type ToolExecution = {
   /**
    * Set when the coding specialist is confirmed unavailable (a non-config
    * error survived the internal retry, or NIM is not configured). The run
-   * loop uses it to stop re-nudging toward code_task: with the specialist
+   * loop uses it to stop re-nudging toward the editor: with the specialist
    * down, self-coding is legitimate degraded mode - as long as the model
    * disclosed it to the user as the failure policy requires.
    */
@@ -1278,10 +1494,15 @@ type ToolExecution = {
  * Recover the intent: extract the embedded JSON object and run it as a real
  * tool call so the action still executes and the raw JSON never reaches the user.
  */
-function toolCallWrittenAsText(text: string, tools: Array<{ function: { name: string } }>): { name: string; arguments: string } | undefined {
+function toolCallWrittenAsText(
+  text: string,
+  tools: Array<{ function: { name: string } }>
+): { name: string; arguments: string } | undefined {
   if (!text || !text.includes('"name"')) return undefined;
   const known = new Set(tools.map(tool => tool.function.name));
-  for (const match of Array.from(text.matchAll(/"name"\s*:\s*"([A-Za-z0-9_]+)"/g))) {
+  for (const match of Array.from(
+    text.matchAll(/"name"\s*:\s*"([A-Za-z0-9_]+)"/g)
+  )) {
     const name = match[1];
     if (!known.has(name) || match.index === undefined) continue;
     const objectStart = text.lastIndexOf("{", match.index);
@@ -1292,20 +1513,39 @@ function toolCallWrittenAsText(text: string, tools: Array<{ function: { name: st
     let escaped = false;
     for (let i = objectStart; i < text.length; i += 1) {
       const ch = text[i];
-      if (escaped) { escaped = false; continue; }
-      if (ch === "\\") { escaped = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
       if (inString) continue;
       if (ch === "{") depth += 1;
       else if (ch === "}") {
         depth -= 1;
         if (depth !== 0) continue;
         let parsed: Record<string, unknown>;
-        try { parsed = JSON.parse(text.slice(objectStart, i + 1)) as Record<string, unknown>; } catch { break; }
+        try {
+          parsed = JSON.parse(text.slice(objectStart, i + 1)) as Record<
+            string,
+            unknown
+          >;
+        } catch {
+          break;
+        }
         let parameters: Record<string, unknown>;
         if (typeof parsed.parameters === "object" && parsed.parameters !== null)
           parameters = parsed.parameters as Record<string, unknown>;
-        else if (typeof parsed.arguments === "object" && parsed.arguments !== null)
+        else if (
+          typeof parsed.arguments === "object" &&
+          parsed.arguments !== null
+        )
           parameters = parsed.arguments as Record<string, unknown>;
         else {
           const { name: _toolName, ...others } = parsed;
@@ -1346,7 +1586,7 @@ function errorChainText(error: unknown): string {
 /**
  * The specialist-down self-coding gate, threaded through a run. `blocked`
  * forbids non-trivial create_file/edit_file writes; the accept tool lifts it
- * only in a LATER conversation turn, never in the run where code_task failed.
+ * only in a LATER conversation turn, never in the run where the editor failed.
  */
 type OwnCodingGate = {
   chatId: number;
@@ -1354,7 +1594,7 @@ type OwnCodingGate = {
   blocked: boolean;
   /** True when this run started with a pending acceptance question. */
   awaitingAcceptance: boolean;
-  /** True when code_task failed inside this same run. */
+  /** True when the editor sub-agent failed inside this same run. */
   specialistDownThisRun: boolean;
 };
 
@@ -1389,7 +1629,11 @@ async function executeWorkspaceTool(
   // the live execution surface, and the durable Neon/S3 store syncs from it.
   // Every mutating file/folder operation is mirrored onto the sandbox
   // filesystem; a mirror failure is logged but never blocks the durable op.
-  const folderRows = computer.folders as Array<{ id: number; name: string; parentId: number | null }>;
+  const folderRows = computer.folders as Array<{
+    id: number;
+    name: string;
+    parentId: number | null;
+  }>;
   const mirror = async (op: SandboxOp) => {
     if (!sandbox) return;
     try {
@@ -1404,8 +1648,7 @@ async function executeWorkspaceTool(
     case "search_memories": {
       const query = str(args.query).trim();
       const limitArg = Number(args.limit);
-      const limit =
-        Number.isFinite(limitArg) && limitArg >= 1 ? limitArg : 8;
+      const limit = Number.isFinite(limitArg) && limitArg >= 1 ? limitArg : 8;
       const records = await searchMemoriesForUser(ownerId, query, limit);
       return {
         ok: true,
@@ -1434,12 +1677,20 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: `No memory with id ${str(args.id)} - search_memories lists the valid ids.`,
-          action: { kind: "tool", name: `memory ${str(args.id)}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `memory ${str(args.id)}`,
+            operation: "failed",
+          },
         };
       return {
         ok: true,
         result: `Memory ${record.id} - ${record.title}\n\n${record.content}`,
-        action: { kind: "tool", name: `memory ${record.id}`, operation: "listed" },
+        action: {
+          kind: "tool",
+          name: `memory ${record.id}`,
+          operation: "listed",
+        },
       };
     }
     case "save_memory": {
@@ -1462,12 +1713,20 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: "The memory store is unavailable right now.",
-          action: { kind: "tool", name: title.slice(0, 60), operation: "failed" },
+          action: {
+            kind: "tool",
+            name: title.slice(0, 60),
+            operation: "failed",
+          },
         };
       return {
         ok: true,
         result: `Saved memory ${record.id}: ${record.title}.`,
-        action: { kind: "tool", name: title.slice(0, 60), operation: "created" },
+        action: {
+          kind: "tool",
+          name: title.slice(0, 60),
+          operation: "created",
+        },
       };
     }
     case "delete_memory": {
@@ -1480,7 +1739,11 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: `No memory with id ${str(args.id)} - search_memories lists the valid ids.`,
-          action: { kind: "tool", name: `memory ${str(args.id)}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `memory ${str(args.id)}`,
+            operation: "failed",
+          },
         };
       return {
         ok: true,
@@ -1502,9 +1765,14 @@ async function executeWorkspaceTool(
       // folderId rows never collide in Postgres), so the guard lives here:
       // one file per name at the same level, case-insensitive like folders.
       const targetFolder =
-        args.folder !== undefined ? resolveFolder(computer, args.folder) : undefined;
+        args.folder !== undefined
+          ? resolveFolder(computer, args.folder)
+          : undefined;
       if (args.folder !== undefined && !targetFolder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+        return {
+          ok: false,
+          result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.`,
+        };
       if (
         computer.files.some(
           file =>
@@ -1525,7 +1793,11 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: SPECIALIST_DOWN_BLOCK_RESULT,
-          action: { kind: "tool", name: `create_file: ${name}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `create_file: ${name}`,
+            operation: "failed",
+          },
         };
       }
       const created = await createWorkspaceFileForUser(ownerId, {
@@ -1544,7 +1816,11 @@ async function executeWorkspaceTool(
         created.folderId ?? null
       );
       if (createdPath)
-        await mirror({ kind: "write_file", path: createdPath, content: str(args.content) });
+        await mirror({
+          kind: "write_file",
+          path: createdPath,
+          content: str(args.content),
+        });
       return {
         ok: true,
         result: `Created ${created.name} (id ${created.id}).`,
@@ -1573,7 +1849,11 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: SPECIALIST_DOWN_BLOCK_RESULT,
-          action: { kind: "tool", name: `edit_file: ${file.name}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `edit_file: ${file.name}`,
+            operation: "failed",
+          },
         };
       }
       const updated = await updateWorkspaceFileForUser(ownerId, file.id, {
@@ -1623,8 +1903,16 @@ async function executeWorkspaceTool(
           ok: false,
           result: `Could not rename ${file.name} - ${newName} may already exist.`,
         };
-      const renameFrom = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
-      const renameTo = workspaceRelativePathOf(folderRows, newName, file.folderId ?? null);
+      const renameFrom = workspaceRelativePathOf(
+        folderRows,
+        file.name,
+        file.folderId ?? null
+      );
+      const renameTo = workspaceRelativePathOf(
+        folderRows,
+        newName,
+        file.folderId ?? null
+      );
       if (renameFrom && renameTo)
         await mirror({ kind: "move_path", from: renameFrom, to: renameTo });
       return {
@@ -1639,7 +1927,10 @@ async function executeWorkspaceTool(
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+        return {
+          ok: false,
+          result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.`,
+        };
       if (
         computer.files.some(
           other =>
@@ -1657,9 +1948,16 @@ async function executeWorkspaceTool(
       });
       if (!updated)
         return { ok: false, result: `Could not move ${file.name}.` };
-      const moveFrom = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
+      const moveFrom = workspaceRelativePathOf(
+        folderRows,
+        file.name,
+        file.folderId ?? null
+      );
       const parentPath = folderPathOf(folderRows, folder.id);
-      const moveTo = moveFrom && parentPath ? `${parentPath}/${moveFrom.split("/").pop()}` : null;
+      const moveTo =
+        moveFrom && parentPath
+          ? `${parentPath}/${moveFrom.split("/").pop()}`
+          : null;
       if (moveFrom && moveTo)
         await mirror({ kind: "move_path", from: moveFrom, to: moveTo });
       return {
@@ -1674,7 +1972,11 @@ async function executeWorkspaceTool(
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       if (!(await deleteWorkspaceFileForUser(ownerId, file.id)))
         return { ok: false, result: `Could not delete ${file.name}.` };
-      const deletedPath = workspaceRelativePathOf(folderRows, file.name, file.folderId ?? null);
+      const deletedPath = workspaceRelativePathOf(
+        folderRows,
+        file.name,
+        file.folderId ?? null
+      );
       if (deletedPath) await mirror({ kind: "delete_file", path: deletedPath });
       return {
         ok: true,
@@ -1719,7 +2021,9 @@ async function executeWorkspaceTool(
           result: `Could not create the folder - ${name} may already exist.`,
         };
       const parentPath = folderPathOf(folderRows, created.parentId ?? null);
-      const newFolderPath = parentPath ? `${parentPath}/${created.name}` : created.name;
+      const newFolderPath = parentPath
+        ? `${parentPath}/${created.name}`
+        : created.name;
       await mirror({ kind: "create_folder", path: newFolderPath });
       return {
         ok: true,
@@ -1731,7 +2035,10 @@ async function executeWorkspaceTool(
       const folder = resolveFolder(computer, args.folder);
       const newName = str(args.new_name);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+        return {
+          ok: false,
+          result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.`,
+        };
       if (!newName)
         return { ok: false, result: "A new folder name is required." };
       const updated = await updateWorkspaceFolderForUser(ownerId, folder.id, {
@@ -1743,14 +2050,21 @@ async function executeWorkspaceTool(
           result: `Could not rename ${folder.name} - ${newName} may already exist.`,
         };
       const folderRenameFrom = folderPathOf(folderRows, folder.id);
-      const folderRenameParent = folderPathOf(folderRows, folder.parentId ?? null);
+      const folderRenameParent = folderPathOf(
+        folderRows,
+        folder.parentId ?? null
+      );
       const folderRenameTo = folderRenameFrom
         ? folderRenameParent
           ? `${folderRenameParent}/${newName}`
           : newName
         : null;
       if (folderRenameFrom && folderRenameTo)
-        await mirror({ kind: "move_path", from: folderRenameFrom, to: folderRenameTo });
+        await mirror({
+          kind: "move_path",
+          from: folderRenameFrom,
+          to: folderRenameTo,
+        });
       return {
         ok: true,
         result: `Renamed ${folder.name} to ${updated.name}.`,
@@ -1761,7 +2075,10 @@ async function executeWorkspaceTool(
       const folder = resolveFolder(computer, args.folder);
       const parent = resolveFolder(computer, args.parent);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+        return {
+          ok: false,
+          result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.`,
+        };
       if (!parent)
         return {
           ok: false,
@@ -1781,7 +2098,11 @@ async function executeWorkspaceTool(
           ? `${folderMoveParent}/${folderMoveFrom.split("/").pop()}`
           : null;
       if (folderMoveFrom && folderMoveTo)
-        await mirror({ kind: "move_path", from: folderMoveFrom, to: folderMoveTo });
+        await mirror({
+          kind: "move_path",
+          from: folderMoveFrom,
+          to: folderMoveTo,
+        });
       return {
         ok: true,
         result: `Moved ${folder.name} into ${parent.name}.`,
@@ -1791,11 +2112,15 @@ async function executeWorkspaceTool(
     case "delete_folder": {
       const folder = resolveFolder(computer, args.folder);
       if (!folder)
-        return { ok: false, result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.` };
+        return {
+          ok: false,
+          result: `Folder not found: ${str(args.folder)}. Use list_workspace to see every folder.`,
+        };
       if (!(await deleteWorkspaceFolderForUser(ownerId, folder.id)))
         return { ok: false, result: `Could not delete ${folder.name}.` };
       const removedFolderPath = folderPathOf(folderRows, folder.id);
-      if (removedFolderPath) await mirror({ kind: "delete_folder", path: removedFolderPath });
+      if (removedFolderPath)
+        await mirror({ kind: "delete_folder", path: removedFolderPath });
       return {
         ok: true,
         result: `Deleted the ${folder.name} folder and its contents.`,
@@ -1815,7 +2140,10 @@ async function executeWorkspaceTool(
       const outcome = await deployWorkspaceSite(
         ownerId,
         directory === "/" ? null : directory,
-        { deployment: deploymentKey || undefined, description: description || undefined }
+        {
+          deployment: deploymentKey || undefined,
+          description: description || undefined,
+        }
       );
       if (!outcome.ok)
         return {
@@ -1824,7 +2152,8 @@ async function executeWorkspaceTool(
           action: { kind: "deployment", name: "", operation: "failed" },
         };
       const fileCount = outcome.deployment.fileCount;
-      const fromLine = directory === "/" ? "the workspace root" : `/${directory}`;
+      const fromLine =
+        directory === "/" ? "the workspace root" : `/${directory}`;
       return {
         ok: true,
         result: deploymentKey
@@ -1840,18 +2169,25 @@ async function executeWorkspaceTool(
     case "delete_website": {
       const deleteAll = args.all === true;
       const deploymentKey = str(args.deployment).trim();
-      const confirmAll = Array.isArray(args.confirm_all) ? args.confirm_all.map(key => String(key)) : undefined;
-      const outcome = await deleteWorkspaceSite(
-        ownerId,
-        { deployment: deploymentKey || undefined, all: deleteAll, confirmAll }
-      );
+      const confirmAll = Array.isArray(args.confirm_all)
+        ? args.confirm_all.map(key => String(key))
+        : undefined;
+      const outcome = await deleteWorkspaceSite(ownerId, {
+        deployment: deploymentKey || undefined,
+        all: deleteAll,
+        confirmAll,
+      });
       if (!outcome.ok && "confirmationRequired" in outcome) {
         // The sweep gate fired: nothing was deleted. Hand the model the exact
         // target list so it can confirm with the user and re-call bound to it.
         return {
           ok: true,
           result: `Nothing was deleted yet - deleting every deployment is irreversible and needs explicit confirmation. ${outcome.message}`,
-          action: { kind: "deployment", name: outcome.targets.map(t => t.key).join(", "), operation: "presented" },
+          action: {
+            kind: "deployment",
+            name: outcome.targets.map(t => t.key).join(", "),
+            operation: "presented",
+          },
         };
       }
       if (!outcome.ok)
@@ -1863,11 +2199,18 @@ async function executeWorkspaceTool(
       const listed = outcome.deleted
         .map(entry => `${entry.key} (${entry.siteUrl})`)
         .join(", ");
-      const failedNote = outcome.failed > 0 ? ` (${outcome.failed} other deployment${outcome.failed === 1 ? "" : "s"} failed to delete - check the deployment history)` : "";
+      const failedNote =
+        outcome.failed > 0
+          ? ` (${outcome.failed} other deployment${outcome.failed === 1 ? "" : "s"} failed to delete - check the deployment history)`
+          : "";
       return {
         ok: true,
         result: `Deleted ${outcome.deleted.length === 1 ? `deployment ${listed}` : `${outcome.deleted.length} deployments: ${listed}`}. The URL${outcome.deleted.length === 1 ? " is" : "s are"} offline and the deletion is irreversible - but every workspace file is untouched, and a new deploy_website creates a fresh deployment with a new ID and URL. Tell the user plainly what went offline.${failedNote}`,
-        action: { kind: "deployment", name: outcome.deleted.map(entry => entry.siteUrl).join(", "), operation: "deleted" },
+        action: {
+          kind: "deployment",
+          name: outcome.deleted.map(entry => entry.siteUrl).join(", "),
+          operation: "deleted",
+        },
       };
     }
     case "create_project_template": {
@@ -1876,7 +2219,8 @@ async function executeWorkspaceTool(
       // No stack specified: the model decides, but if it omitted the template
       // entirely, scaffold the default stack - a real React project, not a
       // loose HTML file.
-      const template = str(args.template).trim() === "" ? "react" : args.template;
+      const template =
+        str(args.template).trim() === "" ? "react" : args.template;
       if (!isProjectTemplateKey(template))
         return {
           ok: false,
@@ -1887,7 +2231,9 @@ async function executeWorkspaceTool(
 
       // Project folder at the workspace root - reuse it if it already exists.
       const existingProject = computer.folders.find(
-        folder => folder.parentId === null && folder.name.toLowerCase() === projectName.toLowerCase()
+        folder =>
+          folder.parentId === null &&
+          folder.name.toLowerCase() === projectName.toLowerCase()
       );
       // Reusing an existing folder only works when it is empty: the template
       // files would collide with whatever the earlier project left behind
@@ -1924,7 +2270,8 @@ async function executeWorkspaceTool(
             staleDescendantIds.has(folder.id)
         ) ||
           computer.files.some(
-            file => file.folderId != null && staleDescendantIds.has(file.folderId)
+            file =>
+              file.folderId != null && staleDescendantIds.has(file.folderId)
           ));
       if (existingProject && hasStaleContent) {
         return {
@@ -1948,7 +2295,9 @@ async function executeWorkspaceTool(
 
       // Folder cache: relative path inside the project -> folder id.
       const folderIds = new Map<string, number>([["", projectFolder.id]]);
-      const ensureFolder = async (relativePath: string): Promise<number | null> => {
+      const ensureFolder = async (
+        relativePath: string
+      ): Promise<number | null> => {
         let parentId = projectFolder.id;
         let pathSoFar = "";
         for (const segment of relativePath.split("/")) {
@@ -1960,7 +2309,8 @@ async function executeWorkspaceTool(
           }
           const existing = computer.folders.find(
             folder =>
-              folder.parentId === parentId && folder.name.toLowerCase() === segment.toLowerCase()
+              folder.parentId === parentId &&
+              folder.name.toLowerCase() === segment.toLowerCase()
           );
           const folder =
             existing ??
@@ -1978,8 +2328,10 @@ async function executeWorkspaceTool(
       const createdPaths: string[] = [];
       for (const file of rendered.files) {
         const lastSlash = file.path.lastIndexOf("/");
-        const folderPath = lastSlash === -1 ? "" : file.path.slice(0, lastSlash);
-        const fileName = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
+        const folderPath =
+          lastSlash === -1 ? "" : file.path.slice(0, lastSlash);
+        const fileName =
+          lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
         const folderId = await ensureFolder(folderPath);
         if (folderId === null)
           return {
@@ -2001,7 +2353,9 @@ async function executeWorkspaceTool(
       }
 
       const deployDirectory =
-        rendered.deployRoot === "." ? projectName : `${projectName}/${rendered.deployRoot}`;
+        rendered.deployRoot === "."
+          ? projectName
+          : `${projectName}/${rendered.deployRoot}`;
       return {
         ok: true,
         result: `Scaffolded the ${rawName} project (${template} template): ${createdPaths.length} files in the ${projectName} folder - ${createdPaths.join(", ")}. ${rendered.summary} When it is ready to go live, deploy_website with directory: ${deployDirectory}.`,
@@ -2031,7 +2385,8 @@ async function executeWorkspaceTool(
     }
     case "send_progress_update": {
       const text = str(args.text);
-      if (!text) return { ok: false, result: "A progress note text is required." };
+      if (!text)
+        return { ok: false, result: "A progress note text is required." };
       if (channel !== "telegram")
         return {
           ok: false,
@@ -2116,7 +2471,11 @@ async function executeWorkspaceTool(
           action: { kind: "connector", name: "GitHub", operation: "failed" },
         };
       try {
-        const execution = await executeGithubOperation(ownerId, operation, args);
+        const execution = await executeGithubOperation(
+          ownerId,
+          operation,
+          args
+        );
         const payload = JSON.stringify(execution.data, null, 2);
         const label = operation.replace(/_/g, " ");
         return {
@@ -2125,27 +2484,48 @@ async function executeWorkspaceTool(
             ? `GitHub ${label} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
             : `GitHub ${label} failed: ${execution.error ?? "unknown error"}.`,
           detail: payload?.slice(0, 20_000),
-          action: { kind: "connector", name: `GitHub: ${label}`, operation: execution.ok ? "executed" : "failed" },
+          action: {
+            kind: "connector",
+            name: `GitHub: ${label}`,
+            operation: execution.ok ? "executed" : "failed",
+          },
         };
       } catch (error) {
         return {
           ok: false,
-          result: error instanceof ComposioApiError ? error.message : `The GitHub request failed: ${str((error as Error)?.message)}.`,
-          action: { kind: "connector", name: `GitHub: ${operation}`, operation: "failed" },
+          result:
+            error instanceof ComposioApiError
+              ? error.message
+              : `The GitHub request failed: ${str((error as Error)?.message)}.`,
+          action: {
+            kind: "connector",
+            name: `GitHub: ${operation}`,
+            operation: "failed",
+          },
         };
       }
     }
     case "list_connector_tools": {
       const connector = str(args.connector);
       if (connector !== "gmail")
-        return { ok: false, result: "This catalog tool is only for Gmail. Use the github tool for GitHub." };
+        return {
+          ok: false,
+          result:
+            "This catalog tool is only for Gmail. Use the github tool for GitHub.",
+        };
       const search = str(args.search) || undefined;
       const limitRaw = Number(args.limit);
       const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
       try {
-        const { tools } = await listComposioTools(ownerId, connector, { search, limit });
+        const { tools } = await listComposioTools(ownerId, connector, {
+          search,
+          limit,
+        });
         if (!tools.length)
-          return { ok: true, result: `No Gmail actions matched "${search ?? ""}". Try a broader search.` };
+          return {
+            ok: true,
+            result: `No Gmail actions matched "${search ?? ""}". Try a broader search.`,
+          };
         const lines = tools
           .map(tool => {
             const params = Object.entries(tool.inputParameters ?? {})
@@ -2160,12 +2540,19 @@ async function executeWorkspaceTool(
         return {
           ok: true,
           result: "Gmail actions available:\n" + lines,
-          action: { kind: "connector", name: `${tools.length} Gmail actions`, operation: "listed" },
+          action: {
+            kind: "connector",
+            name: `${tools.length} Gmail actions`,
+            operation: "listed",
+          },
         };
       } catch (error) {
         return {
           ok: false,
-          result: error instanceof ComposioApiError ? error.message : `The connector catalog is unavailable: ${str((error as Error)?.message)}.`,
+          result:
+            error instanceof ComposioApiError
+              ? error.message
+              : `The connector catalog is unavailable: ${str((error as Error)?.message)}.`,
         };
       }
     }
@@ -2174,10 +2561,19 @@ async function executeWorkspaceTool(
       const action = str(args.action);
       const params = (args.params ?? {}) as Record<string, unknown>;
       if (connector !== "gmail")
-        return { ok: false, result: "This raw action tool is only for Gmail. Use the github tool for GitHub." };
+        return {
+          ok: false,
+          result:
+            "This raw action tool is only for Gmail. Use the github tool for GitHub.",
+        };
       if (!action) return { ok: false, result: "An action slug is required." };
       try {
-        const execution = await executeComposioTool(ownerId, connector, action, params);
+        const execution = await executeComposioTool(
+          ownerId,
+          connector,
+          action,
+          params
+        );
         const payload = JSON.stringify(execution.data, null, 2);
         return {
           ok: execution.ok,
@@ -2189,7 +2585,10 @@ async function executeWorkspaceTool(
       } catch (error) {
         return {
           ok: false,
-          result: error instanceof ComposioApiError ? error.message : `The connector request failed: ${str((error as Error)?.message)}.`,
+          result:
+            error instanceof ComposioApiError
+              ? error.message
+              : `The connector request failed: ${str((error as Error)?.message)}.`,
           action: { kind: "connector", name: action, operation: "failed" },
         };
       }
@@ -2200,24 +2599,43 @@ async function executeWorkspaceTool(
         return { ok: false, result: "An equation to solve is required." };
       try {
         const answer = evaluate(equation);
-        if (answer === undefined || answer === null || (typeof answer === "number" && !Number.isFinite(answer)))
+        if (
+          answer === undefined ||
+          answer === null ||
+          (typeof answer === "number" && !Number.isFinite(answer))
+        )
           return {
             ok: false,
             result: `That expression does not evaluate to a number (got: ${String(answer)}). Pass a single numeric expression like '20 - 11.33'.`,
-            action: { kind: "tool", name: equation.slice(0, 60), operation: "failed" },
+            action: {
+              kind: "tool",
+              name: equation.slice(0, 60),
+              operation: "failed",
+            },
           };
-        const formatted = typeof answer === "number" ? formatMathAnswer(answer) : String(answer);
+        const formatted =
+          typeof answer === "number"
+            ? formatMathAnswer(answer)
+            : String(answer);
         return {
           ok: true,
           result: `${equation} = ${formatted}`,
           detail: `${equation} = ${formatted}`,
-          action: { kind: "tool", name: equation.slice(0, 60), operation: "completed" },
+          action: {
+            kind: "tool",
+            name: equation.slice(0, 60),
+            operation: "completed",
+          },
         };
       } catch (error) {
         return {
           ok: false,
           result: `Could not evaluate '${equation}': ${error instanceof Error ? error.message : "invalid expression"}. Pass a single numeric expression like '20 - 11.33' or 'sqrt(196) * 3.5'.`,
-          action: { kind: "tool", name: equation.slice(0, 60), operation: "failed" },
+          action: {
+            kind: "tool",
+            name: equation.slice(0, 60),
+            operation: "failed",
+          },
         };
       }
     }
@@ -2226,7 +2644,10 @@ async function executeWorkspaceTool(
       if (!topic) return { ok: false, result: "A research topic is required." };
       const difficulty = str(args.difficulty) || undefined;
       const instructions = str(args.instructions) || undefined;
-      const level = difficulty === "deep-lite" || difficulty === "deep-reasoning" ? difficulty : "deep";
+      const level =
+        difficulty === "deep-lite" || difficulty === "deep-reasoning"
+          ? difficulty
+          : "deep";
       const startedAt = Date.now();
       // The researcher streams its real process now (sub-search results, the
       // start of report synthesis). The elapsed-time heartbeat only fires
@@ -2246,17 +2667,29 @@ async function executeWorkspaceTool(
         : undefined;
       note(`Deep research is starting its web searches…`);
       try {
-        const research = await runResearch(topic, difficulty, instructions, note);
+        const research = await runResearch(
+          topic,
+          difficulty,
+          instructions,
+          note
+        );
         const sourcesBlock = research.sources.length
           ? `\n\nAll sources consulted by the researcher:\n${research.sources
-              .map((source, index) => `${index + 1}. ${source.title || source.url} - ${source.url}`)
+              .map(
+                (source, index) =>
+                  `${index + 1}. ${source.title || source.url} - ${source.url}`
+              )
               .join("\n")}`
           : "";
         return {
           ok: true,
           result: research.report + sourcesBlock,
           detail: research.report + sourcesBlock,
-          action: { kind: "research", name: topic.slice(0, 60), operation: "completed" },
+          action: {
+            kind: "research",
+            name: topic.slice(0, 60),
+            operation: "completed",
+          },
         };
       } catch (error) {
         const message = `Web research failed: ${error instanceof Error ? error.message : "unknown error"}.`;
@@ -2264,7 +2697,11 @@ async function executeWorkspaceTool(
           ok: false,
           result: message,
           detail: message,
-          action: { kind: "research", name: topic.slice(0, 60), operation: "failed" },
+          action: {
+            kind: "research",
+            name: topic.slice(0, 60),
+            operation: "failed",
+          },
         };
       } finally {
         if (progressTimer) clearInterval(progressTimer);
@@ -2274,7 +2711,8 @@ async function executeWorkspaceTool(
       if (!gate) {
         return {
           ok: false,
-          result: "There is no pending coding-specialist acceptance question - continue normally.",
+          result:
+            "There is no pending coding-specialist acceptance question - continue normally.",
         };
       }
       if (gate.specialistDownThisRun) {
@@ -2284,7 +2722,11 @@ async function executeWorkspaceTool(
             "The coding specialist failed in this same run, so the user has not had a turn to answer yet. " +
             "Tell the user the specialist is down, ask whether to proceed with Nova's own attempt, and end your turn. " +
             "Only call accept_own_coding in a later conversation turn, after the user explicitly accepted.",
-          action: { kind: "tool", name: "accept_own_coding", operation: "failed" },
+          action: {
+            kind: "tool",
+            name: "accept_own_coding",
+            operation: "failed",
+          },
         };
       }
       if (!gate.awaitingAcceptance) {
@@ -2293,7 +2735,11 @@ async function executeWorkspaceTool(
           result:
             "There is no pending coding-specialist acceptance question. Only call this tool when the user has just " +
             "explicitly accepted Nova writing the code itself while the specialist is down.",
-          action: { kind: "tool", name: "accept_own_coding", operation: "failed" },
+          action: {
+            kind: "tool",
+            name: "accept_own_coding",
+            operation: "failed",
+          },
         };
       }
       gate.awaitingAcceptance = false;
@@ -2304,10 +2750,14 @@ async function executeWorkspaceTool(
         result:
           "Recorded: the user accepted Nova writing this code itself without the coding specialist. " +
           "You may proceed with create_file/edit_file for this task, and say plainly that the result is Nova's own work.",
-        action: { kind: "tool", name: "accept_own_coding", operation: "completed" },
+        action: {
+          kind: "tool",
+          name: "accept_own_coding",
+          operation: "completed",
+        },
       };
     }
-    case "code_task": {
+    case "editor": {
       const task = str(args.task).trim();
       if (!task) return { ok: false, result: "A coding task is required." };
       const context = str(args.context) || undefined;
@@ -2330,7 +2780,9 @@ async function executeWorkspaceTool(
             if (Date.now() - lastNoteAt < 25_000) return;
             const elapsed = Math.round((Date.now() - startedAt) / 1000);
             lastNoteAt = Date.now();
-            onProgress(`The coding specialist is still working - ${elapsed}s elapsed…`);
+            onProgress(
+              `The coding specialist is still working - ${elapsed}s elapsed…`
+            );
           }, 10000)
         : undefined;
       note(
@@ -2342,8 +2794,18 @@ async function executeWorkspaceTool(
         `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
       const runSpecialist = (): Promise<CoderOutcome> =>
         sandbox
-          ? runAutonomousCoderTask({ task, context, language, sandbox, onProgress: note, deadlineAtMs })
-          : runCoderTask(task, context, language).then(result => ({ kind: "single", ...result }));
+          ? runAutonomousCoderTask({
+              task,
+              context,
+              language,
+              sandbox,
+              onProgress: note,
+              deadlineAtMs,
+            })
+          : runCoderTask(task, context, language).then(result => ({
+              kind: "single",
+              ...result,
+            }));
       try {
         let outcome: CoderOutcome;
         try {
@@ -2369,7 +2831,11 @@ async function executeWorkspaceTool(
             ok: true,
             result: outcome.code,
             detail: outcome.code.slice(0, 16000),
-            action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
+            action: {
+              kind: "tool",
+              name: `editor: ${task.slice(0, 45)}`,
+              operation: "completed",
+            },
           };
         }
         // Autonomous: the specialist's writes are already in the sandbox -
@@ -2381,14 +2847,24 @@ async function executeWorkspaceTool(
         // backstop - so the instruction to read the files back and verify
         // also catches a file the sync missed.
         await syncAgentSandbox(ownerId, computer.workspace.id, sandbox);
-        const fileList = outcome.writtenPaths.length > 0 ? outcome.writtenPaths.join(", ") : "(none)";
+        const fileList =
+          outcome.writtenPaths.length > 0
+            ? outcome.writtenPaths.join(", ")
+            : "(none)";
         return {
           ok: true,
           result:
             `The coding specialist worked autonomously in the sandbox. Its summary: ${outcome.summary}\n\n` +
             `Files it wrote: ${fileList}. Read the changed files back from the workspace, verify the work actually meets the task, fix anything it left broken, and present the result to the user. If a changed file is missing from the workspace, say so plainly instead of improvising it.`,
-          detail: `${outcome.summary}\n\nFiles written: ${fileList}`.slice(0, 16000),
-          action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "completed" },
+          detail: `${outcome.summary}\n\nFiles written: ${fileList}`.slice(
+            0,
+            16000
+          ),
+          action: {
+            kind: "tool",
+            name: `editor: ${task.slice(0, 45)}`,
+            operation: "completed",
+          },
         };
       } catch (error) {
         const message = specialistError(error);
@@ -2404,7 +2880,11 @@ async function executeWorkspaceTool(
             `If the user wants to wait instead, tell them the Nova operator should check NVIDIA_NIM_API_KEY on the server.`,
           detail: message,
           specialistDown: true,
-          action: { kind: "tool", name: `code_task: ${task.slice(0, 45)}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `editor: ${task.slice(0, 45)}`,
+            operation: "failed",
+          },
         };
       } finally {
         if (progressTimer) clearInterval(progressTimer);
@@ -2412,8 +2892,7 @@ async function executeWorkspaceTool(
     }
     case "run_bash": {
       const command = str(args.command);
-      if (!command)
-        return { ok: false, result: "A bash command is required." };
+      if (!command) return { ok: false, result: "A bash command is required." };
       if (!sandbox)
         return {
           ok: false,
@@ -2426,7 +2905,11 @@ async function executeWorkspaceTool(
         ok: bash.ok,
         result: bash.result,
         detail: bash.result.slice(0, 16000),
-        action: { kind: "vm", name: "bash", operation: bash.ok ? "completed" : "failed" },
+        action: {
+          kind: "vm",
+          name: "bash",
+          operation: bash.ok ? "completed" : "failed",
+        },
       };
     }
     case "browse": {
@@ -2447,7 +2930,12 @@ async function executeWorkspaceTool(
         detail: browse.result.slice(0, 16000),
         action: {
           kind: "browser",
-          name: command.trim().replace(/^agent-browser\s+/, "").split(/\s+/)[0].slice(0, 45) || "browser",
+          name:
+            command
+              .trim()
+              .replace(/^agent-browser\s+/, "")
+              .split(/\s+/)[0]
+              .slice(0, 45) || "browser",
           operation: browse.ok ? "completed" : "failed",
         },
       };
@@ -2593,24 +3081,22 @@ async function chatWithGatewayRetry(
       // Upstream 429: one patient retry, deadline-gated, once per run. The
       // fast loop must never hammer a lockout - that only extends it.
       const isUpstreamRateLimit =
-        error instanceof MistralGatewayClientError && error.kind === "rate_limit";
+        error instanceof MistralGatewayClientError &&
+        error.kind === "rate_limit";
       const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
       if (
         isUpstreamRateLimit &&
         streamedChars === 0 &&
         !(options.retryState?.rateLimitRetryUsed ?? false) &&
         options.deadlineAtMs !== undefined &&
-        Date.now() + waitMs + RATE_LIMIT_RETRY_MIN_REMAINING_MS <= options.deadlineAtMs
+        Date.now() + waitMs + RATE_LIMIT_RETRY_MIN_REMAINING_MS <=
+          options.deadlineAtMs
       ) {
         if (options.retryState) options.retryState.rateLimitRetryUsed = true;
         await waitFor(waitMs);
         continue;
       }
-      if (
-        streamedChars > 0 ||
-        !retryable ||
-        attempt >= maxAttempts - 1
-      ) {
+      if (streamedChars > 0 || !retryable || attempt >= maxAttempts - 1) {
         throw error;
       }
       await waitFor(gatewayRetryDelaysMs[attempt]);
@@ -2698,9 +3184,11 @@ export async function runWorkspaceAgent(
     unfinishedTool: string | null = null,
     unfinishedToolStarted = true
   ): Promise<string> => {
-    const summaries = lastRoundSummaries.map(summary => `- ${summary}`).join("\n");
+    const summaries = lastRoundSummaries
+      .map(summary => `- ${summary}`)
+      .join("\n");
     try {
-      const completion = await Promise.race([
+      const completion = (await Promise.race([
         completeWithWorkspaceModel(
           ownerId,
           `You are Nova, an AI assistant working inside the user's personal cloud workspace. You just hit the end of the time you may spend on this single message; your work so far stops here but the conversation continues.
@@ -2709,13 +3197,16 @@ Completed steps:
 ${summaries || "(none recorded yet)"}
 ${unfinishedTool ? `\nThe \`${unfinishedTool}\` step was ${unfinishedToolStarted ? "still running when time ran out and was interrupted, not finished" : "skipped because time ran out before it could start"}.` : ""}
 
-${options.continuationPlanned
-        ? `Write a short progress status (2-4 sentences): what got done so far and what is still left. The work continues automatically in a few seconds without any user action. Do not ask the user to reply or wait, and do not mention time budgets, segments, or limits. Output only that message.`
-        : `Write a short, honest status message to the user (2-4 sentences): what got done, what is unfinished, and that they can send "continue" so you pick up exactly where you left off. Output only that message.`}`
+${
+  options.continuationPlanned
+    ? `Write a short progress status (2-4 sentences): what got done so far and what is still left. The work continues automatically in a few seconds without any user action. Do not ask the user to reply or wait, and do not mention time budgets, segments, or limits. Output only that message.`
+    : `Write a short, honest status message to the user (2-4 sentences): what got done, what is unfinished, and that they can send "continue" so you pick up exactly where you left off. Output only that message.`
+}`
         ).catch(() => null),
         waitFor(DEADLINE_CLOSE_MODEL_CAP_MS),
-      ]) as { text?: unknown } | null | undefined;
-      const text = typeof completion?.text === "string" ? completion.text.trim() : "";
+      ])) as { text?: unknown } | null | undefined;
+      const text =
+        typeof completion?.text === "string" ? completion.text.trim() : "";
       return text && text.length <= 800 ? text : "";
     } catch {
       return "";
@@ -2730,7 +3221,10 @@ ${options.continuationPlanned
   // one-per-run failure nudge and the error-path close-out note; the map
   // intercepts a model stuck repeating an identical failing call.
   const failedSteps: string[] = [];
-  const failedAttempts = new Map<string, { count: number; firstFailure: string }>();
+  const failedAttempts = new Map<
+    string,
+    { count: number; firstFailure: string }
+  >();
   let failureNudgeSent = false;
 
   await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
@@ -2746,30 +3240,30 @@ ${options.continuationPlanned
     // gateway, so its health flags do not gate the run.
     const customModel = await getActiveCustomModel(ownerId);
     if (!customModel) {
-    const status = await getMistralGatewayStatus(ownerId);
-    if (!status.configured) {
-      const reply =
-        "Mistral inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
-      await options.onChunk?.(reply);
-      const message = await persistAssistant(reply);
-      return { message, actions: [], outOfBudget: false };
-    }
-    if (
-      !status.reachable ||
-      (status.providerConfigurationKnown && !status.providerConfigured)
-    ) {
-      const reply =
-        "Mistral inference gateway is temporarily unreachable. Please try again shortly.";
-      await options.onChunk?.(reply);
-      const message = await persistAssistant(reply);
-      return { message, actions: [], outOfBudget: false };
-    }
-    if (status.allowance.exhausted) {
-      const reply = `Mistral inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
-      await options.onChunk?.(reply);
-      const message = await persistAssistant(reply);
-      return { message, actions: [], outOfBudget: false };
-    }
+      const status = await getMistralGatewayStatus(ownerId);
+      if (!status.configured) {
+        const reply =
+          "Mistral inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
+        await options.onChunk?.(reply);
+        const message = await persistAssistant(reply);
+        return { message, actions: [], outOfBudget: false };
+      }
+      if (
+        !status.reachable ||
+        (status.providerConfigurationKnown && !status.providerConfigured)
+      ) {
+        const reply =
+          "Mistral inference gateway is temporarily unreachable. Please try again shortly.";
+        await options.onChunk?.(reply);
+        const message = await persistAssistant(reply);
+        return { message, actions: [], outOfBudget: false };
+      }
+      if (status.allowance.exhausted) {
+        const reply = `Mistral inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
+        await options.onChunk?.(reply);
+        const message = await persistAssistant(reply);
+        return { message, actions: [], outOfBudget: false };
+      }
     }
 
     let computer = await getWorkspaceComputer(ownerId);
@@ -2809,16 +3303,15 @@ ${options.continuationPlanned
     const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
       tool =>
         options.channel === "telegram" ||
-        (tool.function.name !== "present_file" && tool.function.name !== "send_progress_update")
+        (tool.function.name !== "present_file" &&
+          tool.function.name !== "send_progress_update")
     );
     const memoriesLine = await listRecentMemoriesForPrompt(ownerId);
     const systemMessage = (): GatewayChatMessage => {
       return {
         role: "system",
-        content: WORKSPACE_AGENT_PROMPT.replace(
-          "{{memories}}",
-          memoriesLine
-        ).replace("{{connectors}}", connectorStatusLine(connectedConnectors))
+        content: WORKSPACE_AGENT_PROMPT.replace("{{memories}}", memoriesLine)
+          .replace("{{connectors}}", connectorStatusLine(connectedConnectors))
           .replace("{{deployments}}", deploymentsLine)
           .replace(
             "{{style}}",
@@ -2871,7 +3364,8 @@ ${options.continuationPlanned
      * blow the model's context window.
      */
     const MAX_HISTORY_MESSAGES = 60;
-    const priorMessages = (await listChatMessagesForUser(ownerId, chatId)) ?? [];
+    const priorMessages =
+      (await listChatMessagesForUser(ownerId, chatId)) ?? [];
     const historyTurns: GatewayChatMessage[] = priorMessages
       .filter(
         m =>
@@ -2880,7 +3374,8 @@ ${options.continuationPlanned
       )
       .slice(-MAX_HISTORY_MESSAGES)
       .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
-    if (historyTurns.length) historyTurns[historyTurns.length - 1] = currentTurn;
+    if (historyTurns.length)
+      historyTurns[historyTurns.length - 1] = currentTurn;
     else historyTurns.push(currentTurn);
     const messages: GatewayChatMessage[] = [systemMessage(), ...historyTurns];
 
@@ -2888,7 +3383,8 @@ ${options.continuationPlanned
     // run at the next safe point (round boundary or between tool calls).
     const runStartedAt = await getDatabaseTime();
     const stopRun = async () => {
-      const stoppedReply = "⏹️ Stopped - this run was cancelled at your request.";
+      const stoppedReply =
+        "⏹️ Stopped - this run was cancelled at your request.";
       await options.onChunk?.(stoppedReply);
       const message = await persistAssistant(stoppedReply);
       return { message, actions: [], outOfBudget: false };
@@ -2914,13 +3410,13 @@ ${options.continuationPlanned
     let streamedReplyChars = 0;
     let recoveredCallCount = 0;
     // Coder-delegation guard: one nudge per run when the agent writes
-    // substantial code itself without ever calling code_task.
+    // substantial code itself without ever calling the editor.
     let codeTaskUsed = false;
     let coderNudgeSent = false;
     let specialistDown = false;
     let coderNudgePending = false;
     let coderNudgeFile = "";
-    // Specialist-down self-coding gate: a run that ends with code_task down
+    // Specialist-down self-coding gate: a run that ends with the editor down
     // leaves a pending acceptance marker; until the user accepts in a LATER
     // turn (recorded via accept_own_coding), non-trivial create_file and
     // edit_file calls are blocked by the tool executor itself.
@@ -2939,12 +3435,16 @@ ${options.continuationPlanned
     // must stop without refreshing state or starting another gateway round.
     let closedByDeadline = false;
     for (let round = 0; ; round += 1) {
-      if (round > 0 && (await hasAgentStopAfter(ownerId, chatId, runStartedAt))) return stopRun();
+      if (round > 0 && (await hasAgentStopAfter(ownerId, chatId, runStartedAt)))
+        return stopRun();
       // A deploy or long research can consume nearly the whole request
       // budget. Starting another gateway round this close to the maxDuration
       // limit risks the function being killed before the reply persists -
       // close the run with a model-written status instead.
-      if (round > 0 && Date.now() + FINAL_ROUND_MIN_REMAINING_MS > deadlineAtMs) {
+      if (
+        round > 0 &&
+        Date.now() + FINAL_ROUND_MIN_REMAINING_MS > deadlineAtMs
+      ) {
         reply = await composeDeadlineClose();
         streamedReplyChars = 0;
         break;
@@ -3118,15 +3618,16 @@ ${options.continuationPlanned
         });
         continue;
       }
-      const calls = result.toolCalls.length > 0
-        ? result.toolCalls
-        : [
-            {
-              id: `recovered-${Date.now()}`,
-              name: recoveredCall!.name,
-              arguments: recoveredCall!.arguments,
-            },
-          ];
+      const calls =
+        result.toolCalls.length > 0
+          ? result.toolCalls
+          : [
+              {
+                id: `recovered-${Date.now()}`,
+                name: recoveredCall!.name,
+                arguments: recoveredCall!.arguments,
+              },
+            ];
       messages.push({
         role: "assistant",
         content: result.text || null,
@@ -3149,7 +3650,8 @@ ${options.continuationPlanned
             const parsed = JSON.parse(call.arguments || "{}") as {
               reply?: unknown;
             };
-            if (typeof parsed?.reply === "string") endTurnReply = parsed.reply.trim();
+            if (typeof parsed?.reply === "string")
+              endTurnReply = parsed.reply.trim();
           } catch {
             // Malformed arguments fall through to the streamed/draft text.
           }
@@ -3175,7 +3677,8 @@ ${options.continuationPlanned
           endTurnCalled = true;
           break;
         }
-        if (await hasAgentStopAfter(ownerId, chatId, runStartedAt)) return stopRun();
+        if (await hasAgentStopAfter(ownerId, chatId, runStartedAt))
+          return stopRun();
         // The budget is already gone: starting the call would begin its side
         // effects (a file write, a deploy) after the run has effectively
         // ended. Skip it, record why, and close the run instead.
@@ -3211,9 +3714,12 @@ ${options.continuationPlanned
             name: call.name,
             state: "failed",
             args: { arguments: call.arguments.slice(0, 500) },
-            summary: "Refused: this identical call already failed twice in this run.",
+            summary:
+              "Refused: this identical call already failed twice in this run.",
           });
-          lastRoundSummaries.push(`Failed: ${call.name} - refused, the identical call already failed twice.`);
+          lastRoundSummaries.push(
+            `Failed: ${call.name} - refused, the identical call already failed twice.`
+          );
           messages.push({
             role: "tool",
             tool_call_id: call.id,
@@ -3231,22 +3737,32 @@ ${options.continuationPlanned
         try {
           execution = await raceToolDeadline(
             () =>
-              executeWorkspaceTool(ownerId, computer, call, detail => {
-              // Progress updates stream live to the open chat only - they are
-              // not persisted, so long research runs don't flood the archive.
-              Promise.resolve(
-                options.onEvent?.({
-                  type: "tool",
-                  tool: {
-                    id: call.id,
-                    name: call.name,
-                    state: "running",
-                    args: { arguments: call.arguments.slice(0, 500) },
-                    detail,
-                  },
-                })
-              ).catch(() => {});
-            }, agentSandbox, ownCodingGate, options.channel, deadlineAtMs, chatId),
+              executeWorkspaceTool(
+                ownerId,
+                computer,
+                call,
+                detail => {
+                  // Progress updates stream live to the open chat only - they are
+                  // not persisted, so long research runs don't flood the archive.
+                  Promise.resolve(
+                    options.onEvent?.({
+                      type: "tool",
+                      tool: {
+                        id: call.id,
+                        name: call.name,
+                        state: "running",
+                        args: { arguments: call.arguments.slice(0, 500) },
+                        detail,
+                      },
+                    })
+                  ).catch(() => {});
+                },
+                agentSandbox,
+                ownCodingGate,
+                options.channel,
+                deadlineAtMs,
+                chatId
+              ),
             deadlineAtMs
           );
         } catch (error) {
@@ -3276,7 +3792,9 @@ ${options.continuationPlanned
           execution = {
             ok: false,
             result: `The tool call failed unexpectedly: ${
-              failureDetail.length > 500 ? `${failureDetail.slice(0, 500)}…` : failureDetail
+              failureDetail.length > 500
+                ? `${failureDetail.slice(0, 500)}…`
+                : failureDetail
             }`,
           };
         }
@@ -3321,12 +3839,15 @@ ${options.continuationPlanned
           ownCodingGate.blocked = true;
           ownCodingGate.awaitingAcceptance = false;
         }
-        if (call.name === "code_task") {
+        if (call.name === "editor") {
           codeTaskUsed = true;
           coderNudgePending = false;
           // A working specialist clears any lingering acceptance question:
           // self-coding rules return to the normal mandatory-delegation mode.
-          if (execution.ok && (ownCodingGate.awaitingAcceptance || priorAcceptance !== "none")) {
+          if (
+            execution.ok &&
+            (ownCodingGate.awaitingAcceptance || priorAcceptance !== "none")
+          ) {
             ownCodingGate.awaitingAcceptance = false;
             ownCodingGate.blocked = false;
             ownCodingGate.specialistDownThisRun = false;
@@ -3353,7 +3874,10 @@ ${options.continuationPlanned
           } catch {
             // Malformed arguments: no nudge, the tool already reported it.
           }
-          if (isCodeFileName(execution.action.name) && isSubstantialCode(written)) {
+          if (
+            isCodeFileName(execution.action.name) &&
+            isSubstantialCode(written)
+          ) {
             coderNudgePending = true;
             coderNudgeFile = execution.action.name;
           }
@@ -3362,8 +3886,13 @@ ${options.continuationPlanned
       // Coder-delegation guard: deliver the queued nudge once, only when the
       // run is continuing anyway - never on the closing or end_turn exits.
       // With the specialist confirmed down, self-coding is disclosed
-      // degraded mode - nudging back toward code_task would be noise.
-      if (coderNudgePending && !closedByDeadline && !endTurnCalled && !specialistDown) {
+      // degraded mode - nudging back toward the editor would be noise.
+      if (
+        coderNudgePending &&
+        !closedByDeadline &&
+        !endTurnCalled &&
+        !specialistDown
+      ) {
         coderNudgePending = false;
         coderNudgeSent = true;
         messages.push({ role: "user", content: coderNudgeFor(coderNudgeFile) });
@@ -3372,7 +3901,12 @@ ${options.continuationPlanned
       // round's tool calls fail and delivered after the round's results
       // (never on the closing or end_turn exits, where the reply is already
       // final and the error-path note below carries the failures instead).
-      if (failedSteps.length > 0 && !failureNudgeSent && !closedByDeadline && !endTurnCalled) {
+      if (
+        failedSteps.length > 0 &&
+        !failureNudgeSent &&
+        !closedByDeadline &&
+        !endTurnCalled
+      ) {
         failureNudgeSent = true;
         messages.push({ role: "user", content: failureNudgeFor(failedSteps) });
       }
@@ -3481,7 +4015,9 @@ ${options.continuationPlanned
       }
     }
     // Only emit what the client has not already seen streamed live.
-    await options.onChunk?.(streamedRunText.trim() ? failureNote : reply + failedStepsNote);
+    await options.onChunk?.(
+      streamedRunText.trim() ? failureNote : reply + failedStepsNote
+    );
     const message = await persistAssistant(reply + failedStepsNote);
     return { message, actions, outOfBudget: false };
   } finally {

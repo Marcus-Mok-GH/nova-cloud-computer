@@ -88,7 +88,8 @@ const CODER_TOOLS: NimAgentTool[] = [
     type: "function",
     function: {
       name: "write_file",
-      description: "Create or completely overwrite one workspace file with its full final content.",
+      description:
+        "Create or completely overwrite one workspace file with its full final content.",
       parameters: {
         type: "object",
         properties: {
@@ -98,7 +99,8 @@ const CODER_TOOLS: NimAgentTool[] = [
           },
           content: {
             type: "string",
-            description: "The complete final content of the file - never partial or placeholder text.",
+            description:
+              "The complete final content of the file - never partial or placeholder text.",
           },
         },
         required: ["path", "content"],
@@ -109,13 +111,15 @@ const CODER_TOOLS: NimAgentTool[] = [
     type: "function",
     function: {
       name: "run_command",
-      description: "Run one bash command in the workspace directory - install, build, run, test. Output is truncated to the first 4000 characters.",
+      description:
+        "Run one bash command in the workspace directory - install, build, run, test. Output is truncated to the first 4000 characters.",
       parameters: {
         type: "object",
         properties: {
           command: {
             type: "string",
-            description: "The bash command to run, e.g. 'python3 game.py --self-check' or 'npm install && npm test'.",
+            description:
+              "The bash command to run, e.g. 'python3 game.py --self-check' or 'npm install && npm test'.",
           },
         },
         required: ["command"],
@@ -200,14 +204,13 @@ async function runSandboxCommand(
   const exitCode = (result as { exitCode?: unknown }).exitCode ?? 0;
   const parts: string[] = [];
   if (stdout.trim()) parts.push(truncate(stdout, COMMAND_OUTPUT_LIMIT));
-  if (stderr.trim()) parts.push(`[stderr]\n${truncate(stderr, COMMAND_OUTPUT_LIMIT)}`);
+  if (stderr.trim())
+    parts.push(`[stderr]\n${truncate(stderr, COMMAND_OUTPUT_LIMIT)}`);
   parts.push(`[exit code ${exitCode}]`);
   return parts.join("\n") || "(no output)";
 }
 
-async function listWorkspaceFiles(
-  sandbox: E2BSandboxLike
-): Promise<string> {
+async function listWorkspaceFiles(sandbox: E2BSandboxLike): Promise<string> {
   try {
     const result = await sandbox.commands.run(
       `cd ${E2B_WORKSPACE_DIR} && find . -type f -not -path './.git/*' | sort | head -200`,
@@ -217,9 +220,7 @@ async function listWorkspaceFiles(
       .split("\n")
       .map(line => line.trim().replace(/^\.\//, ""))
       .filter(Boolean);
-    return listing.length > 0
-      ? listing.join("\n")
-      : "(the workspace is empty)";
+    return listing.length > 0 ? listing.join("\n") : "(the workspace is empty)";
   } catch {
     return "(could not list the workspace)";
   }
@@ -242,7 +243,8 @@ async function executeCoderToolCall(
   } catch {
     return "Invalid JSON arguments - call the tool again with valid JSON.";
   }
-  const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const str = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
   // File content is the one argument that must survive byte-exact: leading
   // indentation, trailing newlines and inner whitespace are all meaningful.
   const raw = (value: unknown) => (typeof value === "string" ? value : "");
@@ -295,9 +297,10 @@ async function executeCoderToolCall(
       // the model not to; this boundary check makes it stick for the
       // common cases (rm, mv, unlink, rmdir, shred, and the git
       // equivalents). Anything else destructive is the prompt's job.
-      const forbidden = /(^|[;&|\s])(rm|rmdir|unlink|shred)\b|(^|[;&|\s])mv\b|git\s+(rm|clean)\b/.test(
-        command
-      );
+      const forbidden =
+        /(^|[;&|\s])(rm|rmdir|unlink|shred)\b|(^|[;&|\s])mv\b|git\s+(rm|clean)\b/.test(
+          command
+        );
       if (forbidden) {
         return (
           "Rejected: this workspace must not delete or rename files with shell " +
@@ -340,7 +343,9 @@ export async function runAutonomousCoderTask(
     intro.push(`Target language/framework: ${options.language.trim()}`);
   intro.push(`Coding task:\n\n${trimmedTask}`);
   if (options.context?.trim())
-    intro.push(`Existing code, errors, and other context:\n\n${options.context.trim()}`);
+    intro.push(
+      `Existing code, errors, and other context:\n\n${options.context.trim()}`
+    );
   intro.push(
     `The workspace currently holds these files (paths relative to ${E2B_WORKSPACE_DIR}):\n\n${listing}`
   );
@@ -406,7 +411,7 @@ export async function runAutonomousCoderTask(
     }
     // Kimi's thinking (max reasoning is requested for reasoning-capable
     // models) streams into the caller's progress notes so the user can watch
-    // the specialist reason inside the code_task panel, like its file writes
+    // the specialist reason inside the editor tool's panel, like its file writes
     // and commands.
     if (reply.reasoning) {
       const flat = reply.reasoning.replace(/\s+/g, " ").trim();
@@ -458,7 +463,7 @@ export async function runAutonomousCoderTask(
     return {
       kind: "autonomous",
       summary:
-        "The coding specialist could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call code_task again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.",
+        "The editor sub-agent could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call editor again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.",
       writtenPaths: [],
       commandsRun: 0,
       rounds: 0,
@@ -467,12 +472,11 @@ export async function runAutonomousCoderTask(
   }
   return {
     kind: "autonomous",
-    summary:
-      `The specialist used this segment's full time budget before writing a final summary (${
-        roundsRun
-      } round(s)). It wrote ${
-        writtenPaths.size
-      } file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`,
+    summary: `The specialist used this segment's full time budget before writing a final summary (${
+      roundsRun
+    } round(s)). It wrote ${
+      writtenPaths.size
+    } file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`,
     writtenPaths: Array.from(writtenPaths).sort(),
     commandsRun,
     rounds: roundsRun,
@@ -491,15 +495,22 @@ export async function runAutonomousCoderTask(
 export async function runCoderTask(
   task: string,
   context?: string,
-  language?: string,
+  language?: string
 ): Promise<CoderResult> {
   const trimmedTask = task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
 
   const parts: string[] = [];
-  if (language?.trim()) parts.push(`Target language/framework: ${language.trim()}`);
+  if (language?.trim())
+    parts.push(`Target language/framework: ${language.trim()}`);
   parts.push(`Coding task:\n\n${trimmedTask}`);
-  if (context?.trim()) parts.push(`Existing code, errors, and other context:\n\n${context.trim()}`);
-  const code = await runNimChat({ prompt: parts.join("\n\n"), systemPrompt: CODER_SYSTEM_PROMPT });
+  if (context?.trim())
+    parts.push(
+      `Existing code, errors, and other context:\n\n${context.trim()}`
+    );
+  const code = await runNimChat({
+    prompt: parts.join("\n\n"),
+    systemPrompt: CODER_SYSTEM_PROMPT,
+  });
   return { code: code.trim(), model: ENV.nimCoderModel };
 }

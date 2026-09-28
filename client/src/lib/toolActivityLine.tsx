@@ -27,7 +27,9 @@ export function ProgressLog({ log }: { log: string[] }) {
                 : "min-w-0 break-words text-xs leading-5 text-muted-foreground"
             }
           >
-            {latest ? <CircleDashed className="size-3.5 shrink-0 animate-spin" /> : null}
+            {latest ? (
+              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+            ) : null}
             <span className="min-w-0 break-words">{line}</span>
           </p>
         );
@@ -46,50 +48,101 @@ export function toolLineText(activity: ToolActivity): string {
   if (typeof activity.args?.arguments === "string") {
     try {
       const parsed = JSON.parse(activity.args.arguments);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed as Record<string, unknown>;
-    } catch { /* truncated or malformed - fall back to the tool name */ }
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        args = parsed as Record<string, unknown>;
+    } catch {
+      /* truncated or malformed - fall back to the tool name */
+    }
   }
-  const s = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : "");
+  const s = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : "";
   const topic = s(args.topic);
-  const name = s(args.name), file = s(args.file), folder = s(args.folder);
-  const newName = s(args.new_name), parent = s(args.parent), task = s(args.task), text = s(args.text);
-  const brief = (value: string, max = 60) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
+  const name = s(args.name),
+    file = s(args.file),
+    folder = s(args.folder);
+  const newName = s(args.new_name),
+    parent = s(args.parent),
+    task = s(args.task),
+    text = s(args.text);
+  const brief = (value: string, max = 60) =>
+    value.length > max ? `${value.slice(0, max - 1)}…` : value;
   switch (activity.name) {
-    case "list_workspace": return "List Files";
-    case "create_file": return `Create File ${name}`.trim();
-    case "read_file": return `Read File ${file}`.trim();
-    case "edit_file": return `Edit File ${file}`.trim();
-    case "rename_file": return `Rename File ${file} → ${newName}`.trim();
-    case "move_file": return `Move File ${file} → ${folder}`.trim();
-    case "delete_file": return `Delete File ${file}`.trim();
-    case "create_folder": return `Create Folder ${name}`.trim();
-    case "rename_folder": return `Rename Folder ${folder} → ${newName}`.trim();
-    case "move_folder": return `Move Folder ${folder} → ${parent}`.trim();
-    case "delete_folder": return `Delete Folder ${folder}`.trim();
-    case "send_telegram_message": return text ? `Send Telegram Message: ${brief(text)}` : "Send Telegram Message";
-    case "run_vm_task": return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
-    case "research_web": return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
-    case "code_task": return task ? `Code Task: ${brief(task)}` : "Code Task";
-    case "thinking": return "Thinking";
+    case "list_workspace":
+      return "List Files";
+    case "create_file":
+      return `Create File ${name}`.trim();
+    case "read_file":
+      return `Read File ${file}`.trim();
+    case "edit_file":
+      return `Edit File ${file}`.trim();
+    case "rename_file":
+      return `Rename File ${file} → ${newName}`.trim();
+    case "move_file":
+      return `Move File ${file} → ${folder}`.trim();
+    case "delete_file":
+      return `Delete File ${file}`.trim();
+    case "create_folder":
+      return `Create Folder ${name}`.trim();
+    case "rename_folder":
+      return `Rename Folder ${folder} → ${newName}`.trim();
+    case "move_folder":
+      return `Move Folder ${folder} → ${parent}`.trim();
+    case "delete_folder":
+      return `Delete Folder ${folder}`.trim();
+    case "send_telegram_message":
+      return text
+        ? `Send Telegram Message: ${brief(text)}`
+        : "Send Telegram Message";
+    case "run_vm_task":
+      return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
+    case "research_web":
+      return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
+    case "editor":
+    case "code_task": // legacy rows from before the rename
+      return task ? `Editor: ${brief(task)}` : "Editor";
+    case "thinking":
+      return "Thinking";
     case "browse": {
       const cleaned = s(args.command).replace(/^agent-browser\s+/, "");
       return cleaned ? `Browse: ${brief(cleaned)}` : "Browse";
     }
-    default: return activity.name;
+    default:
+      return activity.name;
   }
 }
 
 export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
-  const StatusIcon = activity.state === "completed" ? CheckCircle2 : activity.state === "failed" ? XCircle : CircleDashed;
-  const stateClass = activity.state === "completed" ? "text-emerald-600 dark:text-emerald-400" : activity.state === "failed" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
+  const StatusIcon =
+    activity.state === "completed"
+      ? CheckCircle2
+      : activity.state === "failed"
+        ? XCircle
+        : CircleDashed;
+  const stateClass =
+    activity.state === "completed"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : activity.state === "failed"
+        ? "text-red-600 dark:text-red-400"
+        : "text-amber-600 dark:text-amber-400";
   // A tool that is still running is the one thing worth reading at a glance
   // while Nova works, so it gets the same bright text as an actual reply
   // instead of the muted tone settled (completed/failed) rows keep.
-  const textClass = activity.state === "running" ? "text-foreground" : "text-muted-foreground dark:text-muted-foreground";
+  const textClass =
+    activity.state === "running"
+      ? "text-foreground"
+      : "text-muted-foreground dark:text-muted-foreground";
   return (
-    <div data-testid="tool-activity-line" className={`flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium ${textClass}`}>
-      <StatusIcon className={`size-3 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`} />
-      <span className="min-w-0 truncate">{toolLineText(activity)}{activity.state === "failed" ? " (failed)" : ""}</span>
+    <div
+      data-testid="tool-activity-line"
+      className={`flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium ${textClass}`}
+    >
+      <StatusIcon
+        className={`size-3 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`}
+      />
+      <span className="min-w-0 truncate">
+        {toolLineText(activity)}
+        {activity.state === "failed" ? " (failed)" : ""}
+      </span>
     </div>
   );
 }
@@ -100,7 +153,10 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
  * "happening" instead of blending into the background; once it settles
  * (completed/failed) it steps back to the quieter resting style.
  */
-export function toolChipContainerClass(activity: ToolActivity, variant: "line" | "panel"): string {
+export function toolChipContainerClass(
+  activity: ToolActivity,
+  variant: "line" | "panel"
+): string {
   const base =
     variant === "panel"
       ? "flex w-full min-w-0 flex-col border border-l-2 border-l-primary/60 px-3 py-2 shadow-sm"
@@ -115,7 +171,7 @@ export function toolChipContainerClass(activity: ToolActivity, variant: "line" |
 /**
  * thinking blocks: the private reasoning a reasoning-capable model streams
  * before its answer (reasoning_content), as a collapsible panel like the
- * research and code_task blocks. While the model thinks it starts open with
+ * research and editor blocks. While the model thinks it starts open with
  * the live reasoning text; when the round settles it collapses so the
  * answer leads, and expands again for the full reasoning on demand.
  */
@@ -127,14 +183,20 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
     if (activity.state !== "running") setOpen(false);
   }, [activity.state]);
   return (
-    <div data-testid="thinking-tool-activity" className="flex w-full min-w-0 flex-col">
+    <div
+      data-testid="thinking-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
       <button
         type="button"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
         className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
       >
-        <span data-testid="thinking-tool-activity-line" className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+        <span
+          data-testid="thinking-tool-activity-line"
+          className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground"
+        >
           {running ? (
             <CircleDashed className="size-3 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
           ) : (
@@ -142,10 +204,15 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           )}
           <span className="min-w-0 truncate italic">Thinking</span>
         </span>
-        <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
-        <div data-testid="thinking-detail-panel" className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
+        <div
+          data-testid="thinking-detail-panel"
+          className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
+        >
           {activity.detail ? (
             <div className="break-words text-sm leading-6 text-foreground">
               <MarkdownText text={activity.detail} />
@@ -167,13 +234,20 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
  * chip: the sub-agent specialists and the model's thinking blocks.
  */
 export function isPanelToolActivity(name: string): boolean {
-  return name === "code_task" || name === "research_web" || name === "thinking";
+  return (
+    name === "editor" ||
+    name === "code_task" ||
+    name === "research_web" ||
+    name === "thinking"
+  );
 }
 
 /** Renders the matching panel component for a panel-style activity. */
 export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
-  if (activity.name === "code_task") return <CodeTaskToolActivity activity={activity} />;
-  if (activity.name === "research_web") return <ResearchToolActivity activity={activity} />;
+  if (activity.name === "editor" || activity.name === "code_task")
+    return <CodeTaskToolActivity activity={activity} />;
+  if (activity.name === "research_web")
+    return <ResearchToolActivity activity={activity} />;
   return <ThinkingToolActivity activity={activity} />;
 }
 
@@ -187,7 +261,10 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
   const [open, setOpen] = useState(activity.state === "running");
   const running = activity.state === "running";
   return (
-    <div data-testid="research-tool-activity" className="flex w-full min-w-0 flex-col">
+    <div
+      data-testid="research-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
       <button
         type="button"
         onClick={() => setOpen(previous => !previous)}
@@ -195,18 +272,24 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
         className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
       >
         <ToolActivityLine activity={activity} />
-        <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
-        <div data-testid="research-detail-panel" className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10">
+        <div
+          data-testid="research-detail-panel"
+          className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
+        >
           {running ? (
             (activity.progressLog?.length ?? 0) > 0 ? (
               <ProgressLog log={activity.progressLog!} />
             ) : (
-            <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-              {activity.detail || "Exa deep research is starting its web searches…"}
-            </p>
+              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+                {activity.detail ||
+                  "Exa deep research is starting its web searches…"}
+              </p>
             )
           ) : activity.detail ? (
             <div className="break-words text-sm leading-6 text-foreground">
@@ -214,7 +297,10 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {activity.summary || (activity.state === "failed" ? "The research failed." : "The research response is no longer available.")}
+              {activity.summary ||
+                (activity.state === "failed"
+                  ? "The research failed."
+                  : "The research response is no longer available.")}
             </p>
           )}
         </div>
@@ -223,11 +309,12 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
   );
 }
 /**
- * code_task calls get the same dropdown treatment as research_web: while the
- * coding specialist works, the panel shows the full task it was handed plus
- * the live progress notes; once it finishes, the panel holds the complete
- * code the specialist returned (or the failure reason if it went down). It
- * starts open while running so the user sees what the specialist is doing.
+ * editor calls (persisted as code_task before the rename) get the same
+ * dropdown treatment as research_web: while the editor sub-agent works, the
+ * panel shows the full task it was handed plus the live progress notes; once
+ * it finishes, the panel holds the complete code the editor returned (or the
+ * failure reason if it went down). It starts open while running so the user
+ * sees what the editor is doing.
  */
 export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
   const [open, setOpen] = useState(activity.state === "running");
@@ -238,11 +325,17 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
     const parsed = JSON.parse(activity.args?.arguments ?? "{}");
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       if (typeof parsed.task === "string") task = parsed.task.trim();
-      if (typeof parsed.language === "string") language = parsed.language.trim();
+      if (typeof parsed.language === "string")
+        language = parsed.language.trim();
     }
-  } catch { /* truncated or malformed - the header one-liner still applies */ }
+  } catch {
+    /* truncated or malformed - the header one-liner still applies */
+  }
   return (
-    <div data-testid="code-task-tool-activity" className="flex w-full min-w-0 flex-col">
+    <div
+      data-testid="code-task-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
       <button
         type="button"
         onClick={() => setOpen(previous => !previous)}
@@ -250,16 +343,23 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
         className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
       >
         <ToolActivityLine activity={activity} />
-        <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
-        <div data-testid="code-task-detail-panel" className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10">
+        <div
+          data-testid="code-task-detail-panel"
+          className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
+        >
           {task && (
             <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
               <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                 Task{language ? ` · ${language}` : ""}
               </p>
-              <p className="break-words text-sm leading-6 text-foreground">{task}</p>
+              <p className="break-words text-sm leading-6 text-foreground">
+                {task}
+              </p>
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2.5">
@@ -267,23 +367,30 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
               (activity.progressLog?.length ?? 0) > 0 ? (
                 <ProgressLog log={activity.progressLog!} />
               ) : (
-              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-                {activity.detail || "The coding specialist is reading the task…"}
-              </p>
+                <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+                  {activity.detail || "The editor is reading the task…"}
+                </p>
               )
             ) : activity.state === "failed" ? (
               <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
-                {activity.detail || activity.summary || "The coding task failed."}
+                {activity.detail ||
+                  activity.summary ||
+                  "The editor task failed."}
               </p>
             ) : activity.detail ? (
               <div className="min-w-0">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Specialist's code</p>
-                <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">{activity.detail}</pre>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  Specialist's code
+                </p>
+                <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+                  {activity.detail}
+                </pre>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                {activity.summary || "The specialist's code is no longer available."}
+                {activity.summary ||
+                  "The specialist's code is no longer available."}
               </p>
             )}
           </div>

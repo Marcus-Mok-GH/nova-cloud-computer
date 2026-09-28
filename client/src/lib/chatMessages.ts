@@ -1,6 +1,7 @@
 export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 /** Internal bookkeeping rows (specialist-acceptance state) - never rendered. */
-export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX = "__nova_specialist_acceptance__:";
+export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
+  "__nova_specialist_acceptance__:";
 
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>
@@ -23,7 +24,7 @@ export type ToolActivity = {
   detail?: string;
   /**
    * Live-only accumulation of every progress note a running tool streamed,
-   * oldest first, so long-running sub-agents (research_web, code_task) can
+   * oldest first, so long-running sub-agents (research_web, editor) can
    * show their process as an append-only log. Never persisted: completed
    * activities drop it, and the server never stores it.
    */
@@ -49,7 +50,11 @@ export function mergeToolActivity(
     merged.progressLog = undefined;
     return merged;
   }
-  if (incoming.state === "running" && incoming.detail && incoming.detail !== current.detail) {
+  if (
+    incoming.state === "running" &&
+    incoming.detail &&
+    incoming.detail !== current.detail
+  ) {
     merged.progressLog = [...(current.progressLog ?? []), incoming.detail];
   } else if (incoming.state !== "running") {
     merged.progressLog = undefined;

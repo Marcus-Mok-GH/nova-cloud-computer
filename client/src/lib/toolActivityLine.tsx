@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, CircleDashed, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  CircleDashed,
+  ListChecks,
+  XCircle,
+} from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
 import { MarkdownText } from "@/lib/markdown";
 
@@ -396,6 +402,132 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * One collapsible group for a stretch of tool calls in the persisted
+ * transcript. Instead of one full-width chip row per tool, consecutive tool
+ * runs fold into a single quiet "Used N tools" line that expands on demand,
+ * so a finished conversation reads as messages with tidy footnotes rather
+ * than a wall of tool rows. A group that still contains a running tool
+ * starts open, so a refreshed browser keeps showing live progress.
+ */
+export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
+  const [open, setOpen] = useState(
+    activities.some(activity => activity.state === "running")
+  );
+  const failed = activities.filter(
+    activity => activity.state === "failed"
+  ).length;
+  const count = activities.length;
+  return (
+    <div data-testid="tool-run-group" className="flex w-full min-w-0 flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-left shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
+      >
+        <ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
+        <span
+          data-testid="tool-run-group-summary"
+          className="min-w-0 truncate text-xs font-medium text-muted-foreground dark:text-muted-foreground"
+        >
+          Used {count} tool{count === 1 ? "" : "s"}
+        </span>
+        {failed > 0 && (
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
+            {failed} failed
+          </span>
+        )}
+        <ChevronDown
+          className={`ml-auto size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          data-testid="tool-run-group-detail"
+          className="mt-2 flex w-full min-w-0 flex-col gap-2 border-l border-foreground/[0.08] pl-3 dark:border-white/10"
+        >
+          {activities.map(activity =>
+            isPanelToolActivity(activity.name) ? (
+              <ToolActivityPanel key={activity.id} activity={activity} />
+            ) : (
+              <ToolActivityLine key={activity.id} activity={activity} />
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LIVE_RECENT_STEPS = 3;
+
+/**
+ * The single card that holds every step of a live agent run. Instead of a
+ * new full-width row per tool call - which made working sessions read like a
+ * log dump - all live tool activity collects into one compact card: the
+ * current step spins at the bottom, the last few finished steps sit above
+ * it as quiet one-liners, and longer histories fold behind a
+ * "+N earlier steps" toggle. Panel specialists (editor / research / thinking)
+ * keep their own expandable detail inside the card.
+ */
+export function LiveActivityCard({
+  activities,
+  working,
+}: {
+  activities: ToolActivity[];
+  working: boolean;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const hiddenCount = Math.max(0, activities.length - LIVE_RECENT_STEPS);
+  const visible =
+    showAll || hiddenCount === 0
+      ? activities
+      : activities.slice(-LIVE_RECENT_STEPS);
+  const failed = activities.filter(
+    activity => activity.state === "failed"
+  ).length;
+  return (
+    <div
+      data-testid="live-activity-card"
+      className="flex w-full min-w-0 flex-col gap-2.5 border border-foreground/[0.10] bg-card/60 px-3.5 py-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        {working ? (
+          <CircleDashed className="size-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+        ) : (
+          <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        )}
+        <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          {working ? "Working" : "Steps"}
+        </p>
+        <p className="ml-auto shrink-0 text-[10px] font-medium text-muted-foreground">
+          {activities.length} step{activities.length === 1 ? "" : "s"}
+          {failed > 0 ? ` · ${failed} failed` : ""}
+        </p>
+      </div>
+      {hiddenCount > 0 && !showAll && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-fit text-[11px] font-semibold text-muted-foreground transition hover:text-foreground"
+        >
+          + {hiddenCount} earlier step{hiddenCount === 1 ? "" : "s"}
+        </button>
+      )}
+      <div className="flex min-w-0 flex-col gap-2">
+        {visible.map(activity =>
+          isPanelToolActivity(activity.name) ? (
+            <ToolActivityPanel key={activity.id} activity={activity} />
+          ) : (
+            <ToolActivityLine key={activity.id} activity={activity} />
+          )
+        )}
+      </div>
     </div>
   );
 }

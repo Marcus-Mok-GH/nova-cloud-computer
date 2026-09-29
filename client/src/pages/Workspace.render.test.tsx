@@ -5,77 +5,250 @@ import Workspace, { TypingIndicator } from "./Workspace";
 import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 
 const state = vi.hoisted(() => ({
-  computer: { data: undefined as unknown, isError: false, isLoading: false, refetch: vi.fn() },
-  agentVmStatus: { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false },
-  mistralStatus: { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false },
-  chatMessages: [] as Array<{ id: number; role: "user" | "assistant"; content: string }>,
+  computer: {
+    data: undefined as unknown,
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  },
+  agentVmStatus: {
+    data: {
+      configured: false,
+      limits: {
+        activeRunsPerWorkspace: 1,
+        timeoutSeconds: 30,
+        ttlMinutes: 20,
+        network: "blocked",
+      },
+      allowance: {
+        usedRuns: 0,
+        maxRuns: 50,
+        remainingRuns: 50,
+        exhausted: false,
+      },
+      sandbox: { id: null, status: "unavailable" },
+    },
+    isError: false,
+    isLoading: false,
+  },
+  mistralStatus: {
+    data: {
+      configured: false,
+      reachable: false,
+      providerConfigured: false,
+      provider: "mistral",
+      model: "mistral-medium-latest",
+      allowance: {
+        usedRequests: 0,
+        maxRequests: 50,
+        remainingRequests: 50,
+        exhausted: false,
+      },
+    },
+    isError: false,
+    isLoading: false,
+  },
+  chatMessages: [] as Array<{
+    id: number;
+    role: "user" | "assistant";
+    content: string;
+  }>,
   agentRunStatus: { active: false as boolean },
   composioStatus: {
     data: {
       keyLength: 64,
       toolkits: {
-        github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
-        gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+        github: {
+          configured: true,
+          connected: false,
+          status: "disconnected" as "active" | "disconnected",
+          connectedAccountId: null as string | null,
+        },
+        gmail: {
+          configured: true,
+          connected: false,
+          status: "disconnected" as "active" | "disconnected",
+          connectedAccountId: null as string | null,
+        },
       },
     },
-    isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
   },
   telegramStatus: {
     data: { configured: false, chatId: null as string | null },
-    isLoading: false, isError: false, refetch: vi.fn(),
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
   },
 }));
 
 const mutation = { mutate: vi.fn(), isPending: false };
 const invalidate = vi.fn();
 
-vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main data-testid="workspace-shell">{children}</main> }));
+vi.mock("@/components/DashboardLayout", () => ({
+  default: ({ children }: { children: React.ReactNode }) => (
+    <main data-testid="workspace-shell">{children}</main>
+  ),
+}));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { computer: { useQuery: () => state.computer }, dashboard: { useQuery: () => ({ data: { projects: [], tasks: [] }, isLoading: false }) }, modelSettings: { useQuery: () => ({ data: null }) }, updateSettings: { useMutation: () => mutation } },
-    agentVm: { status: { useQuery: () => state.agentVmStatus }, list: { useQuery: () => ({ data: [] }) } },
+    workspace: {
+      computer: { useQuery: () => state.computer },
+      dashboard: {
+        useQuery: () => ({
+          data: { projects: [], tasks: [] },
+          isLoading: false,
+        }),
+      },
+      modelSettings: { useQuery: () => ({ data: null }) },
+      updateSettings: { useMutation: () => mutation },
+    },
+    agentVm: {
+      status: { useQuery: () => state.agentVmStatus },
+      list: { useQuery: () => ({ data: [] }) },
+    },
     composio: { status: { useQuery: () => state.composioStatus } },
     telegram: { status: { useQuery: () => state.telegramStatus } },
-    mistral: { status: { useQuery: () => state.mistralStatus }, models: { useQuery: () => ({ data: [] }) } },
-    folders: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
-    files: { create: { useMutation: () => mutation }, update: { useMutation: () => mutation }, delete: { useMutation: () => mutation } },
-    chats: { create: { useMutation: () => mutation }, messages: { useQuery: () => ({ data: state.chatMessages, isLoading: false }) }, runStatus: { useQuery: () => ({ data: state.agentRunStatus, isLoading: false, refetch: vi.fn() }) }, send: { useMutation: () => mutation }, stop: { useMutation: () => mutation } },
+    mistral: {
+      status: { useQuery: () => state.mistralStatus },
+      models: { useQuery: () => ({ data: [] }) },
+    },
+    folders: {
+      create: { useMutation: () => mutation },
+      update: { useMutation: () => mutation },
+      delete: { useMutation: () => mutation },
+    },
+    files: {
+      create: { useMutation: () => mutation },
+      update: { useMutation: () => mutation },
+      delete: { useMutation: () => mutation },
+    },
+    chats: {
+      create: { useMutation: () => mutation },
+      messages: {
+        useQuery: () => ({ data: state.chatMessages, isLoading: false }),
+      },
+      runStatus: {
+        useQuery: () => ({
+          data: state.agentRunStatus,
+          isLoading: false,
+          refetch: vi.fn(),
+        }),
+      },
+      send: { useMutation: () => mutation },
+      stop: { useMutation: () => mutation },
+    },
     automations: { list: { useQuery: () => ({ data: [] }) } },
-    useUtils: () => ({ workspace: { computer: { invalidate } }, chats: { messages: { invalidate } }, agentVm: { list: { invalidate } }, mistral: { status: { invalidate } } }),
+    useUtils: () => ({
+      workspace: { computer: { invalidate } },
+      chats: { messages: { invalidate } },
+      agentVm: { list: { invalidate } },
+      mistral: { status: { invalidate } },
+    }),
   },
 }));
 vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()] }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
+}));
 
 const renderWorkspace = () => renderToStaticMarkup(<Workspace />);
 
 const renderChat = () => {
-  globalThis.window = { location: { search: "?chatId=1" } } as unknown as Window & typeof globalThis;
+  globalThis.window = {
+    location: { search: "?chatId=1" },
+  } as unknown as Window & typeof globalThis;
   return renderWorkspace();
 };
 
 describe("Workspace rendered browser states", () => {
   beforeEach(() => {
-    state.computer = { data: undefined, isError: false, isLoading: false, refetch: vi.fn() };
-    state.agentVmStatus = { data: { configured: false, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 0, maxRuns: 50, remainingRuns: 50, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
-    state.mistralStatus = { data: { configured: false, reachable: false, providerConfigured: false, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }, isError: false, isLoading: false };
+    state.computer = {
+      data: undefined,
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    state.agentVmStatus = {
+      data: {
+        configured: false,
+        limits: {
+          activeRunsPerWorkspace: 1,
+          timeoutSeconds: 30,
+          ttlMinutes: 20,
+          network: "blocked",
+        },
+        allowance: {
+          usedRuns: 0,
+          maxRuns: 50,
+          remainingRuns: 50,
+          exhausted: false,
+        },
+        sandbox: { id: null, status: "unavailable" },
+      },
+      isError: false,
+      isLoading: false,
+    };
+    state.mistralStatus = {
+      data: {
+        configured: false,
+        reachable: false,
+        providerConfigured: false,
+        provider: "mistral",
+        model: "mistral-medium-latest",
+        allowance: {
+          usedRequests: 0,
+          maxRequests: 50,
+          remainingRequests: 50,
+          exhausted: false,
+        },
+      },
+      isError: false,
+      isLoading: false,
+    };
     state.chatMessages = [];
     state.agentRunStatus = { active: false };
     state.composioStatus = {
       data: {
         keyLength: 64,
         toolkits: {
-          github: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
-          gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null as string | null },
+          github: {
+            configured: true,
+            connected: false,
+            status: "disconnected" as "active" | "disconnected",
+            connectedAccountId: null as string | null,
+          },
+          gmail: {
+            configured: true,
+            connected: false,
+            status: "disconnected" as "active" | "disconnected",
+            connectedAccountId: null as string | null,
+          },
         },
       },
-      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
     };
-    state.telegramStatus = { data: { configured: false, chatId: null }, isLoading: false, isError: false, refetch: vi.fn() };
+    state.telegramStatus = {
+      data: { configured: false, chatId: null },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
   });
 
   it("renders the start-chat prompt box as a real textarea with a disabled send button until text is entered", () => {
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     const markup = renderWorkspace();
     expect(markup).toContain("<textarea");
     expect(markup).toContain("What do you want Nova to help with?");
@@ -86,7 +259,14 @@ describe("Workspace rendered browser states", () => {
     state.computer = {
       data: {
         folders: [{ id: 1, name: "Plans", parentId: null }],
-        files: [{ id: 2, name: "launch-brief.md", folderId: null, updatedAt: new Date() }],
+        files: [
+          {
+            id: 2,
+            name: "launch-brief.md",
+            folderId: null,
+            updatedAt: new Date(),
+          },
+        ],
       },
       isError: false,
       isLoading: false,
@@ -110,36 +290,82 @@ describe("Workspace rendered browser states", () => {
   });
 
   it("shows the Telegram connector as Ready only when a chat is linked, not when only the bot token is set", () => {
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     state.composioStatus = {
       data: {
         keyLength: 64,
         toolkits: {
-          github: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null },
-          gmail: { configured: true, connected: false, status: "disconnected" as const, connectedAccountId: null },
+          github: {
+            configured: true,
+            connected: false,
+            status: "disconnected" as const,
+            connectedAccountId: null,
+          },
+          gmail: {
+            configured: true,
+            connected: false,
+            status: "disconnected" as const,
+            connectedAccountId: null,
+          },
         },
       },
-      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
     };
-    state.telegramStatus = { data: { configured: true, chatId: null }, isLoading: false, isError: false, refetch: vi.fn() };
+    state.telegramStatus = {
+      data: { configured: true, chatId: null },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
     let markup = renderWorkspace();
     expect(markup).not.toContain("Ready");
-    state.telegramStatus = { data: { configured: true, chatId: "424242" }, isLoading: false, isError: false, refetch: vi.fn() };
+    state.telegramStatus = {
+      data: { configured: true, chatId: "424242" },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
     markup = renderWorkspace();
     expect(markup).toContain("Ready");
   });
 
   it("shows a connected connector as Ready and an unconnected one as Connect", () => {
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     state.composioStatus = {
       data: {
         keyLength: 64,
         toolkits: {
-          github: { configured: true, connected: true, status: "active" as const, connectedAccountId: "acc_1" },
-          gmail: { configured: true, connected: false, status: "disconnected" as "active" | "disconnected", connectedAccountId: null },
+          github: {
+            configured: true,
+            connected: true,
+            status: "active" as const,
+            connectedAccountId: "acc_1",
+          },
+          gmail: {
+            configured: true,
+            connected: false,
+            status: "disconnected" as "active" | "disconnected",
+            connectedAccountId: null,
+          },
         },
       },
-      isLoading: false, isError: false, isFetching: false, refetch: vi.fn(),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
     };
     const markup = renderWorkspace();
     expect(markup).toContain("Ready");
@@ -147,20 +373,75 @@ describe("Workspace rendered browser states", () => {
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {
-    state.computer = { data: undefined, isError: false, isLoading: true, refetch: vi.fn() };
+    state.computer = {
+      data: undefined,
+      isError: false,
+      isLoading: true,
+      refetch: vi.fn(),
+    };
     expect(renderWorkspace()).toContain("What are we working on today?");
 
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     expect(renderWorkspace()).toContain("Tools on hand");
 
-    state.computer = { data: undefined, isError: true, isLoading: false, refetch: vi.fn() };
+    state.computer = {
+      data: undefined,
+      isError: true,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     expect(renderWorkspace()).toContain("Nova could not open your computer.");
   });
 
   it("renders the overview home without execution controls", () => {
-    state.computer = { data: { folders: [], files: [] }, isError: false, isLoading: false, refetch: vi.fn() };
-    state.agentVmStatus = { data: { configured: true, limits: { activeRunsPerWorkspace: 1, timeoutSeconds: 30, ttlMinutes: 20, network: "blocked" }, allowance: { usedRuns: 7, maxRuns: 50, remainingRuns: 43, exhausted: false }, sandbox: { id: null, status: "unavailable" } }, isError: false, isLoading: false };
-    state.mistralStatus = { data: { configured: true, reachable: true, providerConfigured: true, provider: "mistral", model: "mistral-medium-latest", allowance: { usedRequests: 12, maxRequests: 50, remainingRequests: 38, exhausted: false } }, isError: false, isLoading: false };
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    state.agentVmStatus = {
+      data: {
+        configured: true,
+        limits: {
+          activeRunsPerWorkspace: 1,
+          timeoutSeconds: 30,
+          ttlMinutes: 20,
+          network: "blocked",
+        },
+        allowance: {
+          usedRuns: 7,
+          maxRuns: 50,
+          remainingRuns: 43,
+          exhausted: false,
+        },
+        sandbox: { id: null, status: "unavailable" },
+      },
+      isError: false,
+      isLoading: false,
+    };
+    state.mistralStatus = {
+      data: {
+        configured: true,
+        reachable: true,
+        providerConfigured: true,
+        provider: "mistral",
+        model: "mistral-medium-latest",
+        allowance: {
+          usedRequests: 12,
+          maxRequests: 50,
+          remainingRequests: 38,
+          exhausted: false,
+        },
+      },
+      isError: false,
+      isLoading: false,
+    };
 
     const markup = renderWorkspace();
     expect(markup).toContain("Open thread");
@@ -174,7 +455,11 @@ describe("Workspace rendered browser states", () => {
 
   it("renders an unavailable-AI persisted message as an explicit error, with the actual gateway error visible", () => {
     state.chatMessages = [
-      { id: 1, role: "assistant", content: `${MISTRAL_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset` },
+      {
+        id: 1,
+        role: "assistant",
+        content: `${MISTRAL_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset`,
+      },
     ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
@@ -183,7 +468,9 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("connection reset");
 
     // A plain assistant reply never matches the error prefix.
-    state.chatMessages = [{ id: 1, role: "assistant", content: "Mistral is a fine model" }];
+    state.chatMessages = [
+      { id: 1, role: "assistant", content: "Mistral is a fine model" },
+    ];
     const plainMarkup = renderChat();
     expect(plainMarkup).not.toContain('data-testid="assistant-error"');
     expect(plainMarkup).toContain("Mistral is a fine model");
@@ -216,10 +503,39 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
+  it("collapses consecutive persisted tool runs into one Used N tools group instead of a wall of chip rows", () => {
+    const toolRow = (
+      id: string,
+      name: string,
+      file: string,
+      messageId: number
+    ) => ({
+      id: messageId,
+      role: "assistant" as const,
+      content: `__nova_tool_activity__:${JSON.stringify({ id, name, state: "completed", args: { arguments: JSON.stringify({ file }) } })}`,
+    });
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Tidy my files" },
+      toolRow("tool-1", "read_file", "a.md", 2),
+      toolRow("tool-2", "edit_file", "b.md", 3),
+      { id: 4, role: "assistant", content: "Sorted both files." },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="tool-run-group"');
+    expect(markup).toContain("Used 2 tools");
+    expect(markup).not.toContain('data-testid="tool-run-group-detail"');
+    expect(markup).toContain("Sorted both files.");
+  });
+
   it("shows active work from the backend run ledger after a refresh", () => {
     state.chatMessages = [
       { id: 1, role: "user", content: "Handle this task" },
-      { id: 2, role: "assistant", content: '__nova_tool_activity__:{"id":"tool-1","name":"read_file","state":"running","args":{}}' },
+      {
+        id: 2,
+        role: "assistant",
+        content:
+          '__nova_tool_activity__:{"id":"tool-1","name":"read_file","state":"running","args":{}}',
+      },
     ];
     state.agentRunStatus = { active: true };
     const markup = renderChat();

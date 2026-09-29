@@ -3,8 +3,10 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import {
   CodeTaskToolActivity,
+  LiveActivityCard,
   ResearchToolActivity,
   ToolActivityLine,
+  ToolRunGroup,
   toolChipContainerClass,
   toolLineText,
 } from "./toolActivityLine";
@@ -396,5 +398,103 @@ describe("sub-agent progress log streaming", () => {
       <ResearchToolActivity activity={running} />
     );
     expect(html).toContain("Exa deep research is starting its web searches...");
+  });
+});
+
+describe("LiveActivityCard", () => {
+  const step = (id: string, state: ToolActivity["state"]): ToolActivity => ({
+    id,
+    name: "read_file",
+    state,
+    args: { arguments: `{"file":"${id}.txt"}` },
+  });
+
+  it("renders every step when the run is short, with the working header while active", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [step("t-1", "completed"), step("t-2", "running")],
+        working: true,
+      })
+    );
+    expect(html).toContain('data-testid="live-activity-card"');
+    expect(html).toContain("Working");
+    expect(html).toContain("2 steps");
+    expect(html).toContain("Read File t-1.txt");
+    expect(html).toContain("Read File t-2.txt");
+    expect(html).not.toContain("earlier step");
+  });
+
+  it("folds long histories behind a +N earlier steps toggle, keeping the newest steps visible", () => {
+    const activities = [
+      step("t-1", "completed"),
+      step("t-2", "completed"),
+      step("t-3", "completed"),
+      step("t-4", "completed"),
+      step("t-5", "running"),
+    ];
+    const html = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, { activities, working: true })
+    );
+    expect(html).toContain("+ 2 earlier steps");
+    expect(html).not.toContain("Read File t-1.txt");
+    expect(html).not.toContain("Read File t-2.txt");
+    expect(html).toContain("Read File t-3.txt");
+    expect(html).toContain("Read File t-4.txt");
+    expect(html).toContain("Read File t-5.txt");
+    expect(html).toContain("5 steps");
+  });
+
+  it("counts failed steps in the header so failures stay visible at a glance", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [step("t-1", "failed"), step("t-2", "completed")],
+        working: false,
+      })
+    );
+    expect(html).toContain("Steps");
+    expect(html).toContain("2 steps");
+    expect(html).toContain("1 failed");
+    expect(html).toContain("(failed)");
+  });
+});
+
+describe("ToolRunGroup", () => {
+  const run = (id: string, state: ToolActivity["state"]): ToolActivity => ({
+    id,
+    name: "read_file",
+    state,
+    args: { arguments: `{"file":"${id}.txt"}` },
+  });
+
+  it("collapses a settled stretch of tool rows into one quiet Used N tools line", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ToolRunGroup, {
+        activities: [run("t-1", "completed"), run("t-2", "completed")],
+      })
+    );
+    expect(html).toContain('data-testid="tool-run-group"');
+    expect(html).toContain("Used 2 tools");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('data-testid="tool-run-group-detail"');
+    expect(html).not.toContain("Read File t-1.txt");
+  });
+
+  it("starts open when one of the tools is still running so refreshes keep showing live progress", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ToolRunGroup, {
+        activities: [run("t-1", "completed"), run("t-2", "running")],
+      })
+    );
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-testid="tool-run-group-detail"');
+    expect(html).toContain("Read File t-2.txt");
+  });
+
+  it("uses the singular for a single tool and surfaces failures in the summary", () => {
+    const single = renderToStaticMarkup(
+      React.createElement(ToolRunGroup, { activities: [run("t-1", "failed")] })
+    );
+    expect(single).toContain("Used 1 tool");
+    expect(single).toContain("1 failed");
   });
 });

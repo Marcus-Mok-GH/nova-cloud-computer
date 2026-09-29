@@ -230,6 +230,41 @@ export function reconcileChatMessages(
  * keeping the LATEST state at its position (running → completed/failed).
  * Other messages pass through untouched and order is preserved.
  */
+
+export type ChatListItem =
+  | { kind: "message"; message: PersistedChatMessage }
+  | { kind: "toolRun"; activities: ToolActivity[] };
+
+/**
+ * Folds the persisted transcript into render items: consecutive tool-activity
+ * rows merge into a single `toolRun` item so the chat can render them as one
+ * collapsible "Used N tools" group instead of a stack of standalone chips.
+ * Every other message passes through unchanged, in order.
+ */
+export function groupPersistedChatItems(
+  messages: PersistedChatMessage[]
+): ChatListItem[] {
+  const items: ChatListItem[] = [];
+  let run: ToolActivity[] = [];
+  const flushRun = () => {
+    if (run.length > 0) {
+      items.push({ kind: "toolRun", activities: run });
+      run = [];
+    }
+  };
+  for (const message of messages) {
+    const activity = parsePersistedToolActivity(message.content);
+    if (activity) {
+      run.push(activity);
+      continue;
+    }
+    flushRun();
+    items.push({ kind: "message", message });
+  }
+  flushRun();
+  return items;
+}
+
 export function dedupeToolActivityMessages(
   messages: PersistedChatMessage[]
 ): PersistedChatMessage[] {

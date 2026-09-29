@@ -8,6 +8,7 @@ import {
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   type PersistedChatMessage,
   type ToolActivity,
+  groupPersistedChatItems,
 } from "./chatMessages";
 
 const toolActivity: ToolActivity = {
@@ -66,7 +67,9 @@ describe("dedupeToolActivityMessages", () => {
       tool(2, "failed"),
     ]);
     expect(result).toHaveLength(1);
-    expect(parsePersistedToolActivity(result[0]!.content)!.state).toBe("failed");
+    expect(parsePersistedToolActivity(result[0]!.content)!.state).toBe(
+      "failed"
+    );
   });
 });
 
@@ -102,7 +105,8 @@ describe("reconcileChatMessages", () => {
       { id: 2, role: "assistant", content: "Nova is here." },
     ];
     expect(
-      reconcileChatMessages(after, 1, "hello", "Nova is here.", []).replyCommitted
+      reconcileChatMessages(after, 1, "hello", "Nova is here.", [])
+        .replyCommitted
     ).toBe(true);
   });
 
@@ -121,9 +125,9 @@ describe("reconcileChatMessages", () => {
       ...persisted,
       { id: 3, role: "user", content: "hello" },
     ];
-    expect(
-      reconcileChatMessages(after, 2, "hello", "", []).userCommitted
-    ).toBe(true);
+    expect(reconcileChatMessages(after, 2, "hello", "", []).userCommitted).toBe(
+      true
+    );
   });
 
   it("hides a live tool activity once it is persisted in this submission", () => {
@@ -188,11 +192,14 @@ describe("reconcileChatMessages", () => {
         state: "completed",
         args: { arguments: "{}" },
         summary: "Researched: topic.",
-        detail: "Full report body…\n\nAll sources consulted by the researcher:\n1. src - https://src",
+        detail:
+          "Full report body…\n\nAll sources consulted by the researcher:\n1. src - https://src",
       })}`
     );
     expect(withDetail?.detail).toContain("Full report body");
-    expect(parsePersistedToolActivity(persistedToolMessage)?.detail).toBeUndefined();
+    expect(
+      parsePersistedToolActivity(persistedToolMessage)?.detail
+    ).toBeUndefined();
   });
 
   it("rejects non-string or nested args", () => {
@@ -219,13 +226,26 @@ describe("reconcileChatMessages", () => {
 });
 
 describe("mergeToolActivity", () => {
-  const base: ToolActivity = { id: "t1", name: "code_task", state: "running", args: {} };
+  const base: ToolActivity = {
+    id: "t1",
+    name: "code_task",
+    state: "running",
+    args: {},
+  };
 
   it("appends each fresh running progress note to the log", async () => {
     const { mergeToolActivity } = await import("./chatMessages");
-    const step1 = mergeToolActivity(base, { ...base, detail: "The specialist is listing the workspace files..." });
-    expect(step1.progressLog).toEqual(["The specialist is listing the workspace files..."]);
-    const step2 = mergeToolActivity(step1, { ...step1, detail: "The specialist wrote app.py..." });
+    const step1 = mergeToolActivity(base, {
+      ...base,
+      detail: "The specialist is listing the workspace files...",
+    });
+    expect(step1.progressLog).toEqual([
+      "The specialist is listing the workspace files...",
+    ]);
+    const step2 = mergeToolActivity(step1, {
+      ...step1,
+      detail: "The specialist wrote app.py...",
+    });
     expect(step2.progressLog).toEqual([
       "The specialist is listing the workspace files...",
       "The specialist wrote app.py...",
@@ -245,7 +265,11 @@ describe("mergeToolActivity", () => {
   it("drops the log when the tool finishes", async () => {
     const { mergeToolActivity } = await import("./chatMessages");
     const running = mergeToolActivity(base, { ...base, detail: "Working..." });
-    const done = mergeToolActivity(running, { ...running, state: "completed", detail: "Final result." });
+    const done = mergeToolActivity(running, {
+      ...running,
+      state: "completed",
+      detail: "Final result.",
+    });
     expect(done.state).toBe("completed");
     expect(done.progressLog).toBeUndefined();
   });
@@ -255,15 +279,25 @@ describe("appendLiveTextDelta", () => {
   it("extends the trailing text segment with consecutive deltas", () => {
     const events = appendLiveTextDelta([], "Let me check ");
     const grown = appendLiveTextDelta(events, "that for you.");
-    expect(grown).toEqual([{ kind: "text", content: "Let me check that for you." }]);
+    expect(grown).toEqual([
+      { kind: "text", content: "Let me check that for you." },
+    ]);
   });
 
   it("starts a new segment when a tool call separates the text bursts", () => {
     let events = appendLiveTextDelta([], "Checking that now.");
-    events = upsertLiveToolEvent(events, { id: "t-1", name: "read_file", state: "running", args: {} });
+    events = upsertLiveToolEvent(events, {
+      id: "t-1",
+      name: "read_file",
+      state: "running",
+      args: {},
+    });
     events = appendLiveTextDelta(events, "Here is what I found.");
     expect(events.map(event => event.kind)).toEqual(["text", "tool", "text"]);
-    expect(events[2]).toEqual({ kind: "text", content: "Here is what I found." });
+    expect(events[2]).toEqual({
+      kind: "text",
+      content: "Here is what I found.",
+    });
   });
 
   it("ignores empty deltas", () => {
@@ -273,33 +307,148 @@ describe("appendLiveTextDelta", () => {
 });
 
 describe("upsertLiveToolEvent", () => {
-  const firstSighting = { id: "t-1", name: "read_file", state: "running" as const, args: {} };
+  const firstSighting = {
+    id: "t-1",
+    name: "read_file",
+    state: "running" as const,
+    args: {},
+  };
 
   it("appends a new tool after the text that announced it, keeping arrival order", () => {
     let events = appendLiveTextDelta([], "One moment.");
     events = upsertLiveToolEvent(events, firstSighting);
     expect(events).toEqual([
       { kind: "text", content: "One moment." },
-      { kind: "tool", activity: expect.objectContaining({ id: "t-1", state: "running" }) },
+      {
+        kind: "tool",
+        activity: expect.objectContaining({ id: "t-1", state: "running" }),
+      },
     ]);
   });
 
   it("merges a state update in place instead of moving the tool", () => {
     let events = appendLiveTextDelta([], "Looking.");
     events = upsertLiveToolEvent(events, firstSighting);
-    events = upsertLiveToolEvent(events, { id: "t-2", name: "run_bash", state: "running", args: {} });
+    events = upsertLiveToolEvent(events, {
+      id: "t-2",
+      name: "run_bash",
+      state: "running",
+      args: {},
+    });
     events = appendLiveTextDelta(events, "Almost done.");
-    events = upsertLiveToolEvent(events, { ...firstSighting, state: "completed", detail: "done" });
-    expect(events.map(event => event.kind)).toEqual(["text", "tool", "tool", "text"]);
-    expect(events[1]).toMatchObject({ kind: "tool", activity: { id: "t-1", state: "completed" } });
+    events = upsertLiveToolEvent(events, {
+      ...firstSighting,
+      state: "completed",
+      detail: "done",
+    });
+    expect(events.map(event => event.kind)).toEqual([
+      "text",
+      "tool",
+      "tool",
+      "text",
+    ]);
+    expect(events[1]).toMatchObject({
+      kind: "tool",
+      activity: { id: "t-1", state: "completed" },
+    });
     expect(events[3]).toEqual({ kind: "text", content: "Almost done." });
   });
 
   it("accumulates progress notes on a running tool like the previous accumulator did", () => {
     let events = upsertLiveToolEvent([], firstSighting);
-    events = upsertLiveToolEvent(events, { ...firstSighting, detail: "step one" });
-    events = upsertLiveToolEvent(events, { ...firstSighting, detail: "step two" });
-    const tool = events[0] as { kind: "tool"; activity: { progressLog?: string[] } };
+    events = upsertLiveToolEvent(events, {
+      ...firstSighting,
+      detail: "step one",
+    });
+    events = upsertLiveToolEvent(events, {
+      ...firstSighting,
+      detail: "step two",
+    });
+    const tool = events[0] as {
+      kind: "tool";
+      activity: { progressLog?: string[] };
+    };
     expect(tool.activity.progressLog).toEqual(["step one", "step two"]);
+  });
+});
+
+describe("groupPersistedChatItems", () => {
+  const toolRow = (
+    id: string,
+    state: "completed" | "running" = "completed",
+    messageId: number
+  ) => ({
+    id: messageId,
+    role: "assistant" as const,
+    content: `__nova_tool_activity__:{"id":"${id}","name":"read_file","state":"${state}","args":{}}`,
+  });
+
+  it("folds consecutive tool rows into a single toolRun item in order", () => {
+    const items = groupPersistedChatItems([
+      { id: 1, role: "user", content: "Please tidy up" },
+      toolRow("t-1", "completed", 2),
+      toolRow("t-2", "completed", 3),
+      { id: 4, role: "assistant", content: "All done" },
+    ]);
+    expect(items).toEqual([
+      {
+        kind: "message",
+        message: { id: 1, role: "user", content: "Please tidy up" },
+      },
+      {
+        kind: "toolRun",
+        activities: [
+          {
+            id: "t-1",
+            name: "read_file",
+            state: "completed",
+            args: {},
+            summary: undefined,
+            detail: undefined,
+          },
+          {
+            id: "t-2",
+            name: "read_file",
+            state: "completed",
+            args: {},
+            summary: undefined,
+            detail: undefined,
+          },
+        ],
+      },
+      {
+        kind: "message",
+        message: { id: 4, role: "assistant", content: "All done" },
+      },
+    ]);
+  });
+
+  it("keeps tool stretches separated by a message as distinct groups", () => {
+    const items = groupPersistedChatItems([
+      toolRow("t-1", "completed", 1),
+      { id: 2, role: "user", content: "And now this" },
+      toolRow("t-2", "completed", 3),
+    ]);
+    expect(items.map(item => item.kind)).toEqual([
+      "toolRun",
+      "message",
+      "toolRun",
+    ]);
+    expect(items[0].kind === "toolRun" && items[0].activities[0].id).toBe(
+      "t-1"
+    );
+    expect(items[2].kind === "toolRun" && items[2].activities[0].id).toBe(
+      "t-2"
+    );
+  });
+
+  it("returns an empty list for an empty transcript and passes plain messages through untouched", () => {
+    expect(groupPersistedChatItems([])).toEqual([]);
+    const items = groupPersistedChatItems([
+      { id: 1, role: "assistant", content: "Hi" },
+    ]);
+    expect(items).toEqual([
+      { kind: "message", message: { id: 1, role: "assistant", content: "Hi" } },
+    ]);
   });
 });

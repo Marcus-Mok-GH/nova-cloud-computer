@@ -8,8 +8,8 @@ const curlExample = [
   "curl https://your-nova-domain.com/api/v1/chat/completions \\",
   "  -H 'Authorization: Bearer nova_sk_your_key' \\",
   "  -H 'Content-Type: application/json' \\",
-  "  -d '{\\"model\\":\\"mistral-large-latest\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"Give me three names for a coffee shop.\\"}]}'",
-].join("\\n");
+  '  -d \'{"model":"mistral-large-latest","messages":[{"role":"user","content":"Give me three names for a coffee shop."}]}\'',
+].join("\n");
 
 const javascriptExample = [
   "const response = await fetch(\"https://your-nova-domain.com/api/v1/chat/completions\", {",

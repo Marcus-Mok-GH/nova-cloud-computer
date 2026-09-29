@@ -151,7 +151,7 @@ export default function ApiDocs() {
 
             <article id="models" className="mt-8 scroll-mt-28 rounded-3xl border border-[#d9d6ce] bg-[#faf9f6] p-6 dark:border-white/10 dark:bg-[#1b211f] sm:p-8">
               <div className="flex flex-wrap items-center gap-3"><MethodPill tone="green">GET</MethodPill><code className="text-sm font-semibold">/models</code></div>
-              <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">List the models available to your Nova workspace. Use an returned <code className="rounded bg-[#ece9e2] px-1 py-0.5 text-[11px] dark:bg-white/10">id</code> in chat completion requests.</p>
+              <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">List the models available to your Nova workspace. Use a returned <code className="rounded bg-[#ece9e2] px-1 py-0.5 text-[11px] dark:bg-white/10">id</code> in chat completion requests.</p>
               <div className="mt-6"><CodeBlock code={modelsExample} label="response" /></div>
             </article>
 

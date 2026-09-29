@@ -18,6 +18,7 @@ import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
 import Status from "./pages/Status";
 import Admin from "./pages/Admin";
+import ApiDocs from "./pages/ApiDocs";
 
 function Router() {
   return (
@@ -34,6 +35,7 @@ function Router() {
       <Route path={"/app/status"} component={Status} />
       <Route path={"/app/more"} component={More} />
       <Route path={"/app/admin"} component={Admin} />
+      <Route path={"/docs/api"} component={ApiDocs} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

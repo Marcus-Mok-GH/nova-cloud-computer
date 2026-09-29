@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowUpRight, BookOpen, Check, Copy, KeyRound, MessageSquare, Moon, Sun, Terminal, Zap } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, BookOpen, Check, Copy, KeyRound, LoaderCircle, MessageSquare, Moon, Play, ShieldCheck, Sun, Terminal, Zap } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -80,6 +80,79 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
 
 function MethodPill({ children, tone = "orange" }: { children: string; tone?: "orange" | "green" }) {
   return <span className={tone === "green" ? "rounded-md bg-[#dcebdc] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#4f7656] dark:bg-[#7ca981]/15 dark:text-[#a8d5a8]" : "rounded-md bg-[#f0ddd4] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#a65331] dark:bg-[#a5674c]/20 dark:text-[#f0ad89]"}>{children}</span>;
+}
+
+function TryApiConsole() {
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("mistral-large-latest");
+  const [prompt, setPrompt] = useState("Give me one practical idea for using Nova in my workflow.");
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState(false);
+
+  const runRequest = async () => {
+    if (!apiKey.trim()) {
+      setError("Add an API key from Settings before running the request.");
+      setResult("");
+      return;
+    }
+    if (!prompt.trim()) {
+      setError("Add a prompt before running the request.");
+      setResult("");
+      return;
+    }
+    setRunning(true);
+    setError("");
+    setResult("");
+    try {
+      const response = await fetch("/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + apiKey.trim(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model.trim() || undefined,
+          messages: [{ role: "user", content: prompt.trim() }],
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(data?.error?.message || "Request failed (" + response.status + ").");
+        return;
+      }
+      setResult(data?.choices?.[0]?.message?.content || JSON.stringify(data, null, 2));
+    } catch {
+      setError("The request could not reach this Nova deployment. Try again in a moment.");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 overflow-hidden rounded-3xl border border-[#cfc9bd] bg-[#efede7] dark:border-white/10 dark:bg-[#202623]">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#d9d6ce] px-5 py-5 dark:border-white/10 sm:px-7">
+        <div>
+          <div className="flex items-center gap-2"><Play className="size-4 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm font-semibold">Try it from here</p></div>
+          <p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">This sends one non-streaming request to the current Nova deployment.</p>
+        </div>
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-[#dcebdc] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#4f7656] dark:bg-[#7ca981]/15 dark:text-[#a8d5a8]"><ShieldCheck className="size-3.5" />Key stays in memory</div>
+      </div>
+      <div className="grid gap-5 p-5 sm:p-7 lg:grid-cols-[0.85fr_1.15fr]">
+        <div className="space-y-4">
+          <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">API key</span><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="nova_sk_..." autoComplete="off" className="mt-2 w-full rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
+          <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">Model <span className="font-normal text-[#858780]">(optional)</span></span><input value={model} onChange={event => setModel(event.target.value)} placeholder="mistral-large-latest" className="mt-2 w-full rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
+          <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">Prompt</span><textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="mt-2 w-full resize-y rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm leading-6 outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
+          <button type="button" onClick={runRequest} disabled={running} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#b65f38] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#9f4f2d] disabled:cursor-wait disabled:opacity-60 dark:bg-[#d17b52] dark:hover:bg-[#e59468]">{running ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}{running ? "Running request..." : "Run request"}</button>
+          <p className="text-[11px] leading-5 text-[#858780]">Your key is sent only to this deployment for this request and is not saved by the docs page.</p>
+        </div>
+        <div className="min-h-[280px] rounded-2xl border border-[#303b3d] bg-[#202a2c] p-5 text-[#e8ece7] dark:bg-[#0f1515]">
+          <div className="flex items-center justify-between gap-3"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#9fa9a4]">Response</p>{result && <span className="text-[11px] font-semibold text-[#a4c89d]">200 OK</span>}</div>
+          {error ? <div className="mt-6 rounded-xl border border-[#d98e6b]/30 bg-[#d98e6b]/10 p-4 text-sm leading-6 text-[#f0b195]">{error}</div> : result ? <pre className="mt-5 max-h-[360px] overflow-auto whitespace-pre-wrap text-[13px] leading-6"><code>{result}</code></pre> : <div className="mt-16 text-center text-sm leading-6 text-[#9fa9a4]"><p>Your response will appear here.</p><p className="mt-1 text-xs text-[#76817b]">Add your key and run a prompt to test the connection.</p></div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ApiDocs() {
@@ -166,6 +239,7 @@ export default function ApiDocs() {
               <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">Generate a response from your configured Nova model. The request follows the OpenAI chat completions shape.</p>
               <div className="mt-6"><CodeBlock code={javascriptExample} label="javascript" /></div>
               <div className="mt-4"><CodeBlock code={responseExample} label="response · stream false" /></div>
+              <TryApiConsole />
               <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2"><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">messages</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Required. Up to 40 messages with system, user, or assistant roles.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">stream</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional boolean. Set true for Server-Sent Events and finish with [DONE].</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">model</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional model id from /models. The workspace default is used when omitted.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">content</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Strings or arrays of text parts. Total prompt content is limited to 100,000 characters.</p></div></div>
             </article>
           </section>

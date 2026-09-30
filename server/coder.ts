@@ -233,19 +233,37 @@ async function runSandboxCommand(
   };
 }
 
-async function listWorkspaceFiles(sandbox: E2BSandboxLike): Promise<string> {
+/**
+ * Lists the workspace files for the specialist's intro prompt and the
+ * list_files tool. Failures stay failures: a thrown command or a non-zero
+ * exit must not read as a successful empty listing, or the specialist (and
+ * the user's activity feed) would believe the workspace is empty.
+ */
+async function listWorkspaceFiles(
+  sandbox: E2BSandboxLike
+): Promise<{ ok: boolean; result: string }> {
   try {
     const result = await sandbox.commands.run(
       `cd ${E2B_WORKSPACE_DIR} && find . -type f -not -path './.git/*' | sort | head -200`,
       { timeoutMs: 15_000 }
     );
+    const exitCode = (result as { exitCode?: unknown }).exitCode ?? 0;
+    if (exitCode !== 0)
+      return {
+        ok: false,
+        result: `(could not list the workspace: exit code ${exitCode})`,
+      };
     const listing = String((result as { stdout?: unknown }).stdout ?? "")
       .split("\n")
       .map(line => line.trim().replace(/^\.\//, ""))
       .filter(Boolean);
-    return listing.length > 0 ? listing.join("\n") : "(the workspace is empty)";
+    return {
+      ok: true,
+      result:
+        listing.length > 0 ? listing.join("\n") : "(the workspace is empty)",
+    };
   } catch {
-    return "(could not list the workspace)";
+    return { ok: false, result: "(could not list the workspace)" };
   }
 }
 
@@ -320,7 +338,7 @@ async function executeCoderToolCall(
   const raw = (value: unknown) => (typeof value === "string" ? value : "");
   switch (name) {
     case "list_files":
-      return { ok: true, result: await listWorkspaceFiles(sandbox) };
+      return await listWorkspaceFiles(sandbox);
     case "read_file": {
       const path = safeWorkspacePath(str(args.path));
       if (!path) return { ok: false, result: `Unsafe path: ${str(args.path)}` };
@@ -426,7 +444,7 @@ export async function runAutonomousCoderTask(
   const trimmedTask = options.task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
 
-  const listing = await listWorkspaceFiles(options.sandbox);
+  const workspaceListing = await listWorkspaceFiles(options.sandbox);
   const intro: string[] = [];
   if (options.language?.trim())
     intro.push(`Target language/framework: ${options.language.trim()}`);
@@ -436,7 +454,7 @@ export async function runAutonomousCoderTask(
       `Existing code, errors, and other context:\n\n${options.context.trim()}`
     );
   intro.push(
-    `The workspace currently holds these files (paths relative to ${E2B_WORKSPACE_DIR}):\n\n${listing}`
+    `The workspace currently holds these files (paths relative to ${E2B_WORKSPACE_DIR}):\n\n${workspaceListing.result}`
   );
 
   const messages: NimAgentMessage[] = [

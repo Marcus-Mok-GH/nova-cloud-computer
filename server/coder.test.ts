@@ -234,6 +234,40 @@ describe("runAutonomousCoderTask", () => {
     expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a failed workspace listing as failed instead of an empty workspace", async () => {
+    const sandbox = fakeSandbox();
+    const activities: Array<{
+      id: string;
+      name: string;
+      state: string;
+      summary?: string;
+    }> = [];
+    // The intro-prompt listing runs before the loop; make it fail, then have
+    // the specialist's explicit list_files call fail the same way.
+    sandbox.commands.run.mockRejectedValue(new Error("sandbox gone"));
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "list_files", {}))
+      .mockResolvedValueOnce(textReply("Could not list the workspace."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "see what is here",
+      sandbox: sandbox as never,
+      onToolActivity: activity => {
+        activities.push(activity);
+      },
+    });
+
+    // The intro prompt carried the failure text, not a clean empty listing.
+    const firstPrompt = runNimAgentChatMock.mock.calls[0][0].messages[1]
+      .content as string;
+    expect(firstPrompt).toContain("could not list the workspace");
+    const settled = activities.filter(a => a.state !== "running");
+    expect(settled).toHaveLength(1);
+    expect(settled[0].state).toBe("failed");
+    expect(settled[0].summary).toContain("Could not list the workspace files");
+    expect(outcome.kind).toBe("autonomous");
+  });
+
   it("falls back to the single-shot reply when the model rejects tools", async () => {
     runNimAgentChatMock.mockRejectedValueOnce(
       new NimToolsUnsupportedError(

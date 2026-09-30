@@ -106,6 +106,10 @@ export function toolLineText(activity: ToolActivity): string {
     case "editor":
     case "code_task": // legacy rows from before the rename
       return task ? `Editor: ${brief(task)}` : "Editor";
+    case "solve_equation": {
+      const expression = s(args.equation);
+      return expression ? `Solve: ${brief(expression)}` : "Solve";
+    }
     case "thinking":
       return "Thinking";
     case "browse": {
@@ -237,14 +241,16 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
 
 /**
  * Whether an activity renders as an expandable panel rather than a one-line
- * chip: the sub-agent specialists and the model's thinking blocks.
+ * chip: the sub-agent specialists, the model's thinking blocks, and the
+ * equation solver.
  */
 export function isPanelToolActivity(name: string): boolean {
   return (
     name === "editor" ||
     name === "code_task" ||
     name === "research_web" ||
-    name === "thinking"
+    name === "thinking" ||
+    name === "solve_equation"
   );
 }
 
@@ -254,6 +260,8 @@ export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
     return <CodeTaskToolActivity activity={activity} />;
   if (activity.name === "research_web")
     return <ResearchToolActivity activity={activity} />;
+  if (activity.name === "solve_equation")
+    return <SolveEquationToolActivity activity={activity} />;
   return <ThinkingToolActivity activity={activity} />;
 }
 
@@ -403,6 +411,108 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * solve_equation calls get the same dropdown treatment as the specialists:
+ * while the solver works it starts open with a live note, and once it settles
+ * the panel shows exactly what went in (the expression Nova passed) and what
+ * came out (the evaluated answer) - or the real parse error when it failed.
+ */
+export function SolveEquationToolActivity({
+  activity,
+}: {
+  activity: ToolActivity;
+}) {
+  const [open, setOpen] = useState(activity.state === "running");
+  const running = activity.state === "running";
+  let equation = "";
+  try {
+    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (typeof parsed.equation === "string")
+        equation = parsed.equation.trim();
+    }
+  } catch {
+    /* truncated or malformed - the header one-liner still applies */
+  }
+  return (
+    <div
+      data-testid="solve-equation-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          data-testid="solve-equation-detail-panel"
+          className="mt-2 flex w-full min-w-0 flex-col gap-2.5 rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
+        >
+          {running ? (
+            <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+              Evaluating…
+            </p>
+          ) : (
+            <SolveEquationDetail activity={activity} equation={equation} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The settled (completed/failed) input/output body of the solver panel. */
+export function SolveEquationDetail({
+  activity,
+  equation,
+}: {
+  activity: ToolActivity;
+  equation: string;
+}) {
+  return (
+    <>
+      {equation && (
+        <div className="min-w-0">
+          <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            Input
+          </p>
+          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+            {equation}
+          </pre>
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+          Output
+        </p>
+        {activity.state === "failed" ? (
+          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-red-600 dark:text-red-400">
+            {activity.detail ||
+              activity.summary ||
+              "Could not evaluate the expression."}
+          </pre>
+        ) : activity.detail ? (
+          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+            {activity.detail}
+          </pre>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {activity.summary || "The result is no longer available."}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 

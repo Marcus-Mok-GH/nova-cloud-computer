@@ -2631,16 +2631,19 @@ async function executeWorkspaceTool(
           answer === undefined ||
           answer === null ||
           (typeof answer === "number" && !Number.isFinite(answer))
-        )
+        ) {
+          const noNumber = `That expression does not evaluate to a number (got: ${String(answer)}). Pass a single numeric expression like '20 - 11.33'.`;
           return {
             ok: false,
-            result: `That expression does not evaluate to a number (got: ${String(answer)}). Pass a single numeric expression like '20 - 11.33'.`,
+            result: noNumber,
+            detail: noNumber,
             action: {
               kind: "tool",
               name: equation.slice(0, 60),
               operation: "failed",
             },
           };
+        }
         const formatted =
           typeof answer === "number"
             ? formatMathAnswer(answer)
@@ -2656,9 +2659,11 @@ async function executeWorkspaceTool(
           },
         };
       } catch (error) {
+        const failure = `Could not evaluate '${equation}': ${error instanceof Error ? error.message : "invalid expression"}. Pass a single numeric expression like '20 - 11.33' or 'sqrt(196) * 3.5'.`;
         return {
           ok: false,
-          result: `Could not evaluate '${equation}': ${error instanceof Error ? error.message : "invalid expression"}. Pass a single numeric expression like '20 - 11.33' or 'sqrt(196) * 3.5'.`,
+          result: failure,
+          detail: failure,
           action: {
             kind: "tool",
             name: equation.slice(0, 60),

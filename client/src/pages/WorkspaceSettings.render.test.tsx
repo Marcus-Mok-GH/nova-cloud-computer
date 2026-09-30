@@ -20,11 +20,36 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock("@/contexts/ThemeContext", () => ({
+  useTheme: () => ({
+    theme: "light",
+    themeName: "daylight",
+    toggleTheme: vi.fn(),
+    switchable: true,
+    setThemeName: vi.fn(),
+    themes: [
+      { id: "daylight", label: "Daylight", mode: "light", description: "Warm neutral with orange accents" },
+      { id: "ocean", label: "Ocean", mode: "light", description: "Cool blue, calm and clear" },
+      { id: "midnight", label: "Midnight", mode: "dark", description: "Neutral black with orange accents" },
+      { id: "deepsea", label: "Deep sea", mode: "dark", description: "Deep navy and glacier blue" },
+    ],
+  }),
+}));
 
 describe("Workspace settings page", () => {
   it("renders workspace rules, Telegram connection, and natural-language automations", () => {
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain("General");
+    expect(markup).toContain("AI provider (BYOK)");
+    expect(markup).toContain("Connections");
+    expect(markup).toContain("Automations");
+    expect(markup).toContain("API keys");
+    expect(markup).toContain("Account</button>");
     expect(markup).toContain("Workspace rules");
+    expect(markup).toContain("Appearance");
+    expect(markup).toContain("Daylight");
+    expect(markup).toContain("Deep sea");
     expect(markup).toContain("How Nova should help");
     expect(markup).toContain("Factory reset workspace");
     expect(markup).toContain("Reset everything from scratch");

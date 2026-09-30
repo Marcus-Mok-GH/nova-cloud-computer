@@ -1,3 +1,22 @@
+2026-09-30 - Settings gets tabs and a light/dark theme picker
+
+Settings was one long scroll and the only appearance control was the
+light/dark toggle in the account menu. The page now groups its cards under
+General, AI provider (BYOK), Connections, Automations, API keys, and Account
+tabs so related preferences sit together, and inactive panels stay mounted
+(just hidden) to keep their state.
+
+The General tab adds a Theme card: five light (Daylight, Ocean, Meadow,
+Blossom, Sandstone) and five dark (Midnight, Deep sea, Pine, Nebula, Ember)
+palettes, each a `[data-theme]` token set in index.css with a live swatch
+preview. ThemeContext now tracks the palette id, applies `data-theme` on
+<html> plus the `.dark` class (so Tailwind `dark:` variants keep working),
+migrates the legacy stored "light"/"dark" value, and remembers the last pick
+per mode for the account-menu toggle. Files: client/src/index.css,
+client/src/contexts/ThemeContext.tsx, client/src/components/ThemeCard.tsx,
+client/src/pages/WorkspaceSettings.tsx. ThemeContext.test.tsx is new; the
+settings render test asserts the tabs and the theme options.
+
 2026-09-30 - Inference API exposes a fixed model surface with BYOK support
 
 The public inference API listed every gateway model and passed `model`

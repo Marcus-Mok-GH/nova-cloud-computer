@@ -140,6 +140,20 @@ describe("toolLineText", () => {
       "Send Telegram Message: ".length + 60
     );
   });
+
+  it("formats the editor specialist's own tool calls", () => {
+    expect(toolLineText(activity("list_files", "{}"))).toBe("List Files");
+    expect(toolLineText(activity("write_file", '{"path":"index.html"}'))).toBe(
+      "Write File index.html"
+    );
+    expect(toolLineText(activity("read_file", '{"path":"src/main.py"}'))).toBe(
+      "Read File src/main.py"
+    );
+    expect(
+      toolLineText(activity("run_command", '{"command":"npm test"}'))
+    ).toBe("Run Command: npm test");
+    expect(toolLineText(activity("run_command", "{}"))).toBe("Run Command");
+  });
 });
 
 describe("ResearchToolActivity", () => {

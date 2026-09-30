@@ -4,6 +4,7 @@ import {
   runAutonomousCoderTask,
   runCoderTask,
   type CoderOutcome,
+  type CoderToolActivity,
 } from "./coder";
 import { NimConfigError } from "./nim";
 import type { E2BSandboxLike } from "./e2b";
@@ -1642,7 +1643,13 @@ async function executeWorkspaceTool(
   gate?: OwnCodingGate,
   channel?: "telegram" | "web",
   deadlineAtMs?: number,
-  chatId?: number
+  chatId?: number,
+  /**
+   * Receives the editor specialist's own tool calls (read/write/list/command)
+   * as they happen, so they stream as first-class activity rows like the
+   * agent's own tool calls instead of prose notes.
+   */
+  onSubToolActivity?: (tool: WorkspaceToolActivity) => void | Promise<void>
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -2882,6 +2889,26 @@ async function executeWorkspaceTool(
               sandbox,
               onProgress: note,
               deadlineAtMs,
+              // The specialist's own tool calls stream out as real activity
+              // rows, namespaced under this editor call's id so they can
+              // never collide across editor invocations in one run. Args are
+              // repacked into the same { arguments: json } shape every tool
+              // row uses, so the client renders them with its usual labels.
+              ...(onSubToolActivity
+                ? {
+                    onToolActivity: (activity: CoderToolActivity) => {
+                      return onSubToolActivity({
+                        id: `${call.id}:${activity.id}`,
+                        name: activity.name,
+                        state: activity.state,
+                        args: { arguments: JSON.stringify(activity.args) },
+                        ...(activity.summary
+                          ? { summary: activity.summary }
+                          : {}),
+                      });
+                    },
+                  }
+                : {}),
             })
           : runCoderTask(task, context, language).then(result => ({
               kind: "single",
@@ -3886,7 +3913,12 @@ ${
                 ownCodingGate,
                 options.channel,
                 deadlineAtMs,
-                chatId
+                chatId,
+                // The editor specialist's own tool calls stream as real
+                // activity rows: emitted live to the open chat AND persisted
+                // through emitTool, so they read back from the ledger exactly
+                // like the agent's own tool calls.
+                subTool => emitTool(subTool)
               ),
             deadlineAtMs
           );

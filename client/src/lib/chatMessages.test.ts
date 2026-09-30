@@ -445,11 +445,13 @@ describe("buildTurnItems", () => {
     ]);
     expect(items[0]).toEqual({
       kind: "user",
+      key: "user-1",
       content: "Tidy my files",
       pending: false,
     });
     expect(items[1]).toEqual({
       kind: "reply",
+      key: "live-reply-0",
       content: "Let me check that.",
       live: true,
     });
@@ -458,6 +460,7 @@ describe("buildTurnItems", () => {
     );
     expect(items[3]).toEqual({
       kind: "reply",
+      key: "live-reply-2",
       content: "Found two files.",
       live: true,
     });
@@ -497,12 +500,14 @@ describe("buildTurnItems", () => {
     ]);
     expect(items[1]).toEqual({
       kind: "reply",
+      key: "reply-2",
       content: "Let me check that.",
       live: false,
     });
     expect(items[2].kind === "toolRun" && items[2].live).toBe(false);
     expect(items[3]).toEqual({
       kind: "reply",
+      key: "live-reply-2",
       content: "Found two files.",
       live: true,
     });
@@ -522,6 +527,7 @@ describe("buildTurnItems", () => {
     expect(items.map(item => item.kind)).toEqual(["user", "toolRun", "reply"]);
     expect(items[2]).toEqual({
       kind: "reply",
+      key: "reply-3",
       content: "Sorted both files.",
       live: false,
     });
@@ -544,6 +550,7 @@ describe("buildTurnItems", () => {
     );
     expect(items[2]).toEqual({
       kind: "reply",
+      key: "reply-3",
       content: "All sorted.",
       live: false,
     });
@@ -557,7 +564,12 @@ describe("buildTurnItems", () => {
       userCommitted: false,
     });
     expect(items).toEqual([
-      { kind: "user", content: "Tidy my files", pending: true },
+      {
+        kind: "user",
+        key: "user-pending",
+        content: "Tidy my files",
+        pending: true,
+      },
     ]);
   });
 });

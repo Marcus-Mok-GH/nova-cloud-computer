@@ -337,18 +337,21 @@ export default function Workspace() {
       if (item.kind === "toolRun")
         rows.push({
           kind: "toolRun",
+          key: `tools-${item.activities[0].id}`,
           activities: item.activities,
           live: false,
         });
       else if (item.message.role === "user")
         rows.push({
           kind: "user",
+          key: `user-${item.message.id}`,
           content: item.message.content,
           pending: false,
         });
       else
         rows.push({
           kind: "reply",
+          key: `reply-${item.message.id}`,
           content: item.message.content,
           live: false,
         });
@@ -472,11 +475,12 @@ export default function Workspace() {
                       </div>
                     </div>
                   ) : (
-                    rows.map((row, index) => {
+                    rows.map(row => {
+                      const index = rows.indexOf(row);
                       if (row.kind === "toolRun")
                         return row.live ? (
                           <div
-                            key={`live-tools-${row.activities[0].id}`}
+                            key={row.key}
                             className="chat-in flex w-full shrink-0 flex-col pl-0 sm:pl-12"
                           >
                             {novaLeadsRow(index) && (
@@ -491,7 +495,7 @@ export default function Workspace() {
                           </div>
                         ) : (
                           <div
-                            key={`tools-${row.activities[0].id}`}
+                            key={row.key}
                             className="chat-in flex w-full shrink-0 pl-0 sm:pl-12"
                           >
                             <ToolRunGroup activities={row.activities} />
@@ -500,7 +504,7 @@ export default function Workspace() {
                       if (row.kind === "user")
                         return (
                           <div
-                            key={`user-${index}`}
+                            key={row.key}
                             className="chat-in flex w-full shrink-0 justify-end"
                           >
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
@@ -508,11 +512,11 @@ export default function Workspace() {
                             </div>
                           </div>
                         );
-                      const isLast = index === rows.length - 1;
+                      const isLast = rows.indexOf(row) === rows.length - 1;
                       const streaming = row.live && agentIsWorking && isLast;
                       return (
                         <div
-                          key={`reply-${index}`}
+                          key={row.key}
                           className="chat-in flex w-full shrink-0 items-start gap-3"
                         >
                           <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black">

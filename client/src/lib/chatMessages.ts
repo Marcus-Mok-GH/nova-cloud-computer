@@ -298,11 +298,18 @@ export function groupPersistedChatItems(
   return items;
 }
 
-/** One renderable entry of the current turn, in the order it happened. */
+/**
+ * One renderable entry of the current turn, in the order it happened. `key`
+ * identifies the row across re-renders: the persisted message id for ledger
+ * rows, the live-segment index for live rows. Array indices would make React
+ * reuse one row's DOM node for a different row as the list changes shape
+ * (optimistic user bubble to ledger row, live segment to ledger reply),
+ * replaying the entry animation or flashing stale content.
+ */
 export type TurnRenderItem =
-  | { kind: "user"; content: string; pending: boolean }
-  | { kind: "reply"; content: string; live: boolean }
-  | { kind: "toolRun"; activities: ToolActivity[]; live: boolean };
+  | { kind: "user"; key: string; content: string; pending: boolean }
+  | { kind: "reply"; key: string; content: string; live: boolean }
+  | { kind: "toolRun"; key: string; activities: ToolActivity[]; live: boolean };
 
 /**
  * Lays the current turn out in the order it actually happened: what the user
@@ -352,11 +359,21 @@ export function buildTurnItems({
   // elsewhere (Telegram, a reload) has no optimistic bubble at all.
   const pendingUser = Boolean(pendingUserContent) && !userCommitted;
   if (pendingUser)
-    items.push({ kind: "user", content: pendingUserContent, pending: true });
+    items.push({
+      kind: "user",
+      key: "user-pending",
+      content: pendingUserContent,
+      pending: true,
+    });
   else
     for (const message of messages)
       if (message.role === "user")
-        items.push({ kind: "user", content: message.content, pending: false });
+        items.push({
+          kind: "user",
+          key: `user-${message.id}`,
+          content: message.content,
+          pending: false,
+        });
 
   // Which live text segments the ledger has already recorded. Matched in
   // order, and a mismatch does not advance the pointer: a segment the server
@@ -392,13 +409,19 @@ export function buildTurnItems({
     if (item.kind === "toolRun")
       items.push({
         kind: "toolRun",
+        key: `tools-${item.activities[0].id}`,
         live: false,
         activities: item.activities.map(
           activity => ledgerActivities.get(activity.id) ?? activity
         ),
       });
     else if (item.message.role === "assistant")
-      items.push({ kind: "reply", content: item.message.content, live: false });
+      items.push({
+        kind: "reply",
+        key: `reply-${item.message.id}`,
+        content: item.message.content,
+        live: false,
+      });
   }
 
   // The live tail: the segment still streaming and any tool whose row has not
@@ -408,14 +431,24 @@ export function buildTurnItems({
     const item = liveItems[index];
     if (item.kind === "text") {
       if (!liveTextCommitted[index] && !closingReplyPersisted)
-        items.push({ kind: "reply", content: item.content, live: true });
+        items.push({
+          kind: "reply",
+          key: `live-reply-${index}`,
+          content: item.content,
+          live: true,
+        });
       continue;
     }
     const activities = item.activities.filter(
       activity => !ledgerActivities.has(activity.id)
     );
     if (activities.length > 0)
-      items.push({ kind: "toolRun", activities, live: true });
+      items.push({
+        kind: "toolRun",
+        key: `live-tools-${item.activities[0].id}`,
+        activities,
+        live: true,
+      });
   }
 
   return items;

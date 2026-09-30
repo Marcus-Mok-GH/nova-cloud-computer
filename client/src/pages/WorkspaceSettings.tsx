@@ -4,21 +4,33 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import UserAutomationsCard from "@/components/UserAutomationsCard";
 import ApiKeysCard from "@/components/ApiKeysCard";
+import ThemeCard from "@/components/ThemeCard";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Check, Clipboard, Github, KeyRound, Loader2, LogOut, Mail, MessageCircle, RefreshCw, Send, ShieldCheck, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
+import { AlertTriangle, Check, Clipboard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+
+/** Tab bar sections for the settings page. Each panel is kept mounted but hidden when inactive. */
+const settingsTabs = [
+  { id: "general", label: "General", icon: SlidersHorizontal },
+  { id: "ai", label: "AI provider (BYOK)", icon: KeyRound },
+  { id: "connections", label: "Connections", icon: Plug },
+  { id: "automations", label: "Automations", icon: Sparkles },
+  { id: "api", label: "API keys", icon: KeySquare },
+  { id: "account", label: "Account", icon: UserCircle },
+] as const;
 
 export default function WorkspaceSettings() {
   const utils = trpc.useUtils();
   const settings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });
   const [rules, setRules] = useState("");
+  const [activeTab, setActiveTab] = useState<(typeof settingsTabs)[number]["id"]>("general");
   useEffect(() => { if (settings.data) setRules(settings.data.workspaceRules ?? ""); }, [settings.data]);
   const updateSettings = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await Promise.all([utils.workspace.modelSettings.invalidate(), utils.workspace.dashboard.invalidate()]); toast.success("Workspace settings saved."); }, onError: error => toast.error(error.message) });
   if (settings.isLoading) return <DashboardLayout><div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div></DashboardLayout>;
@@ -26,15 +38,15 @@ export default function WorkspaceSettings() {
   return <DashboardLayout><div className="relative mx-auto max-w-5xl space-y-7 pb-12 pt-6">
     <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
     <section className="rise-in relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-8 shadow-[0_4px_14px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-card sm:px-9 sm:py-10"><div className="relative"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">Your personal cloud</p><h1 className="mt-3 text-2xl font-extrabold tracking-tight text-foreground dark:text-foreground sm:text-3xl">Preferences with a memory.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Give Nova the standing rules and recurring jobs that make your workspace feel like yours.</p></div></section>
-    <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 text-xl font-bold tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section>
-    <ModelProviderCard />
-    <TelegramBotCard />
-    <ConnectorCard toolkit="github" />
-    <ConnectorCard toolkit="gmail" />
-    <UserAutomationsCard />
-    <ApiKeysCard />
-    <FactoryResetCard />
-    <AccountManagementCard />
+    <nav role="tablist" aria-label="Settings sections" className="rise-in relative flex gap-1 overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-[0_4px_14px_rgba(10,10,10,0.05)]">
+      {settingsTabs.map(tab => <button key={tab.id} type="button" role="tab" id={`settings-tab-${tab.id}`} aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${activeTab === tab.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4 shrink-0" />{tab.label}</button>)}
+    </nav>
+    <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className={activeTab === "general" ? "space-y-7" : "hidden"}><section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 text-xl font-bold tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section><ThemeCard /></div>
+    <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className={activeTab === "ai" ? "space-y-7" : "hidden"}><ModelProviderCard /></div>
+    <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /></div>
+    <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
+    <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
+    <div role="tabpanel" id="settings-panel-account" aria-labelledby="settings-tab-account" className={activeTab === "account" ? "space-y-7" : "hidden"}><AccountManagementCard /><FactoryResetCard /></div>
   </div></DashboardLayout>;
 }
 

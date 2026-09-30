@@ -49,6 +49,11 @@ describe("Files page", () => {
     expect(markup).toContain("Collapse folders");
     // rows are compact VS Code style tree rows
     expect(markup).toContain("h-[26px]");
+    // The shell owns a definite viewport height so the flex-1 editor gets a
+    // usable typing area even though the dashboard main has no fixed height on
+    // phones (it is min-h-svh below md).
+    expect(markup).toContain("h-[calc(100svh-5rem)]");
+    expect(markup).toContain("md:h-full");
   });
 
   it("shows an empty state when the active Files folder has no contents", () => {

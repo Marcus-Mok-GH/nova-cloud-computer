@@ -3,7 +3,11 @@ import { runAutonomousCoderTask, runCoderTask } from "./coder";
 
 const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
 vi.mock("./_core/env", () => ({
-  ENV: { get nimCoderModel() { return state.nimModel; } },
+  ENV: {
+    get nimCoderModel() {
+      return state.nimModel;
+    },
+  },
 }));
 
 const runNimChatMock = vi.hoisted(() => vi.fn());
@@ -53,17 +57,23 @@ describe("runCoderTask", () => {
   it("omits the optional language and context lines when not provided", async () => {
     runNimChatMock.mockResolvedValueOnce("code");
     await runCoderTask("fix the bug");
-    expect(runNimChatMock.mock.calls[0][0].prompt).toBe("Coding task:\n\nfix the bug");
+    expect(runNimChatMock.mock.calls[0][0].prompt).toBe(
+      "Coding task:\n\nfix the bug"
+    );
   });
 
   it("rejects an empty task before calling the model", async () => {
-    await expect(runCoderTask("   ")).rejects.toThrow("A coding task is required.");
+    await expect(runCoderTask("   ")).rejects.toThrow(
+      "A coding task is required."
+    );
     expect(runNimChatMock).not.toHaveBeenCalled();
   });
 
   it("propagates configuration errors verbatim, including the operator hint", async () => {
     runNimChatMock.mockRejectedValueOnce(
-      new Error("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.")
+      new Error(
+        "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
+      )
     );
     await expect(runCoderTask("write tests")).rejects.toThrow(
       "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
@@ -87,7 +97,9 @@ const fakeSandbox = () => {
     commands: {
       run: vi.fn(async (command: string) => ({
         exitCode: 0,
-        stdout: command.includes("find") ? "./index.html\nwelcome.md\n" : "all good",
+        stdout: command.includes("find")
+          ? "./index.html\nwelcome.md\n"
+          : "all good",
         stderr: "",
       })),
     },
@@ -105,10 +117,26 @@ describe("runAutonomousCoderTask", () => {
   it("explores, writes and verifies on its own, then reports a summary", async () => {
     const sandbox = fakeSandbox();
     const progress: string[] = [];
+    const activities: Array<{
+      id: string;
+      name: string;
+      state: string;
+      args: Record<string, string>;
+      summary?: string;
+    }> = [];
     runNimAgentChatMock
       .mockResolvedValueOnce(toolCall("c1", "list_files", {}))
-      .mockResolvedValueOnce(toolCall("c2", "write_file", { path: "index.html", content: "<html>game</html>" }))
-      .mockResolvedValueOnce(toolCall("c3", "run_command", { command: "python3 -m http.server --check" }))
+      .mockResolvedValueOnce(
+        toolCall("c2", "write_file", {
+          path: "index.html",
+          content: "<html>game</html>",
+        })
+      )
+      .mockResolvedValueOnce(
+        toolCall("c3", "run_command", {
+          command: "python3 -m http.server --check",
+        })
+      )
       .mockResolvedValueOnce(textReply("Built the game and verified it runs."));
 
     const outcome = await runAutonomousCoderTask({
@@ -116,6 +144,9 @@ describe("runAutonomousCoderTask", () => {
       language: "HTML",
       sandbox: sandbox as never,
       onProgress: note => progress.push(note),
+      onToolActivity: activity => {
+        activities.push(activity);
+      },
     });
 
     expect(outcome).toEqual({
@@ -131,8 +162,8 @@ describe("runAutonomousCoderTask", () => {
       { path: "/home/user/workspace/index.html", content: "<html>game</html>" },
     ]);
     // The command ran inside the workspace directory.
-    const command = sandbox.commands.run.mock.calls.find(
-      args => String(args[0]).includes("http.server")
+    const command = sandbox.commands.run.mock.calls.find(args =>
+      String(args[0]).includes("http.server")
     );
     expect(String(command?.[0])).toContain("cd /home/user/workspace &&");
     // The loop fed each tool result back under its tool call id, with the
@@ -145,19 +176,103 @@ describe("runAutonomousCoderTask", () => {
     expect(toolResults[2].content).toContain("[exit code 0]");
     // The very first prompt carried the task and the workspace listing.
     const firstCallMessages = runNimAgentChatMock.mock.calls[0][0].messages;
-    expect(firstCallMessages[1].content).toContain("Coding task:\n\nbuild a game");
-    // The user-facing progress notes narrated the specialist's steps.
-    expect(progress).toEqual(
-      expect.arrayContaining([
-        "The specialist is listing the workspace files…",
-        "The specialist wrote index.html…",
-      ])
+    expect(firstCallMessages[1].content).toContain(
+      "Coding task:\n\nbuild a game"
     );
+    // Every specialist tool call streamed as a running→completed activity
+    // with its identifying args, in call order.
+    expect(activities.map(a => `${a.id}:${a.name}:${a.state}`)).toEqual([
+      "c1:list_files:running",
+      "c1:list_files:completed",
+      "c2:write_file:running",
+      "c2:write_file:completed",
+      "c3:run_command:running",
+      "c3:run_command:completed",
+    ]);
+    expect(activities[2].args).toEqual({ path: "index.html" });
+    expect(activities[3].summary).toBe("Wrote index.html.");
+    expect(activities[4].args).toEqual({
+      command: "python3 -m http.server --check",
+    });
+  });
+
+  it("marks a failing command's activity as failed without breaking the loop", async () => {
+    const sandbox = fakeSandbox();
+    const activities: Array<{
+      id: string;
+      name: string;
+      state: string;
+      summary?: string;
+    }> = [];
+    sandbox.commands.run.mockImplementation(async (command: string) =>
+      String(command).includes("find")
+        ? { exitCode: 0, stdout: "./app.py\n", stderr: "" }
+        : { exitCode: 2, stdout: "", stderr: "module not found" }
+    );
+    runNimAgentChatMock
+      .mockResolvedValueOnce(
+        toolCall("c1", "run_command", { command: "python3 app.py" })
+      )
+      .mockResolvedValueOnce(
+        textReply("The command failed; here is the state.")
+      );
+
+    const outcome = await runAutonomousCoderTask({
+      task: "run it",
+      sandbox: sandbox as never,
+      onToolActivity: activity => {
+        activities.push(activity);
+      },
+    });
+
+    expect(outcome.kind).toBe("autonomous");
+    const settled = activities.filter(a => a.state !== "running");
+    expect(settled).toHaveLength(1);
+    expect(settled[0].state).toBe("failed");
+    expect(settled[0].summary).toContain("Command failed");
+    // The loop continued past the failure and summarized normally.
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a failed workspace listing as failed instead of an empty workspace", async () => {
+    const sandbox = fakeSandbox();
+    const activities: Array<{
+      id: string;
+      name: string;
+      state: string;
+      summary?: string;
+    }> = [];
+    // The intro-prompt listing runs before the loop; make it fail, then have
+    // the specialist's explicit list_files call fail the same way.
+    sandbox.commands.run.mockRejectedValue(new Error("sandbox gone"));
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "list_files", {}))
+      .mockResolvedValueOnce(textReply("Could not list the workspace."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "see what is here",
+      sandbox: sandbox as never,
+      onToolActivity: activity => {
+        activities.push(activity);
+      },
+    });
+
+    // The intro prompt carried the failure text, not a clean empty listing.
+    const firstPrompt = runNimAgentChatMock.mock.calls[0][0].messages[1]
+      .content as string;
+    expect(firstPrompt).toContain("could not list the workspace");
+    const settled = activities.filter(a => a.state !== "running");
+    expect(settled).toHaveLength(1);
+    expect(settled[0].state).toBe("failed");
+    expect(settled[0].summary).toContain("Could not list the workspace files");
+    expect(outcome.kind).toBe("autonomous");
   });
 
   it("falls back to the single-shot reply when the model rejects tools", async () => {
     runNimAgentChatMock.mockRejectedValueOnce(
-      new NimToolsUnsupportedError("NVIDIA NIM responded with status 400: tools unsupported.")
+      new NimToolsUnsupportedError(
+        "NVIDIA NIM responded with status 400: tools unsupported."
+      )
     );
     runNimChatMock.mockResolvedValueOnce("def solve(): pass");
 
@@ -166,7 +281,11 @@ describe("runAutonomousCoderTask", () => {
       sandbox: fakeSandbox() as never,
     });
 
-    expect(outcome).toEqual({ kind: "single", code: "def solve(): pass", model: "moonshotai/kimi-k3" });
+    expect(outcome).toEqual({
+      kind: "single",
+      code: "def solve(): pass",
+      model: "moonshotai/kimi-k3",
+    });
   });
 
   it("has no step cap: keeps working past the old 12-round limit until the model summarizes", async () => {
@@ -183,7 +302,8 @@ describe("runAutonomousCoderTask", () => {
     });
 
     expect(calls).toBe(15);
-    if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
     expect(outcome.summary).toBe("All done.");
     expect(outcome.rounds).toBe(15);
   });
@@ -211,7 +331,8 @@ describe("runAutonomousCoderTask", () => {
       // The reserve (30s) is already deducted from the budget, so the
       // fourth round never starts: 3 calls, then the honest report.
       expect(calls).toBe(3);
-      if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+      if (outcome.kind !== "autonomous")
+        throw new Error("expected autonomous outcome");
       expect(outcome.summary).toContain("full time budget");
       expect(outcome.rounds).toBe(3);
       expect(outcome.writtenPaths).toEqual([]);
@@ -229,7 +350,8 @@ describe("runAutonomousCoderTask", () => {
     });
 
     expect(runNimAgentChatMock).not.toHaveBeenCalled();
-    if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
     expect(outcome.summary).toContain("could not start");
     expect(outcome.summary).toContain("0 file(s)");
     expect(outcome.rounds).toBe(0);
@@ -240,11 +362,17 @@ describe("runAutonomousCoderTask", () => {
     const sandbox = fakeSandbox();
     runNimAgentChatMock
       .mockResolvedValueOnce(
-        toolCall("c1", "write_file", { path: "../outside.txt", content: "nope" })
+        toolCall("c1", "write_file", {
+          path: "../outside.txt",
+          content: "nope",
+        })
       )
       .mockResolvedValueOnce(textReply("Nothing to do."));
 
-    await runAutonomousCoderTask({ task: "do something", sandbox: sandbox as never });
+    await runAutonomousCoderTask({
+      task: "do something",
+      sandbox: sandbox as never,
+    });
 
     expect(sandbox.writes).toEqual([]);
     const toolResult = runNimAgentChatMock.mock.calls[1][0].messages.find(
@@ -264,10 +392,15 @@ describe("runAutonomousCoderTask", () => {
     const sandbox = fakeSandbox();
     const content = "  indented()\n\n# trailing newline\n";
     runNimAgentChatMock
-      .mockResolvedValueOnce(toolCall("c1", "write_file", { path: "app.py", content }))
+      .mockResolvedValueOnce(
+        toolCall("c1", "write_file", { path: "app.py", content })
+      )
       .mockResolvedValueOnce(textReply("Done."));
 
-    await runAutonomousCoderTask({ task: "write it", sandbox: sandbox as never });
+    await runAutonomousCoderTask({
+      task: "write it",
+      sandbox: sandbox as never,
+    });
 
     expect(sandbox.writes).toEqual([
       { path: "/home/user/workspace/app.py", content },
@@ -277,25 +410,38 @@ describe("runAutonomousCoderTask", () => {
   it("rejects shell deletes and renames at the boundary", async () => {
     const sandbox = fakeSandbox();
     runNimAgentChatMock
-      .mockResolvedValueOnce(toolCall("c1", "run_command", { command: "rm -rf src" }))
+      .mockResolvedValueOnce(
+        toolCall("c1", "run_command", { command: "rm -rf src" })
+      )
       .mockResolvedValueOnce(
         toolCall("c2", "run_command", { command: "git mv a.py b.py" })
       )
       .mockResolvedValueOnce(textReply("Done."));
 
-    await runAutonomousCoderTask({ task: "clean up", sandbox: sandbox as never });
+    await runAutonomousCoderTask({
+      task: "clean up",
+      sandbox: sandbox as never,
+    });
 
     const toolResults = runNimAgentChatMock.mock.calls[2][0].messages.filter(
       m => m.role === "tool"
     );
-    expect(toolResults[0].content).toContain("Rejected: this workspace must not delete");
-    expect(toolResults[1].content).toContain("Rejected: this workspace must not delete");
+    expect(toolResults[0].content).toContain(
+      "Rejected: this workspace must not delete"
+    );
+    expect(toolResults[1].content).toContain(
+      "Rejected: this workspace must not delete"
+    );
     // The destructive commands never reached the sandbox.
     expect(
-      sandbox.commands.run.mock.calls.some(args => String(args[0]).includes("rm -rf"))
+      sandbox.commands.run.mock.calls.some(args =>
+        String(args[0]).includes("rm -rf")
+      )
     ).toBe(false);
     expect(
-      sandbox.commands.run.mock.calls.some(args => String(args[0]).includes("git mv"))
+      sandbox.commands.run.mock.calls.some(args =>
+        String(args[0]).includes("git mv")
+      )
     ).toBe(false);
   });
 
@@ -303,16 +449,22 @@ describe("runAutonomousCoderTask", () => {
     const sandbox = fakeSandbox();
     runNimAgentChatMock
       .mockResolvedValueOnce(
-        toolCall("c1", "write_file", { path: "half.py", content: "print('half')" })
+        toolCall("c1", "write_file", {
+          path: "half.py",
+          content: "print('half')",
+        })
       )
-      .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 502."));
+      .mockRejectedValueOnce(
+        new Error("NVIDIA NIM responded with status 502.")
+      );
 
     const outcome = await runAutonomousCoderTask({
       task: "build it",
       sandbox: sandbox as never,
     });
 
-    if (outcome.kind !== "autonomous") throw new Error("expected autonomous outcome");
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
     expect(outcome.summary).toContain("failure mid-task");
     expect(outcome.summary).toContain("status 502");
     expect(outcome.writtenPaths).toEqual(["half.py"]);

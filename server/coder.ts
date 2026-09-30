@@ -148,6 +148,19 @@ export type CoderResult = {
   model: string;
 };
 
+/**
+ * One specialist tool call, streamed to the parent agent's activity feed in
+ * the same shape as the parent's own tool activities. Args carry only the
+ * short identifying fields (path, command) - never the file payloads.
+ */
+export type CoderToolActivity = {
+  id: string;
+  name: string;
+  state: "running" | "completed" | "failed";
+  args: Record<string, string>;
+  summary?: string;
+};
+
 export type AutonomousCoderOptions = {
   /** The coding job, described completely. */
   task: string;
@@ -161,6 +174,13 @@ export type AutonomousCoderOptions = {
   onProgress?: (note: string) => void;
   /** When the overall agent run must be over. */
   deadlineAtMs?: number;
+  /**
+   * Streams every specialist tool call as a structured activity
+   * (running → completed/failed), so the parent agent's chat shows the
+   * editor's file reads, writes and commands the same way it shows its own
+   * tool calls. The parent namespaces each id with its own call id.
+   */
+  onToolActivity?: (activity: CoderToolActivity) => void | Promise<void>;
 };
 
 export type CoderOutcome =
@@ -193,7 +213,7 @@ async function runSandboxCommand(
   sandbox: E2BSandboxLike,
   command: string,
   remainingMs: number
-): Promise<string> {
+): Promise<{ ok: boolean; result: string }> {
   const timeoutMs = Math.min(COMMAND_TIMEOUT_MS, Math.max(10_000, remainingMs));
   const result = await sandbox.commands.run(
     `cd ${E2B_WORKSPACE_DIR} && (${command})`,
@@ -207,7 +227,10 @@ async function runSandboxCommand(
   if (stderr.trim())
     parts.push(`[stderr]\n${truncate(stderr, COMMAND_OUTPUT_LIMIT)}`);
   parts.push(`[exit code ${exitCode}]`);
-  return parts.join("\n") || "(no output)";
+  return {
+    ok: exitCode === 0,
+    result: parts.join("\n") || "(no output)",
+  };
 }
 
 async function listWorkspaceFiles(sandbox: E2BSandboxLike): Promise<string> {
@@ -226,22 +249,69 @@ async function listWorkspaceFiles(sandbox: E2BSandboxLike): Promise<string> {
   }
 }
 
-/** Executes one specialist tool call and returns its result text. */
-async function executeCoderToolCall(
-  sandbox: E2BSandboxLike,
+/** The short identifying args a specialist activity carries (no payloads). */
+function specialistToolArgs(
   name: string,
-  rawArguments: string,
-  writtenPaths: Set<string>,
-  onProgress?: (note: string) => void,
-  remainingMs = COMMAND_TIMEOUT_MS
-): Promise<string> {
+  rawArguments: string
+): Record<string, string> {
   let args: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(rawArguments || "{}");
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
       args = parsed as Record<string, unknown>;
   } catch {
-    return "Invalid JSON arguments - call the tool again with valid JSON.";
+    // Truncated or malformed JSON - the label falls back to the tool name.
+  }
+  const s = (value: unknown) => (typeof value === "string" ? value : "");
+  if (name === "read_file" || name === "write_file")
+    return args.path ? { path: s(args.path) } : {};
+  if (name === "run_command")
+    return args.command ? { command: s(args.command) } : {};
+  return {};
+}
+
+/** One-line summary of a settled specialist tool call. */
+function specialistToolSummary(
+  name: string,
+  args: Record<string, string>,
+  ok: boolean
+): string {
+  const brief = (value: string, max: number) =>
+    value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  switch (name) {
+    case "list_files":
+      return ok
+        ? "Listed the workspace files."
+        : "Could not list the workspace files.";
+    case "read_file":
+      return ok ? `Read ${args.path}.` : `Could not read ${args.path}.`;
+    case "write_file":
+      return ok ? `Wrote ${args.path}.` : `Could not write ${args.path}.`;
+    case "run_command":
+      return `${ok ? "Ran" : "Command failed"}: ${brief(args.command ?? "", 80)}`;
+    default:
+      return ok ? "Completed." : "Failed.";
+  }
+}
+
+/** Executes one specialist tool call, returning its ok flag and result text. */
+async function executeCoderToolCall(
+  sandbox: E2BSandboxLike,
+  name: string,
+  rawArguments: string,
+  writtenPaths: Set<string>,
+  remainingMs = COMMAND_TIMEOUT_MS
+): Promise<{ ok: boolean; result: string }> {
+  let args: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(rawArguments || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      args = parsed as Record<string, unknown>;
+  } catch {
+    return {
+      ok: false,
+      result: "Invalid JSON arguments - call the tool again with valid JSON.",
+    };
   }
   const str = (value: unknown) =>
     typeof value === "string" ? value.trim() : "";
@@ -249,13 +319,11 @@ async function executeCoderToolCall(
   // indentation, trailing newlines and inner whitespace are all meaningful.
   const raw = (value: unknown) => (typeof value === "string" ? value : "");
   switch (name) {
-    case "list_files": {
-      onProgress?.("The specialist is listing the workspace files…");
-      return await listWorkspaceFiles(sandbox);
-    }
+    case "list_files":
+      return { ok: true, result: await listWorkspaceFiles(sandbox) };
     case "read_file": {
       const path = safeWorkspacePath(str(args.path));
-      if (!path) return `Unsafe path: ${str(args.path)}`;
+      if (!path) return { ok: false, result: `Unsafe path: ${str(args.path)}` };
       try {
         const content = await sandbox.files.read(
           `${E2B_WORKSPACE_DIR}/${path}`,
@@ -265,32 +333,49 @@ async function executeCoderToolCall(
           typeof content === "string"
             ? content
             : Buffer.from(content as Uint8Array).toString("utf8");
-        onProgress?.(`The specialist is reading ${path}…`);
-        return text.length > 0
-          ? truncate(text, READ_LIMIT)
-          : "(the file is empty)";
+        return {
+          ok: true,
+          result:
+            text.length > 0
+              ? truncate(text, READ_LIMIT)
+              : "(the file is empty)",
+        };
       } catch {
-        return `Could not read ${path} - it may not exist. Use list_files first.`;
+        return {
+          ok: false,
+          result: `Could not read ${path} - it may not exist. Use list_files first.`,
+        };
       }
     }
     case "write_file": {
       const path = safeWorkspacePath(str(args.path));
       const content = raw(args.content);
-      if (!path) return `Unsafe path: ${str(args.path)}`;
-      if (!content) return "write_file needs the file's full content.";
+      if (!path) return { ok: false, result: `Unsafe path: ${str(args.path)}` };
+      if (!content)
+        return {
+          ok: false,
+          result: "write_file needs the file's full content.",
+        };
       const mirrored = await mirrorWorkspaceOp(sandbox, {
         kind: "write_file",
         path,
         content,
       });
-      if (!mirrored.ok) return `Could not write ${path}: ${mirrored.error}`;
+      if (!mirrored.ok)
+        return {
+          ok: false,
+          result: `Could not write ${path}: ${mirrored.error}`,
+        };
       writtenPaths.add(path);
-      onProgress?.(`The specialist wrote ${path}…`);
-      return `Wrote ${path} (${content.length} characters).`;
+      return {
+        ok: true,
+        result: `Wrote ${path} (${content.length} characters).`,
+      };
     }
     case "run_command": {
       const command = str(args.command);
-      if (!command) return "run_command needs a command.";
+      if (!command)
+        return { ok: false, result: "run_command needs a command." };
       // The durable store only ever imports sandbox files - it never
       // deletes - so a shell delete or rename would diverge from it and
       // the file would resurrect on the next run. The system prompt asks
@@ -302,24 +387,28 @@ async function executeCoderToolCall(
           command
         );
       if (forbidden) {
-        return (
-          "Rejected: this workspace must not delete or rename files with shell " +
-          "commands (the durable store would resurrect them). To replace content, " +
-          "use write_file with the full new content; to move a file, write_file " +
-          "the new path and ask Nova to remove the old one afterwards."
-        );
+        return {
+          ok: false,
+          result:
+            "Rejected: this workspace must not delete or rename files with shell " +
+            "commands (the durable store would resurrect them). To replace content, " +
+            "use write_file with the full new content; to move a file, write_file " +
+            "the new path and ask Nova to remove the old one afterwards.",
+        };
       }
-      onProgress?.(`The specialist is running: ${command.slice(0, 80)}`);
       try {
         return await runSandboxCommand(sandbox, command, remainingMs);
       } catch (error) {
-        return `The command failed: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`;
+        return {
+          ok: false,
+          result: `The command failed: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`,
+        };
       }
     }
     default:
-      return `Unknown tool: ${name}`;
+      return { ok: false, result: `Unknown tool: ${name}` };
   }
 }
 
@@ -440,16 +529,54 @@ export async function runAutonomousCoderTask(
     });
     for (const call of reply.toolCalls) {
       const remainingForTool = budgetEndMs - Date.now();
-      const result = await executeCoderToolCall(
-        options.sandbox,
-        call.name,
-        call.arguments,
-        writtenPaths,
-        options.onProgress,
-        remainingForTool
-      );
+      // Stream the call as a first-class activity: running now, settled with
+      // its real outcome below. Failed calls (non-zero exit, unsafe path,
+      // rejected command) show up failed, exactly like the parent agent's
+      // own tool rows. An emit failure must never break the specialist.
+      const args = specialistToolArgs(call.name, call.arguments);
+      const emitActivity = async (
+        state: CoderToolActivity["state"],
+        summary?: string
+      ) => {
+        if (!options.onToolActivity) return;
+        try {
+          await options.onToolActivity({
+            id: call.id,
+            name: call.name,
+            state,
+            args,
+            ...(summary !== undefined ? { summary } : {}),
+          });
+        } catch {}
+      };
+      await emitActivity("running");
+      let execution: { ok: boolean; result: string };
+      try {
+        execution = await executeCoderToolCall(
+          options.sandbox,
+          call.name,
+          call.arguments,
+          writtenPaths,
+          remainingForTool
+        );
+      } catch (error) {
+        execution = {
+          ok: false,
+          result: `The tool call failed: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`,
+        };
+      }
       if (call.name === "run_command") commandsRun += 1;
-      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+      await emitActivity(
+        execution.ok ? "completed" : "failed",
+        specialistToolSummary(call.name, args, execution.ok)
+      );
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: execution.result,
+      });
     }
   }
 

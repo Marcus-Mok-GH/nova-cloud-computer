@@ -70,15 +70,28 @@ export function toolLineText(activity: ToolActivity): string {
     parent = s(args.parent),
     task = s(args.task),
     text = s(args.text);
+  // Specialist tool calls arrive structured (args.path / args.command) and
+  // are namespaced under their editor call, so the raw-arguments fallback
+  // still applies when only a truncated JSON survived.
+  const path = s(args.path),
+    command = s(args.command);
   const brief = (value: string, max = 60) =>
     value.length > max ? `${value.slice(0, max - 1)}…` : value;
   switch (activity.name) {
+    case "list_files":
+      return "List Files";
+    case "write_file":
+      return `Write File ${path || name}`.trim();
+    case "run_command":
+      return command ? `Run Command: ${brief(command)}` : "Run Command";
     case "list_workspace":
       return "List Files";
     case "create_file":
       return `Create File ${name}`.trim();
     case "read_file":
-      return `Read File ${file}`.trim();
+      // The editor specialist passes workspace paths (args.path) while the
+      // main agent passes file refs (args.file); both render the same way.
+      return `Read File ${file || path}`.trim();
     case "edit_file":
       return `Edit File ${file}`.trim();
     case "rename_file":

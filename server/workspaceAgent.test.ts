@@ -1262,14 +1262,40 @@ describe("Nova tool-calling workspace agent", () => {
     it("runs the editor autonomously when the sandbox is awake, syncing writes back into the workspace", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
-      runAutonomousCoderTaskMock.mockReset().mockResolvedValueOnce({
-        kind: "autonomous",
-        summary: "Built and verified the game.",
-        writtenPaths: ["index.html"],
-        commandsRun: 2,
-        rounds: 3,
-        model: "moonshotai/kimi-k3",
-      });
+      runAutonomousCoderTaskMock
+        .mockReset()
+        .mockImplementationOnce(
+          async (options: {
+            onToolActivity?: (activity: {
+              id: string;
+              name: string;
+              state: string;
+              args: Record<string, string>;
+            }) => Promise<void> | void;
+          }) => {
+            await options.onToolActivity?.({
+              id: "c2",
+              name: "write_file",
+              state: "running",
+              args: { path: "index.html" },
+            });
+            await options.onToolActivity?.({
+              id: "c2",
+              name: "write_file",
+              state: "completed",
+              args: { path: "index.html" },
+              summary: "Wrote index.html.",
+            });
+            return {
+              kind: "autonomous",
+              summary: "Built and verified the game.",
+              writtenPaths: ["index.html"],
+              commandsRun: 2,
+              rounds: 3,
+              model: "moonshotai/kimi-k3",
+            };
+          }
+        );
       runCoderTaskMock.mockReset();
       chatWithMistralGateway
         .mockReset()
@@ -1294,6 +1320,7 @@ describe("Nova tool-calling workspace agent", () => {
         expect.objectContaining({
           task: "build a game",
           sandbox: sandbox as never,
+          onToolActivity: expect.any(Function),
         })
       );
       expect(runCoderTaskMock).not.toHaveBeenCalled();
@@ -1313,6 +1340,97 @@ describe("Nova tool-calling workspace agent", () => {
       expect(result.message.content).toBe(
         "Done - the game is in your workspace."
       );
+    });
+
+    it("streams the specialist's own tool calls as activity rows namespaced under the editor call", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runAutonomousCoderTaskMock
+        .mockReset()
+        .mockImplementationOnce(
+          async (options: {
+            onToolActivity?: (activity: {
+              id: string;
+              name: string;
+              state: string;
+              args: Record<string, string>;
+              summary?: string;
+            }) => Promise<void> | void;
+          }) => {
+            await options.onToolActivity?.({
+              id: "c1",
+              name: "read_file",
+              state: "running",
+              args: { path: "index.html" },
+            });
+            await options.onToolActivity?.({
+              id: "c1",
+              name: "read_file",
+              state: "completed",
+              args: { path: "index.html" },
+              summary: "Read index.html.",
+            });
+            return {
+              kind: "autonomous",
+              summary: "Done.",
+              writtenPaths: [],
+              commandsRun: 0,
+              rounds: 1,
+              model: "moonshotai/kimi-k3",
+            };
+          }
+        );
+      chatWithMistralGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-code",
+                name: "editor",
+                arguments: JSON.stringify({ task: "inspect the page" }),
+              },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(chatResult({ text: "Inspected." }));
+      const onEvent = vi.fn();
+      await runWorkspaceAgent(1, 3, "look at the page", { onEvent });
+      // Both specialist states streamed live, namespaced under the editor
+      // call's id and repacked into the { arguments: json } args shape the
+      // client's tool labels parse.
+      const streamed = onEvent.mock.calls
+        .map(callArgs => callArgs[0])
+        .filter(
+          event =>
+            event?.type === "tool" &&
+            String(event.tool?.id).startsWith("call-code:")
+        );
+      expect(streamed.map(e => `${e.tool.id}:${e.tool.state}`)).toEqual([
+        "call-code:c1:running",
+        "call-code:c1:completed",
+      ]);
+      expect(JSON.parse(streamed[1].tool.args.arguments)).toEqual({
+        path: "index.html",
+      });
+      // And both rows were persisted to the ledger, latest state last.
+      const persistedRows = append.mock.calls
+        .map(callArgs => callArgs[1] as { content: string })
+        .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX))
+        .map(input =>
+          JSON.parse(input.content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
+        )
+        .filter(
+          (activity: { id?: string }) =>
+            typeof activity.id === "string" &&
+            activity.id.startsWith("call-code:")
+        );
+      expect(
+        persistedRows.map(
+          (row: { id: string; state: string }) => `${row.id}:${row.state}`
+        )
+      ).toEqual(["call-code:c1:running", "call-code:c1:completed"]);
     });
 
     it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {

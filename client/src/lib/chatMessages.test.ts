@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   appendLiveTextDelta,
+  buildTurnItems,
   dedupeToolActivityMessages,
+  groupLiveChatItems,
   parsePersistedToolActivity,
   upsertLiveToolEvent,
   reconcileChatMessages,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  type LiveChatEvent,
   type PersistedChatMessage,
   type ToolActivity,
   groupPersistedChatItems,
@@ -369,6 +372,205 @@ describe("upsertLiveToolEvent", () => {
       activity: { progressLog?: string[] };
     };
     expect(tool.activity.progressLog).toEqual(["step one", "step two"]);
+  });
+});
+
+describe("groupLiveChatItems", () => {
+  const liveTool = (
+    id: string,
+    state: "running" | "completed" = "running"
+  ): ToolActivity => ({ id, name: "read_file", state, args: {} });
+
+  it("keeps every text segment exactly where it arrived, folding tool stretches into runs", () => {
+    let events = appendLiveTextDelta([], "Let me check that.");
+    events = upsertLiveToolEvent(events, liveTool("t-1"));
+    events = upsertLiveToolEvent(events, liveTool("t-2"));
+    events = appendLiveTextDelta(events, "Here is what I found.");
+    const items = groupLiveChatItems(events);
+    expect(items.map(item => item.kind)).toEqual(["text", "toolRun", "text"]);
+    expect(items[0]).toEqual({ kind: "text", content: "Let me check that." });
+    expect(
+      items[1].kind === "toolRun" && items[1].activities.map(a => a.id)
+    ).toEqual(["t-1", "t-2"]);
+    expect(items[2]).toEqual({
+      kind: "text",
+      content: "Here is what I found.",
+    });
+  });
+
+  it("returns nothing for an empty transcript", () => {
+    expect(groupLiveChatItems([])).toEqual([]);
+  });
+});
+
+describe("buildTurnItems", () => {
+  const userRow: PersistedChatMessage = {
+    id: 1,
+    role: "user",
+    content: "Tidy my files",
+  };
+  const toolRow = (
+    id: string,
+    state: "running" | "completed",
+    messageId: number
+  ): PersistedChatMessage => ({
+    id: messageId,
+    role: "assistant",
+    content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({ id, name: "read_file", state, args: {} })}`,
+  });
+  /** Text saying "Let me check that.", the tool it announced, then more text. */
+  const liveTurn = (): LiveChatEvent[] => {
+    let events = appendLiveTextDelta([], "Let me check that.");
+    events = upsertLiveToolEvent(events, {
+      id: "t-1",
+      name: "read_file",
+      state: "running",
+      args: {},
+    });
+    return appendLiveTextDelta(events, "Found two files.");
+  };
+
+  it("keeps an intro line above the tools it announced", () => {
+    const items = buildTurnItems({
+      messages: [userRow],
+      liveEvents: liveTurn(),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "toolRun",
+      "reply",
+    ]);
+    expect(items[0]).toEqual({
+      kind: "user",
+      key: "user-1",
+      content: "Tidy my files",
+      pending: false,
+    });
+    expect(items[1]).toEqual({
+      kind: "reply",
+      key: "live-reply-0",
+      content: "Let me check that.",
+      live: true,
+    });
+    expect(items[2].kind === "toolRun" && items[2].activities[0].id).toBe(
+      "t-1"
+    );
+    expect(items[3]).toEqual({
+      kind: "reply",
+      key: "live-reply-2",
+      content: "Found two files.",
+      live: true,
+    });
+  });
+
+  it("draws each tool once, from the ledger row the poller delivered", () => {
+    const items = buildTurnItems({
+      messages: [userRow, toolRow("t-1", "completed", 2)],
+      liveEvents: liveTurn(),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    const runs = items.filter(item => item.kind === "toolRun");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      live: false,
+      activities: [expect.objectContaining({ id: "t-1", state: "completed" })],
+    });
+  });
+
+  it("hands a persisted text segment over to its ledger row in order", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        { id: 2, role: "assistant", content: "Let me check that." },
+        toolRow("t-1", "completed", 3),
+      ],
+      liveEvents: liveTurn(),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "toolRun",
+      "reply",
+    ]);
+    expect(items[1]).toEqual({
+      kind: "reply",
+      key: "reply-2",
+      content: "Let me check that.",
+      live: false,
+    });
+    expect(items[2].kind === "toolRun" && items[2].live).toBe(false);
+    expect(items[3]).toEqual({
+      kind: "reply",
+      key: "live-reply-2",
+      content: "Found two files.",
+      live: true,
+    });
+  });
+
+  it("renders a run this browser never streamed from the ledger alone", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        toolRow("t-1", "completed", 2),
+        { id: 3, role: "assistant", content: "Sorted both files." },
+      ],
+      liveEvents: [],
+      pendingUserContent: "",
+      userCommitted: false,
+    });
+    expect(items.map(item => item.kind)).toEqual(["user", "toolRun", "reply"]);
+    expect(items[2]).toEqual({
+      kind: "reply",
+      key: "reply-3",
+      content: "Sorted both files.",
+      live: false,
+    });
+  });
+
+  it("drops a superseded live segment once the closing reply lands", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        toolRow("t-1", "completed", 2),
+        { id: 3, role: "assistant", content: "All sorted." },
+      ],
+      liveEvents: liveTurn(),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    expect(items.map(item => item.kind)).toEqual(["user", "toolRun", "reply"]);
+    expect(items.filter(item => item.kind === "reply" && item.live)).toEqual(
+      []
+    );
+    expect(items[2]).toEqual({
+      kind: "reply",
+      key: "reply-3",
+      content: "All sorted.",
+      live: false,
+    });
+  });
+
+  it("keeps the optimistic user bubble until the row is persisted", () => {
+    const items = buildTurnItems({
+      messages: [],
+      liveEvents: [],
+      pendingUserContent: "Tidy my files",
+      userCommitted: false,
+    });
+    expect(items).toEqual([
+      {
+        kind: "user",
+        key: "user-pending",
+        content: "Tidy my files",
+        pending: true,
+      },
+    ]);
   });
 });
 

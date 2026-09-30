@@ -261,17 +261,20 @@ export async function autoTitleChatForUser(
     if (!chat || !DEFAULT_CHAT_TITLES.has(chat.title)) return;
     const messages = await listChatMessagesForUser(ownerId, chatId);
     const firstUser = messages?.find(m => m.role === "user");
-    const firstAssistant = messages?.find(
+    // The LAST assistant text row, not the first: a run also persists the
+    // lines it says before each tool call, and the closing reply is what the
+    // turn was actually about.
+    const lastAssistant = messages?.findLast(
       m =>
         m.role === "assistant" &&
         !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
         !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
     );
-    if (!firstUser || !firstAssistant) return;
+    if (!firstUser || !lastAssistant) return;
     const prompt = [
       "Generate a concise 3-6 word title for this conversation. Reply with the title only - no quotes, no trailing punctuation.",
       firstUser.content,
-      firstAssistant.content,
+      lastAssistant.content,
     ].join("\n");
     const result = await completeWithWorkspaceModel(
       ownerId,
@@ -976,7 +979,8 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           operation: {
             type: "string",
             enum: ["encode", "decode"],
-            description: "Whether to encode text as Base44 or decode Base44 back to UTF-8 text.",
+            description:
+              "Whether to encode text as Base44 or decode Base44 back to UTF-8 text.",
           },
           value: {
             type: "string",
@@ -2675,7 +2679,11 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: "A value is required for Base44 encoding or decoding.",
-          action: { kind: "tool", name: `base44 ${operation}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `base44 ${operation}`,
+            operation: "failed",
+          },
         };
       try {
         const value = args.value;
@@ -2687,7 +2695,11 @@ async function executeWorkspaceTool(
           ok: true,
           result,
           detail: result,
-          action: { kind: "tool", name: `base44 ${operation}`, operation: "completed" },
+          action: {
+            kind: "tool",
+            name: `base44 ${operation}`,
+            operation: "completed",
+          },
         };
       } catch (error) {
         const message =
@@ -2695,7 +2707,11 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: `Base44 ${operation} failed: ${message}.`,
-          action: { kind: "tool", name: `base44 ${operation}`, operation: "failed" },
+          action: {
+            kind: "tool",
+            name: `base44 ${operation}`,
+            operation: "failed",
+          },
         };
       }
     }
@@ -3214,6 +3230,25 @@ export async function runWorkspaceAgent(
     });
     return message;
   };
+  /**
+   * Persists the text a round streamed before its tool calls as its own
+   * assistant row, written ahead of the tool rows those calls append. Without
+   * this the ledger only ever held the final reply, so a line like "let me
+   * check that" disappeared from the chat the moment the run settled even
+   * though the user watched it stream in. This is interim narration, not the
+   * turn's reply, so it is deliberately not captured into conversation memory.
+   */
+  const persistRoundText = async (text: string) => {
+    try {
+      await appendChatMessageForUser(ownerId, {
+        chatId,
+        role: "assistant",
+        content: text,
+      });
+    } catch (error) {
+      console.error("[Chat] failed to persist interim reply text", error);
+    }
+  };
 
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
@@ -3426,14 +3461,28 @@ ${
     const MAX_HISTORY_MESSAGES = 60;
     const priorMessages =
       (await listChatMessagesForUser(ownerId, chatId)) ?? [];
-    const historyTurns: GatewayChatMessage[] = priorMessages
+    // A run also persists the narration it writes before each tool call, so a
+    // settled turn can be several assistant rows in a row ("let me check" then
+    // the reply). Merge consecutive same-role rows back into one turn: the
+    // gateway validates role alternation and rejects two assistant messages
+    // back to back, and joined they read as the single reply they were.
+    const historyTurns: GatewayChatMessage[] = [];
+    for (const message of priorMessages
       .filter(
         m =>
           !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
           !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
       )
-      .slice(-MAX_HISTORY_MESSAGES)
-      .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .slice(-MAX_HISTORY_MESSAGES)) {
+      const turn: GatewayChatMessage = {
+        role: message.role as "user" | "assistant",
+        content: message.content,
+      };
+      const previous = historyTurns[historyTurns.length - 1];
+      if (previous && previous.role === turn.role)
+        previous.content = `${previous.content}\n\n${turn.content}`;
+      else historyTurns.push(turn);
+    }
     if (historyTurns.length)
       historyTurns[historyTurns.length - 1] = currentTurn;
     else historyTurns.push(currentTurn);
@@ -3698,6 +3747,17 @@ ${
         })),
       });
       lastRoundSummaries = [];
+      // Keep the ledger in the order the user watched: the line that announced
+      // the tools, then the tools themselves. A round that ends the turn
+      // (end_turn) persists its text as the turn's reply further down, and a
+      // recovered call is the model's malformed JSON rather than chat text -
+      // neither of those is narration.
+      if (
+        !calls.some(call => call.name === "end_turn") &&
+        !recoveredCall &&
+        result.text.trim()
+      )
+        await persistRoundText(result.text);
       for (const call of calls) {
         // The explicit end of the turn. It is a local control call - no side
         // effects, no budget cost - so it is honored even when the run

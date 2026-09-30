@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, Copy, KeyRound, LoaderCircle, MessageSquare, Moon, Play, ShieldCheck, Sun, Terminal, Zap } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -61,7 +61,9 @@ const streamResponseExample = [
   'data: {"id":"chatcmpl-nova-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"One"},"finish_reason":null}]}',
   'data: {"id":"chatcmpl-nova-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
   "data: [DONE]",
-].join("\n");
+  // Frames are separated by a blank line, and the stream ends on one, so a
+  // parser dispatches each event separately.
+].join("\n\n") + "\n\n";
 
 function CodeBlock({ code, label }: { code: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -101,6 +103,11 @@ function TryApiConsole() {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Navigating away must not leave the browser reader and the server-side
+  // inference running, so the in-flight request is aborted on unmount.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const runRequest = async () => {
     if (!apiKey.trim()) {
@@ -116,6 +123,8 @@ function TryApiConsole() {
     setRunning(true);
     setError("");
     setResult("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const response = await fetch("/api/v1/chat/completions", {
         method: "POST",
@@ -128,6 +137,7 @@ function TryApiConsole() {
           messages: [{ role: "user", content: prompt.trim() }],
           stream: true,
         }),
+        signal: controller.signal,
       });
 
       // Failures before the stream opens (bad key, rejected model, quota) come
@@ -184,9 +194,13 @@ function TryApiConsole() {
         return;
       }
       if (!text) setResult("(The model returned an empty completion.)");
-    } catch {
+    } catch (error) {
+      // An unmount aborts the stream on purpose - that is not a connection
+      // failure worth reporting.
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setError("The request could not reach this Nova deployment. Try again in a moment.");
     } finally {
+      abortRef.current = null;
       setRunning(false);
     }
   };

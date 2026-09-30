@@ -14,6 +14,7 @@ Instructions for AI agents working in this repository.
 - When in doubt, open a PR.
 - Follow the existing commit message style (check `git log`).
 - Never push directly to `main` on someone else's behalf unless explicitly asked.
+- Remember, create a PR for complex changes, including for complicated backend changes, but if it's a simple frontend change, just push it directly.
 
 ## Commit and PR attribution
 

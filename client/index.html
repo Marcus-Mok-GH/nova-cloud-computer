@@ -46,7 +46,6 @@
           return false;
         }
 
-        var failedUrl = null;
         var probing = false;
 
         function fail(reason) {
@@ -76,7 +75,7 @@
           var match = /Could not load (\S+)\./.exec(reason || "");
           if (!match || probing) return;
           probing = true;
-          failedUrl = match[1];
+          var failedUrl = match[1];
           var note = document.createElement("p");
           note.id = "boot-probe";
           note.style.margin = "10px 0 0";
@@ -98,6 +97,12 @@
                 return null;
               }
               if (booted()) return null; // module ran after all; boot watcher will hide the screen
+              if (!/\.m?js(\?|$)/.test(failedUrl)) {
+                // Non-JS asset (e.g. a stylesheet): re-injecting it as a module
+                // script would be refused on MIME type, so only report.
+                say("HTTP " + res.status + " - reachable. Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) to clear a poisoned copy.");
+                return null;
+              }
               say("HTTP 200 - reachable. Retrying with a fresh copy\u2026");
               var s = document.createElement("script");
               s.type = "module";
@@ -135,9 +140,9 @@
               fail("Could not load " + failedSrc + ".");
               return;
             }
-          try {
-            sessionStorage.setItem(KEY, "1");
-          } catch (e) {}
+            try {
+              sessionStorage.setItem(KEY, "1");
+            } catch (e) {}
             var url = new URL(location.href);
             url.searchParams.set("nr", "1");
             location.replace(url.href);

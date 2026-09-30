@@ -46,30 +46,24 @@
           return false;
         }
 
-        function fail() {
+        function fail(reason) {
           var title = document.getElementById("boot-title");
           var sub = document.getElementById("boot-sub");
           var retry = document.getElementById("boot-retry");
           if (!title || !sub || !retry) return;
           document.documentElement.setAttribute("data-boot", "failed");
           title.textContent = "Nova could not start";
-          sub.textContent = "The app failed to load. Check your connection, disable any script blockers for this site, then try again.";
+          var detail = "";
+          try {
+            var ua = navigator.userAgentData;
+            var brand = ua && ua.brands ? ua.brands.map(function (b) { return b.brand + " " + b.version; }).join(", ") : "";
+            var parts = [brand || navigator.userAgent];
+            if (ua && ua.platform) parts.push(ua.platform);
+            detail = " [" + parts.join(" | ") + "]";
+          } catch (e) {}
+          sub.textContent = (reason ? reason + " " : "") + "The app failed to load. Check your connection, disable any script blockers for this site, then try again." + detail;
           retry.hidden = false;
         }
-
-        function recover() {
-          if (recoveryAttempted()) {
-            fail();
-            return;
-          }
-          try {
-            sessionStorage.setItem(KEY, "1");
-          } catch (e) {}
-          var url = new URL(location.href);
-          url.searchParams.set("nr", "1");
-          location.replace(url.href);
-        }
-        window.__novaRecover = recover;
         window.__novaFail = fail;
 
         window.addEventListener("error", function (event) {
@@ -81,16 +75,41 @@
           var isSheet = target.tagName === "LINK" && target.rel === "stylesheet";
           if (!isScript && !isSheet) return;
           var root = document.getElementById("root");
-          if (isSheet || (isScript && root && !root.hasChildNodes())) recover();
+          var failedSrc = target.src || target.href || "unknown";
+          if (isSheet || (isScript && root && !root.hasChildNodes())) {
+            if (recoveryAttempted()) {
+              fail("Could not load " + failedSrc + ".");
+              return;
+            }
+            try {
+              sessionStorage.setItem(KEY, "1");
+            } catch (e) {}
+            var url = new URL(location.href);
+            url.searchParams.set("nr", "1");
+            location.replace(url.href);
+          }
         }, true);
+
+        window.addEventListener("unhandledrejection", function (event) {
+          if (document.documentElement.getAttribute("data-boot") === "failed") return;
+          if (document.getElementById("root") && document.getElementById("root").hasChildNodes()) return;
+          setTimeout(function () {
+            var root = document.getElementById("root");
+            if (root && !root.hasChildNodes()) fail("Startup error: " + (event.reason && (event.reason.stack || event.reason.message || String(event.reason)) || "unknown promise rejection") + ".");
+          }, 0);
+        });
 
         setTimeout(function () {
           if (document.readyState !== "complete") return;
           var root = document.getElementById("root");
           var stylesheets = document.querySelectorAll('link[rel="stylesheet"]');
           var stylesLoaded = Array.prototype.some.call(stylesheets, function (link) { return link.sheet; });
-          if (root && !root.hasChildNodes()) recover();
-          else if (root && root.hasChildNodes() && stylesheets.length > 0 && !stylesLoaded) recover();
+          if (root && !root.hasChildNodes()) {
+            var main = document.querySelector('script[type="module"][src]');
+            fail("The app bundle did not execute" + (main ? " (" + main.getAttribute("src") + ")." : "."));
+          } else if (root && root.hasChildNodes() && stylesheets.length > 0 && !stylesLoaded) {
+            fail("The stylesheet did not load.");
+          }
         }, 8000);
       })();
     </script>

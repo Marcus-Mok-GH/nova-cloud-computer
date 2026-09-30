@@ -47,6 +47,7 @@ const CSS_MIME = "text/css";
 const JS_MIME = "text/javascript";
 const JSON_MIME = "application/json";
 
+/** Plain HTML/CSS/JS site: an index.html at the project root, deployed as-is. */
 function staticTemplate(name: string): RenderedProjectTemplate {
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Site";
   return {
@@ -127,6 +128,8 @@ button.addEventListener("click", () => {
   };
 }
 
+/** React SPA with no build step: global-function components loaded in DOM
+ * order, React from a CDN and JSX compiled by Babel standalone, deployed as-is. */
 function reactTemplate(name: string): RenderedProjectTemplate {
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My React App";
   return {
@@ -227,6 +230,8 @@ button:hover { background: #4338ca; }
   };
 }
 
+/** Statically-exportable Next.js App Router project: `next build` in the
+ * agent VM produces the out/ folder that deploy_website publishes. */
 function nextTemplate(name: string): RenderedProjectTemplate {
   const slug = slugifyProjectName(name);
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Next App";

@@ -9,6 +9,7 @@ import { MarkdownText } from "@/lib/markdown";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import {
   appendLiveTextDelta,
+  buildTurnItems,
   dedupeToolActivityMessages,
   groupPersistedChatItems,
   isInternalChatMessage,
@@ -17,6 +18,7 @@ import {
   upsertLiveToolEvent,
   type LiveChatEvent,
   type ToolActivity,
+  type TurnRenderItem,
 } from "@/lib/chatMessages";
 import {
   AlertTriangle,
@@ -316,28 +318,58 @@ export default function Workspace() {
     const liveTools = liveEvents.flatMap(event =>
       event.kind === "tool" ? [event.activity] : []
     );
-    const { userCommitted, replyCommitted, liveActivities } =
-      reconcileChatMessages(
-        persisted,
-        baselineMessageId,
+    const { userCommitted, liveActivities } = reconcileChatMessages(
+      persisted,
+      baselineMessageId,
+      pendingUserContent,
+      liveTextContent,
+      liveTools
+    );
+    // Rows written before this submission read as settled history. Everything
+    // above the baseline is this turn, laid out as one arrival-ordered
+    // timeline - user, what Nova said, the tools it used, what it said next -
+    // so a line written before calling tools stays above those tools instead
+    // of being left behind below them.
+    const rows: TurnRenderItem[] = [];
+    for (const item of groupPersistedChatItems(
+      visibleMessages.filter(message => message.id <= baselineMessageId)
+    )) {
+      if (item.kind === "toolRun")
+        rows.push({
+          kind: "toolRun",
+          activities: item.activities,
+          live: false,
+        });
+      else if (item.message.role === "user")
+        rows.push({
+          kind: "user",
+          content: item.message.content,
+          pending: false,
+        });
+      else
+        rows.push({
+          kind: "reply",
+          content: item.message.content,
+          live: false,
+        });
+    }
+    rows.push(
+      ...buildTurnItems({
+        messages: visibleMessages.filter(
+          message => message.id > baselineMessageId
+        ),
+        liveEvents,
         pendingUserContent,
-        liveTextContent,
-        liveTools
-      );
-    const items = groupPersistedChatItems(visibleMessages);
-    const lastPersistedRole = persisted.length
-      ? persisted[persisted.length - 1].role
-      : null;
-    const pendingBubbleRendered = Boolean(pendingUserContent) && !userCommitted;
-    // "Nova" labels the first element of its live turn, exactly once: the
-    // steps card when tools are running, otherwise the streaming reply.
-    const novaLeadsTurn = pendingBubbleRendered
-      ? true
-      : lastPersistedRole === "user" || lastPersistedRole === null;
-    const showLiveStepsLabel = liveActivities.length > 0 && novaLeadsTurn;
-    const showLiveReplyLabel = liveActivities.length === 0 && novaLeadsTurn;
-    const typingLabel = novaLeadsTurn;
-    const showLiveReply = !replyCommitted && Boolean(liveTextContent);
+        userCommitted,
+      })
+    );
+    // "Nova" labels the first thing it says in a turn, exactly once.
+    const novaLeadsRow = (index: number) =>
+      index === 0 || rows[index - 1].kind === "user";
+    const hasLiveRow = rows.some(row => row.kind !== "user" && row.live);
+    const showTyping = agentIsWorking && !hasLiveRow;
+    const typingLabel =
+      rows.length === 0 || rows[rows.length - 1].kind === "user";
     const persistedToolRuns = visibleMessages.filter(message =>
       parsePersistedToolActivity(message.content)
     ).length;
@@ -382,9 +414,13 @@ export default function Workspace() {
           <div
             ref={scrollRef}
             onScroll={handleChatScroll}
-            className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-7 sm:px-7 sm:py-10"
+            className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-7 sm:px-7 sm:py-10"
           >
-            <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-10 lg:grid-cols-[minmax(0,1fr)_248px] lg:gap-14">
+            <div
+              className={`mx-auto grid w-full max-w-[1240px] min-w-0 gap-10 lg:grid-cols-[minmax(0,1fr)_248px] lg:gap-14${
+                rows.length > 0 ? " mt-auto" : ""
+              }`}
+            >
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-col gap-6">
                   {savedMessages.isLoading ? (
@@ -392,9 +428,7 @@ export default function Workspace() {
                       <TypingIndicator />
                       <span>Opening the thread…</span>
                     </div>
-                  ) : visibleMessages.length === 0 &&
-                    !pendingUserContent &&
-                    !agentIsWorking ? (
+                  ) : rows.length === 0 && !agentIsWorking ? (
                     <div className="chat-blank-state relative isolate overflow-hidden border border-foreground/[0.12] bg-card/75 px-6 py-12 shadow-[0_24px_80px_rgba(36,40,34,0.08)] sm:px-12 sm:py-16 dark:border-white/[0.10] dark:bg-white/[0.045] dark:shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
                       <div className="pointer-events-none absolute -right-16 -top-16 size-48 rounded-full border border-primary/20" />
                       <div className="relative max-w-2xl">
@@ -438,36 +472,47 @@ export default function Workspace() {
                       </div>
                     </div>
                   ) : (
-                    items.map((item, index) => {
-                      if (item.kind === "toolRun")
-                        return (
+                    rows.map((row, index) => {
+                      if (row.kind === "toolRun")
+                        return row.live ? (
                           <div
-                            key={`tools-${item.activities[0].id}`}
+                            key={`live-tools-${row.activities[0].id}`}
+                            className="chat-in flex w-full shrink-0 flex-col pl-0 sm:pl-12"
+                          >
+                            {novaLeadsRow(index) && (
+                              <p className="mb-1 ml-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                                Nova
+                              </p>
+                            )}
+                            <LiveActivityCard
+                              activities={row.activities}
+                              working={agentIsWorking}
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            key={`tools-${row.activities[0].id}`}
                             className="chat-in flex w-full shrink-0 pl-0 sm:pl-12"
                           >
-                            <ToolRunGroup activities={item.activities} />
+                            <ToolRunGroup activities={row.activities} />
                           </div>
                         );
-                      const message = item.message;
-                      const previous = items[index - 1];
-                      const showLabel =
-                        !previous ||
-                        (previous.kind === "message" &&
-                          previous.message.role === "user");
-                      if (message.role === "user")
+                      if (row.kind === "user")
                         return (
                           <div
-                            key={message.id}
+                            key={`user-${index}`}
                             className="chat-in flex w-full shrink-0 justify-end"
                           >
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
-                              {message.content}
+                              {row.content}
                             </div>
                           </div>
                         );
+                      const isLast = index === rows.length - 1;
+                      const streaming = row.live && agentIsWorking && isLast;
                       return (
                         <div
-                          key={message.id}
+                          key={`reply-${index}`}
                           className="chat-in flex w-full shrink-0 items-start gap-3"
                         >
                           <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black">
@@ -475,13 +520,16 @@ export default function Workspace() {
                           </span>
                           <div className="min-w-0 max-w-[calc(100%-2.75rem)]">
                             <div className="mb-2 flex items-center gap-2">
-                              {showLabel && (
+                              {novaLeadsRow(index) && (
                                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                                   Nova
                                 </p>
                               )}
+                              {streaming && (
+                                <span className="size-1 animate-pulse rounded-full bg-primary" />
+                              )}
                             </div>
-                            {isUnavailableReply(message.content) ? (
+                            {isUnavailableReply(row.content) ? (
                               <div
                                 data-testid="assistant-error"
                                 className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"
@@ -491,13 +539,16 @@ export default function Workspace() {
                                   <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
                                     Nova is offline
                                   </p>
-                                  <span>{message.content}</span>
+                                  <span>{row.content}</span>
                                 </div>
                               </div>
                             ) : (
                               <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]">
                                 <div className="break-words text-foreground">
-                                  <MarkdownText text={message.content} />
+                                  <MarkdownText text={row.content} />
+                                  {streaming && (
+                                    <span className="stream-caret" />
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -506,93 +557,28 @@ export default function Workspace() {
                       );
                     })
                   )}
-                  {pendingUserContent && !userCommitted && (
-                    <div className="chat-in flex w-full shrink-0 justify-end">
-                      <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
-                        {pendingUserContent}
-                      </div>
-                    </div>
-                  )}
-                  {liveActivities.length > 0 && (
-                    <div className="chat-in flex w-full shrink-0 flex-col pl-0 sm:pl-12">
-                      {showLiveStepsLabel && (
-                        <p className="mb-1 ml-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                          Nova
-                        </p>
-                      )}
-                      <LiveActivityCard
-                        activities={liveActivities}
-                        working={agentIsWorking}
-                      />
-                    </div>
-                  )}
-                  {showLiveReply && (
+                  {showTyping && (
                     <div className="chat-in flex w-full shrink-0 items-start gap-3">
                       <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black">
                         <NovaLogo size={12} />
                       </span>
                       <div className="min-w-0 max-w-[calc(100%-2.75rem)]">
                         <div className="mb-2 flex items-center gap-2">
-                          {showLiveReplyLabel && (
+                          {typingLabel && (
                             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                               Nova
                             </p>
                           )}
-                          {agentIsWorking && (
+                          {typingLabel && (
                             <span className="size-1 animate-pulse rounded-full bg-primary" />
                           )}
                         </div>
-                        {isUnavailableReply(liveTextContent) ? (
-                          <div
-                            data-testid="assistant-error"
-                            className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"
-                          >
-                            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                            <div>
-                              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-                                Nova is offline
-                              </p>
-                              <span>{liveTextContent}</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]">
-                            <div className="break-words text-foreground">
-                              <MarkdownText text={liveTextContent} />
-                              {agentIsWorking && (
-                                <span className="stream-caret" />
-                              )}
-                            </div>
-                          </div>
-                        )}
+                        <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
+                          <TypingIndicator />
+                        </div>
                       </div>
                     </div>
                   )}
-                  {agentIsWorking &&
-                    !replyCommitted &&
-                    !showLiveReply &&
-                    liveActivities.length === 0 && (
-                      <div className="chat-in flex w-full shrink-0 items-start gap-3">
-                        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm dark:bg-white dark:text-black">
-                          <NovaLogo size={12} />
-                        </span>
-                        <div className="min-w-0 max-w-[calc(100%-2.75rem)]">
-                          <div className="mb-2 flex items-center gap-2">
-                            {typingLabel && (
-                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                                Nova
-                              </p>
-                            )}
-                            {typingLabel && (
-                              <span className="size-1 animate-pulse rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
-                            <TypingIndicator />
-                          </div>
-                        </div>
-                      </div>
-                    )}
                 </div>
               </div>
 

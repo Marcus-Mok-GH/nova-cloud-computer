@@ -92,19 +92,24 @@ export function resolveTranscriptionConfig() {
 
 /**
  * Resolves the coder sub-agent's NVIDIA NIM API key. The dedicated
- * NVIDIA_NIM_API_KEY wins; otherwise the deployment's pre-Mistral gateway
- * names - NVIDIA_API_KEY or NOVA_NVIDIA_GATEWAY_TOKEN - work as fallbacks
- * because they authenticate against the same hosted NIM endpoint, so an
- * already-configured deployment needs no new secrets. Empty string when
- * none is set.
+ * NVIDIA_NIM_API_KEY wins; NVIDIA_NIM_GATEWAY_TOKEN, NVIDIA_API_KEY, or
+ * NOVA_NVIDIA_GATEWAY_TOKEN work as fallbacks because they authenticate against
+ * the same hosted NIM endpoint, so an already-configured deployment needs no
+ * new secrets. Empty string when none is set.
  */
 export function resolveNimApiKey(source: NodeJS.ProcessEnv = process.env) {
-  return (
-    source.NVIDIA_NIM_API_KEY ??
-    source.NVIDIA_API_KEY ??
-    source.NOVA_NVIDIA_GATEWAY_TOKEN ??
-    ""
-  );
+  const candidates = [
+    source.NVIDIA_NIM_API_KEY,
+    source.NVIDIA_NIM_GATEWAY_TOKEN,
+    source.NVIDIA_API_KEY,
+    source.NOVA_NVIDIA_GATEWAY_TOKEN,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return "";
 }
 
 export const ENV = {

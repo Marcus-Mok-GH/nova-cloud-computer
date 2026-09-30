@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveNeonAuthVerificationConfig, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
 
 describe("resolveNeonAuthVerificationConfig", () => {
@@ -136,18 +136,143 @@ describe("resolveNimApiKey", () => {
     expect(
       resolveNimApiKey({
         NVIDIA_NIM_API_KEY: "nim-key",
+        NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token",
         NVIDIA_API_KEY: "legacy-key",
         NOVA_NVIDIA_GATEWAY_TOKEN: "token",
       } as NodeJS.ProcessEnv)
     ).toBe("nim-key");
   });
 
-  it("falls back to the deployment's legacy gateway key names on the same NIM endpoint", () => {
+  it("falls back to NVIDIA_NIM_GATEWAY_TOKEN and legacy gateway key names on the same NIM endpoint", () => {
+    expect(resolveNimApiKey({ NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token" } as NodeJS.ProcessEnv)).toBe("nim-gateway-token");
     expect(resolveNimApiKey({ NVIDIA_API_KEY: "legacy-key" } as NodeJS.ProcessEnv)).toBe("legacy-key");
     expect(resolveNimApiKey({ NOVA_NVIDIA_GATEWAY_TOKEN: "gateway-token" } as NodeJS.ProcessEnv)).toBe("gateway-token");
   });
 
+  it("skips empty or whitespace-only values to find the first valid credential", () => {
+    expect(
+      resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: "  ",
+        NVIDIA_NIM_GATEWAY_TOKEN: "valid-gateway-token",
+      } as NodeJS.ProcessEnv)
+    ).toBe("valid-gateway-token");
+  });
+
   it("resolves to an empty string when no key is configured", () => {
     expect(resolveNimApiKey({} as NodeJS.ProcessEnv)).toBe("");
+  });
+
+  it("prefers the NIM gateway token over both legacy credentials", () => {
+    expect(resolveNimApiKey({
+      NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token",
+      NVIDIA_API_KEY: "legacy-key",
+      NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+    })).toBe("nim-gateway-token");
+  });
+
+  it("prefers the legacy API key over the legacy gateway token", () => {
+    expect(resolveNimApiKey({
+      NVIDIA_API_KEY: "legacy-key",
+      NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+    })).toBe("legacy-key");
+  });
+
+  describe.each([
+    { label: "empty", blank: "" },
+    { label: "spaces", blank: "   " },
+    { label: "tabs and line endings", blank: "\t\r\n" },
+    { label: "non-breaking spaces", blank: "\u00a0" },
+  ])("with $label credentials", ({ blank }) => {
+    it("skips a blank primary key for the NIM gateway token", () => {
+      expect(resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: blank,
+        NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token",
+        NVIDIA_API_KEY: "legacy-key",
+        NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+      })).toBe("nim-gateway-token");
+    });
+
+    it("skips blank dedicated credentials for the legacy API key", () => {
+      expect(resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: blank,
+        NVIDIA_NIM_GATEWAY_TOKEN: blank,
+        NVIDIA_API_KEY: "legacy-key",
+        NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+      })).toBe("legacy-key");
+    });
+
+    it("uses the legacy gateway token when all earlier credentials are blank", () => {
+      expect(resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: blank,
+        NVIDIA_NIM_GATEWAY_TOKEN: blank,
+        NVIDIA_API_KEY: blank,
+        NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+      })).toBe("legacy-gateway-token");
+    });
+
+    it("returns an empty string when every credential is blank", () => {
+      expect(resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: blank,
+        NVIDIA_NIM_GATEWAY_TOKEN: blank,
+        NVIDIA_API_KEY: blank,
+        NOVA_NVIDIA_GATEWAY_TOKEN: blank,
+      })).toBe("");
+    });
+  });
+
+  it.each([
+    "NVIDIA_NIM_API_KEY",
+    "NVIDIA_NIM_GATEWAY_TOKEN",
+    "NVIDIA_API_KEY",
+    "NOVA_NVIDIA_GATEWAY_TOKEN",
+  ])("trims surrounding whitespace from %s", name => {
+    expect(resolveNimApiKey({
+      [name]: " \t\u00a0nvapi-Test_+/=.token\r\n ",
+    })).toBe("nvapi-Test_+/=.token");
+  });
+
+  it("retains primary-key precedence when the primary key needs trimming", () => {
+    expect(resolveNimApiKey({
+      NVIDIA_NIM_API_KEY: " \tnim-key\r\n",
+      NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token",
+      NVIDIA_API_KEY: "legacy-key",
+      NOVA_NVIDIA_GATEWAY_TOKEN: "legacy-gateway-token",
+    })).toBe("nim-key");
+  });
+
+  it("skips a mixture of unset, empty, and whitespace-only credentials", () => {
+    expect(resolveNimApiKey({
+      NVIDIA_NIM_API_KEY: undefined,
+      NVIDIA_NIM_GATEWAY_TOKEN: "",
+      NVIDIA_API_KEY: "\t ",
+      NOVA_NVIDIA_GATEWAY_TOKEN: " \nlegacy-gateway-token\t",
+    })).toBe("legacy-gateway-token");
+  });
+
+  describe("process environment", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("resolves the gateway token from process.env when no source is passed", () => {
+      vi.stubEnv("NVIDIA_NIM_API_KEY", " \t");
+      vi.stubEnv("NVIDIA_NIM_GATEWAY_TOKEN", " \nnim-gateway-token\r\n");
+      vi.stubEnv("NVIDIA_API_KEY", "legacy-key");
+      vi.stubEnv("NOVA_NVIDIA_GATEWAY_TOKEN", "legacy-gateway-token");
+
+      expect(resolveNimApiKey()).toBe("nim-gateway-token");
+    });
+
+    it("uses only an explicit source even when process.env has valid credentials", () => {
+      vi.stubEnv("NVIDIA_NIM_API_KEY", "environment-nim-key");
+      vi.stubEnv("NVIDIA_NIM_GATEWAY_TOKEN", "environment-gateway-token");
+      vi.stubEnv("NVIDIA_API_KEY", "environment-legacy-key");
+      vi.stubEnv("NOVA_NVIDIA_GATEWAY_TOKEN", "environment-legacy-gateway-token");
+
+      expect(resolveNimApiKey({})).toBe("");
+      expect(resolveNimApiKey({
+        NOVA_NVIDIA_GATEWAY_TOKEN: "explicit-gateway-token",
+      })).toBe("explicit-gateway-token");
+    });
   });
 });

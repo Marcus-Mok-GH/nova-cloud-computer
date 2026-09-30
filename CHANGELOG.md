@@ -1,3 +1,26 @@
+2026-09-30 - Inference API exposes a fixed model surface with BYOK support
+
+The public inference API listed every gateway model and passed `model`
+straight through to the built-in gateway, so a workspace's own provider
+(BYOK) was unreachable from an API key even though in-app chat already
+routes to it.
+
+GET /api/v1/models now returns a one-or-two-choice surface: Nova's built-in
+model under the public name `nova-pro`, plus the workspace's active BYOK
+model (by its configured model id) when one is selected in Settings. POST
+/api/v1/chat/completions routes each choice to its own backend, defaults an
+omitted `model` to `nova-pro`, and rejects anything else with 400
+invalid_model instead of passing it to the provider. Responses and SSE
+chunks report the public model id, so the underlying gateway model is never
+exposed. BYOK requests run on the user's own provider and claim no
+inference allowance, matching in-app chat.
+
+The /docs/api page and the Settings key card now show `nova-pro` in their
+examples. The docs "Try it from here" console streams the SSE response and
+prints tokens as they arrive instead of waiting for a buffered body, and the
+chat-completions section documents a streaming `curl -N` example plus the
+SSE frame shape. server/inferenceApi.test.ts grew to 17 tests (+7).
+
 2026-09-30 - Fix white-screen React projects: load App before main and drop ESM
 
 Every React project the agent scaffolded rendered a blank white page: the

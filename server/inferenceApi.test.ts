@@ -3,12 +3,32 @@ import {
   buildOpenAiChatCompletion,
   buildOpenAiSseChunk,
   InferenceApiError,
+  inferenceApiModels,
   mapGatewayClientError,
   MAX_INFERENCE_MESSAGES,
+  NOVA_PRO_MODEL_ID,
   parseInferenceApiMessages,
   readApiKeyFromRequest,
+  resolveInferenceModel,
 } from "./inferenceApi";
 import { MistralGatewayClientError } from "./mistralGateway";
+import type { CustomModel } from "../drizzle/schema";
+
+function customModelFixture(overrides: Partial<CustomModel> = {}): CustomModel {
+  return {
+    id: 1,
+    workspaceId: 1,
+    name: "My provider",
+    modelId: "gpt-4o",
+    baseUrl: "https://api.example.com/v1",
+    compatibility: "openai",
+    encryptedApiKey: "encrypted",
+    supportsImageInput: false,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    ...overrides,
+  } as CustomModel;
+}
 
 describe("readApiKeyFromRequest", () => {
   it("accepts bearer keys and x-api-key headers", () => {
@@ -64,6 +84,42 @@ describe("parseInferenceApiMessages", () => {
   });
 });
 
+describe("inferenceApiModels", () => {
+  it("offers only nova-pro without a BYOK model", () => {
+    expect(inferenceApiModels(null)).toEqual([{ id: NOVA_PRO_MODEL_ID, ownedBy: "nova", customModel: null }]);
+  });
+
+  it("adds the BYOK model id as a second choice", () => {
+    const byok = customModelFixture();
+    const models = inferenceApiModels(byok);
+    expect(models.map(model => model.id)).toEqual([NOVA_PRO_MODEL_ID, "gpt-4o"]);
+    expect(models[1]).toMatchObject({ ownedBy: "byok", customModel: byok });
+  });
+
+  it("keeps a single entry when the BYOK model id collides with nova-pro", () => {
+    expect(inferenceApiModels(customModelFixture({ modelId: NOVA_PRO_MODEL_ID })).map(model => model.id)).toEqual([NOVA_PRO_MODEL_ID]);
+  });
+});
+
+describe("resolveInferenceModel", () => {
+  it("defaults an omitted model to nova-pro", () => {
+    expect(resolveInferenceModel(null, undefined).id).toBe(NOVA_PRO_MODEL_ID);
+    expect(resolveInferenceModel(customModelFixture(), "  ").id).toBe(NOVA_PRO_MODEL_ID);
+  });
+
+  it("selects the BYOK model by its model id", () => {
+    const byok = customModelFixture({ modelId: "deepseek-chat" });
+    const resolved = resolveInferenceModel(byok, "deepseek-chat");
+    expect(resolved.ownedBy).toBe("byok");
+    expect(resolved.customModel).toBe(byok);
+  });
+
+  it("rejects a model outside the workspace's choices", () => {
+    expect(() => resolveInferenceModel(null, "mistral-large-latest")).toThrow(InferenceApiError);
+    expect(() => resolveInferenceModel(customModelFixture(), "some-other-model")).toThrow(InferenceApiError);
+  });
+});
+
 describe("mapGatewayClientError", () => {
   it("maps exhausted credits and allowances to 429s", () => {
     expect(mapGatewayClientError(new MistralGatewayClientError("out", "credits_exhausted"))).toEqual({ status: 429, type: "rate_limit_error", code: "insufficient_credits" });
@@ -92,6 +148,20 @@ describe("OpenAI response shapes", () => {
     expect(payload.choices[0].finish_reason).toBe("stop");
     expect(payload.usage).toEqual({ prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 });
     expect(payload["x-nova-allowance"].remainingRequests).toBe(499);
+  });
+
+  it("reports the public model id when one is supplied", () => {
+    const payload = buildOpenAiChatCompletion(
+      {
+        text: "Hello!",
+        toolCalls: [],
+        model: "ministral-14b-latest",
+        usage: null,
+        allowance: { usedRequests: 1, maxRequests: 500, remainingRequests: 499, exhausted: false },
+      },
+      NOVA_PRO_MODEL_ID
+    );
+    expect(payload.model).toBe("nova-pro");
   });
 
   it("builds SSE chunks in the chat.completion.chunk format", () => {

@@ -47,6 +47,7 @@ const CSS_MIME = "text/css";
 const JS_MIME = "text/javascript";
 const JSON_MIME = "application/json";
 
+/** Plain HTML/CSS/JS site: an index.html at the project root, deployed as-is. */
 function staticTemplate(name: string): RenderedProjectTemplate {
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Site";
   return {
@@ -127,12 +128,14 @@ button.addEventListener("click", () => {
   };
 }
 
+/** React SPA with no build step: global-function components loaded in DOM
+ * order, React from a CDN and JSX compiled by Babel standalone, deployed as-is. */
 function reactTemplate(name: string): RenderedProjectTemplate {
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My React App";
   return {
     deployRoot: ".",
     summary:
-      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone - no build step needed). It deploys as-is with deploy_website (choose this project folder).",
+      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone - no build step needed). It deploys as-is with deploy_website (choose this project folder). Components are plain global functions (no import/export - there is no bundler): define a component on window in its own file and load it before the file that uses it.",
     files: [
       {
         path: "index.html",
@@ -150,16 +153,10 @@ function reactTemplate(name: string): RenderedProjectTemplate {
   </head>
   <body>
     <div id="root"></div>
+    <script type="text/babel" src="src/App.jsx"></script>
     <script type="text/babel" src="src/main.jsx"></script>
   </body>
 </html>
-`,
-      },
-      {
-        path: "src/main.jsx",
-        mimeType: JS_MIME,
-        content: `const { createRoot } = ReactDOM;
-createRoot(document.getElementById("root")).render(<App />);
 `,
       },
       {
@@ -167,7 +164,7 @@ createRoot(document.getElementById("root")).render(<App />);
         mimeType: JS_MIME,
         content: `const { useState } = React;
 
-export default function App() {
+function App() {
   const [count, setCount] = useState(0);
   return (
     <main className="card">
@@ -179,6 +176,19 @@ export default function App() {
     </main>
   );
 }
+
+// Babel standalone runs each script in the global scope - there is no module
+// bundler here, so expose App for src/main.jsx to mount.
+window.App = App;
+`,
+      },
+      {
+        path: "src/main.jsx",
+        mimeType: JS_MIME,
+        content: `const { createRoot } = ReactDOM;
+const App = window.App;
+
+createRoot(document.getElementById("root")).render(<App />);
 `,
       },
       {
@@ -220,6 +230,8 @@ button:hover { background: #4338ca; }
   };
 }
 
+/** Statically-exportable Next.js App Router project: `next build` in the
+ * agent VM produces the out/ folder that deploy_website publishes. */
 function nextTemplate(name: string): RenderedProjectTemplate {
   const slug = slugifyProjectName(name);
   const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Next App";

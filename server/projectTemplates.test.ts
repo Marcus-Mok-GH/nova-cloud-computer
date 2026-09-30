@@ -44,8 +44,22 @@ describe("Project templates", () => {
     expect(index.content).toContain("https://unpkg.com/react-dom@18");
     expect(index.content).toContain("@babel/standalone");
     expect(index.content).toContain('type="text/babel"');
+    // Babel standalone runs text/babel scripts in DOM order: App.jsx must be
+    // loaded (and expose window.App) before main.jsx mounts it, or the page
+    // renders nothing and the user sees a white screen.
+    const appScript = index.content.indexOf('src="src/App.jsx"');
+    const mainScript = index.content.indexOf('src="src/main.jsx"');
+    expect(appScript).toBeGreaterThan(-1);
+    expect(mainScript).toBeGreaterThan(appScript);
     const app = project.files.find(file => file.path === "src/App.jsx")!;
-    expect(app.content).toContain("export default function App");
+    expect(app.content).toContain("function App");
+    expect(app.content).toContain("window.App = App");
+    // No ESM in this no-bundler setup - Babel would compile the export to an
+    // undefined `exports` and the global would never be defined.
+    expect(app.content).not.toContain("export ");
+    const main = project.files.find(file => file.path === "src/main.jsx")!;
+    expect(main.content).toContain("window.App");
+    expect(main.content).toContain("createRoot(");
   });
 
   it("next template: static-export Next.js scaffold whose out/ folder is what deploys", () => {

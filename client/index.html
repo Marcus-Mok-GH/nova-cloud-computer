@@ -11,23 +11,67 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Nova - Your personal cloud computer</title>
     <script>
-      // Boot guard: after a deploy, a cached index.html can reference a hashed
-      // bundle that no longer exists. The failed module load leaves #root empty
-      // (white screen), so reload once to fetch fresh HTML instead of staying blank.
+      // Boot guard. Two jobs, both about never showing a blank page:
+      // 1) Apply the stored theme before first paint so a dark-theme user does
+      //    not get a white flash while the bundle loads.
+      // 2) After a deploy a cached index.html can reference a hashed bundle that
+      //    no longer exists. The failed load leaves #root empty (white screen),
+      //    so reload once to fetch fresh HTML - and if that is not possible or
+      //    did not help, show the boot screen's error state instead of staying
+      //    blank with no way out.
       (function () {
         var KEY = "nova_boot_reload";
-        function recover() {
-          // The nr param marks an already-attempted recovery so browsers that
-          // block storage cannot get stuck in a reload loop.
-          if (/[?&]nr=/.test(location.search)) return;
+        var DARK = { midnight: 1, deepsea: 1, pine: 1, nebula: 1, ember: 1 };
+        var LIGHT = { daylight: 1, ocean: 1, meadow: 1, blossom: 1, sandstone: 1 };
+
+        // Keep in sync with ThemeContext: unknown values fall back to the
+        // default light theme, so we simply leave the document untouched.
+        var stored = null;
+        try {
+          stored = localStorage.getItem("nova.theme") || localStorage.getItem("theme");
+        } catch (e) {}
+        var id = stored === "dark" ? "midnight" : stored === "light" ? "daylight" : stored;
+        if (id && (DARK[id] || LIGHT[id])) {
+          var el = document.documentElement;
+          el.setAttribute("data-theme", id);
+          el.classList.toggle("dark", !!DARK[id]);
+          el.style.colorScheme = DARK[id] ? "dark" : "light";
+        }
+
+        function recoveryAttempted() {
+          if (/[?&]nr=/.test(location.search)) return true;
           try {
-            if (sessionStorage.getItem(KEY)) return;
+            if (sessionStorage.getItem(KEY)) return true;
+          } catch (e) {}
+          return false;
+        }
+
+        function fail() {
+          var title = document.getElementById("boot-title");
+          var sub = document.getElementById("boot-sub");
+          var retry = document.getElementById("boot-retry");
+          if (!title || !sub || !retry) return;
+          document.documentElement.setAttribute("data-boot", "failed");
+          title.textContent = "Nova could not start";
+          sub.textContent = "The app failed to load. Check your connection, disable any script blockers for this site, then try again.";
+          retry.hidden = false;
+        }
+
+        function recover() {
+          if (recoveryAttempted()) {
+            fail();
+            return;
+          }
+          try {
             sessionStorage.setItem(KEY, "1");
           } catch (e) {}
           var url = new URL(location.href);
           url.searchParams.set("nr", "1");
           location.replace(url.href);
         }
+        window.__novaRecover = recover;
+        window.__novaFail = fail;
+
         window.addEventListener("error", function (event) {
           var target = event.target;
           // Only module scripts and stylesheets matter for boot; ignore
@@ -39,6 +83,7 @@
           var root = document.getElementById("root");
           if (isSheet || (isScript && root && !root.hasChildNodes())) recover();
         }, true);
+
         setTimeout(function () {
           if (document.readyState !== "complete") return;
           var root = document.getElementById("root");
@@ -52,6 +97,52 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Boot screen: painted by the HTML parser before any JavaScript runs, so
+         there is always something on screen. Hidden as soon as React renders. -->
+    <div id="boot" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:var(--background,#faf7f2);color:var(--foreground,#241f17);font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div>
+        <p id="boot-title" style="margin:0;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Starting Nova&hellip;</p>
+        <p id="boot-sub" style="margin:8px 0 0;font-size:14px;line-height:1.5;opacity:0.7;">Loading your workspace.</p>
+        <button id="boot-retry" type="button" hidden style="margin-top:18px;padding:10px 20px;border:0;border-radius:999px;background:var(--primary,#e2662a);color:var(--primary-foreground,#fff);font:inherit;font-size:14px;font-weight:600;cursor:pointer;">Reload Nova</button>
+      </div>
+    </div>
+    <noscript>
+      <div style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:#faf7f2;color:#241f17;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
+        <div>
+          <p style="margin:0;font-size:18px;font-weight:700;">Nova needs JavaScript</p>
+          <p style="margin:8px 0 0;font-size:14px;line-height:1.5;">Enable JavaScript for this site, then reload the page.</p>
+        </div>
+      </div>
+    </noscript>
+    <script>
+      // Hide the boot screen once React has rendered into #root, and wire the
+      // retry button to a recovery that is allowed to run again.
+      (function () {
+        var boot = document.getElementById("boot");
+        var retry = document.getElementById("boot-retry");
+        if (retry) {
+          retry.addEventListener("click", function () {
+            try {
+              sessionStorage.removeItem("nova_boot_reload");
+            } catch (e) {}
+            var url = new URL(location.href);
+            url.searchParams.delete("nr");
+            location.replace(url.href);
+          });
+        }
+        var timer = setInterval(function () {
+          if (document.documentElement.getAttribute("data-boot") === "failed") {
+            clearInterval(timer);
+            return;
+          }
+          var root = document.getElementById("root");
+          if (root && root.hasChildNodes()) {
+            clearInterval(timer);
+            boot.style.display = "none";
+          }
+        }, 50);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

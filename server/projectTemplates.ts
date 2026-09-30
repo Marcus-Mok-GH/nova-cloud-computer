@@ -132,7 +132,7 @@ function reactTemplate(name: string): RenderedProjectTemplate {
   return {
     deployRoot: ".",
     summary:
-      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone - no build step needed). It deploys as-is with deploy_website (choose this project folder).",
+      "A React single-page app that runs straight in the browser (React from a CDN, JSX compiled by Babel standalone - no build step needed). It deploys as-is with deploy_website (choose this project folder). Components are plain global functions (no import/export - there is no bundler): define a component on window in its own file and load it before the file that uses it.",
     files: [
       {
         path: "index.html",
@@ -150,16 +150,10 @@ function reactTemplate(name: string): RenderedProjectTemplate {
   </head>
   <body>
     <div id="root"></div>
+    <script type="text/babel" src="src/App.jsx"></script>
     <script type="text/babel" src="src/main.jsx"></script>
   </body>
 </html>
-`,
-      },
-      {
-        path: "src/main.jsx",
-        mimeType: JS_MIME,
-        content: `const { createRoot } = ReactDOM;
-createRoot(document.getElementById("root")).render(<App />);
 `,
       },
       {
@@ -167,7 +161,7 @@ createRoot(document.getElementById("root")).render(<App />);
         mimeType: JS_MIME,
         content: `const { useState } = React;
 
-export default function App() {
+function App() {
   const [count, setCount] = useState(0);
   return (
     <main className="card">
@@ -179,6 +173,19 @@ export default function App() {
     </main>
   );
 }
+
+// Babel standalone runs each script in the global scope - there is no module
+// bundler here, so expose App for src/main.jsx to mount.
+window.App = App;
+`,
+      },
+      {
+        path: "src/main.jsx",
+        mimeType: JS_MIME,
+        content: `const { createRoot } = ReactDOM;
+const App = window.App;
+
+createRoot(document.getElementById("root")).render(<App />);
 `,
       },
       {

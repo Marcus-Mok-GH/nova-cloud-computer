@@ -1,3 +1,21 @@
+2026-09-30 - Fix white-screen React projects: load App before main and drop ESM
+
+Every React project the agent scaffolded rendered a blank white page: the
+index.html loaded only src/main.jsx, which rendered `<App />` while App was
+never defined - App.jsx used `export default`, which Babel standalone (no
+bundler, scripts run in the global scope) compiles to an undefined `exports`
+instead of a global.
+
+server/projectTemplates.ts: the react template now loads src/App.jsx before
+src/main.jsx (Babel standalone runs text/babel scripts in DOM order) and
+App.jsx defines a plain `function App` exposed as `window.App`, which
+main.jsx mounts. The template summary and the create_project_template system
+prompt guidance both state the no-bundler rule - components are global
+functions with no import/export, each loaded before the file that uses it -
+so the agent keeps generated React sites working as it extends them.
+projectTemplates.test.ts now asserts the load order and the global wiring
+instead of the broken export.
+
 2026-09-27 - Tool activity now stays visible while Nova is actively working
 
 Reported from a live session: while Nova works, the tool call in progress

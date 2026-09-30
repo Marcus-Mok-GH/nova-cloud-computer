@@ -1,3 +1,23 @@
+2026-09-30 - Never show a blank white screen while Nova boots
+
+Production was reported as a completely blank white app on every page. The
+build, assets, API, and all ten themes verified healthy in a real browser, so
+the remaining trigger is a bundle that never executed (a failed or blocked
+module load). index.html already tried to self-heal by reloading once after a
+stale asset, but when recovery was unavailable or did not help it gave up
+silently and left #root empty - a blank white page with no feedback.
+
+client/index.html now paints a boot screen from the HTML parser before any
+JavaScript runs, so something is always on screen. When React renders into
+#root the screen hides itself; when boot fails it becomes an actionable error
+with a Reload Nova button that clears the recovery guard and retries. A
+<noscript> message covers disabled JavaScript. The same head script also
+applies the stored theme (nova.theme, or the legacy light/dark value) before
+first paint, so dark-theme users no longer get a white flash while the bundle
+loads. Verified headless: normal boot hides the screen, a broken bundle shows
+the error state instead of white, and data-theme/.dark are set before #root
+exists.
+
 2026-09-30 - Settings gets tabs and a light/dark theme picker
 
 Settings was one long scroll and the only appearance control was the

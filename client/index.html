@@ -46,7 +46,10 @@
           return false;
         }
 
+        var probing = false;
+
         function fail(reason) {
+          if (document.documentElement.getAttribute("data-boot") === "failed") return;
           var title = document.getElementById("boot-title");
           var sub = document.getElementById("boot-sub");
           var retry = document.getElementById("boot-retry");
@@ -63,14 +66,70 @@
           } catch (e) {}
           sub.textContent = (reason ? reason + " " : "") + "The app failed to load. Check your connection, disable any script blockers for this site, then try again." + detail;
           retry.hidden = false;
+
+          // If a specific resource failed, probe it directly and, when the
+          // network can actually reach it, retry the boot with a cache-busted
+          // copy of the module. This distinguishes a blocked/failed request
+          // from an HTTP error and can recover a poisoned cache entry without
+          // a manual hard refresh. Runs at most once per page.
+          var match = /Could not load (\S+)\./.exec(reason || "");
+          if (!match || probing) return;
+          probing = true;
+          var failedUrl = match[1];
+          var note = document.createElement("p");
+          note.id = "boot-probe";
+          note.style.margin = "10px 0 0";
+          note.style.fontSize = "13px";
+          note.style.lineHeight = "1.5";
+          sub.parentNode.insertBefore(note, retry);
+          var say = function (text) { note.textContent = "Probe: " + text; };
+          say("re-testing " + failedUrl + "\u2026");
+          var root = document.getElementById("root");
+          var booted = function () { return root && root.hasChildNodes(); };
+          window
+            .fetch(failedUrl, { cache: "no-store" })
+            .then(function (res) {
+              if (res.body && res.body.cancel) {
+                try { res.body.cancel(); } catch (e) {}
+              }
+              if (!res.ok) {
+                say("HTTP " + res.status + " " + res.statusText + " - the server is refusing this file.");
+                return null;
+              }
+              if (booted()) return null; // module ran after all; boot watcher will hide the screen
+              if (!/\.m?js(\?|$)/.test(failedUrl)) {
+                // Non-JS asset (e.g. a stylesheet): re-injecting it as a module
+                // script would be refused on MIME type, so only report.
+                say("HTTP " + res.status + " - reachable. Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) to clear a poisoned copy.");
+                return null;
+              }
+              say("HTTP 200 - reachable. Retrying with a fresh copy\u2026");
+              var s = document.createElement("script");
+              s.type = "module";
+              s.setAttribute("data-boot-retry", "1");
+              s.src = failedUrl + (failedUrl.indexOf("?") === -1 ? "?" : "&") + "bootretry=" + Date.now();
+              var freshTimer = setTimeout(function () {
+                if (booted()) return;
+                say("The fresh copy also failed to load - a blocker or network filter is likely.");
+              }, 6000);
+              s.addEventListener("error", function () { clearTimeout(freshTimer); say("The fresh copy also failed to load - a blocker or network filter is likely."); });
+              s.addEventListener("load", function () { clearTimeout(freshTimer); });
+              document.body.appendChild(s);
+              return null;
+            })
+            .catch(function (err) {
+              say("request failed (" + ((err && err.name) || "error") + ") - a blocker, VPN, proxy, or DNS filter is preventing the download.");
+            });
         }
         window.__novaFail = fail;
 
         window.addEventListener("error", function (event) {
           var target = event.target;
           // Only module scripts and stylesheets matter for boot; ignore
-          // favicon/analytics failures so they cannot trigger a reload.
+          // favicon/analytics failures, the probe's own retry script, and any
+          // failures after the app is up so they cannot trigger a reload.
           if (!target) return;
+          if (target.hasAttribute && target.hasAttribute("data-boot-retry")) return;
           var isScript = target.tagName === "SCRIPT" && target.type === "module";
           var isSheet = target.tagName === "LINK" && target.rel === "stylesheet";
           if (!isScript && !isSheet) return;
@@ -89,6 +148,19 @@
             location.replace(url.href);
           }
         }, true);
+
+        // Uncaught exceptions from module evaluation surface here (the capture
+        // listener above only sees resource failures). Report the crash only
+        // after the one-shot recovery has been used, so a transient first-load
+        // failure still gets the reload attempt.
+        window.addEventListener("error", function (event) {
+          if (!event.target || (event.target !== window && event.target !== document)) return;
+          if (!recoveryAttempted()) return;
+          var root = document.getElementById("root");
+          if (root && !root.hasChildNodes()) {
+            fail("Startup error: " + (event.message || "unknown script error") + ".");
+          }
+        });
 
         window.addEventListener("unhandledrejection", function (event) {
           if (document.documentElement.getAttribute("data-boot") === "failed") return;

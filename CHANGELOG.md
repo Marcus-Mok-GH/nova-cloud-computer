@@ -1,3 +1,16 @@
+2026-09-30 - Boot error screen diagnoses why the app failed to load
+
+When a boot asset fails, the error screen now re-tests that asset with a
+direct no-store fetch and says which of three causes applies: the server
+returned an HTTP error, the request never completed (blocker, VPN, proxy,
+or DNS filter), or the asset is actually reachable. In the reachable case
+a failed module is re-injected with a cache-busted URL so a poisoned cache
+entry recovers without a manual hard refresh; non-JS assets are report-only
+since they cannot be re-injected as scripts. Uncaught exceptions during
+module evaluation now surface on the error screen too, but only after the
+one-shot reload recovery has been used so transient failures still get the
+reload attempt.
+
 2026-09-30 - Never show a blank white screen while Nova boots
 
 Production was reported as a completely blank white app on every page. The

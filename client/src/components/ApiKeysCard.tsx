@@ -147,7 +147,7 @@ export default function ApiKeysCard() {
         <pre className="mt-2 overflow-x-auto rounded-lg bg-card p-3 font-mono text-xs leading-5">{`curl https://nova-cloud-computer.vercel.app/api/v1/chat/completions \\
   -H "Authorization: Bearer nova_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"model": "default", "messages": [{"role": "user", "content": "Say hello"}]}'`}</pre>
+  -d '{"model": "nova-pro", "messages": [{"role": "user", "content": "Say hello"}]}'`}</pre>
       </div>
     </section>
   );

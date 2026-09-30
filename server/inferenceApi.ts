@@ -1,18 +1,69 @@
 import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { API_KEY_PREFIX, findOwnerByApiKey } from "./apiKeys";
+import { chatWithCustomModel, getActiveCustomModel } from "./byokGateway";
 import { getDailyCreditStatusForUser } from "./db";
-import { chatWithMistralGateway, listMistralModels, type GatewayChatMessage, type GatewayChatResult, MistralGatewayClientError } from "./mistralGateway";
+import { chatWithMistralGateway, type GatewayChatMessage, type GatewayChatResult, MistralGatewayClientError } from "./mistralGateway";
+import type { CustomModel } from "../drizzle/schema";
 
 /**
  * OpenAI-compatible inference API. Clients authenticate with a Nova API key
- * (created in Settings) as `Authorization: Bearer nova_sk_...`; every request
- * is charged against the owner's daily Nova credits and workspace inference
- * allowance, exactly like chat inside the app.
+ * (created in Settings) as `Authorization: Bearer nova_sk_...`.
+ *
+ * Each workspace exposes a fixed, one-or-two-choice model surface: Nova's
+ * built-in model under the public name `nova-pro`, plus the workspace's own
+ * BYOK model when one is selected in Settings. Requests against the built-in
+ * model are charged against the owner's daily Nova credits and workspace
+ * inference allowance, exactly like chat inside the app; BYOK requests run on
+ * the user's own provider and claim no allowance.
  */
 
 export const MAX_INFERENCE_MESSAGES = 40;
 export const MAX_INFERENCE_PROMPT_CHARS = 100_000;
+
+/**
+ * The public name of Nova's built-in model. The API never exposes the
+ * underlying gateway model id: clients ask for `nova-pro` and the built-in
+ * gateway resolves whichever default this deployment is configured with.
+ */
+export const NOVA_PRO_MODEL_ID = "nova-pro";
+
+/** One callable model in a workspace's inference API surface. */
+export type InferenceApiModel = {
+  id: string;
+  /** `nova` for the built-in model, `byok` for the workspace's own provider. */
+  ownedBy: "nova" | "byok";
+  /** The BYOK row to route on, or null for the built-in gateway. */
+  customModel: CustomModel | null;
+};
+
+/**
+ * The models one workspace's API key can call: Nova's built-in `nova-pro`,
+ * plus the workspace's active BYOK model when one is selected in Settings.
+ * Without BYOK there is a single choice; with it there are two.
+ */
+export function inferenceApiModels(customModel: CustomModel | null): InferenceApiModel[] {
+  const models: InferenceApiModel[] = [{ id: NOVA_PRO_MODEL_ID, ownedBy: "nova", customModel: null }];
+  if (customModel && customModel.modelId !== NOVA_PRO_MODEL_ID) {
+    models.push({ id: customModel.modelId, ownedBy: "byok", customModel });
+  }
+  return models;
+}
+
+/**
+ * Resolves the requested model against the workspace's choices. An omitted
+ * model means `nova-pro`. Anything else is rejected: the API is a fixed
+ * one-or-two-choice surface, not a pass-through to the provider's catalogue.
+ */
+export function resolveInferenceModel(customModel: CustomModel | null, requestedModel: string | undefined): InferenceApiModel {
+  const models = inferenceApiModels(customModel);
+  const requested = requestedModel?.trim() || NOVA_PRO_MODEL_ID;
+  const match = models.find(model => model.id === requested);
+  if (!match) {
+    fail(400, `\`model\` must be one of: ${models.map(model => model.id).join(", ")}.`, "invalid_request_error", "invalid_model");
+  }
+  return match;
+}
 
 export class InferenceApiError extends Error {
   constructor(
@@ -96,12 +147,12 @@ export function parseInferenceApiMessages(body: { messages?: unknown; model?: un
   return { messages, model, stream };
 }
 
-export function buildOpenAiChatCompletion(result: GatewayChatResult) {
+export function buildOpenAiChatCompletion(result: GatewayChatResult, modelId?: string) {
   return {
     id: `chatcmpl-nova-${randomUUID()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: result.model,
+    model: modelId ?? result.model,
     choices: [
       {
         index: 0,
@@ -180,10 +231,10 @@ inferenceApiRouter.get("/models", async (req: Request, res: Response) => {
   try {
     const ownerId = await requireApiOwner(req, res);
     if (ownerId === null) return;
-    const models = await listMistralModels();
+    const customModel = await getActiveCustomModel(ownerId);
     res.json({
       object: "list",
-      data: models.map(model => ({ id: model.id, object: "model", created: 0, owned_by: "nova" })),
+      data: inferenceApiModels(customModel).map(model => ({ id: model.id, object: "model", created: 0, owned_by: model.ownedBy })),
     });
   } catch (error) {
     handleInferenceError(res, error);
@@ -208,14 +259,18 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     const ownerId = await requireApiOwner(req, res);
     if (ownerId === null) return;
     const { messages, model, stream } = parseInferenceApiMessages(req.body ?? {});
+    // The API is BYOK-aware: an active workspace custom model is a callable
+    // choice alongside `nova-pro`, and each choice routes to its own backend.
+    const choice = resolveInferenceModel(await getActiveCustomModel(ownerId), model);
+    const runChat = (options: { onChunk?: (chunk: string) => void; signal?: AbortSignal }) =>
+      choice.customModel ? chatWithCustomModel(choice.customModel, messages, options) : chatWithMistralGateway(ownerId, messages, options);
 
     if (!stream) {
-      const result = await chatWithMistralGateway(ownerId, messages, { model });
-      return res.json(buildOpenAiChatCompletion(result));
+      const result = await runChat({});
+      return res.json(buildOpenAiChatCompletion(result, choice.id));
     }
 
     completionId = `chatcmpl-nova-${randomUUID()}`;
-    const chunkModel = model ?? "nova";
     const abort = new AbortController();
     const closeHandler = () => abort.abort();
     res.on("close", closeHandler);
@@ -223,17 +278,16 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     sseStarted = true;
     res.setHeader("content-type", "text/event-stream; charset=utf-8");
     res.setHeader("cache-control", "no-store, no-cache, must-revalidate");
-    res.write(buildOpenAiSseChunk(completionId, chunkModel, { role: "assistant" }, null));
+    res.write(buildOpenAiSseChunk(completionId, choice.id, { role: "assistant" }, null));
 
-    const result = await chatWithMistralGateway(ownerId, messages, {
-      model,
+    const result = await runChat({
       onChunk: chunk => {
-        if (chunk) res.write(buildOpenAiSseChunk(completionId, chunkModel, { content: chunk }, null));
+        if (chunk) res.write(buildOpenAiSseChunk(completionId, choice.id, { content: chunk }, null));
       },
       signal: abort.signal,
     });
 
-    res.write(buildOpenAiSseChunk(completionId, result.model, {}, "stop"));
+    res.write(buildOpenAiSseChunk(completionId, choice.id, {}, "stop"));
     if (result.usage) {
       res.write(`data: ${JSON.stringify({ id: completionId, object: "chat.completion.chunk", usage: { prompt_tokens: result.usage.prompt_tokens ?? 0, completion_tokens: result.usage.completion_tokens ?? 0, total_tokens: result.usage.total_tokens ?? 0 } })}\n\n`);
     }

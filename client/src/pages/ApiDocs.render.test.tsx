@@ -21,6 +21,12 @@ describe("API docs page", () => {
     expect(markup).toContain("nova_sk_");
   });
 
+  it("documents streaming with stream:true and the SSE terminator", () => {
+    const markup = renderToStaticMarkup(<ApiDocs />);
+    expect(markup).toContain("stream true");
+    expect(markup).toContain("[DONE]");
+  });
+
   it("shows a sign-up call to action instead of a login wall", () => {
     const markup = renderToStaticMarkup(<ApiDocs />);
     expect(markup).toContain("Get started");

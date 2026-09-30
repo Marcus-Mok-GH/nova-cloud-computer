@@ -8,7 +8,7 @@ const curlExample = [
   "curl https://your-nova-domain.com/api/v1/chat/completions \\",
   "  -H 'Authorization: Bearer nova_sk_your_key' \\",
   "  -H 'Content-Type: application/json' \\",
-  '  -d \'{"model":"mistral-large-latest","messages":[{"role":"user","content":"Give me three names for a coffee shop."}]}\'',
+  '  -d \'{"model":"nova-pro","messages":[{"role":"user","content":"Give me three names for a coffee shop."}]}\'',
 ].join("\n");
 
 const javascriptExample = [
@@ -19,7 +19,7 @@ const javascriptExample = [
   '    "Content-Type": "application/json",',
   "  },",
   "  body: JSON.stringify({",
-  '    model: "mistral-large-latest",',
+  '    model: "nova-pro",',
   '    messages: [{ role: "user", content: "Hello from my app." }],',
   "  }),",
   "});",
@@ -30,7 +30,7 @@ const responseExample = [
   "{",
   '  "id": "chatcmpl-nova-...",',
   '  "object": "chat.completion",',
-  '  "model": "mistral-large-latest",',
+  '  "model": "nova-pro",',
   '  "choices": [{',
   '    "message": {"role": "assistant", "content": "..."},',
   '    "finish_reason": "stop"',
@@ -42,8 +42,25 @@ const responseExample = [
 const modelsExample = [
   "{",
   '  "object": "list",',
-  '  "data": [{"id": "mistral-large-latest", "object": "model", "owned_by": "nova"}]',
+  '  "data": [',
+  '    {"id": "nova-pro", "object": "model", "owned_by": "nova"},',
+  '    {"id": "gpt-4o", "object": "model", "owned_by": "byok"}',
+  '  ]',
   "}",
+].join("\n");
+
+const streamExample = [
+  "curl -N https://your-nova-domain.com/api/v1/chat/completions \\",
+  "  -H 'Authorization: Bearer nova_sk_your_key' \\",
+  "  -H 'Content-Type: application/json' \\",
+  '  -d \'{"model":"nova-pro","stream":true,"messages":[{"role":"user","content":"Count to three."}]}\'',
+].join("\n");
+
+const streamResponseExample = [
+  'data: {"id":"chatcmpl-nova-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
+  'data: {"id":"chatcmpl-nova-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"One"},"finish_reason":null}]}',
+  'data: {"id":"chatcmpl-nova-...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+  "data: [DONE]",
 ].join("\n");
 
 function CodeBlock({ code, label }: { code: string; label: string }) {
@@ -79,7 +96,7 @@ function MethodPill({ children, tone = "orange" }: { children: string; tone?: "o
 
 function TryApiConsole() {
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("mistral-large-latest");
+  const [model, setModel] = useState("nova-pro");
   const [prompt, setPrompt] = useState("Give me one practical idea for using Nova in my workflow.");
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
@@ -109,14 +126,64 @@ function TryApiConsole() {
         body: JSON.stringify({
           model: model.trim() || undefined,
           messages: [{ role: "user", content: prompt.trim() }],
+          stream: true,
         }),
       });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
+
+      // Failures before the stream opens (bad key, rejected model, quota) come
+      // back as a normal JSON error envelope rather than as SSE.
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => null);
         setError(data?.error?.message || "Request failed (" + response.status + ").");
         return;
       }
-      setResult(data?.choices?.[0]?.message?.content || JSON.stringify(data, null, 2));
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let text = "";
+      let streamedError = "";
+
+      // Every SSE frame is a `data: <json>` line, frames separated by a blank
+      // line; the stream closes with `data: [DONE]`.
+      const handleFrame = (frame: string) => {
+        const line = frame.split("\n").find(part => part.startsWith("data:"));
+        if (!line) return;
+        const payload = line.slice("data:".length).trim();
+        if (!payload || payload === "[DONE]") return;
+        let event: { error?: { message?: string }; choices?: Array<{ delta?: { content?: string } }> };
+        try {
+          event = JSON.parse(payload);
+        } catch {
+          return;
+        }
+        if (event.error?.message) {
+          streamedError = event.error.message;
+          return;
+        }
+        const delta = event.choices?.[0]?.delta?.content;
+        if (delta) {
+          text += delta;
+          setResult(text);
+        }
+      };
+
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? "";
+        frames.forEach(handleFrame);
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) handleFrame(buffer);
+
+      if (streamedError) {
+        setError(streamedError);
+        return;
+      }
+      if (!text) setResult("(The model returned an empty completion.)");
     } catch {
       setError("The request could not reach this Nova deployment. Try again in a moment.");
     } finally {
@@ -129,14 +196,14 @@ function TryApiConsole() {
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#d9d6ce] px-5 py-5 dark:border-white/10 sm:px-7">
         <div>
           <div className="flex items-center gap-2"><Play className="size-4 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm font-semibold">Try it from here</p></div>
-          <p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">This sends one non-streaming request to the current Nova deployment.</p>
+          <p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">This streams a request to the current Nova deployment and prints tokens as they arrive.</p>
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full bg-[#dcebdc] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#4f7656] dark:bg-[#7ca981]/15 dark:text-[#a8d5a8]"><ShieldCheck className="size-3.5" />Key stays in memory</div>
       </div>
       <div className="grid gap-5 p-5 sm:p-7 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="space-y-4">
           <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">API key</span><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="nova_sk_..." autoComplete="off" className="mt-2 w-full rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
-          <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">Model <span className="font-normal text-[#858780]">(optional)</span></span><input value={model} onChange={event => setModel(event.target.value)} placeholder="mistral-large-latest" className="mt-2 w-full rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
+          <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">Model <span className="font-normal text-[#858780]">(optional)</span></span><input value={model} onChange={event => setModel(event.target.value)} placeholder="nova-pro" className="mt-2 w-full rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
           <label className="block"><span className="text-xs font-semibold text-[#4f5553] dark:text-[#d6d8d2]">Prompt</span><textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="mt-2 w-full resize-y rounded-xl border border-[#d2cec4] bg-[#faf9f6] px-3.5 py-2.5 text-sm leading-6 outline-none transition placeholder:text-[#a3a49d] focus:border-[#b65f38] focus:ring-2 focus:ring-[#b65f38]/15 dark:border-white/10 dark:bg-[#151a19] dark:text-white dark:focus:border-[#e59468]" /></label>
           <button type="button" onClick={runRequest} disabled={running} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#b65f38] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#9f4f2d] disabled:cursor-wait disabled:opacity-60 dark:bg-[#d17b52] dark:hover:bg-[#e59468]">{running ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}{running ? "Running request..." : "Run request"}</button>
           <p className="text-[11px] leading-5 text-[#858780]">Your key is sent only to this deployment for this request and is not saved by the docs page.</p>
@@ -219,7 +286,7 @@ export default function ApiDocs() {
 
             <article id="models" className="mt-8 scroll-mt-28 rounded-3xl border border-[#d9d6ce] bg-[#faf9f6] p-6 dark:border-white/10 dark:bg-[#1b211f] sm:p-8">
               <div className="flex flex-wrap items-center gap-3"><MethodPill tone="green">GET</MethodPill><code className="text-sm font-semibold">/models</code></div>
-              <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">List the models available to your Nova workspace. Use a returned <code className="rounded bg-[#ece9e2] px-1 py-0.5 text-[11px] dark:bg-white/10">id</code> in chat completion requests.</p>
+              <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">List the models available to your Nova workspace. <code className="rounded bg-[#ece9e2] px-1 py-0.5 text-[11px] dark:bg-white/10">nova-pro</code> is Nova's built-in model; connect your own provider in Settings and its model id appears here as a second choice. Use a returned <code className="rounded bg-[#ece9e2] px-1 py-0.5 text-[11px] dark:bg-white/10">id</code> in chat completion requests.</p>
               <div className="mt-6"><CodeBlock code={modelsExample} label="response" /></div>
             </article>
 
@@ -234,8 +301,10 @@ export default function ApiDocs() {
               <p className="mt-5 text-sm leading-6 text-[#70736d] dark:text-[#adb1a9]">Generate a response from your configured Nova model. The request follows the OpenAI chat completions shape.</p>
               <div className="mt-6"><CodeBlock code={javascriptExample} label="javascript" /></div>
               <div className="mt-4"><CodeBlock code={responseExample} label="response · stream false" /></div>
+              <div className="mt-4"><CodeBlock code={streamExample} label="curl · stream true" /></div>
+              <div className="mt-4"><CodeBlock code={streamResponseExample} label="stream response" /></div>
               <TryApiConsole />
-              <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2"><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">messages</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Required. Up to 40 messages with system, user, or assistant roles.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">stream</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional boolean. Set true for Server-Sent Events and finish with [DONE].</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">model</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional model id from /models. The workspace default is used when omitted.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">content</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Strings or arrays of text parts. Total prompt content is limited to 100,000 characters.</p></div></div>
+              <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2"><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">messages</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Required. Up to 40 messages with system, user, or assistant roles.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">stream</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional boolean. Set true for Server-Sent Events and finish with [DONE].</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">model</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Optional. One of the ids from /models; defaults to <code>nova-pro</code> when omitted. Other ids are rejected.</p></div><div className="rounded-xl border border-[#e1ded6] p-4 dark:border-white/10"><p className="font-semibold">content</p><p className="mt-1 text-xs leading-5 text-[#70736d] dark:text-[#adb1a9]">Strings or arrays of text parts. Total prompt content is limited to 100,000 characters.</p></div></div>
             </article>
           </section>
 
@@ -245,7 +314,7 @@ export default function ApiDocs() {
             <div className="mt-7 divide-y divide-[#dfdcd4] rounded-2xl border border-[#d9d6ce] bg-[#faf9f6] dark:divide-white/10 dark:border-white/10 dark:bg-[#1b211f]">
               <div className="flex gap-4 p-5"><Terminal className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Text only for now.</span> Tools and function calling are not supported by the v1 inference API.</p></div>
               <div className="flex gap-4 p-5"><BookOpen className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">40 messages per request.</span> The combined prompt content limit is 100,000 characters.</p></div>
-              <div className="flex gap-4 p-5"><KeyRound className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Usage follows your workspace.</span> API requests use the owner's daily Nova credits and inference allowance.</p></div>
+              <div className="flex gap-4 p-5"><KeyRound className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Usage follows your workspace.</span> Requests to <code>nova-pro</code> use the owner's daily Nova credits and inference allowance; a BYOK model runs on your own provider and claims none.</p></div>
             </div>
           </section>
 

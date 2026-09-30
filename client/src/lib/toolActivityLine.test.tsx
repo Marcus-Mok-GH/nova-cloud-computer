@@ -5,6 +5,8 @@ import {
   CodeTaskToolActivity,
   LiveActivityCard,
   ResearchToolActivity,
+  SolveEquationDetail,
+  SolveEquationToolActivity,
   ToolActivityLine,
   ToolRunGroup,
   toolChipContainerClass,
@@ -74,6 +76,20 @@ describe("toolLineText", () => {
       toolLineText(activity("code_task", '{"task":"write a debounce helper"}'))
     ).toBe("Editor: write a debounce helper");
     expect(toolLineText(activity("code_task", "{}"))).toBe("Editor");
+  });
+
+  it("formats solve_equation one-liners with the expression", () => {
+    expect(
+      toolLineText(
+        activity("solve_equation", '{"equation":"20 - (5*2 + 2*(2/3))"}')
+      )
+    ).toBe("Solve: 20 - (5*2 + 2*(2/3))");
+    expect(toolLineText(activity("solve_equation", "{}"))).toBe("Solve");
+    expect(
+      toolLineText(
+        activity("solve_equation", '{"equation":"' + "x".repeat(200) + '"}')
+      )
+    ).toBe(`Solve: ${"x".repeat(59)}…`);
   });
 
   it("formats browse one-liners with the command", () => {
@@ -266,6 +282,97 @@ describe("CodeTaskToolActivity", () => {
     );
     expect(html).toContain('data-testid="code-task-tool-activity"');
     expect(html).toContain("Editor"); // header falls back to the bare tool name
+    expect(html).toContain('aria-expanded="false"');
+  });
+});
+
+describe("SolveEquationToolActivity", () => {
+  const solve = (
+    state: ToolActivity["state"],
+    detail?: string
+  ): ToolActivity => ({
+    id: "s1",
+    name: "solve_equation",
+    state,
+    args: { arguments: '{"equation":"20 - (5*2 + 2*(2/3))"}' },
+    detail,
+  });
+
+  it("starts open while running with a live evaluating note", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationToolActivity, {
+        activity: solve("running"),
+      })
+    );
+    expect(html).toContain("solve-equation-detail-panel");
+    expect(html).toContain("Evaluating");
+    expect(html).toContain("Solve: 20 - (5*2 + 2*(2/3))");
+  });
+
+  it("renders collapsed with a chevron once completed, showing input and output when open", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationToolActivity, {
+        activity: solve("completed", "20 - (5*2 + 2*(2/3)) = 8.3333"),
+      })
+    );
+    // Default closed, toggleable via the chevron.
+    expect(html).not.toContain("solve-equation-detail-panel");
+    expect(html).toContain("Solve: 20 - (5*2 + 2*(2/3))");
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("shows the expression as Input and the answer as Output when expanded", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationDetail, {
+        activity: solve("completed", "20 - (5*2 + 2*(2/3)) = 8.3333"),
+        equation: "20 - (5*2 + 2*(2/3))",
+      })
+    );
+    expect(html).toContain("Input");
+    expect(html).toContain("20 - (5*2 + 2*(2/3))");
+    expect(html).toContain("Output");
+    expect(html).toContain("= 8.3333");
+  });
+
+  it("shows the real error text as the Output when the solve failed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationDetail, {
+        activity: solve(
+          "failed",
+          "Could not evaluate '20 +': Unexpected part of the expression."
+        ),
+        equation: "20 +",
+      })
+    );
+    // renderToStaticMarkup escapes apostrophes as &#x27;, so match around them.
+    expect(html).toContain("Could not evaluate");
+    expect(html).toContain("Unexpected part of the expression.");
+    expect(html).toContain("text-red-600");
+  });
+
+  it("falls back to the summary when the result is no longer persisted", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationDetail, {
+        activity: { ...solve("completed"), summary: "Solved: 20 - 11.33." },
+        equation: "",
+      })
+    );
+    expect(html).toContain("Solved: 20 - 11.33.");
+  });
+
+  it("survives malformed arguments without crashing", () => {
+    const broken: ToolActivity = {
+      id: "s2",
+      name: "solve_equation",
+      state: "completed",
+      args: { arguments: '{"equation":"unclosed' },
+      detail: "20 - 11.33 = 8.67",
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(SolveEquationToolActivity, { activity: broken })
+    );
+    expect(html).toContain('data-testid="solve-equation-tool-activity"');
+    expect(html).toContain("Solve");
     expect(html).toContain('aria-expanded="false"');
   });
 });

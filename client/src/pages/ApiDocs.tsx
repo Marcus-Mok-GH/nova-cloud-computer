@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, Copy, KeyRound, LoaderCircle, MessageSquare, Moon, Play, ShieldCheck, Sun, Terminal, Zap } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";

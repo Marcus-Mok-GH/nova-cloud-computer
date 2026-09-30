@@ -1,3 +1,19 @@
+2026-09-30 - Account deletion now requires an emailed verification code
+
+Deleting an account from Settings > Account previously only asked the signed-in
+session to type DELETE, so a stolen browser session could permanently destroy
+the account without the owner ever knowing. The flow is now two-step: typing
+DELETE and clicking "Email me a code" makes the server ask Neon Auth to send a
+6-digit code to the account's email address (the same SMTP path as sign-in
+codes), and the account is deleted only after that code is entered and verified.
+
+Verification uses Neon Auth's side-effect-free check endpoint, so a failed
+database delete leaves the code valid for a retry, and Nova never stores the
+code itself. The old single-call auth.deleteAccount mutation is replaced by
+auth.requestDeletionCode + auth.confirmDeleteAccount; Admin-initiated deletions
+in the admin console are unchanged. Files: server/accountDeletion.ts (new),
+server/routers.ts, client/src/pages/WorkspaceSettings.tsx, plus tests.
+
 2026-09-30 - Boot error screen diagnoses why the app failed to load
 
 When a boot asset fails, the error screen now re-tests that asset with a

@@ -13,7 +13,7 @@ vi.mock("@/lib/trpc", () => ({
     mistral: { status: { useQuery: () => ({ data: { model: "mistral-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false }) }, runs: { useQuery: () => ({ data: [], isLoading: false }) }, update: { useMutation: () => mutation }, runDue: { useMutation: () => mutation } },
-    auth: { deleteAccount: { useMutation: () => mutation } },
+    auth: { requestDeletionCode: { useMutation: () => mutation }, confirmDeleteAccount: { useMutation: () => mutation } },
     apiKeys: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }) }, create: { useMutation: () => mutation }, revoke: { useMutation: () => mutation } },
     composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
     useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } } }),
@@ -79,6 +79,8 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Log out");
     expect(markup).toContain("Delete account");
     expect(markup).toContain("Delete my account");
+    // Deletion is guarded by an emailed code, not just a typed confirmation.
+    expect(markup).toContain("Confirmed with a code sent to your email");
     expect(markup).not.toContain("Change password");
     expect(markup).not.toContain("Current password");
   });

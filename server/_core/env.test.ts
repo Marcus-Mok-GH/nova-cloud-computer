@@ -136,15 +136,26 @@ describe("resolveNimApiKey", () => {
     expect(
       resolveNimApiKey({
         NVIDIA_NIM_API_KEY: "nim-key",
+        NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token",
         NVIDIA_API_KEY: "legacy-key",
         NOVA_NVIDIA_GATEWAY_TOKEN: "token",
       } as NodeJS.ProcessEnv)
     ).toBe("nim-key");
   });
 
-  it("falls back to the deployment's legacy gateway key names on the same NIM endpoint", () => {
+  it("falls back to NVIDIA_NIM_GATEWAY_TOKEN and legacy gateway key names on the same NIM endpoint", () => {
+    expect(resolveNimApiKey({ NVIDIA_NIM_GATEWAY_TOKEN: "nim-gateway-token" } as NodeJS.ProcessEnv)).toBe("nim-gateway-token");
     expect(resolveNimApiKey({ NVIDIA_API_KEY: "legacy-key" } as NodeJS.ProcessEnv)).toBe("legacy-key");
     expect(resolveNimApiKey({ NOVA_NVIDIA_GATEWAY_TOKEN: "gateway-token" } as NodeJS.ProcessEnv)).toBe("gateway-token");
+  });
+
+  it("skips empty or whitespace-only values to find the first valid credential", () => {
+    expect(
+      resolveNimApiKey({
+        NVIDIA_NIM_API_KEY: "  ",
+        NVIDIA_NIM_GATEWAY_TOKEN: "valid-gateway-token",
+      } as NodeJS.ProcessEnv)
+    ).toBe("valid-gateway-token");
   });
 
   it("resolves to an empty string when no key is configured", () => {

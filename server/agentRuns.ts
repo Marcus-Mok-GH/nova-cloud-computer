@@ -94,7 +94,7 @@ async function holdAndScheduleContinuation(
 export interface ExecuteTelegramRunInput {
   ownerId: number;
   /** The workspace chat the run belongs to. */
-  chatId: number;
+  chatId: string;
   token: string;
   /** The Telegram chat id replies are delivered to. */
   telegramChatId: string;
@@ -335,7 +335,7 @@ export async function executeTelegramAgentRun(
 export interface ExecuteWebAgentRunInput {
   ownerId: number;
   /** The workspace chat the run belongs to. */
-  chatId: number;
+  chatId: string;
   /** The clean user text for this segment (the original message, or the continuation prompt). */
   content: string;
   imageAttachments?: string[];

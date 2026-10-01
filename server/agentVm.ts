@@ -63,7 +63,7 @@ export async function listAgentVmRuns(ownerId: number) {
 
 export async function startAgentVmRun(
   ownerId: number,
-  input: { task: string; code?: string; chatId?: number | null },
+  input: { task: string; code?: string; chatId?: string | null },
   options: { skipRestore?: boolean } = {}
 ) {
   const client = getE2BClient();

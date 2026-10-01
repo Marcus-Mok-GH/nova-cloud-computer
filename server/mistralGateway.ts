@@ -16,6 +16,8 @@ const CHAT_REQUEST_TIMEOUT_MS = 120_000;
 // A stream that delivers nothing for this long is treated as dead instead of
 // hanging the agent loop (and the Telegram webhook behind it) indefinitely.
 const STREAM_STALL_TIMEOUT_MS = 120_000;
+/** Patient timeout for long single-shot completions (e.g. automation planning). */
+export const LONG_COMPLETION_TIMEOUT_MS = CHAT_REQUEST_TIMEOUT_MS;
 const ERROR_MESSAGE_LIMIT = 600;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 10_000;
@@ -219,7 +221,31 @@ function getMaxRequests(): number | null {
     : null;
 }
 
+/**
+ * Node's fetch (undici) rejects an aborted request with an AbortError whose
+ * message is the bare engine text "This operation was aborted" — usually
+ * triggered by the request timeouts in gatewayFetch. Map it (and
+ * AbortSignal.timeout's TimeoutError) to user-facing wording instead of
+ * leaking raw engine messages; genuine /stop aborts are handled by the
+ * callers before this runs.
+ */
+function isAbortOrTimeoutError(error: unknown): boolean {
+  const name =
+    error instanceof Object && typeof (error as { name?: unknown }).name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const message = error instanceof Error ? error.message : "";
+  return (
+    name === "AbortError" ||
+    name === "TimeoutError" ||
+    /operation was aborted/i.test(message)
+  );
+}
+
 export function sanitizeGatewayError(error: unknown) {
+  if (isAbortOrTimeoutError(error)) {
+    return "Nova’s AI service took too long to respond. Please try again.";
+  }
   const message =
     error instanceof Error
       ? error.message
@@ -276,11 +302,13 @@ async function gatewayFetch(
       signal: controller.signal,
     });
   } catch (error) {
+    // Only a user /stop is "stopped"; timeouts and gateway outages stay
+    // "unavailable" so transient-failure handling can retry them.
     throw new MistralGatewayClientError(
       externalSignal?.aborted
         ? "This reply was stopped with /stop."
         : sanitizeGatewayError(error),
-      "stopped"
+      externalSignal?.aborted ? "stopped" : "unavailable"
     );
   } finally {
     clearTimeout(timeout);
@@ -853,7 +881,8 @@ export async function completeWithMistralGateway(
   ownerId: number,
   prompt: string,
   modelId?: string,
-  onChunk?: (chunk: string) => void
+  onChunk?: (chunk: string) => void,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
   const status = await getMistralGatewayStatus(ownerId);
   if (
@@ -889,7 +918,7 @@ export async function completeWithMistralGateway(
       messages: [{ role: "user", content: prompt }],
       ...(onChunk ? { stream: true } : {}),
     }),
-  }, REQUEST_TIMEOUT_MS, undefined, target);
+  }, timeoutMs, undefined, target);
   if (onChunk) {
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";

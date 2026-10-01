@@ -21,6 +21,13 @@ import { trackBackgroundWork } from "./backgroundWork";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
 
+/**
+ * Re-exported so the co-deployed Vercel function can bootstrap the schema from
+ * the same prebuilt bundle that already ships and runs in production, instead
+ * of pulling the migrator into the function's own module graph.
+ */
+export { ensureDatabaseSchema } from "./migrate";
+
 const MAX_TELEGRAM_CHATS = 100;
 async function pruneChatsIfNeeded(ownerId: number): Promise<void> { const chats = await listChatsForUser(ownerId); if (chats.length > MAX_TELEGRAM_CHATS) { const toDelete = chats.slice(MAX_TELEGRAM_CHATS); await Promise.all(toDelete.map(c => deleteChatForUser(ownerId, c.id))); console.info(`[Telegram webhook] pruned ${toDelete.length} stale chats for owner ${ownerId}`); } }
 async function getOrCreateLatestTelegramChat(ownerId: number): Promise<string> { const existing = (await listChatsForUser(ownerId))[0]; if (existing) return existing.id; const created = await createChatForUser(ownerId, "Telegram Chat"); if (!created) throw new Error("Nova could not create a Telegram conversation."); return created.id; }

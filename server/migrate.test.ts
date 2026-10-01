@@ -1,17 +1,25 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { migrateSpy } = vi.hoisted(() => ({
-  migrateSpy: vi.fn(async (_db: unknown, _config: unknown) => {}),
+const { querySpy } = vi.hoisted(() => ({
+  querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => [] as unknown[]),
 }));
 
-vi.mock("drizzle-orm/neon-http/migrator", () => ({ migrate: migrateSpy }));
-vi.mock("drizzle-orm/neon-http", () => ({ drizzle: vi.fn(() => ({})) }));
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({})) }));
+vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({ query: querySpy })) }));
 
 const { ensureDatabaseSchema, resetSchemaBootstrapForTests, resolveMigrationsFolder } =
   await import("./migrate");
+
+function journalEntryCount(): number {
+  const folder = resolveMigrationsFolder();
+  if (!folder) return 0;
+  return JSON.parse(readFileSync(path.join(folder, "meta", "_journal.json"), "utf8")).entries.length;
+}
+
+function statements() {
+  return querySpy.mock.calls.map(call => String(call[0]));
+}
 
 describe("automatic database schema bootstrap", () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -19,7 +27,8 @@ describe("automatic database schema bootstrap", () => {
   const originalAutoMigrate = process.env.NOVA_AUTO_MIGRATE;
 
   beforeEach(() => {
-    migrateSpy.mockClear();
+    querySpy.mockClear();
+    querySpy.mockResolvedValue([]);
     resetSchemaBootstrapForTests();
     delete process.env.DATABASE_URL;
     delete process.env.DATABASE_URL_UNPOOLED;
@@ -45,21 +54,36 @@ describe("automatic database schema bootstrap", () => {
   it("applies pending migrations when a database URL is configured", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
     await expect(ensureDatabaseSchema()).resolves.toBe(true);
-    expect(migrateSpy).toHaveBeenCalledTimes(1);
-    const config = migrateSpy.mock.calls[0]?.[1] as { migrationsFolder: string };
-    expect(config.migrationsFolder).toBe(resolveMigrationsFolder());
+
+    const ran = statements();
+    expect(ran).toContain('CREATE SCHEMA IF NOT EXISTS "drizzle"');
+    expect(ran.some(statement => statement.startsWith('CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations"'))).toBe(true);
+    // A real DDL statement from the committed journal runs (the old drizzle
+    // session threw on exactly these because Neon returns null rows for DDL).
+    expect(ran.some(statement => /CREATE TABLE (IF NOT EXISTS )?"users"/.test(statement))).toBe(true);
+    // Each applied migration is recorded once, so later boots skip it.
+    expect(ran.filter(statement => statement.startsWith('INSERT INTO "drizzle"."__drizzle_migrations"'))).toHaveLength(journalEntryCount());
+  });
+
+  it("skips migrations already recorded by a prior run", async () => {
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
+    querySpy.mockImplementation(async (statement: string) =>
+      statement.startsWith("SELECT created_at") ? [{ created_at: Number.MAX_SAFE_INTEGER }] : []
+    );
+    await expect(ensureDatabaseSchema()).resolves.toBe(true);
+    expect(statements().filter(statement => statement.startsWith("INSERT INTO"))).toHaveLength(0);
   });
 
   it("skips cleanly when no database URL is configured", async () => {
     await expect(ensureDatabaseSchema()).resolves.toBe(false);
-    expect(migrateSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
   });
 
   it("honors the automatic-migration kill switch", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
     process.env.NOVA_AUTO_MIGRATE = "off";
     await expect(ensureDatabaseSchema()).resolves.toBe(false);
-    expect(migrateSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
   });
 
   it("runs at most once per process even when called repeatedly", async () => {
@@ -68,12 +92,12 @@ describe("automatic database schema bootstrap", () => {
     const second = ensureDatabaseSchema();
     expect(first).toBe(second);
     await first;
-    expect(migrateSpy).toHaveBeenCalledTimes(1);
+    expect(statements().filter(statement => statement.startsWith('CREATE SCHEMA'))).toHaveLength(1);
   });
 
   it("never rejects when a migration fails", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
-    migrateSpy.mockRejectedValueOnce(new Error("database unreachable"));
+    querySpy.mockRejectedValueOnce(new Error("database unreachable"));
     await expect(ensureDatabaseSchema()).resolves.toBe(false);
   });
 });

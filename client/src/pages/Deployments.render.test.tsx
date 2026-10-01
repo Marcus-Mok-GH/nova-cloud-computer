@@ -105,10 +105,10 @@ describe("Deployments page", () => {
   });
 
   it("explains why deployments could not load", () => {
-    state.query = { isError: true, isLoading: false, errorMessage: "The Nova database is unavailable." };
+    state.query = { isError: true, isLoading: false, errorMessage: "Nova can't reach your workspace data right now. Please try again shortly." };
     const markup = renderToStaticMarkup(<Deployments />);
     expect(markup).toContain("Deployments could not load.");
-    expect(markup).toContain("The Nova database is unavailable.");
+    expect(markup).toContain("reach your workspace data right now. Please try again shortly.");
     expect(markup).toContain("Try again");
   });
 

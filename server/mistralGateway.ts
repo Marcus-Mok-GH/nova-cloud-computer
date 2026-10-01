@@ -251,7 +251,7 @@ async function gatewayFetch(
   };
   if (!resolvedTarget.baseUrl || (!target && !resolvedTarget.token))
     throw new MistralGatewayClientError(
-      "Nova’s AI service is not connected yet. An administrator must configure the server-only gateway connection.",
+      "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
       "configuration"
     );
   const controller = new AbortController();

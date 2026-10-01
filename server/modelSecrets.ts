@@ -3,7 +3,7 @@ import { ENV } from "./_core/env";
 
 /** Private custom-model keys are encrypted with AES-256-GCM before they reach Postgres. */
 export function createSecretBox(secret: string) {
-  if (!secret) throw new Error("Nova cannot protect model credentials because its server secret is unavailable.");
+  if (!secret) throw new Error("Nova cannot protect model credentials right now. Please try again later.");
   const key = createHash("sha256").update(secret).digest();
   return {
     encrypt(plainText: string) {

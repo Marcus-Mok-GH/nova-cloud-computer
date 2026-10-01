@@ -7,7 +7,7 @@ import { buildAutonomousMissionPrompt } from "./autonomousMission";
 import { userAutomations, type UserAutomation } from "../drizzle/schema";
 
 let db: ReturnType<typeof drizzle> | null = null;
-async function getDb() { if (!db && process.env.DATABASE_URL) db = drizzle(neon(process.env.DATABASE_URL)); if (!db) throw new Error("The Nova database is unavailable."); return db; }
+async function getDb() { if (!db && process.env.DATABASE_URL) db = drizzle(neon(process.env.DATABASE_URL));  if (!db) throw new Error("Nova can't reach your workspace data right now. Please try again shortly."); return db; }
 
 export const USER_AUTOMATION_CRONS = { hourly: "0 0 * * * *", daily: "0 0 9 * * *", weekdays: "0 0 9 * * 1-5", weekly: "0 0 9 * * 1" } as const;
 export type UserAutomationFrequency = keyof typeof USER_AUTOMATION_CRONS | "custom";
@@ -63,7 +63,11 @@ export async function runUserAutomationForScheduleTask(taskUid: string, now = ne
     return { skipped: false, success: true, artifactId: artifact.id, chatId, runId: result.runId, outOfBudget: result.outOfBudget };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Nova could not complete this automation.";
-    await database.update(userAutomations).set({ lastError: message.slice(0, 1200), updatedAt: now }).where(eq(userAutomations.id, automation.id));
+    // lastError is rendered verbatim in Settings: only "Nova ..." messages
+    // may be stored there; anything else (query errors, provider internals)
+    // becomes a fixed generic line.
+    const userFacing = message.startsWith("Nova ") ? message : "Nova could not complete this automation. Please try again later.";
+    await database.update(userAutomations).set({ lastError: userFacing.slice(0, 1200), updatedAt: now }).where(eq(userAutomations.id, automation.id));
     return { skipped: false, success: false, error: message, chatId };
   }
 }

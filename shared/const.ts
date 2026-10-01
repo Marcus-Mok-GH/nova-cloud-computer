@@ -5,13 +5,15 @@ export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 /**
- * Lead-in for the assistant reply persisted when the Mistral inference
- * gateway itself failed. The actual error message is appended so the user
- * (and any debugging pass) sees the real failure instead of a canned
- * "try again shortly" - the client detects this prefix to render the
- * offline/error state.
+ * Marker prefixed to the assistant reply persisted when the AI service itself
+ * failed. It is an internal detection marker: the client recognizes it to
+ * render the offline/error state and substitutes its own generic copy, so the
+ * marker (and any legacy raw detail after it) is never shown to users.
+ * Messages persisted before the rename still carry the legacy prefix, which
+ * the client also recognizes.
  */
-export const MISTRAL_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
+export const MISTRAL_UNAVAILABLE_PREFIX = "Nova AI service error: ";
+export const LEGACY_MISTRAL_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
 
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no

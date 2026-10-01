@@ -40,7 +40,7 @@ export default function SignIn() {
       return;
     }
     if (!neonAuth) {
-      setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
+      setError("Nova's sign-in is temporarily unavailable. Please try again shortly.");
       return;
     }
     setPending(true);
@@ -72,7 +72,7 @@ export default function SignIn() {
   async function verifyOTP(event: FormEvent) {
     event.preventDefault();
     if (!neonAuth) {
-      setError("Nova's passwordless login is still being connected to its Neon workspace. Please try again shortly.");
+      setError("Nova's sign-in is temporarily unavailable. Please try again shortly.");
       return;
     }
     setPending(true);

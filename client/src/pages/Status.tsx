@@ -21,6 +21,17 @@ export const APP_PAGES: Array<{ path: string; name: string; description: string 
   { path: "/app/more", name: "More", description: "Full navigation" },
 ];
 
+/**
+ * Only these user-facing services may ever be rendered. Anything else in the
+ * report (an internal/backend service that slipped through) stays hidden.
+ */
+const PUBLIC_SERVICE_IDS = new Set(["web", "data", "ai", "telegram", "connectors", "sandbox"]);
+
+/** Keeps only the user-facing services; internal ones never reach the UI. */
+export function filterPublicServices(services: ServiceHealth[]): ServiceHealth[] {
+  return services.filter(service => PUBLIC_SERVICE_IDS.has(service.id));
+}
+
 const SERVICE_META: Record<ServiceState, { label: string; icon: LucideIcon; classes: string }> = {
   operational: { label: "Operational", icon: CheckCircle2, classes: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" },
   degraded: { label: "Degraded", icon: MinusCircle, classes: "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300" },
@@ -85,11 +96,11 @@ export default function Status() {
 
     try {
       const response = await fetch("/api/status", { credentials: "include" });
-      if (!response.ok) throw new Error(`The status endpoint answered ${response.status}.`);
+      if (!response.ok) throw new Error(`Nova's status check failed (error ${response.status}).`);
       setReport((await response.json()) as ServiceStatusReport);
     } catch (error) {
       setReport(null);
-      setReportError(error instanceof Error ? error.message : "Could not reach the status endpoint.");
+      setReportError(error instanceof Error ? error.message : "Could not run Nova's status check.");
     }
 
     setPages(APP_PAGES.map(page => ({ ...page, ok: false, latencyMs: null, checked: false })));
@@ -118,7 +129,9 @@ export default function Status() {
     return () => clearInterval(interval);
   }, [runChecks]);
 
-  const serviceIssues = report ? report.services.filter(service => service.state === "offline" || service.state === "degraded") : [];
+  // Public view of the report: internal services never reach the UI.
+  const services = report ? filterPublicServices(report.services) : [];
+  const serviceIssues = services.filter(service => service.state === "offline" || service.state === "degraded");
   const downPages = pages.filter(page => page.checked && !page.ok);
   const allGood = report !== null && serviceIssues.length === 0 && downPages.length === 0;
 
@@ -131,7 +144,7 @@ export default function Status() {
           </div>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">Status</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Live health of every page and service in this deployment. Refreshes automatically every minute.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Live health of Nova and every page in the app. Refreshes automatically every minute.</p>
           </div>
         </div>
 
@@ -146,12 +159,12 @@ export default function Status() {
             ) : !report ? (
               <>
                 <p className="text-sm font-bold">Checking services…</p>
-                <p className="mt-1 text-sm text-muted-foreground">Probing the API, database, gateway, and every page.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Probing Nova and every page in the app.</p>
               </>
             ) : allGood ? (
               <>
                 <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">All systems operational</p>
-                <p className="mt-1 text-sm text-emerald-700/80 dark:text-emerald-300/80">{report.services.length} services and {pages.length} pages answered.</p>
+                <p className="mt-1 text-sm text-emerald-700/80 dark:text-emerald-300/80">{services.length} services and {pages.length} pages answered.</p>
               </>
             ) : (
               <>
@@ -174,11 +187,11 @@ export default function Status() {
         <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-card dark:border-white/10 dark:bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4 dark:border-white/5">
             <h2 className="text-sm font-bold">Services</h2>
-            {report && <span className="text-xs text-muted-foreground">{report.services.filter(service => service.state === "operational").length}/{report.services.length} operational · server uptime {Math.floor(report.serverUptimeSeconds / 60)}m</span>}
+            {report && <span className="text-xs text-muted-foreground">{services.filter(service => service.state === "operational").length}/{services.length} operational · uptime {Math.floor(report.serverUptimeSeconds / 60)}m</span>}
           </div>
           {report ? (
             <ul className="divide-y divide-border dark:divide-white/5">
-              {report.services.map(service => <ServiceRow key={service.id} service={service} />)}
+              {services.map(service => <ServiceRow key={service.id} service={service} />)}
             </ul>
           ) : (
             <p className="px-5 py-10 text-center text-sm text-muted-foreground">Collecting service health…</p>

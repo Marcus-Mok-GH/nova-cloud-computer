@@ -50,6 +50,18 @@ function safeError(error: unknown) {
     .slice(0, ERROR_LIMIT);
 }
 
+/**
+ * The stored lastError is rendered verbatim in Settings, so only this
+ * module's own "Nova ..." messages may be persisted there - anything else
+ * (query errors, provider internals) is replaced with a fixed generic line.
+ * The full detail still goes to the run's errorMessage for operators.
+ */
+function userFacingLastError(message: string) {
+  return message.startsWith("Nova ")
+    ? message
+    : "Nova could not complete this automation run. Please try again later.";
+}
+
 function utcDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -295,7 +307,7 @@ async function runAutomationForOwner(
       workspaceId: workspace.id,
       runId: run.id,
       status: "succeeded",
-      summary: `Executed in E2B workspace sandbox ${vmResult.sandboxId} and saved a private daily workspace briefing.`,
+      summary: `Executed in the workspace sandbox and saved a private daily workspace briefing.`,
       artifactFileId: artifact.id,
       completedAt: now,
     });
@@ -322,7 +334,7 @@ async function runAutomationForOwner(
       automationId: automation.id,
       ownerId,
       workspaceId: workspace.id,
-      lastError: message,
+      lastError: userFacingLastError(message),
     });
     outcome.failed = 1;
   }

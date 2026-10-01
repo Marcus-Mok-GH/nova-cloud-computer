@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { completeWithWorkspaceModel } from "./byokGateway";
+import { LONG_COMPLETION_TIMEOUT_MS } from "./mistralGateway";
 
 export type PlannedAutomation = {
   name: string;
@@ -133,9 +134,15 @@ export async function planAutomation(
   // burn up to three allowances for a single request.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    // The planner emits a full JSON plan in one non-streaming completion, so
+    // the built-in gateway's snappy 25s request timeout regularly aborts it
+    // mid-generation. Give it the same patient budget as chat completions.
     const result = await completeWithWorkspaceModel(
       ownerId,
-      `${prompt}\n\nReply with ONLY the JSON object.`
+      `${prompt}\n\nReply with ONLY the JSON object.`,
+      undefined,
+      undefined,
+      LONG_COMPLETION_TIMEOUT_MS
     );
     const raw = result.text.trim();
     try {

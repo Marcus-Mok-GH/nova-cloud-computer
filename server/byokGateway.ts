@@ -442,11 +442,17 @@ export async function completeWithWorkspaceModel(
   ownerId: number,
   prompt: string,
   modelId?: string,
-  onChunk?: (chunk: string) => void
+  onChunk?: (chunk: string) => void,
+  timeoutMs?: number
 ) {
   const custom = await getActiveCustomModel(ownerId);
-  if (custom) return completeWithCustomModel(custom, prompt, onChunk);
-  return completeWithMistralGateway(ownerId, prompt, modelId, onChunk);
+  if (custom) {
+    // BYOK requests already run against the user's own provider with the
+    // patient BYOK_CHAT_TIMEOUT_MS, so the optional timeout only applies to
+    // the built-in gateway path below.
+    return completeWithCustomModel(custom, prompt, onChunk);
+  }
+  return completeWithMistralGateway(ownerId, prompt, modelId, onChunk, timeoutMs);
 }
 
 /**

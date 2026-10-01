@@ -47,12 +47,12 @@ export async function getDb() {
 
 async function requireDb() {
   const db = await getDb();
-  if (!db) throw new Error("The Nova database is unavailable.");
+  if (!db) throw new Error("Nova can't reach your workspace data right now. Please try again shortly.");
   return db;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("Neon Auth subject is required for upsert.");
+  if (!user.openId) throw new Error("Nova could not complete sign-in. Please try again.");
   const db = await requireDb();
   await db.insert(users).values({
     openId: user.openId,

@@ -97,7 +97,7 @@ describe("runNimChat", () => {
     state.nimUrl = "http://gpu-box.internal:8000/v1";
     state.nimModel = ""; // custom endpoint without NVIDIA_NIM_CODER_MODEL set
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint"
+      "A model ID is required when this workspace uses a custom model endpoint"
     );
     expect(fetchStub).not.toHaveBeenCalled();
   });
@@ -105,7 +105,7 @@ describe("runNimChat", () => {
   it("refuses to send the API key over plain HTTP to a non-loopback host", async () => {
     state.nimUrl = "http://gpu-box.internal:8000/v1";
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "Refusing to send the NVIDIA NIM API key over http://gpu-box.internal"
+      "Refusing to send the model API key over http://gpu-box.internal"
     );
     // The key never left the process: no request was made at all.
     expect(fetchStub).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ describe("runNimChat", () => {
   it("rejects when the key is missing, before any request is sent", async () => {
     state.nimKey = "";
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
+      "The coding specialist is not configured on this workspace - the workspace owner must finish setting it up."
     );
     expect(fetchStub).not.toHaveBeenCalled();
   });
@@ -125,7 +125,7 @@ describe("runNimChat", () => {
       new Response(JSON.stringify({ error: { detail: "rate limited" } }), { status: 429, headers: { "retry-after": "0" } })
     );
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "NVIDIA NIM responded with status 429"
+      "The coding service responded with status 429"
     );
     expect(fetchStub).toHaveBeenCalledTimes(4);
   });
@@ -133,7 +133,7 @@ describe("runNimChat", () => {
   it("rejects when the model returns no text", async () => {
     fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "" } }] }));
     await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toThrow(
-      "NVIDIA NIM finished without a reply."
+      "The coding specialist finished without a reply."
     );
   });
 });

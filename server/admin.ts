@@ -40,7 +40,7 @@ const managedUserColumns = {
 
 async function requireDb() {
   const db = await getDb();
-  if (!db) throw new Error("Nova could not reach its database.");
+  if (!db) throw new Error("Nova can't reach your workspace data right now. Please try again shortly.");
   return db;
 }
 

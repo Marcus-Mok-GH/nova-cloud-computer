@@ -112,7 +112,7 @@ type ExaStreamEvent =
  */
 export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promise<ExaDeepResearchResult> {
   if (!isExaConfigured()) {
-    throw new Error("Exa deep research is not configured - set EXA_API_KEY to enable web research.");
+    throw new Error("Web research is unavailable on this workspace - the workspace owner must finish setting it up.");
   }
   const type = normalizeExaDeepSearchType(options.type);
   const response = await fetch("https://api.exa.ai/search", {

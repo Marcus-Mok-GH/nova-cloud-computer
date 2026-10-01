@@ -103,7 +103,10 @@ export const appRouter = router({
       if (!ctx.user.email) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Your account has no email address, so a deletion code cannot be sent." });
       try {
         await sendAccountDeletionOtp(ctx.user.email);
-      } catch {
+      } catch (error) {
+        // Keep the provider's internals out of the response, but log the cause
+        // so an operator can tell a misconfigured deployment from an outage.
+        console.warn("[Account deletion] Could not email a deletion code:", error instanceof Error ? error.message : error);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not email a verification code right now. Try again shortly." });
       }
       return { success: true, email: ctx.user.email } as const;
@@ -116,7 +119,15 @@ export const appRouter = router({
       .input(z.object({ code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email.") }))
       .mutation(async ({ ctx, input }) => {
         if (!ctx.user.email) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Your account has no email address, so a deletion code cannot be verified." });
-        const check = await verifyAccountDeletionOtp({ email: ctx.user.email, otp: input.code });
+        let check: { valid: boolean; error?: string };
+        try {
+          check = await verifyAccountDeletionOtp({ email: ctx.user.email, otp: input.code });
+        } catch (error) {
+          // An unconfigured or unreachable auth service must not surface an
+          // internal message; fail closed and keep the account intact.
+          console.warn("[Account deletion] Could not verify a deletion code:", error instanceof Error ? error.message : error);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Nova could not verify that code right now. Try again shortly." });
+        }
         if (!check.valid) throw new TRPCError({ code: "BAD_REQUEST", message: check.error ?? "That code is not valid or has expired. Send a new code and try again." });
         const success = await deleteUserAccount(ctx.user.id);
         if (!success) throw new TRPCError({ code: "NOT_FOUND", message: "Account deletion could not be completed." });

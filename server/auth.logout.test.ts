@@ -102,4 +102,18 @@ describe("auth router", () => {
     await caller.auth.requestDeletionCode();
     expect(sendDeletionOtpSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("reports a failed send without leaking provider internals", async () => {
+    sendDeletionOtpSpy.mockRejectedValueOnce(new Error("socket hang up to https://auth.internal"));
+    const caller = appRouter.createCaller(createContext(signedInUser));
+    await expect(caller.auth.requestDeletionCode()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not email a verification code right now. Try again shortly." });
+    expect(deleteUserSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the verification service is unreachable", async () => {
+    verifyDeletionOtpSpy.mockRejectedValueOnce(new Error("Nova's authentication service is not configured"));
+    const caller = appRouter.createCaller(createContext(signedInUser));
+    await expect(caller.auth.confirmDeleteAccount({ code: "123456" })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE", message: "Nova could not verify that code right now. Try again shortly." });
+    expect(deleteUserSpy).not.toHaveBeenCalled();
+  });
 });

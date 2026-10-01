@@ -48,6 +48,16 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPathFromRequestUrl("/api/chat/delete")).toBe(true);
   });
 
+  it("keeps automation creation and its scheduled callbacks co-deployed", () => {
+    expect(isCoDeployedApiPath(["user-automations"])).toBe(true);
+    expect(isCoDeployedApiPath(["user-automations", "plan"])).toBe(true);
+    expect(isCoDeployedApiPath("user-automations/plan")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/user-automations/plan")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/user-automations/12")).toBe(true);
+    expect(isCoDeployedApiPath(["scheduled", "user-automation"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/scheduled/automation")).toBe(true);
+  });
+
   it("keeps the HMAC-guarded agent continuation namespace co-deployed", () => {
     expect(isCoDeployedApiPath(["agent", "continue"])).toBe(true);
     expect(isCoDeployedApiPath("agent/continue")).toBe(true);

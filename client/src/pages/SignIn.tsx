@@ -113,7 +113,7 @@ export default function SignIn() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-6 text-foreground">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background p-6 text-foreground">
       <div className="absolute -top-32 left-1/2 size-96 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" aria-hidden="true" />
       <Link href="/" className="absolute left-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
         <ArrowLeft size={15} /> Back to site

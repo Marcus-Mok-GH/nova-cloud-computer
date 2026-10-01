@@ -2,7 +2,7 @@ import { Skeleton } from './ui/skeleton';
 
 export function DashboardLayoutSkeleton() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       {/* Mobile top bar skeleton */}
       <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur-md lg:hidden">
         <div className="flex items-center gap-2">
@@ -34,7 +34,7 @@ export function DashboardLayoutSkeleton() {
         </div>
       </div>
 
-      <div className="min-h-screen p-4 pb-24 lg:pb-10 lg:pl-[264px]">
+      <div className="min-h-[calc(100dvh-3.5rem)] p-4 pb-24 lg:min-h-dvh lg:pb-10 lg:pl-[264px]">
         <div className="space-y-4">
           <Skeleton className="h-12 w-48 rounded-lg" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

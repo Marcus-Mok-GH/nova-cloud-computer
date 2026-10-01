@@ -16,6 +16,7 @@ class MockMistralGatewayClientError extends Error {
 vi.mock("./mistralGateway", () => ({
   completeWithMistralGateway: complete,
   MistralGatewayClientError: MockMistralGatewayClientError,
+  LONG_COMPLETION_TIMEOUT_MS: 120_000,
 }));
 
 vi.mock("./db", () => ({

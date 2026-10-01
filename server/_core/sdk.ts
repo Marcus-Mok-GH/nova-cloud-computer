@@ -1,4 +1,4 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, SEVEN_DAYS_MS, ONE_YEAR_MS, decodeOAuthState } from "@shared/const";
+import { AXIOS_TIMEOUT_MS, COOKIE_NAME, SEVEN_DAYS_MS, ONE_YEAR_MS, decodeOAuthState, isDeveloperEmail } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -311,10 +311,18 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
+    // Pass the stored profile through: a session-only upsert must not blank the
+    // row's name and email, and the email is what re-asserts the pinned
+    // developer rank.
     await db.upsertUser({
       openId: user.openId,
+      name: user.name,
+      email: user.email,
+      loginMethod: user.loginMethod ?? "neon_email_otp",
       lastSignedIn: signedInAt,
     });
+    // Keep the returned user consistent with the rank the upsert just wrote.
+    if (isDeveloperEmail(user.email)) user.role = "developer";
 
     return user;
   }

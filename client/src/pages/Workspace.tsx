@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
+import { LEGACY_MISTRAL_UNAVAILABLE_PREFIX, MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 
 export default function Workspace() {
@@ -134,8 +134,12 @@ export default function Workspace() {
     el.scrollTop = el.scrollHeight;
   }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
 
+  // Persisted failure replies are marked with the (legacy) prefix; the raw
+  // detail after it may name an internal service, so only fixed, generic
+  // copy is ever rendered here.
   const isUnavailableReply = (content: string) =>
-    content.startsWith(MISTRAL_UNAVAILABLE_PREFIX);
+    content.startsWith(MISTRAL_UNAVAILABLE_PREFIX) ||
+    content.startsWith(LEGACY_MISTRAL_UNAVAILABLE_PREFIX);
 
   useEffect(() => {
     if (typeof window === "undefined" || !neonAuth) return;
@@ -543,7 +547,11 @@ export default function Workspace() {
                                   <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
                                     Nova is offline
                                   </p>
-                                  <span>{row.content}</span>
+                                  <span>
+                                    Nova hit an unexpected error and could not
+                                    finish this reply. Everything so far is
+                                    saved - please try again shortly.
+                                  </span>
                                 </div>
                               </div>
                             ) : (

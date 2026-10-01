@@ -118,11 +118,11 @@ function extractText(content: unknown): string {
 /** Shared endpoint/key/transport resolution for both chat variants. */
 function nimChatEndpoint(modelOverride?: string): URL {
   if (!isNimConfigured()) {
-    throw new NimConfigError("NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it.");
+    throw new NimConfigError("The coding specialist is not configured on this workspace - the workspace owner must finish setting it up.");
   }
   if (!(modelOverride ?? ENV.nimCoderModel)) {
     throw new NimConfigError(
-      "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint - set it to the model ID your NIM container serves (e.g. 'moonshotai/kimi-k3')."
+      "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one (e.g. 'moonshotai/kimi-k3')."
     );
   }
   const endpoint = new URL(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`);
@@ -131,7 +131,7 @@ function nimChatEndpoint(modelOverride?: string): URL {
     // The key travels in the Authorization header: refuse to send it over
     // an unencrypted transport to anything that is not this machine.
     throw new NimConfigError(
-      `Refusing to send the NVIDIA NIM API key over ${endpoint.protocol}//${endpoint.hostname} - set NVIDIA_NIM_API_URL to an HTTPS endpoint (or http on a loopback host).`
+      `Refusing to send the model API key over ${endpoint.protocol}//${endpoint.hostname} - the endpoint must be HTTPS (or HTTP on a loopback host).`
     );
   }
   return endpoint;
@@ -210,7 +210,7 @@ async function postNimChat(
     const detail = await response.text().catch(() => "");
     const hint = detail.slice(0, 300).replace(/\s+/g, " ").trim();
     const failure = new Error(
-      `NVIDIA NIM responded with status ${response.status}${hint ? `: ${hint}` : "."}`
+      `The coding service responded with status ${response.status}${hint ? `: ${hint}` : "."}`
     );
     // Client-side rejections of the tools payload mean the served model
     // does not implement function calling - a distinct, recoverable case.
@@ -257,7 +257,7 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
     );
     const text = extractText(message.message?.content);
     if (!text) {
-      throw new Error("NVIDIA NIM finished without a reply.");
+      throw new Error("The coding specialist finished without a reply.");
     }
     return text;
   } catch (error) {
@@ -314,7 +314,7 @@ export async function runNimAgentChat(
     return { kind: "tool_calls", text, toolCalls, ...(reasoning ? { reasoning } : {}) };
   }
   if (!text) {
-    throw new Error("NVIDIA NIM finished without a reply.");
+    throw new Error("The coding specialist finished without a reply.");
   }
   return { kind: "text", text, ...(reasoning ? { reasoning } : {}) };
 }

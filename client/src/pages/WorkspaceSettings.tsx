@@ -85,7 +85,8 @@ function AccountManagementCard() {
     onError: error => toast.error(error.message || "Nova could not email a verification code.")
   });
   const confirmDeleteMutation = trpc.auth.confirmDeleteAccount.useMutation({ onSuccess: async () => { toast.success("Your account and workspace data have been deleted."); resetDeletionDialog(); await logout(); window.location.assign("/sign-in"); }, onError: error => toast.error(error.message || "Failed to delete account.") });
-  const accountName = user?.name || "Nova user"; const accountEmail = user?.email || "No email available"; const loginMethod = user?.loginMethod || "Neon Auth"; const memberSince = user?.createdAt ? new Date(user.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "Not available";
+  const accountName = user?.name || "Nova user"; const accountEmail = user?.email || "No email available"; // Map stored sign-in identifiers to friendly labels; raw internal values are never shown.
+  const loginMethod = ({ neon_email_otp: "Email sign-in", email: "Email sign-in", google: "Google", apple: "Apple", microsoft: "Microsoft", github: "GitHub" } satisfies Record<string, string>)[user?.loginMethod ?? ""] || "Email sign-in"; const memberSince = user?.createdAt ? new Date(user.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "Not available";
   const copyEmail = async () => { if (!user?.email || !navigator.clipboard) return; try { await navigator.clipboard.writeText(user.email); toast.success("Email copied."); } catch { toast.error("Could not copy your email."); } };
   return <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Profile & Account</p><h2 className="mt-1 text-xl font-bold tracking-tight">Your account</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Your profile details, authentication information, session controls, and account deletion are all in one place.</p></div><div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><UserCircle size={24} /></div></div>
     <div className="mt-6 rounded-2xl border bg-muted/20 p-5"><div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-background text-sm font-bold uppercase shadow-[0_4px_14px_rgba(10,10,10,0.05)]">{accountName.slice(0, 1)}</div><div className="min-w-0"><p className="truncate text-lg font-bold">{accountName}</p><p className="text-xs text-muted-foreground">Member since {memberSince}</p></div></div><div className="mt-5 space-y-4"><div className="space-y-2"><Label htmlFor="profile-email">Email address</Label><div className="flex gap-2"><Input id="profile-email" value={accountEmail} readOnly className="bg-background" />{user?.email && <Button variant="outline" size="icon" onClick={copyEmail} aria-label="Copy email address"><Clipboard size={15} /></Button>}</div></div><div className="space-y-2"><Label>Sign-in method</Label><Input value={loginMethod} readOnly className="bg-background" /></div></div></div>
@@ -191,12 +192,12 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
           <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">{connected ? `Disconnect your ${label} account` : `Connect your ${label} account`}</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
             {errored
-              ? `The server has a ${keyLength}-character COMPOSIO_API_KEY, but Composio refused it. If the key was pasted in its masked form it will be far too short - paste the full key from the Composio API-keys screen.`
+              ? `Composio refused this connector key (${keyLength} characters). If it was pasted in its masked form it will be far too short - paste the full key from the Composio API-keys screen.`
               : connected
                 ? `${label} is connected. Disconnecting removes Nova's access and deletes the stored credentials - you can connect again any time.`
                 : configured
                   ? `Authorization runs through Composio's secure hosted page - your ${label} credentials never touch Nova's servers.`
-                  : "The server owner needs to set COMPOSIO_API_KEY before connectors can be connected."}
+                  : "The workspace owner needs to add the connector API key before connectors can be connected."}
           </p>
           {connected ? (
             <Button

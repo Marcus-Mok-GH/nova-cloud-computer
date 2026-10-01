@@ -453,7 +453,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("Codebuff");
   });
 
-  it("renders an unavailable-AI persisted message as an explicit error, with the actual gateway error visible", () => {
+  it("renders an unavailable-AI persisted message as an explicit error without exposing backend internals", () => {
     state.chatMessages = [
       {
         id: 1,
@@ -464,10 +464,28 @@ describe("Workspace rendered browser states", () => {
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
     expect(markup).toContain("Nova is offline");
-    expect(markup).toContain("Mistral inference gateway error");
-    expect(markup).toContain("connection reset");
+    expect(markup).toContain("could not");
+    // The raw detail after the marker may name an internal service or
+    // endpoint - it is never rendered.
+    expect(markup).not.toContain("api.mistral.ai");
+    expect(markup).not.toContain("inference gateway");
+    expect(markup).not.toContain("connection reset");
 
-    // A plain assistant reply never matches the error prefix.
+    // Messages persisted under the legacy marker are sanitized the same way.
+    state.chatMessages = [
+      {
+        id: 1,
+        role: "assistant",
+        content:
+          "Mistral inference gateway error: fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset",
+      },
+    ];
+    const legacyMarkup = renderChat();
+    expect(legacyMarkup).toContain('data-testid="assistant-error"');
+    expect(legacyMarkup).not.toContain("api.mistral.ai");
+    expect(legacyMarkup).not.toContain("inference gateway");
+
+    // A plain assistant reply never matches the error marker.
     state.chatMessages = [
       { id: 1, role: "assistant", content: "Mistral is a fine model" },
     ];

@@ -603,10 +603,19 @@ describe("Segment chaining inside the runner", () => {
         spies.sendTelegramMessage.mock.calls.some(
           call =>
             typeof call[2] === "string" &&
-            call[2].includes("gateway not configured")
+            call[2].includes("unexpected error handling that message")
         )
       )
     ).toBe(true);
+    // The raw gateway error never reaches the Telegram user; the ledger
+    // above keeps it for operators.
+    expect(
+      spies.sendTelegramMessage.mock.calls.some(
+        call =>
+          typeof call[2] === "string" &&
+          call[2].includes("gateway not configured")
+      )
+    ).toBe(false);
   });
 
   it("retries scheduling and succeeds on the second attempt", async () => {

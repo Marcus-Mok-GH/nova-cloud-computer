@@ -271,7 +271,9 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(spies.createWorkspaceFileForUser).toHaveBeenCalledTimes(1);
     [, , agentContent] = spies.runWorkspaceAgent.mock.calls[1];
     expect(agentContent).toContain("saving it to the workspace failed");
-    expect(agentContent).toContain("file is too big");
+    // Raw upstream error text is kept out of the model context; the model
+    // only tells the user the save failed and to try again.
+    expect(agentContent).not.toContain("file is too big");
   });
 
   it("routes /models to the agent instead of revealing model ids or providers", async () => {
@@ -355,8 +357,10 @@ describe("Telegram upload webhook (full handler)", () => {
       message: { message_id: 24, chat: { id: 42 }, text: "break please" },
     });
     expect(status).toBe(200);
-    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => String(call[2]).includes("hit an error")));
+    await waitFor(() => spies.sendTelegramMessage.mock.calls.some(call => String(call[2]).includes("unexpected error handling that message")));
+    // The run ledger keeps the raw error for operators; the bot message stays generic.
     expect(spies.finishAgentRunForUser).toHaveBeenCalledWith(7, 501, "failed", "gateway exploded");
+    expect(spies.sendTelegramMessage.mock.calls.some(call => String(call[2]).includes("gateway exploded"))).toBe(false);
   });
 
   it("still delivers the reply when the ledger itself is unavailable", async () => {
@@ -489,7 +493,7 @@ describe("Telegram upload webhook (full handler)", () => {
     await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
 
     const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
-    expect(agentContent).toContain("TRANSCRIPTION_API_KEY");
+    expect(agentContent).toContain("voice transcription is not configured");
     expect(agentContent).toContain("voice message");
   });
 });

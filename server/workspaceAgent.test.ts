@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { ensurePersistentSandbox, getE2BClient, isE2BConfigured } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
@@ -630,8 +631,8 @@ describe("Nova tool-calling workspace agent", () => {
   it("reports an unconfigured editor sub-agent back to the model instead of breaking the run", async () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock.mockRejectedValueOnce(
-      new Error(
-        "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
+      new NimConfigError(
+        "The coding specialist is not configured on this workspace - the workspace owner must finish setting it up."
       )
     );
     chatWithMistralGateway
@@ -648,7 +649,7 @@ describe("Nova tool-calling workspace agent", () => {
       )
       .mockResolvedValueOnce(
         chatResult({
-          text: "The coding specialist is not configured yet - the server needs NVIDIA_NIM_API_KEY.",
+          text: "The coding specialist is not configured yet - the workspace owner must finish setting it up.",
         })
       );
     const result = await runWorkspaceAgent(1, 3, "build me a todo app");
@@ -658,7 +659,7 @@ describe("Nova tool-calling workspace agent", () => {
       .find(m => m.role === "tool");
     expect(toolRow.tool_call_id).toBe("call-code-nc");
     expect(toolRow.content).toContain(
-      "The coding specialist failed: NVIDIA NIM is not configured"
+      "The coding specialist is not configured on this workspace"
     );
     // The failure now carries the no-silent-substitution policy.
     expect(toolRow.content).toContain(
@@ -943,11 +944,11 @@ describe("Nova tool-calling workspace agent", () => {
     );
   });
 
-  it("treats a missing NVIDIA_NIM_CODER_MODEL config error as non-retryable", async () => {
+  it("treats a missing model-ID config error as non-retryable", async () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock.mockRejectedValue(
       new NimConfigError(
-        "NVIDIA_NIM_CODER_MODEL is required when NVIDIA_NIM_API_URL points to a self-hosted or custom endpoint."
+        "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one."
       )
     );
     chatWithMistralGateway
@@ -978,7 +979,7 @@ describe("Nova tool-calling workspace agent", () => {
           }>
       )
       .find(m => m.role === "tool" && m.tool_call_id === "call-cfg-1");
-    expect(toolRow?.content).toContain("NVIDIA_NIM_CODER_MODEL is required");
+    expect(toolRow?.content).toContain("A model ID is required");
   });
 
   // Coder-delegation guard: the agent loop itself keeps the coding
@@ -1604,7 +1605,7 @@ describe("Nova tool-calling workspace agent", () => {
           m.role === "tool" && m.tool_call_id === "call-browse-off"
       );
       expect(fedBack.content).toContain("sandbox is not available");
-      expect(fedBack.content).toContain("E2B_API_KEY");
+      expect(fedBack.content).toContain("not set up on this workspace");
     });
 
     it("run_bash without a live sandbox reports the fallback to the model", async () => {
@@ -3287,7 +3288,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Hello world");
   });
 
-  it("reports the actual gateway error when every retry fails", async () => {
+  it("hides the backend error behind a generic notice when every retry fails", async () => {
     chatWithMistralGateway.mockRejectedValue(
       new MistralGatewayClientError(
         "fetch failed: connection reset by peer",
@@ -3296,18 +3297,22 @@ describe("Nova tool-calling workspace agent", () => {
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(result.message.content).toContain("Mistral inference gateway error");
-    expect(result.message.content).toContain(
+    expect(result.message.content).toContain(MISTRAL_UNAVAILABLE_PREFIX);
+    // The raw backend error - and any endpoint or service it names - never
+    // reaches the chat.
+    expect(result.message.content).not.toContain(
       "fetch failed: connection reset by peer"
     );
+    expect(result.message.content).not.toContain("Mistral");
     expect(onChunk).toHaveBeenCalled();
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
   });
 
-  it("reports the database cause behind a drizzle Failed query wrapper", async () => {
+  it("keeps the database cause behind a drizzle Failed query wrapper out of the chat", async () => {
     // Drizzle wraps database errors: its own message is only
     // "Failed query: <sql> params: ..." - the real Postgres error (here, the
-    // missing migration column) rides on error.cause and must reach the chat.
+    // missing migration column) rides on error.cause. All of it stays in the
+    // server logs; the chat only gets a generic notice.
     const cause = new Error(
       'db error: column "deploymentKey" of relation "site_deployments" does not exist'
     );
@@ -3317,11 +3322,9 @@ describe("Nova tool-calling workspace agent", () => {
     wrapped.cause = cause;
     chatWithMistralGateway.mockRejectedValue(wrapped);
     const result = await runWorkspaceAgent(1, 3, "organize my deployments");
-    expect(result.message.content).toContain("Mistral inference gateway error");
-    expect(result.message.content).toContain("Failed query");
-    expect(result.message.content).toContain(
-      'column "deploymentKey" of relation "site_deployments" does not exist'
-    );
+    expect(result.message.content).toContain(MISTRAL_UNAVAILABLE_PREFIX);
+    expect(result.message.content).not.toContain("Failed query");
+    expect(result.message.content).not.toContain("deploymentKey");
   });
 
   it("reports configuration error when the gateway is not configured", async () => {
@@ -3339,7 +3342,7 @@ describe("Nova tool-calling workspace agent", () => {
       },
     });
     const result = await runWorkspaceAgent(1, 3, "hello?");
-    expect(result.message.content).toContain("not configured");
+    expect(result.message.content).toContain("not connected");
     expect(chatWithMistralGateway).not.toHaveBeenCalled();
   });
 
@@ -3683,11 +3686,12 @@ describe("Nova tool-calling workspace agent", () => {
         )
       );
     const result = await runWorkspaceAgent(1, 3, "make me a ph meter site");
-    // The provider's own error leads, and the tool steps that failed
-    // before the run died are listed instead of "everything so far" hiding
-    // them.
-    expect(result.message.content).toContain(
-      "Inference provider error: The service may be temporarily overloaded"
+    // The user-facing lead explains the throttle; the raw upstream error text
+    // is kept out of the chat, and the tool steps that failed before the run
+    // died are listed instead of "everything so far" hiding them.
+    expect(result.message.content).toContain("Too many requests right now");
+    expect(result.message.content).not.toContain(
+      "The service may be temporarily overloaded"
     );
     expect(result.message.content).toContain(
       "Steps that failed during this run"
@@ -3712,12 +3716,10 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // The wait happens once per run, never as a fast-retry hammer.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(2);
-    // The reply must lead with the provider's actual error text, not a
-    // hardcoded diagnosis ("lockout" read as a misdiagnosis of plain pool
-    // congestion).
-    expect(result.message.content).toContain(
-      "Inference provider error: Too Many Requests"
-    );
+    // The reply explains the throttle in user-facing terms instead of
+    // quoting the upstream provider's raw error text.
+    expect(result.message.content).toContain("Too many requests right now");
+    expect(result.message.content).not.toContain("Too Many Requests");
     expect(result.message.content).toContain(
       "Everything so far is saved - please try again in a little while."
     );
@@ -3735,7 +3737,8 @@ describe("Nova tool-calling workspace agent", () => {
     // A 4xx rejection cannot succeed by retrying, so the agent stops at once.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("rejected this request");
-    expect(result.message.content).toContain("Model not found");
+    // The provider's raw error text stays out of the chat.
+    expect(result.message.content).not.toContain("Model not found");
   });
 
   it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
@@ -3745,12 +3748,9 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "hello?", {
       deadlineAtMs: Date.now() + 10_000,
     });
-    // No time for the wait: fail immediately with the provider's own error
-    // leading the explanation.
+    // No time for the wait: fail immediately with a user-facing explanation.
     expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
-    expect(result.message.content).toContain(
-      "Inference provider error: Too Many Requests"
-    );
+    expect(result.message.content).toContain("Too many requests right now");
   });
 
   it("returns configuration message when the chat throws a configuration error", async () => {
@@ -3759,7 +3759,8 @@ describe("Nova tool-calling workspace agent", () => {
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
-    expect(result.message.content).toContain("no key");
+    // The gateway's raw error text stays out of the chat.
+    expect(result.message.content).not.toContain("no key");
   });
 
   it("returns invalid-response message when every retry is invalid", async () => {
@@ -3808,7 +3809,7 @@ describe("Nova tool-calling workspace agent", () => {
     const emitted = onChunk.mock.calls.map(call => call[0]).join("");
     expect(emitted).toBe(
       "Partial " +
-        "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here."
+        "\n\nNova lost the connection to its AI service before this reply finished. Everything so far is saved - send another message and I will continue from here."
     );
   });
 

@@ -217,7 +217,7 @@ describe("terminal sessions", () => {
 
   it("reports the friendly error when E2B is not configured", async () => {
     configure(false);
-    await expect(startTerminalForUser(1, { cols: 80, rows: 24 })).rejects.toThrow(/E2B is not connected/);
+    await expect(startTerminalForUser(1, { cols: 80, rows: 24 })).rejects.toThrow(/sandbox is not connected/);
   });
 
   it("refuses writes and oversized input when no session is open", async () => {

@@ -78,7 +78,7 @@ describe("runResearch", () => {
 
   it("requires a configured API key before calling Exa", async () => {
     state.exaKey = "";
-    await expect(runResearch("topic")).rejects.toThrow("EXA_API_KEY");
+    await expect(runResearch("topic")).rejects.toThrow("Web research is not configured");
     expect(runExaDeepResearch).not.toHaveBeenCalled();
   });
 });

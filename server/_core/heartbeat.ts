@@ -46,13 +46,13 @@ const buildEndpoint = (rpc: string): string => {
   if (!ENV.forgeApiUrl) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "Heartbeat service URL is not configured (BUILT_IN_FORGE_API_URL).",
+      message: "Background scheduling is not configured on this deployment yet.",
     });
   }
   if (!ENV.forgeApiKey) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "Heartbeat service API key is not configured (BUILT_IN_FORGE_API_KEY).",
+      message: "Background scheduling credentials are not configured on this deployment yet.",
     });
   }
   const baseUrl = ENV.forgeApiUrl;

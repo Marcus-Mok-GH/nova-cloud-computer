@@ -72,7 +72,7 @@ export async function startAgentVmRun(
       configured: false as const,
       run: null,
       message:
-        "E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can start agent VMs.",
+        "The workspace sandbox is not connected yet. An administrator must finish setting it up before Nova can start agent VM tasks.",
     };
   }
   const computer = await getWorkspaceComputer(ownerId);
@@ -153,7 +153,7 @@ export async function startAgentVmRun(
         return {
           configured: true as const,
           run: completed,
-          message: `E2B completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.${filesExcerpt}${outputExcerpt}`,
+          message: `The sandbox completed the task using ${result.uploadedFileCount} workspace file${result.uploadedFileCount === 1 ? "" : "s"} and synchronized ${importedFileCount} file${importedFileCount === 1 ? "" : "s"} back to Nova storage.${filesExcerpt}${outputExcerpt}`,
         };
       }
     );
@@ -166,7 +166,10 @@ export async function startAgentVmRun(
     return {
       configured: true as const,
       run: failed,
-      message: safeError(error),
+      // The stored errorMessage keeps the detail for operators; the message
+      // shown to the user stays a fixed, generic line with no backend
+      // service or endpoint names.
+      message: "Nova could not complete that agent VM run. Please try again later.",
     };
   }
 }

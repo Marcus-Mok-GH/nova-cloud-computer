@@ -14,7 +14,7 @@ class TerminalError extends Error {
 const status = vi.fn((ownerId: number) => ({ active: ownerId === 1, ptyId: ownerId === 1 ? 421 : null, cols: 120, rows: 30, seq: 42 }));
 const start = vi.fn(async (ownerId: number, size: { cols: number; rows: number }) => {
   if (ownerId === 1) return { reused: false as const, ptyId: 421, offset: 0, seq: 0, output: "" };
-  throw new TerminalError("E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal.", "precondition");
+  throw new TerminalError("The workspace sandbox is not connected yet. An administrator must finish setting it up before Nova can open a terminal.", "precondition");
 });
 const read = vi.fn((ownerId: number, sinceSeq: number) =>
   ownerId === 1
@@ -84,11 +84,11 @@ describe("Terminal protected router", () => {
     await expect(appRouter.createCaller(context(3)).terminal.stop()).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("retry") });
   });
 
-  it("maps a missing E2B configuration to a precondition error", async () => {
+  it("maps a missing sandbox configuration to a precondition error", async () => {
     const stranger = appRouter.createCaller(context(2));
     await expect(stranger.terminal.start({ cols: 120, rows: 30 })).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
-      message: expect.stringContaining("E2B is not connected"),
+      message: expect.stringContaining("sandbox is not connected"),
     });
   });
 

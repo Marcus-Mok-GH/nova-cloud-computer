@@ -137,7 +137,7 @@ describe("runExaDeepResearch", () => {
 
   it("requires a configured API key", async () => {
     state.exaKey = "";
-    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("EXA_API_KEY");
+    await expect(runExaDeepResearch({ query: "q" })).rejects.toThrow("Web research is unavailable");
     expect(fetchStub).not.toHaveBeenCalled();
   });
 });

@@ -391,7 +391,7 @@ export function failureNudgeFor(failedSteps: string[]): string {
 
 /** The coder-delegation nudge for a round that bypassed the specialist. */
 export function coderNudgeFor(wroteName: string): string {
-  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the editor sub-agent. Nova's editor (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the file work to the editor tool with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If the editor reports the sub-agent is not configured (the Nova operator must set NVIDIA_NIM_API_KEY on the server), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
+  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the editor sub-agent. Nova's editor (Kimi K3) should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the file work to the editor tool with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If the editor reports the sub-agent is not configured (the workspace owner must finish setting up the editor), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
 }
 
 const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
@@ -1035,7 +1035,7 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "editor",
       description:
-        "Delegate file editing and creation to Nova's editor sub-agent - a frontier coding model (Kimi K3) served through NVIDIA NIM. This is the default for ALL substantial file work: creating a whole app or site, writing whole files, functions, components, scripts, algorithms, refactoring, tricky bug fixes, or making big changes in bulk across many files. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context. The specialist works autonomously: it reads, writes and verifies the workspace files itself, and the files it writes are synced into the workspace before the result returns - so read the changed files it reports back, verify the work, and fix anything it left broken. Only when the result is bare code (no sandbox available) do you place it into the workspace with your file tools yourself. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
+        "Delegate file editing and creation to Nova's editor sub-agent - a frontier coding model (Kimi K3) served by Nova. This is the default for ALL substantial file work: creating a whole app or site, writing whole files, functions, components, scripts, algorithms, refactoring, tricky bug fixes, or making big changes in bulk across many files. Describe the task completely (goal, language, constraints) and include the relevant existing code or the exact error in context. The specialist works autonomously: it reads, writes and verifies the workspace files itself, and the files it writes are synced into the workspace before the result returns - so read the changed files it reports back, verify the work, and fix anything it left broken. Only when the result is bare code (no sandbox available) do you place it into the workspace with your file tools yourself. Never write non-trivial code directly with create_file or edit_file instead of delegating. Only skip it for tiny snippets you can write instantly (a one-line fix, a few lines of markup), shell commands, or math - use your own tools for those.",
       parameters: {
         type: "object",
         properties: {
@@ -1471,7 +1471,7 @@ Operating principles:
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
 - Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
-- Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor (Kimi K3 on NVIDIA NIM) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the Nova operator must set NVIDIA_NIM_API_KEY - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
+- Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor (Kimi K3) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the editor is not set up on this workspace yet - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
 - Choose your collaboration level deliberately. Default to fully autonomous for routine, reversible work only after checking the relevant files, records, skills, or other reliable sources. Do not call an unverified choice a sensible default. Switch to collaborative - pause and ask one focused question - when a reliable source cannot resolve an important ambiguity, guessing has a real cost (irreversible or destructive actions beyond the literal request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation), or the user must decide. Never improvise facts, targets, recipients, IDs, or permissions.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
@@ -2878,8 +2878,15 @@ async function executeWorkspaceTool(
           ? "The coding specialist is taking over the task - reading the workspace on its own…"
           : "The coding specialist is reading the task…"
       );
-      const specialistError = (error: unknown) =>
-        `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+      const specialistError = (error: unknown) => {
+        // Config problems already carry a clean, user-facing explanation.
+        // Anything else is logged for diagnosis and replaced with a fixed
+        // message: raw specialist errors can name internal services or
+        // endpoints, and this text is fed back into the chat.
+        if (error instanceof NimConfigError) return `${error.message}.`;
+        console.error("[Editor] specialist failed:", error);
+        return "The coding specialist failed unexpectedly. Please try again shortly.";
+      };
       const runSpecialist = (): Promise<CoderOutcome> =>
         sandbox
           ? runAutonomousCoderTask({
@@ -2985,7 +2992,7 @@ async function executeWorkspaceTool(
             `accepted Nova's own coding, call the accept_own_coding tool to record it, then write the code yourself and say plainly that ` +
             `it is Nova's own work without the specialist, so a broken result never comes as a surprise. ` +
             `Genuinely tiny fixes (a one-line change, a few lines of markup) remain allowed. ` +
-            `If the user wants to wait instead, tell them the Nova operator should check NVIDIA_NIM_API_KEY on the server.`,
+            `If the user wants to wait instead, tell them the workspace owner needs to finish setting up the editor.`,
           detail: message,
           specialistDown: true,
           action: {
@@ -3005,7 +3012,7 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result:
-            "The workspace sandbox is not available right now - it either failed to wake or the server's E2B_API_KEY is not configured. Use run_vm_task for shell work instead, and tell the user if the sandbox needs the E2B key.",
+            "The workspace sandbox is not available right now - it either failed to wake or it is not set up on this workspace yet. Use run_vm_task for shell work instead, and tell the user the sandbox needs to be set up first.",
           action: { kind: "vm", name: "bash", operation: "disabled" },
         };
       const bash = await runBashOnSandbox(sandbox, command);
@@ -3028,7 +3035,7 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result:
-            "The workspace sandbox is not available right now - it either failed to wake or the server's E2B_API_KEY is not configured, and the browser runs inside that sandbox. Tell the user if the sandbox needs the E2B key.",
+            "The workspace sandbox is not available right now - it either failed to wake or it is not set up on this workspace yet, and the browser runs inside that sandbox. Tell the user the sandbox needs to be set up first.",
           action: { kind: "browser", name: "browser", operation: "disabled" },
         };
       const browse = await runBrowserCommand(sandbox, command);
@@ -3370,7 +3377,7 @@ ${
       const status = await getMistralGatewayStatus(ownerId);
       if (!status.configured) {
         const reply =
-          "Mistral inference is not configured. An administrator must set up the server-only gateway connection before chat is available.";
+          "Nova's AI is not connected on this workspace yet. An administrator must finish setting it up before chat is available.";
         await options.onChunk?.(reply);
         const message = await persistAssistant(reply);
         return { message, actions: [], outOfBudget: false };
@@ -3380,13 +3387,13 @@ ${
         (status.providerConfigurationKnown && !status.providerConfigured)
       ) {
         const reply =
-          "Mistral inference gateway is temporarily unreachable. Please try again shortly.";
+          "Nova's AI service is temporarily unreachable. Please try again shortly.";
         await options.onChunk?.(reply);
         const message = await persistAssistant(reply);
         return { message, actions: [], outOfBudget: false };
       }
       if (status.allowance.exhausted) {
-        const reply = `Mistral inference request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
+        const reply = `Nova's shared request allowance is exhausted (${status.allowance.usedRequests}/${status.allowance.maxRequests} requests used). Please try again later or contact an administrator to raise the cap.`;
         await options.onChunk?.(reply);
         const message = await persistAssistant(reply);
         return { message, actions: [], outOfBudget: false };
@@ -4099,7 +4106,7 @@ ${
     const kind =
       error instanceof MistralGatewayClientError ? error.kind : "unavailable";
     const failureNote =
-      "\n\nNova lost the connection to the inference gateway before this reply finished. Everything so far is saved - send another message and I will continue from here.";
+      "\n\nNova lost the connection to its AI service before this reply finished. Everything so far is saved - send another message and I will continue from here.";
     // A run that dies mid-flight on an inference error must still disclose
     // the tool steps that failed before it died: without this, the error
     // reply read as "everything so far is saved" while the steps behind
@@ -4111,42 +4118,27 @@ ${
           .map((step, index) => `${index + 1}. ${step}`)
           .join("\n")}`
       : "";
-    // Every failure reply carries the actual backend error (message plus
-    // cause chain) so the user can diagnose it from the chat: the upstream
-    // text is what says whether the provider throttled, billed, or outright
-    // rejected the request. Transient inference failures lead with the
-    // provider's own error text - a hardcoded narrative read as a
-    // misdiagnosis ("lockout" for plain pool congestion) - while
-    // setup-class failures keep their actionable lead and append the
-    // detail. Capped so a runaway error body cannot flood the chat.
-    const detail = errorChainText(error) || String(error);
-    const clippedDetail = (cap: number) =>
-      detail.length > cap ? `${detail.slice(0, cap)}…` : detail;
-    const actualError = ` Actual backend error: ${clippedDetail(500)}`;
-    const withActualError = (lead: string) => lead + actualError;
-    const providerErrorLead = (note: string) =>
-      `Inference provider error: ${clippedDetail(500)}. ${note}`;
+    // Failure replies never quote the backend error: raw detail (provider
+    // endpoints, database causes, config names) is for the server logs only
+    // - the catch above already console.error'd it. Each kind keeps an
+    // actionable, user-facing lead instead, so no internal service or
+    // environment detail reaches the chat.
     let reply: string;
     if (kind === "configuration") {
-      reply = withActualError(
-        "Inference is not connected yet. An administrator must configure the server-only gateway before chat is available."
-      );
+      reply =
+        "Nova's AI is not connected on this workspace yet. An administrator must finish setting it up before chat is available.";
     } else if (kind === "allowance_reached") {
-      reply = withActualError(
-        "The inference request allowance has been reached. New requests are blocked until an administrator raises the cap."
-      );
+      reply =
+        "Nova's shared request allowance has been reached. New requests are blocked until an administrator raises the cap.";
     } else if (kind === "credits_exhausted") {
-      reply = withActualError(
-        "Your daily Nova credits are used up (1 credit = 1¢). They reset tomorrow; everything so far is saved."
-      );
+      reply =
+        "Your daily Nova credits are used up (1 credit = 1¢). They reset tomorrow; everything so far is saved.";
     } else if (kind === "rate_limit") {
-      reply = providerErrorLead(
-        "Everything so far is saved - please try again in a little while."
-      );
+      reply =
+        "Too many requests right now. Everything so far is saved - please try again in a little while.";
     } else if (kind === "client_error") {
-      reply = withActualError(
-        "The inference provider rejected this request (for example an unsupported model or an oversized prompt). Retrying cannot fix that, so I stopped. Please adjust the request and try again; everything so far is saved."
-      );
+      reply =
+        "Nova's AI service rejected this request (for example an unsupported model or an oversized prompt). Retrying cannot fix that, so I stopped. Please adjust the request and try again; everything so far is saved.";
     } else {
       // A long tool-calling run often streams part of the reply to the client
       // (the Telegram placeholder, the web stream) before the gateway fails
@@ -4156,19 +4148,15 @@ ${
       if (partial) {
         reply = partial + failureNote;
       } else if (kind === "invalid_response") {
-        reply = providerErrorLead(
-          "The inference provider returned an invalid response. Please try again shortly."
-        );
+        reply =
+          "Nova's AI service returned an invalid response. Please try again shortly.";
       } else {
-        // Say what actually failed instead of a canned "try again shortly":
-        // the real error (network failure, gateway 5xx body, timeout detail,
-        // and the database cause behind a drizzle "Failed query" wrapper) is
-        // what diagnosing needs. Cap the length so a runaway error body
-        // cannot flood the chat.
-        const detail = errorChainText(error) || String(error);
+        // The real error (network failure, upstream 5xx body, database cause)
+        // stays in the server log above; the chat gets a fixed generic notice
+        // instead of an internal service or endpoint name.
         reply =
           MISTRAL_UNAVAILABLE_PREFIX +
-          (detail.length > 500 ? `${detail.slice(0, 500)}…` : detail);
+          "Nova hit an unexpected error and could not finish this reply. Everything so far is saved - please try again shortly.";
       }
     }
     // Only emit what the client has not already seen streamed live.

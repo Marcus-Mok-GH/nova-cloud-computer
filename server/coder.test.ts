@@ -69,14 +69,14 @@ describe("runCoderTask", () => {
     expect(runNimChatMock).not.toHaveBeenCalled();
   });
 
-  it("propagates configuration errors verbatim, including the operator hint", async () => {
+  it("propagates configuration errors verbatim", async () => {
     runNimChatMock.mockRejectedValueOnce(
       new Error(
-        "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
+        "The coding specialist is not configured on this workspace - the workspace owner must finish setting it up."
       )
     );
     await expect(runCoderTask("write tests")).rejects.toThrow(
-      "NVIDIA NIM is not configured - set NVIDIA_NIM_API_KEY (or the legacy NVIDIA_API_KEY) to enable it."
+      "The coding specialist is not configured on this workspace - the workspace owner must finish setting it up."
     );
   });
 });

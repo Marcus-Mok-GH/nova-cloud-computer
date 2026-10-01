@@ -110,7 +110,7 @@ async function composioRequest<T>(
   fetchImpl: typeof fetch = fetch
 ): Promise<T> {
   if (!ENV.composioApiKey)
-    throw new ComposioApiError("Composio is not configured. Set COMPOSIO_API_KEY on the server.", 503);
+    throw new ComposioApiError("Connectors are not configured on this workspace yet.", 503);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -478,7 +478,7 @@ export async function executeGithubOperation(
 async function requireComposioConnection(ownerId: number, toolkit: ComposioToolkit, fetchImpl: typeof fetch) {
   if (!isComposioConfigured())
     throw new ComposioApiError(
-      "Composio connectors are not configured on this Nova server. The owner must set COMPOSIO_API_KEY.",
+      "Connectors are not configured on this workspace. The workspace owner must set them up first.",
       503
     );
   const status = await getComposioConnectionStatus(ownerId, toolkit, fetchImpl);

@@ -59,7 +59,7 @@ async function defaultTelegramCheck(): Promise<TelegramCheck> {
 async function defaultDbProbe() {
   const { sql } = await import("drizzle-orm");
   const db = await getDb();
-  if (!db) throw new Error("The Nova database is unavailable.");
+  if (!db) throw new Error("Workspace data is unavailable.");
   await db.execute(sql`select 1`);
 }
 
@@ -73,11 +73,15 @@ function describeUptime(seconds: number): string {
 }
 
 /**
- * Collects a live health snapshot of every backend service this deployment
- * depends on: the API server itself, the Neon database, the Mistral inference
- * gateway (with the caller's remaining request allowance), the Telegram bot,
- * Composio connectors, and the account's persistent sandbox. Each check is
- * isolated so one failing dependency cannot take down the rest of the report.
+ * Collects a live health snapshot of the deployment, described only in
+ * user-facing terms: the web app, workspace data, AI responses, the Telegram
+ * integration, connectors, and the workspace sandbox. Each check is isolated
+ * so one failing dependency cannot take down the rest of the report.
+ *
+ * This report is rendered verbatim on the status page, so it must never name
+ * an internal service or backend: no database/gateway/provider names, no
+ * environment variable names, and no raw error messages. Failed checks get a
+ * fixed, generic detail instead.
  */
 export async function collectServiceStatus(
   ownerId: number,
@@ -100,8 +104,8 @@ export async function collectServiceStatus(
   const services: ServiceHealth[] = [];
 
   services.push({
-    id: "api",
-    name: "Nova API server",
+    id: "web",
+    name: "Web app",
     state: "operational",
     detail: `Responding · uptime ${describeUptime(processUptimeSeconds())}`,
     latencyMs: null,
@@ -112,18 +116,22 @@ export async function collectServiceStatus(
     await dbProbe();
     const latencyMs = now() - dbStartedAt;
     services.push({
-      id: "database",
-      name: "Neon database",
+      id: "data",
+      name: "Workspace data",
       state: "operational",
-      detail: "Query round-trip succeeded",
+      detail: "Read and write check succeeded",
       latencyMs,
     });
   } catch (error) {
+    console.warn(
+      "[Status] workspace data probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
-      id: "database",
-      name: "Neon database",
+      id: "data",
+      name: "Workspace data",
       state: "offline",
-      detail: error instanceof Error ? error.message : "Query round-trip failed",
+      detail: "Temporarily unavailable",
       latencyMs: null,
     });
   }
@@ -132,46 +140,50 @@ export async function collectServiceStatus(
     const inference = await inferenceStatus(ownerId);
     if (!inferenceConfigured()) {
       services.push({
-        id: "inference",
-        name: "Inference gateway (Mistral)",
+        id: "ai",
+        name: "AI responses",
         state: "unconfigured",
-        detail: "No gateway URL or token configured on this server",
+        detail: "No AI provider is set up on this workspace yet",
         latencyMs: null,
       });
     } else if (!inference.reachable) {
       services.push({
-        id: "inference",
-        name: "Inference gateway (Mistral)",
+        id: "ai",
+        name: "AI responses",
         state: "offline",
-        detail: "Configured but unreachable (failed /models probe)",
+        detail: "Not responding right now",
         latencyMs: null,
       });
     } else if (inference.allowance.exhausted) {
       services.push({
-        id: "inference",
-        name: "Inference gateway (Mistral)",
+        id: "ai",
+        name: "AI responses",
         state: "degraded",
-        detail: `Reachable but allowance exhausted (${inference.allowance.usedRequests}/${inference.allowance.maxRequests} requests used)`,
+        detail: `Daily request allowance used up (${inference.allowance.usedRequests}/${inference.allowance.maxRequests} requests)`,
         latencyMs: null,
       });
     } else {
       services.push({
-        id: "inference",
-        name: "Inference gateway (Mistral)",
+        id: "ai",
+        name: "AI responses",
         state: "operational",
         detail:
           inference.allowance.maxRequests === null
-            ? "Reachable · unlimited allowance"
-            : `Reachable · ${inference.allowance.remainingRequests}/${inference.allowance.maxRequests} requests left today`,
+            ? "Responding · no daily limit"
+            : `Responding · ${inference.allowance.remainingRequests}/${inference.allowance.maxRequests} requests left today`,
         latencyMs: null,
       });
     }
   } catch (error) {
+    console.warn(
+      "[Status] AI responses probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
-      id: "inference",
-      name: "Inference gateway (Mistral)",
+      id: "ai",
+      name: "AI responses",
       state: "offline",
-      detail: error instanceof Error ? error.message : "Gateway status check failed",
+      detail: "Not responding right now",
       latencyMs: null,
     });
   }
@@ -181,43 +193,47 @@ export async function collectServiceStatus(
     if (!telegram.configured) {
       services.push({
         id: "telegram",
-        name: "Telegram bot",
+        name: "Telegram",
         state: "unconfigured",
-        detail: "DEFAULT_TELEGRAM_BOT_TOKEN is not set on this server",
+        detail: "Not set up on this workspace yet",
         latencyMs: null,
       });
     } else if (!telegram.reachable) {
       services.push({
         id: "telegram",
-        name: "Telegram bot",
+        name: "Telegram",
         state: "offline",
-        detail: "Token set but the getMe probe failed or timed out",
+        detail: "Not responding right now",
         latencyMs: null,
       });
     } else {
       services.push({
         id: "telegram",
-        name: "Telegram bot",
+        name: "Telegram",
         state: "operational",
-        detail: telegram.botUsername ? `@${telegram.botUsername} is answering` : "getMe probe succeeded",
+        detail: telegram.botUsername ? `@${telegram.botUsername} is answering` : "Responding",
         latencyMs: null,
       });
     }
   } catch (error) {
+    console.warn(
+      "[Status] Telegram probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "telegram",
-      name: "Telegram bot",
+      name: "Telegram",
       state: "offline",
-      detail: error instanceof Error ? error.message : "Bot status check failed",
+      detail: "Not responding right now",
       latencyMs: null,
     });
   }
 
   services.push({
-    id: "composio",
-    name: "Composio connectors",
+    id: "connectors",
+    name: "Connectors",
     state: composioConfigured() ? "operational" : "unconfigured",
-    detail: composioConfigured() ? "Project API key is set" : "COMPOSIO_API_KEY is not set on this server",
+    detail: composioConfigured() ? "Ready to connect apps like GitHub and Gmail" : "Not available on this workspace yet",
     latencyMs: null,
   });
 
@@ -225,19 +241,21 @@ export async function collectServiceStatus(
     const workspace = await workspaceLookup(ownerId);
     services.push({
       id: "sandbox",
-      name: "Persistent sandbox",
+      name: "Workspace sandbox",
       state: workspace.persistentSandboxId ? "operational" : "unconfigured",
-      detail: workspace.persistentSandboxId
-        ? `Sandbox ${workspace.persistentSandboxId} is provisioned`
-        : "No persistent sandbox is recorded for this workspace yet",
+      detail: workspace.persistentSandboxId ? "Ready for this workspace" : "Not created yet",
       latencyMs: null,
     });
   } catch (error) {
+    console.warn(
+      "[Status] workspace sandbox lookup failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "sandbox",
-      name: "Persistent sandbox",
+      name: "Workspace sandbox",
       state: "offline",
-      detail: error instanceof Error ? error.message : "Workspace lookup failed",
+      detail: "Temporarily unavailable",
       latencyMs: null,
     });
   }

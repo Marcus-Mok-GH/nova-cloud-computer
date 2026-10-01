@@ -129,7 +129,7 @@ async function createTerminalSession(
   const client = getE2BClient();
   if (!client) {
     throw new TerminalError(
-      "E2B is not connected yet. An administrator must add the server-only E2B API key before Nova can open a terminal.",
+      "The workspace sandbox is not connected yet. An administrator must finish setting it up before Nova can open a terminal.",
       "precondition"
     );
   }
@@ -146,7 +146,7 @@ async function createTerminalSession(
   const pty = (sandbox as { pty?: any }).pty;
   if (!pty) {
     throw new TerminalError(
-      "The agent VM template does not expose terminals. Ask an administrator to enable the terminal-enabled E2B template.",
+      "The workspace sandbox does not expose terminals. Ask an administrator to enable terminal support.",
       "precondition"
     );
   }

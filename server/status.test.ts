@@ -32,40 +32,66 @@ describe("collectServiceStatus", () => {
     const report = await collectServiceStatus(1, baseDeps());
     expect(report.serverUptimeSeconds).toBe(3_725);
     expect(report.services.map(service => service.id)).toEqual([
-      "api",
-      "database",
-      "inference",
+      "web",
+      "data",
+      "ai",
       "telegram",
-      "composio",
+      "connectors",
       "sandbox",
     ]);
     for (const service of report.services) {
       expect(service.state).toBe("operational");
     }
-    expect(report.services.find(service => service.id === "database")?.latencyMs).toBeGreaterThan(0);
+    expect(report.services.find(service => service.id === "data")?.latencyMs).toBeGreaterThan(0);
     expect(report.services.find(service => service.id === "telegram")?.detail).toContain("@nova_bot");
   });
 
-  it("marks the database offline when the probe fails, without failing the report", async () => {
+  it("never exposes internal services, backend names, env vars, or raw errors in the report", async () => {
+    const deps = baseDeps();
+    deps.dbProbe = vi.fn(async () => {
+      throw new Error("connection refused to postgres://user:pass@db.internal:5432");
+    });
+    deps.inferenceStatus = vi.fn(async () => {
+      throw new Error("fetch failed for https://api.mistral.ai/v1/models");
+    });
+    deps.telegramCheck = vi.fn(async () => {
+      throw new Error("DEFAULT_TELEGRAM_BOT_TOKEN is not set on this server");
+    });
+    deps.workspaceLookup = vi.fn(async () => {
+      throw new Error("E2B workspace lookup failed");
+    });
+    const report = await collectServiceStatus(1, deps);
+    const text = report.services.map(service => `${service.name}: ${service.detail}`).join("\n");
+    for (const banned of ["Neon", "Mistral", "gateway", "database", "E2B", "COMPOSIO", "TELEGRAM_BOT_TOKEN", "postgres", "http://", "https://", "connection refused", "fetch failed", "not set on this server"]) {
+      expect(text).not.toContain(banned);
+    }
+    // Every service still reports a state; failures degrade to a generic detail.
+    expect(report.services).toHaveLength(6);
+    expect(report.services.find(service => service.id === "data")?.detail).toBe("Temporarily unavailable");
+    expect(report.services.find(service => service.id === "ai")?.state).toBe("offline");
+  });
+
+  it("marks workspace data offline when the probe fails, without failing the report", async () => {
     const deps = baseDeps();
     deps.dbProbe = vi.fn(async () => {
       throw new Error("connection refused");
     });
     const report = await collectServiceStatus(1, deps);
-    const database = report.services.find(service => service.id === "database");
-    expect(database?.state).toBe("offline");
-    expect(database?.detail).toContain("connection refused");
-    expect(report.services.find(service => service.id === "api")?.state).toBe("operational");
+    const data = report.services.find(service => service.id === "data");
+    expect(data?.state).toBe("offline");
+    expect(data?.detail).toBe("Temporarily unavailable");
+    expect(data?.detail).not.toContain("connection refused");
+    expect(report.services.find(service => service.id === "web")?.state).toBe("operational");
   });
 
-  it("downgrades inference to degraded when the daily allowance is exhausted", async () => {
+  it("downgrades AI responses to degraded when the daily allowance is exhausted", async () => {
     const deps = baseDeps();
     deps.inferenceStatus = vi.fn(async () => ({
       ...healthyInference,
       allowance: { usedRequests: 500, maxRequests: 500, remainingRequests: 0, exhausted: true },
     }));
     const report = await collectServiceStatus(1, deps);
-    expect(report.services.find(service => service.id === "inference")?.state).toBe("degraded");
+    expect(report.services.find(service => service.id === "ai")?.state).toBe("degraded");
   });
 
   it("labels optional integrations as unconfigured rather than offline", async () => {
@@ -75,7 +101,7 @@ describe("collectServiceStatus", () => {
     deps.workspaceLookup = vi.fn(async () => ({ persistentSandboxId: null }));
     const report = await collectServiceStatus(1, deps);
     expect(report.services.find(service => service.id === "telegram")?.state).toBe("unconfigured");
-    expect(report.services.find(service => service.id === "composio")?.state).toBe("unconfigured");
+    expect(report.services.find(service => service.id === "connectors")?.state).toBe("unconfigured");
     expect(report.services.find(service => service.id === "sandbox")?.state).toBe("unconfigured");
   });
 
@@ -84,14 +110,15 @@ describe("collectServiceStatus", () => {
     deps.telegramCheck = vi.fn(async () => ({ configured: true, reachable: false, botUsername: null }));
     const report = await collectServiceStatus(1, deps);
     expect(report.services.find(service => service.id === "telegram")?.state).toBe("offline");
+    expect(report.services.find(service => service.id === "telegram")?.detail).toBe("Not responding right now");
   });
 });
 
-describe("collectServiceStatus inference configuration", () => {
-  it("labels the gateway unconfigured when no URL or token is set", async () => {
+describe("collectServiceStatus AI configuration", () => {
+  it("labels AI responses unconfigured when no provider is set up", async () => {
     const deps = baseDeps();
     deps.inferenceConfigured = () => false;
     const report = await collectServiceStatus(1, deps);
-    expect(report.services.find(service => service.id === "inference")?.state).toBe("unconfigured");
+    expect(report.services.find(service => service.id === "ai")?.state).toBe("unconfigured");
   });
 });

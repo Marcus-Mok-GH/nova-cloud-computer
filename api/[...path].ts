@@ -56,10 +56,17 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  * Every `/api/chat/*` endpoint authenticates against Nova's own session and
  * mutates or reads Nova's own database (stream, delete, ...), so the whole
  * chat namespace is co-deployed rather than each endpoint individually.
+ *
+ * The `/api/user-automations/*` endpoints are the same shape: they authenticate
+ * with Nova's own session, store rows in Nova's database, and register the
+ * recurring job with Nova's own scheduling credentials, so creating or listing
+ * an automation must never be handed to a differently-configured API service.
+ * Their `/api/scheduled/*` callbacks run inside Nova too and must stay put for
+ * the scheduled work to actually execute.
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "health" || segments[0] === "status" || segments[0] === "v1"
+  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "health" || segments[0] === "status" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

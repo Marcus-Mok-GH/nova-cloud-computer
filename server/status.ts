@@ -122,7 +122,11 @@ export async function collectServiceStatus(
       detail: "Read and write check succeeded",
       latencyMs,
     });
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[Status] workspace data probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "data",
       name: "Workspace data",
@@ -170,7 +174,11 @@ export async function collectServiceStatus(
         latencyMs: null,
       });
     }
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[Status] AI responses probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "ai",
       name: "AI responses",
@@ -207,7 +215,11 @@ export async function collectServiceStatus(
         latencyMs: null,
       });
     }
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[Status] Telegram probe failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "telegram",
       name: "Telegram",
@@ -234,7 +246,11 @@ export async function collectServiceStatus(
       detail: workspace.persistentSandboxId ? "Ready for this workspace" : "Not created yet",
       latencyMs: null,
     });
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[Status] workspace sandbox lookup failed:",
+      error instanceof Error ? error.message : error
+    );
     services.push({
       id: "sandbox",
       name: "Workspace sandbox",

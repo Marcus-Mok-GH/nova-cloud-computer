@@ -54,7 +54,7 @@ export async function runResearch(
   onProgress?: (note: string) => void,
 ): Promise<ResearchResult> {
   if (!ENV.exaApiKey.trim()) {
-    throw new Error("Web research is not configured yet - the Nova operator needs to set EXA_API_KEY.");
+    throw new Error("Web research is not configured on this workspace yet - the workspace owner must finish setting it up.");
   }
 
   const ask = `${topic.trim()}${

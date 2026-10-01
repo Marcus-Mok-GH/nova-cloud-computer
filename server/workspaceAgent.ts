@@ -2878,13 +2878,15 @@ async function executeWorkspaceTool(
           ? "The coding specialist is taking over the task - reading the workspace on its own…"
           : "The coding specialist is reading the task…"
       );
-      const specialistError = (error: unknown) =>
-        // Config problems already carry a clean, user-facing explanation;
-        // anything else is prefixed but still never quoted verbatim to the
-        // user - internal service names and endpoints stay in the logs.
-        error instanceof NimConfigError
-          ? `${error.message}.`
-          : `The coding specialist failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+      const specialistError = (error: unknown) => {
+        // Config problems already carry a clean, user-facing explanation.
+        // Anything else is logged for diagnosis and replaced with a fixed
+        // message: raw specialist errors can name internal services or
+        // endpoints, and this text is fed back into the chat.
+        if (error instanceof NimConfigError) return `${error.message}.`;
+        console.error("[Editor] specialist failed:", error);
+        return "The coding specialist failed unexpectedly. Please try again shortly.";
+      };
       const runSpecialist = (): Promise<CoderOutcome> =>
         sandbox
           ? runAutonomousCoderTask({

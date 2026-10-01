@@ -1,4 +1,8 @@
 import { createHmac } from "node:crypto";
+import {
+  LEGACY_MISTRAL_UNAVAILABLE_PREFIX,
+  MISTRAL_UNAVAILABLE_PREFIX,
+} from "@shared/const";
 import { ENV } from "./_core/env";
 import { MistralGatewayClientError } from "./mistralGateway";
 import {
@@ -165,11 +169,18 @@ export async function executeTelegramAgentRun(
         },
       }
     );
-    const reply = String(
+    const rawReply = String(
       result.message?.content ??
         streamedText ??
         "I'm ready to help with this workspace."
     ).trim();
+    // The failure marker is an internal detection hook for the web UI;
+    // Telegram users get the notice without it (legacy markers included).
+    const reply = rawReply.startsWith(MISTRAL_UNAVAILABLE_PREFIX)
+      ? rawReply.slice(MISTRAL_UNAVAILABLE_PREFIX.length)
+      : rawReply.startsWith(LEGACY_MISTRAL_UNAVAILABLE_PREFIX)
+        ? rawReply.slice(LEGACY_MISTRAL_UNAVAILABLE_PREFIX.length)
+        : rawReply;
     // Chain the continuation BEFORE delivering anything: scheduling is the
     // survival-critical step (it must fit inside the remaining runtime
     // budget), and a Telegram delivery hiccup must never kill the task -
@@ -302,15 +313,14 @@ export async function executeTelegramAgentRun(
         return { delivered: false, reply: streamedText, runId: run.id };
       }
     }
-    // Lead with the actual error text (capped) so the Telegram user can
-    // diagnose provider failures from the bot message itself - a hardcoded
-    // "try again shortly" hid what actually went wrong.
+    // The raw error (provider, database, or sandbox internals) stays in the
+    // server log above and in the run ledger below; the Telegram user only
+    // ever gets this fixed, generic notice.
     const detail = error instanceof Error ? error.message : String(error);
-    const clipped = detail.length > 400 ? `${detail.slice(0, 400)}…` : detail;
     await sendTelegramMessage(
       token,
       telegramChatId,
-      `\u26A0\uFE0F Nova hit an error handling that message: ${clipped}`
+      "\u26A0\uFE0F Nova hit an unexpected error handling that message. Please try again shortly."
     ).catch(() => {});
     if (run)
       await finishAgentRunForUser(ownerId, run.id, "failed", detail).catch(

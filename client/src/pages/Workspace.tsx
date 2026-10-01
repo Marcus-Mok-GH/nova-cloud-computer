@@ -133,6 +133,23 @@ export default function Workspace() {
     el.scrollTop = el.scrollHeight;
   }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
 
+  // The header shows the chat's title, which the server auto-renames a moment
+  // after a run finishes. When work transitions to done, refresh the workspace
+  // query (and once more shortly after) so the renamed title appears without
+  // waiting for a window refocus.
+  const prevWorkingRef = useRef(false);
+  useEffect(() => {
+    const wasWorking = prevWorkingRef.current;
+    prevWorkingRef.current = agentIsWorking;
+    if (!chatId || wasWorking === agentIsWorking || agentIsWorking) return;
+    void utils.workspace.computer.invalidate();
+    const timer = setTimeout(
+      () => void utils.workspace.computer.invalidate(),
+      5000
+    );
+    return () => clearTimeout(timer);
+  }, [agentIsWorking, chatId, utils]);
+
   // Persisted failure replies are marked with the (legacy) prefix; the raw
   // detail after it may name an internal service, so only fixed, generic
   // copy is ever rendered here.
@@ -379,6 +396,10 @@ export default function Workspace() {
     const persistedToolRuns = visibleMessages.filter(message =>
       parsePersistedToolActivity(message.content)
     ).length;
+    // The header names the conversation; "Nova" covers the brief moment
+    // before the workspace query (or the chat row) has loaded.
+    const currentChatTitle =
+      computer.data?.chats.find(chat => chat.id === chatId)?.title ?? "Nova";
     return (
       <DashboardLayout>
         <section className="chat-editorial-shell relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-foreground">
@@ -397,7 +418,7 @@ export default function Workspace() {
                 <NovaLogo size={18} className="shrink-0" />
                 <div className="min-w-0">
                   <span className="block truncate text-[15px] font-bold tracking-[-0.02em] leading-tight">
-                    Nova
+                    {currentChatTitle}
                   </span>
                   {agentIsWorking && (
                     <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">

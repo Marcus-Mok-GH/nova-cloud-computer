@@ -1,7 +1,7 @@
 import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 /** Internal Nova profile mapped one-to-one to the immutable Neon Auth subject. */
-export const userRole = pgEnum("user_role", ["user", "admin"]);
+export const userRole = pgEnum("user_role", ["user", "admin", "developer"]);
 export const projectStatus = pgEnum("project_status", ["active", "archived"]);
 export const taskStatus = pgEnum("task_status", ["todo", "in_progress", "done"]);
 export const modelProvider = pgEnum("model_provider", ["anthropic", "openai", "gemini", "custom", "mistral"]);

@@ -1,24 +1,42 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import { migrate } from "drizzle-orm/neon-http/migrator";
 
 /**
  * Automatic schema bootstrap.
  *
  * Production (Vercel) applies migrations during the deploy build, so every
- * table exists before a function ever runs. The long-running server (`pnpm
- * start`) has no such build step, so it runs the pending migrations here at
- * boot. Both paths are idempotent: Drizzle records applied migrations in
- * `drizzle.__drizzle_migrations` and skips anything already applied.
+ * table normally exists before a function ever runs. The long-running server
+ * (`pnpm start`), the local dev server, and the Vercel function itself also run
+ * the pending migrations here, so a skipped or failed build-time migration can
+ * never leave a first request hitting a missing table. Every path is
+ * idempotent: applied migrations are recorded in `drizzle.__drizzle_migrations`
+ * exactly as `drizzle-kit migrate` records them, and only pending ones run.
+ *
+ * The SQL runs through the Neon HTTP driver directly instead of
+ * `drizzle-orm/neon-http/migrator`. That migrator maps every result with
+ * `rows.map(...)`, but Neon returns `rows: null` for DDL statements such as
+ * `CREATE TABLE`, so it throws before creating anything.
  */
+
+const MIGRATIONS_SCHEMA = "drizzle";
+const MIGRATIONS_TABLE = "__drizzle_migrations";
+
+/** The migration folder sitting beside the CommonJS server bundle. `__dirname`
+ * only exists in a CommonJS build (the Vercel function / `dist/server/app.cjs`);
+ * the ESM build falls back to the cwd candidates. */
+function bundledMigrationsFolder(): string | undefined {
+  if (typeof __dirname === "undefined") return undefined;
+  return path.join(__dirname, "drizzle");
+}
 
 /** Candidate locations of the committed Drizzle migration folder across the
  * dev checkout, the standalone server bundle, and a self-hosted deployment. */
 function migrationFolderCandidates(): string[] {
   return [
     process.env.NOVA_MIGRATIONS_DIR,
+    bundledMigrationsFolder(),
     path.resolve(process.cwd(), "drizzle/neon"),
     path.resolve(process.cwd(), "dist/server/drizzle"),
     path.resolve(process.cwd(), "dist/drizzle"),
@@ -31,6 +49,57 @@ export function resolveMigrationsFolder(): string | null {
     if (existsSync(path.join(candidate, "meta", "_journal.json"))) return candidate;
   }
   return null;
+}
+
+type MigrationFile = { sql: string[]; hash: string; folderMillis: number };
+
+/** Reads the Drizzle journal exactly as `drizzle-kit migrate` does, so the two
+ * agree on which migrations exist and in what order. */
+function readMigrationFiles(migrationsFolder: string): MigrationFile[] {
+  const journal = JSON.parse(
+    readFileSync(path.join(migrationsFolder, "meta", "_journal.json"), "utf8")
+  ) as { entries: Array<{ tag: string; when: number }> };
+  return journal.entries.map(entry => {
+    const query = readFileSync(path.join(migrationsFolder, `${entry.tag}.sql`), "utf8");
+    return {
+      sql: query
+        .split("--> statement-breakpoint")
+        .map(statement => statement.trim())
+        .filter(Boolean),
+      hash: createHash("sha256").update(query).digest("hex"),
+      folderMillis: entry.when,
+    };
+  });
+}
+
+/** The subset of the Neon query function the migrator needs. */
+type MigrationQuery = (query: string, params?: unknown[]) => Promise<unknown>;
+
+async function applyMigrations(query: MigrationQuery, migrations: MigrationFile[]): Promise<void> {
+  await query(`CREATE SCHEMA IF NOT EXISTS "${MIGRATIONS_SCHEMA}"`);
+  await query(
+    `CREATE TABLE IF NOT EXISTS "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" (` +
+      `id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`
+  );
+  const applied = (await query(
+    `SELECT created_at FROM "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" ` +
+      `ORDER BY created_at DESC LIMIT 1`
+  )) as Array<{ created_at: string | number }> | null;
+  const lastAppliedMillis = applied?.[0] ? Number(applied[0].created_at) : undefined;
+  for (const migration of migrations) {
+    if (
+      lastAppliedMillis !== undefined &&
+      Number.isFinite(lastAppliedMillis) &&
+      lastAppliedMillis >= migration.folderMillis
+    ) {
+      continue;
+    }
+    for (const statement of migration.sql) await query(statement);
+    await query(
+      `INSERT INTO "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" ("hash", "created_at") VALUES ($1, $2)`,
+      [migration.hash, migration.folderMillis]
+    );
+  }
 }
 
 let schemaBootstrap: Promise<boolean> | undefined;
@@ -66,7 +135,9 @@ async function runMigrations(): Promise<boolean> {
     console.log("[Database] Skipping automatic migrations: no migration files found.");
     return false;
   }
-  await migrate(drizzle(neon(databaseUrl)), { migrationsFolder });
+  const migrations = readMigrationFiles(migrationsFolder);
+  const sql = neon(databaseUrl);
+  await applyMigrations((query, params) => sql.query(query, params) as Promise<unknown>, migrations);
   console.log("[Database] Schema is up to date.");
   return true;
 }

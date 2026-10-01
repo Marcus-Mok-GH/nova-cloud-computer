@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
-type ManagedUser = { id: number; name: string | null; email: string | null; role: "user" | "admin"; bannedAt: Date | null; createdAt: Date; lastSignedIn: Date };
+type ManagedUser = { id: number; name: string | null; email: string | null; role: "user" | "admin" | "developer"; bannedAt: Date | null; createdAt: Date; lastSignedIn: Date };
 
 const users = new Map<number, ManagedUser>();
 const overviewSpy = vi.fn(async () => ({
@@ -32,7 +32,8 @@ const userFilesSpy = vi.fn(async (userId: number) => [
 const userFileContentSpy = vi.fn(async (userId: number, fileId: number) =>
   fileId === 20 + userId ? { id: fileId, name: `notes-${userId}.txt`, mimeType: "text/plain", content: "hello world" } : undefined);
 const countOtherActiveAdminsSpy = vi.fn(async (userId: number) =>
-  [...users.values()].filter(u => u.id !== userId && u.role === "admin" && !u.bannedAt).length);
+  [...users.values()].filter(u => u.id !== userId && (u.role === "admin" || u.role === "developer") && !u.bannedAt).length);
+const getUserRoleForAdminSpy = vi.fn(async (userId: number) => users.get(userId)?.role);
 
 vi.mock("./admin", () => ({
   getAdminOverview: overviewSpy,
@@ -41,6 +42,7 @@ vi.mock("./admin", () => ({
   setUserBannedForAdmin: setUserBannedSpy,
   deleteUserForAdmin: deleteUserSpy,
   countOtherActiveAdmins: countOtherActiveAdminsSpy,
+  getUserRoleForAdmin: getUserRoleForAdminSpy,
   getUserChatsForAdmin: userChatsSpy,
   getUserFilesForAdmin: userFilesSpy,
   getUserFileContentForAdmin: userFileContentSpy,
@@ -52,7 +54,7 @@ type UserRow = TrpcContext["user"];
 function contextFor(user: UserRow): TrpcContext {
   return { user, req: { protocol: "https", headers: {} } as TrpcContext["req"], res: {} as TrpcContext["res"] };
 }
-function userRow(id: number, role: "user" | "admin" = "user"): UserRow {
+function userRow(id: number, role: "user" | "admin" | "developer" = "user"): UserRow {
   return { id, openId: `user-${id}`, name: `User ${id}`, email: `user${id}@example.com`, loginMethod: "test", role, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() };
 }
 
@@ -166,5 +168,14 @@ describe("Nova admin console API", () => {
   it("reports a missing inspected file as not found", async () => {
     const caller = appRouter.createCaller(contextFor(userRow(1, "admin")));
     await expect(caller.admin.userFileContent({ userId: 2, fileId: 999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("lets the developer reach the console and refuses to change the developer rank", async () => {
+    users.set(1, { id: 1, name: "Dev", email: "mokmarcus068@gmail.com", role: "developer", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    users.set(2, { id: 2, name: "Helper", email: "helper@example.com", role: "user", bannedAt: null, createdAt: new Date(), lastSignedIn: new Date() });
+    const caller = appRouter.createCaller(contextFor(userRow(1, "developer")));
+    await expect(caller.admin.overview()).resolves.toMatchObject({ totals: { users: 2 } });
+    await expect(caller.admin.setUserRole({ userId: 1, role: "user" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.admin.setUserRole({ userId: 1, role: "admin" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

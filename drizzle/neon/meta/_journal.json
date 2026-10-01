@@ -211,6 +211,20 @@
       "when": 1790511329507,
       "tag": "0029_regular_earthquake",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790828426392,
+      "tag": "0030_cooing_lenny_balinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790828430000,
+      "tag": "0031_promote_sole_developer",
+      "breakpoints": true
     }
   ]
 }

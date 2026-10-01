@@ -225,6 +225,13 @@
       "when": 1790828430000,
       "tag": "0031_promote_sole_developer",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790854565409,
+      "tag": "0032_chat_random_ids",
+      "breakpoints": true
     }
   ]
 }

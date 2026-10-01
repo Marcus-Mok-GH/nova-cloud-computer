@@ -3,8 +3,9 @@ import type { TrpcContext } from "./_core/context";
 
 const folders = new Map<number, { id: number; ownerId: number; name: string }>();
 const files = new Map<number, { id: number; ownerId: number; name: string; content: string }>();
-const chats = new Map<number, { id: number; ownerId: number; title: string }>();
+const chats = new Map<string, { id: string; ownerId: number; title: string }>();
 let nextId = 1;
+let nextChatId = 1;
 
 vi.mock("./db", () => ({
   getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
@@ -15,8 +16,8 @@ vi.mock("./db", () => ({
   createWorkspaceFileForUser: vi.fn(async (ownerId: number, input: { name: string; content?: string }) => { const item = { id: nextId++, ownerId, name: input.name, content: input.content ?? "" }; files.set(item.id, item); return item; }),
   updateWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number, input: { name?: string; content?: string }) => { const item = files.get(id); if (!item || item.ownerId !== ownerId) return undefined; const updated = { ...item, name: input.name ?? item.name, content: input.content ?? item.content }; files.set(id, updated); return updated; }),
   deleteWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number) => files.get(id)?.ownerId === ownerId && files.delete(id)),
-  createChatForUser: vi.fn(async (ownerId: number, title: string) => { const item = { id: nextId++, ownerId, title }; chats.set(item.id, item); return item; }),
-  listChatMessagesForUser: vi.fn(async (ownerId: number, id: number) => chats.get(id)?.ownerId === ownerId ? [] : undefined),
+  createChatForUser: vi.fn(async (ownerId: number, title: string) => { const item = { id: `chat-${nextChatId++}`, ownerId, title }; chats.set(item.id, item); return item; }),
+  listChatMessagesForUser: vi.fn(async (ownerId: number, id: string) => chats.get(id)?.ownerId === ownerId ? [] : undefined),
   getWorkspaceComputer: vi.fn(async (ownerId: number) => ({ workspace: { id: ownerId }, folders: [...folders.values()].filter(item => item.ownerId === ownerId), files: [...files.values()].filter(item => item.ownerId === ownerId), chats: [...chats.values()].filter(item => item.ownerId === ownerId), settings: {} })),
   getOrCreateWorkspace: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
@@ -26,7 +27,7 @@ const { appRouter } = await import("./routers");
 const context = (id: number): TrpcContext => ({ user: { id, openId: String(id), name: null, email: null, loginMethod: "test", role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() }, req: {} as TrpcContext["req"], res: {} as TrpcContext["res"] });
 
 describe("workspace computer router", () => {
-  beforeEach(() => { folders.clear(); files.clear(); chats.clear(); nextId = 1; });
+  beforeEach(() => { folders.clear(); files.clear(); chats.clear(); nextId = 1; nextChatId = 1; });
   it("persists workspace folders, files, and chats for their owner", async () => {
     const owner = appRouter.createCaller(context(1));
     const folder = await owner.folders.create({ name: "Plans" });

@@ -52,8 +52,7 @@ export default function Workspace() {
   const chatId =
     typeof window === "undefined"
       ? undefined
-      : Number(new URLSearchParams(window.location.search).get("chatId")) ||
-        undefined;
+      : new URLSearchParams(window.location.search).get("chatId") || undefined;
   const startChat = trpc.chats.create.useMutation({
     onSuccess: async chat => {
       await utils.workspace.computer.invalidate();
@@ -63,7 +62,7 @@ export default function Workspace() {
   // While a conversation is open it polls every 2.5s so activity started
   // elsewhere (e.g. Telegram) streams into this view in real time.
   const savedMessages = trpc.chats.messages.useQuery(
-    { chatId: chatId ?? 1 },
+    { chatId: chatId ?? "" },
     {
       enabled: Boolean(chatId),
       retry: false,
@@ -76,7 +75,7 @@ export default function Workspace() {
   // status visible after a refresh and for runs started from Telegram or a
   // continuation segment, where this browser does not own the fetch stream.
   const runStatus = trpc.chats.runStatus.useQuery(
-    { chatId: chatId ?? 1 },
+    { chatId: chatId ?? "" },
     {
       enabled: Boolean(chatId),
       retry: false,
@@ -189,7 +188,7 @@ export default function Workspace() {
     return refreshed;
   };
   /** Streams a message into `targetChatId`, reused by the active-chat composer and the "Start a chat" prompt box. */
-  const sendMessage = async (targetChatId: number, content: string) => {
+  const sendMessage = async (targetChatId: string, content: string) => {
     userScrolledUpRef.current = false;
     const toPersist = savedMessages.data ?? [];
     setBaselineMessageId(

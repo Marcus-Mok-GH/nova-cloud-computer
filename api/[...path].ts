@@ -12,12 +12,31 @@ const require = createRequire(import.meta.url);
  * CI pipeline still runs `pnpm run build` before `pnpm test` for the real
  * request-dispatch coverage.
  */
-let cachedApp: typeof import("../server/app")["app"] | null = null;
-function getCoDeployedApp(): typeof import("../server/app")["app"] {
-  if (!cachedApp) {
-    ({ app: cachedApp } = require("../dist/server/app.cjs") as typeof import("../server/app"));
+let cachedModule: typeof import("../server/app") | null = null;
+function getCoDeployedModule(): typeof import("../server/app") {
+  if (!cachedModule) {
+    cachedModule = require("../dist/server/app.cjs") as typeof import("../server/app");
   }
-  return cachedApp;
+  return cachedModule;
+}
+function getCoDeployedApp(): typeof import("../server/app")["app"] {
+  return getCoDeployedModule().app;
+}
+
+/**
+ * Creates any missing tables before the co-deployed API handles a request.
+ *
+ * The deploy build already runs `db:migrate:deploy`, but that only helps when
+ * a database URL is present at build time and the step succeeds. Re-running the
+ * same idempotent migration from the prebuilt server bundle guarantees a
+ * provisioned schema even when the build-time step was skipped (for example
+ * when build and runtime environments expose different variables), so a first
+ * request can never hit a missing table. The migration records applied runs in
+ * `drizzle.__drizzle_migrations`, applies only what is pending, never rejects,
+ * and caches its result for the life of the process.
+ */
+async function ensureSchemaReady() {
+  await getCoDeployedModule().ensureDatabaseSchema();
 }
 
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
@@ -171,14 +190,18 @@ export async function proxyApiService(req: VercelRequest, res: VercelResponse, a
   }
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const proxyPath = getNeonAuthPathFromCatchall(req.query.path) ?? getNeonAuthPathFromRequestUrl(req.url);
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
-  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) return getCoDeployedApp()(req, res);
+  if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) {
+    await ensureSchemaReady();
+    return getCoDeployedApp()(req, res);
+  }
 
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
+  await ensureSchemaReady();
   return getCoDeployedApp()(req, res);
 }

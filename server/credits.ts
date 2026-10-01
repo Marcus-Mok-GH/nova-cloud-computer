@@ -1,8 +1,20 @@
 /** Central policy for Nova credits. Rates can be replaced per model without changing billing flow. */
 export const CREDIT_VALUE_CENTS = 1;
 export const DEFAULT_DAILY_CREDITS = 500;
+/** Admins get elevated usage: a higher daily allocation than a standard account. */
+export const ADMIN_DAILY_CREDITS = 1000;
 export const DEFAULT_CREDIT_REGION = "global";
 export const MINIMUM_INFERENCE_CREDITS = 1;
+
+/** Role names as stored in the `user_role` enum, ordered from lowest to highest privilege. */
+export type CreditRole = "user" | "admin" | "developer";
+
+/**
+ * A developer has unlimited Nova credits. The stored allocation for a
+ * developer's ledger row only needs a value to satisfy the not-null column; it
+ * is never compared against usage because unlimited claims skip the cap.
+ */
+export const UNLIMITED_CREDITS_ALLOCATION = 1_000_000_000;
 
 export type InferenceTokenUsage = {
   prompt_tokens?: number;
@@ -56,6 +68,18 @@ export function getTokenCreditRates(modelId?: string): TokenCreditRates {
 export function getDailyCreditPolicy(region = DEFAULT_CREDIT_REGION) {
   const normalized = region.trim().toLowerCase() || DEFAULT_CREDIT_REGION;
   return { region: normalized, dailyCredits: DAILY_CREDITS_BY_REGION[normalized] ?? DEFAULT_DAILY_CREDITS };
+}
+
+/**
+ * Daily credit policy for an account's role. A developer is unlimited
+ * (`dailyCredits: null`); an admin gets `ADMIN_DAILY_CREDITS`; everyone else
+ * gets the region's standard allocation.
+ */
+export function getDailyCreditPolicyForRole(role: CreditRole, region = DEFAULT_CREDIT_REGION) {
+  const base = getDailyCreditPolicy(region);
+  if (role === "developer") return { region: base.region, dailyCredits: null, unlimited: true } as const;
+  if (role === "admin") return { region: base.region, dailyCredits: ADMIN_DAILY_CREDITS, unlimited: false } as const;
+  return { region: base.region, dailyCredits: base.dailyCredits, unlimited: false } as const;
 }
 
 /** Credits reset at UTC midnight for now; the policy is deliberately isolated for region-aware resets later. */

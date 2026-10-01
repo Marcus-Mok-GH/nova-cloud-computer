@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc";
-import { countOtherActiveAdmins, deleteUserForAdmin, getAdminOverview, getUserChatsForAdmin, getUserFileContentForAdmin, getUserFilesForAdmin, listUsersForAdmin, setUserBannedForAdmin, setUserRoleForAdmin } from "./admin";
+import { countOtherActiveAdmins, deleteUserForAdmin, getAdminOverview, getUserChatsForAdmin, getUserFileContentForAdmin, getUserFilesForAdmin, getUserRoleForAdmin, listUsersForAdmin, setUserBannedForAdmin, setUserRoleForAdmin } from "./admin";
 
 const managedRole = z.enum(["user", "admin"]);
 
@@ -18,6 +18,14 @@ export const adminRouter = router({
   setUserRole: adminProcedure
     .input(z.object({ userId: z.number().int().positive(), role: managedRole }))
     .mutation(async ({ ctx, input }) => {
+      // The developer rank is pinned to one account and cannot be reassigned or
+      // overwritten from the console.
+      if ((await getUserRoleForAdmin(input.userId)) === "developer") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The developer rank is fixed and cannot be changed here.",
+        });
+      }
       if (ctx.user.id === input.userId) {
         if (input.role !== "user") {
           throw new TRPCError({

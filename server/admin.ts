@@ -22,7 +22,7 @@ export type AdminManagedUser = {
   id: number;
   name: string | null;
   email: string | null;
-  role: "user" | "admin";
+  role: "user" | "admin" | "developer";
   bannedAt: Date | null;
   createdAt: Date;
   lastSignedIn: Date;
@@ -117,6 +117,14 @@ export async function getAdminOverview() {
   };
 }
 
+/** The current rank of one account, or undefined if the id is unknown. Used to
+ * protect the fixed developer rank from console changes. */
+export async function getUserRoleForAdmin(userId: number): Promise<"user" | "admin" | "developer" | undefined> {
+  const db = await requireDb();
+  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.role;
+}
+
 /** Promote or demote an account. Returns the updated row, or undefined if the id is unknown. */
 export async function setUserRoleForAdmin(userId: number, role: "user" | "admin") {
   const db = await requireDb();
@@ -128,14 +136,15 @@ export async function setUserRoleForAdmin(userId: number, role: "user" | "admin"
   return updated as AdminManagedUser | undefined;
 }
 
-/** Number of other admins who could keep the console running - admins that are
- * currently banned do not count, since they cannot sign in to help. */
+/** Number of other console operators (admins or developers) who could keep the
+ * console running - banned accounts do not count, since they cannot sign in to
+ * help. */
 export async function countOtherActiveAdmins(userId: number): Promise<number> {
   const db = await requireDb();
   const [row] = await db
     .select({ total: count() })
     .from(users)
-    .where(and(eq(users.role, "admin"), isNull(users.bannedAt), ne(users.id, userId)));
+    .where(and(inArray(users.role, ["admin", "developer"]), isNull(users.bannedAt), ne(users.id, userId)));
   return Number(row?.total ?? 0);
 }
 

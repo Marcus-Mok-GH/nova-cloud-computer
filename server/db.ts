@@ -26,7 +26,8 @@ import {
   dailyCredits,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
-import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, getDailyCreditPolicy, getCreditDay, type InferenceTokenUsage } from "./credits";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, getDailyCreditPolicyForRole, getCreditDay, type CreditRole, type InferenceTokenUsage } from "./credits";
+import { isDeveloperEmail } from "@shared/const";
 import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
@@ -54,12 +55,15 @@ async function requireDb() {
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("Nova could not complete sign-in. Please try again.");
   const db = await requireDb();
+  // The developer rank is pinned to one address: signing in with it always
+  // (re)asserts the role, even if the row was changed some other way.
+  const isSoleDeveloper = isDeveloperEmail(user.email);
   await db.insert(users).values({
     openId: user.openId,
     name: user.name ?? null,
     email: user.email ?? null,
     loginMethod: user.loginMethod ?? "neon_email_otp",
-    role: user.role ?? "user",
+    role: isSoleDeveloper ? "developer" : user.role ?? "user",
     lastSignedIn: user.lastSignedIn ?? new Date(),
   }).onConflictDoUpdate({
     target: users.openId,
@@ -69,6 +73,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       loginMethod: user.loginMethod ?? "neon_email_otp",
       lastSignedIn: user.lastSignedIn ?? new Date(),
       updatedAt: new Date(),
+      ...(isSoleDeveloper ? { role: "developer" as const } : {}),
     },
   });
 }
@@ -813,39 +818,70 @@ export async function claimMistralInferenceRequestForUser(ownerId: number, maxRe
   return claimed ? { usedRequests: Number(claimed.usedRequests) } : undefined;
 }
 
+/** The account's rank, defaulting to a standard user when the row is missing. */
+async function getUserRole(ownerId: number): Promise<CreditRole> {
+  const db = await requireDb();
+  const [row] = await db.select({ role: users.role }).from(users).where(eq(users.id, ownerId)).limit(1);
+  return row?.role ?? "user";
+}
+
 export async function getDailyCreditStatusForUser(ownerId: number) {
   const db = await requireDb();
   const creditDay = getCreditDay();
   const [row] = await db.select().from(dailyCredits)
     .where(and(eq(dailyCredits.ownerId, ownerId), eq(dailyCredits.creditDay, creditDay)))
     .limit(1);
-  const policy = getDailyCreditPolicy(row?.region ?? DEFAULT_CREDIT_REGION);
-  const dailyCreditsTotal = Number(row?.allocatedCredits ?? policy.dailyCredits);
+  const role = await getUserRole(ownerId);
+  const policy = getDailyCreditPolicyForRole(role, row?.region ?? DEFAULT_CREDIT_REGION);
+  const storedAllocation = Number(row?.allocatedCredits ?? policy.dailyCredits);
+  // A developer is unlimited; an admin always gets the elevated allocation;
+  // everyone else keeps the allocation recorded on their row (or the policy).
+  const dailyCreditsTotal = policy.unlimited
+    ? null
+    : role === "admin"
+      ? policy.dailyCredits ?? storedAllocation
+      : storedAllocation;
   const usedCredits = Number(row?.usedCredits ?? 0);
   return {
-    region: row?.region ?? policy.region,
+    region: policy.region,
     creditDay,
+    unlimited: policy.unlimited,
     dailyCredits: dailyCreditsTotal,
     usedCredits,
     inputTokens: Number(row?.inputTokens ?? 0),
     outputTokens: Number(row?.outputTokens ?? 0),
-    remainingCredits: Math.max(0, dailyCreditsTotal - usedCredits),
+    remainingCredits: dailyCreditsTotal === null ? null : Math.max(0, dailyCreditsTotal - usedCredits),
     creditValueCents: CREDIT_VALUE_CENTS,
   };
 }
 
-/** Atomically claim one built-in inference credit for the current UTC day. */
+/** Atomically claim one built-in inference credit for the current UTC day. A
+ * developer is unlimited: the claim always succeeds and records usage without
+ * a cap. */
 export async function claimDailyCreditForUser(ownerId: number) {
   const db = await requireDb();
   const creditDay = getCreditDay();
-  const policy = getDailyCreditPolicy(DEFAULT_CREDIT_REGION);
+  const role = await getUserRole(ownerId);
+  const policy = getDailyCreditPolicyForRole(role);
+  // The stored allocation is only a record-keeping value for an unlimited
+  // developer, so keep it at the standard size in case the role changes later.
+  const storedAllocation = policy.unlimited ? DEFAULT_DAILY_CREDITS : policy.dailyCredits ?? DEFAULT_DAILY_CREDITS;
+  // A limited claim only succeeds while usage is under the role's allocation;
+  // an unlimited claim has no cap. Elevating a limited account refreshes the
+  // row's allocation to the role policy so the raised cap takes effect today.
+  const capClause = policy.unlimited
+    ? sql``
+    : role === "admin"
+      ? sql`WHERE "daily_credits"."usedCredits" < ${storedAllocation}`
+      : sql`WHERE "daily_credits"."usedCredits" < "daily_credits"."allocatedCredits"`;
+  const allocationSet = role === "user" ? sql`` : sql`, "allocatedCredits" = ${storedAllocation}`;
   const result = await db.execute(sql`
     INSERT INTO "daily_credits" ("ownerId", "creditDay", "region", "allocatedCredits", "usedCredits", "createdAt", "updatedAt")
-    VALUES (${ownerId}, ${creditDay}, ${policy.region}, ${policy.dailyCredits}, 1, now(), now())
+    VALUES (${ownerId}, ${creditDay}, ${policy.region}, ${storedAllocation}, 1, now(), now())
     ON CONFLICT ("ownerId", "creditDay") DO UPDATE
-    SET "usedCredits" = "daily_credits"."usedCredits" + 1,
+    SET "usedCredits" = "daily_credits"."usedCredits" + 1${allocationSet},
         "updatedAt" = now()
-    WHERE "daily_credits"."usedCredits" < "daily_credits"."allocatedCredits"
+    ${capClause}
     RETURNING "usedCredits", "allocatedCredits"
   `) as unknown as { rows?: Array<{ usedCredits: number; allocatedCredits: number }> } | Array<{ usedCredits: number; allocatedCredits: number }>;
   const rows = Array.isArray(result) ? result : result.rows ?? [];

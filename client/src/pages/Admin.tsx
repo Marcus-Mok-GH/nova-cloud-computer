@@ -277,12 +277,15 @@ export default function Admin() {
     "role" | "ban" | "delete" | null
   >(null);
 
+  const isConsoleOperator =
+    user?.role === "admin" || user?.role === "developer";
+
   const overviewQuery = trpc.admin.overview.useQuery(undefined, {
-    enabled: user?.role === "admin",
+    enabled: isConsoleOperator,
     retry: false,
   });
   const usersQuery = trpc.admin.users.useQuery(undefined, {
-    enabled: user?.role === "admin",
+    enabled: isConsoleOperator,
     retry: false,
   });
 
@@ -358,13 +361,15 @@ export default function Admin() {
         </div>
       </DashboardLayout>
     );
-  if (!user || user.role !== "admin") return <NotFound />;
+  if (!isConsoleOperator) return <NotFound />;
 
   const totals = overviewQuery.data?.totals;
   const users = usersQuery.data ?? [];
   const otherActiveAdmins = users.filter(
     account =>
-      account.role === "admin" && !account.bannedAt && account.id !== user.id
+      (account.role === "admin" || account.role === "developer") &&
+      !account.bannedAt &&
+      account.id !== user.id
   ).length;
 
   const stats = [
@@ -470,6 +475,11 @@ export default function Admin() {
                             admin
                           </span>
                         )}
+                        {account.role === "developer" && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+                            developer
+                          </span>
+                        )}
                         {isSelf && (
                           <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                             you
@@ -512,31 +522,33 @@ export default function Admin() {
                           </>
                         )}
                       </button>
-                      <button
-                        onClick={() =>
-                          setUserRole.mutate({
-                            userId: account.id,
-                            role: account.role === "admin" ? "user" : "admin",
-                          })
-                        }
-                        disabled={!canChangeRole || busy}
-                        title={
-                          !canChangeRole && isSelf
-                            ? "You are the only active admin - promote someone else before demoting yourself."
-                            : account.role === "admin"
-                              ? "Demote to standard user"
-                              : "Promote to admin"
-                        }
-                        className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {busy && pendingAction === "role" ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : account.role === "admin" ? (
-                          "Demote"
-                        ) : (
-                          "Promote"
-                        )}
-                      </button>
+                      {account.role !== "developer" && (
+                        <button
+                          onClick={() =>
+                            setUserRole.mutate({
+                              userId: account.id,
+                              role: account.role === "admin" ? "user" : "admin",
+                            })
+                          }
+                          disabled={!canChangeRole || busy}
+                          title={
+                            !canChangeRole && isSelf
+                              ? "You are the only active admin - promote someone else before demoting yourself."
+                              : account.role === "admin"
+                                ? "Demote to standard user"
+                                : "Promote to admin"
+                          }
+                          className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {busy && pendingAction === "role" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : account.role === "admin" ? (
+                            "Demote"
+                          ) : (
+                            "Promote"
+                          )}
+                        </button>
+                      )}
                       <button
                         onClick={() =>
                           setUserBanned.mutate({

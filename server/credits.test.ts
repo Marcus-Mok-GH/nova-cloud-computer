@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { calculateInferenceCredits, getTokenCreditRates } from "./credits";
+import { ADMIN_DAILY_CREDITS, DEFAULT_DAILY_CREDITS, calculateInferenceCredits, getDailyCreditPolicyForRole, getTokenCreditRates } from "./credits";
+
+describe("role-based daily credit policy", () => {
+  it("gives standard users the default allocation", () => {
+    expect(getDailyCreditPolicyForRole("user")).toEqual({ region: "global", dailyCredits: DEFAULT_DAILY_CREDITS, unlimited: false });
+  });
+
+  it("gives admins elevated usage", () => {
+    expect(getDailyCreditPolicyForRole("admin")).toEqual({ region: "global", dailyCredits: ADMIN_DAILY_CREDITS, unlimited: false });
+  });
+
+  it("marks developers unlimited", () => {
+    expect(getDailyCreditPolicyForRole("developer")).toEqual({ region: "global", dailyCredits: null, unlimited: true });
+  });
+});
 
 describe("credit usage pricing", () => {
   const originalRates = process.env.NOVA_CREDIT_RATES_JSON;

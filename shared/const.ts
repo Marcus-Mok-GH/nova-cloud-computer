@@ -5,6 +5,15 @@ export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 /**
+ * The account that holds the top-level `developer` rank. The developer rank
+ * supersedes admin and grants unlimited Nova credits, so it is pinned to this
+ * one address rather than assignable from the admin console.
+ */
+export const SOLE_DEVELOPER_EMAIL = 'mokmarcus068@gmail.com';
+export function isDeveloperEmail(email: string | null | undefined): boolean {
+  return typeof email === 'string' && email.trim().toLowerCase() === SOLE_DEVELOPER_EMAIL;
+}
+/**
  * Marker prefixed to the assistant reply persisted when the AI service itself
  * failed. It is an internal detection marker: the client recognizes it to
  * render the offline/error state and substitutes its own generic copy, so the

@@ -56,22 +56,32 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("Nova could not complete sign-in. Please try again.");
   const db = await requireDb();
   // The developer rank is pinned to one address: signing in with it always
-  // (re)asserts the role, even if the row was changed some other way.
-  const isSoleDeveloper = isDeveloperEmail(user.email);
+  // (re)asserts the role, even if the row was changed some other way. Not every
+  // sign-in path carries the email, so fall back to the address already stored
+  // on the row - otherwise a session-only upsert silently drops the pin and the
+  // sole developer keeps whatever rank the row had (previously `admin`).
+  const storedEmail = user.email
+    ? undefined
+    : (await db.select({ email: users.email }).from(users).where(eq(users.openId, user.openId)).limit(1))[0]?.email;
+  const email = user.email ?? storedEmail ?? null;
+  const isSoleDeveloper = isDeveloperEmail(email);
+  const lastSignedIn = user.lastSignedIn ?? new Date();
   await db.insert(users).values({
     openId: user.openId,
     name: user.name ?? null,
-    email: user.email ?? null,
+    email,
     loginMethod: user.loginMethod ?? "neon_email_otp",
     role: isSoleDeveloper ? "developer" : user.role ?? "user",
-    lastSignedIn: user.lastSignedIn ?? new Date(),
+    lastSignedIn,
   }).onConflictDoUpdate({
     target: users.openId,
     set: {
-      name: user.name ?? null,
-      email: user.email ?? null,
+      // Session-only callers pass no profile fields: keep whatever is already
+      // stored rather than blanking the row's name and email.
+      ...(user.name !== undefined ? { name: user.name } : {}),
+      email,
       loginMethod: user.loginMethod ?? "neon_email_otp",
-      lastSignedIn: user.lastSignedIn ?? new Date(),
+      lastSignedIn,
       updatedAt: new Date(),
       ...(isSoleDeveloper ? { role: "developer" as const } : {}),
     },

@@ -1,5 +1,5 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import { COOKIE_NAME, SEVEN_DAYS_MS } from "@shared/const";
+import { COOKIE_NAME, SEVEN_DAYS_MS, isDeveloperEmail } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { User } from "../../drizzle/schema";
@@ -70,6 +70,20 @@ async function authenticateFirstPartySession(cookieHeader: string | undefined): 
   const user = await getUserByOpenId(session.openId);
   if (!user) return null;
   if (user.bannedAt) return { banned: true }; // Banned accounts are treated as signed out, but the sign-in flow can tell them apart.
+  // The developer rank is pinned to one address, but the row can still hold a
+  // stale rank (e.g. `admin`) if no sign-in path reasserted it. Repair it here,
+  // before any procedure reads the role, so the pinned account is never
+  // displayed or authorized as a plain admin.
+  if (isDeveloperEmail(user.email) && user.role !== "developer") {
+    await upsertUser({
+      openId: user.openId,
+      name: user.name,
+      email: user.email,
+      loginMethod: user.loginMethod ?? "neon_email_otp",
+      lastSignedIn: new Date(),
+    });
+    user.role = "developer";
+  }
   void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
   return {
     user,

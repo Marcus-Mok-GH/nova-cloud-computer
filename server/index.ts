@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import express from "express";
 import { app } from "./app";
 import { ENV } from "./_core/env";
+import { ensureDatabaseSchema } from "./migrate";
 import { configureTelegramWebhook } from "./telegram";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,6 +21,10 @@ async function registerDefaultTelegramWebhook() {
 }
 
 async function startServer() {
+  // Create every table before serving: the deploy build already migrates on
+  // Vercel, but a self-hosted `pnpm start` has no build-time migration step.
+  // This is best-effort and never blocks the server on a database outage.
+  await ensureDatabaseSchema();
   const server = createServer(app);
 
   // API and scheduled routes are mounted by ./app before this static fallback.

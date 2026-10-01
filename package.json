@@ -12,7 +12,7 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "drizzle-kit migrate",
-    "db:migrate:deploy": "if [ \"$VERCEL_ENV\" = \"production\" ]; then pnpm run db:migrate; else echo \"Skipping migrations ($VERCEL_ENV build)\"; fi",
+    "db:migrate:deploy": "if [ -n \"$DATABASE_URL_UNPOOLED\" ] || [ -n \"$DATABASE_URL\" ]; then pnpm run db:migrate; else echo \"Skipping migrations (no database URL in this environment)\"; fi",
     "check:spa-cache": "node scripts/check-spa-cache-convention.mjs"
   },
   "dependencies": {

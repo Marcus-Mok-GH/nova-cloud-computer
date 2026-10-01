@@ -219,7 +219,7 @@ type SpecialistAcceptanceState = "pending" | "accepted" | "none";
 /** Reads the latest specialist acceptance marker for a chat. */
 async function readSpecialistAcceptance(
   ownerId: number,
-  chatId: number
+  chatId: string
 ): Promise<SpecialistAcceptanceState> {
   const rows = (await listChatMessagesForUser(ownerId, chatId)) ?? [];
   for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -236,7 +236,7 @@ async function readSpecialistAcceptance(
 /** Appends a specialist acceptance marker row. */
 async function recordSpecialistAcceptance(
   ownerId: number,
-  chatId: number,
+  chatId: string,
   state: "pending" | "accepted" | "cleared"
 ): Promise<void> {
   await appendChatMessageForUser(ownerId, {
@@ -255,7 +255,7 @@ const DEFAULT_CHAT_TITLES = new Set([
 /** Generates a concise title for a chat based on its first user and assistant messages, but only when the title is still a default placeholder. */
 export async function autoTitleChatForUser(
   ownerId: number,
-  chatId: number
+  chatId: string
 ): Promise<void> {
   try {
     const chat = await getChatForUser(ownerId, chatId);
@@ -1618,7 +1618,7 @@ function errorChainText(error: unknown): string {
  * only in a LATER conversation turn, never in the run where the editor failed.
  */
 type OwnCodingGate = {
-  chatId: number;
+  chatId: string;
   /** True while the user has not yet accepted Nova's own coding. */
   blocked: boolean;
   /** True when this run started with a pending acceptance question. */
@@ -1643,7 +1643,7 @@ async function executeWorkspaceTool(
   gate?: OwnCodingGate,
   channel?: "telegram" | "web",
   deadlineAtMs?: number,
-  chatId?: number,
+  chatId?: string,
   /**
    * Receives the editor specialist's own tool calls (read/write/list/command)
    * as they happen, so they stream as first-class activity rows like the
@@ -3228,7 +3228,7 @@ async function chatWithGatewayRetry(
  */
 export async function runWorkspaceAgent(
   ownerId: number,
-  chatId: number,
+  chatId: string,
   content: string,
   options: WorkspaceAgentOptions = {}
 ) {

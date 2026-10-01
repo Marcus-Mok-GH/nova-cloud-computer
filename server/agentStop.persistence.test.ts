@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentStopRequests, agentVmRuns, users, workspaces } from "../drizzle/schema";
 
-type StoredStop = { id: number; ownerId: number; chatId: number | null; createdAt: Date };
-type StoredRun = { id: number; workspaceId: number; chatId: number | null; status: string; errorMessage: string | null; completedAt: Date | null };
+type StoredStop = { id: number; ownerId: number; chatId: string | null; createdAt: Date };
+type StoredRun = { id: number; workspaceId: number; chatId: string | null; status: string; errorMessage: string | null; completedAt: Date | null };
 const ownerWorkspace = { id: 51, ownerId: 7, name: "Nova", description: null, createdAt: new Date(), updatedAt: new Date() };
 const otherWorkspace = { id: 52, ownerId: 8, name: "Other", description: null, createdAt: new Date(), updatedAt: new Date() };
 let activeWorkspace = ownerWorkspace;
@@ -31,7 +31,7 @@ const fakeDb = {
           where: (condition: unknown) => {
             const params = paramValues(condition);
             const [ownerId, startedAt] = [params[0], params[1]];
-            const chatId = params.length > 2 ? (params[2] as number) : undefined;
+            const chatId = params.length > 2 ? (params[2] as string) : undefined;
             return {
               limit: async () =>
                 stops
@@ -53,7 +53,7 @@ const fakeDb = {
     values: (values: Record<string, unknown>) => ({
       returning: async () => {
         if (table !== agentStopRequests) return [];
-        const row: StoredStop = { id: nextStopId++, ownerId: values.ownerId as number, chatId: (values.chatId as number | null) ?? null, createdAt: new Date("2026-09-16T05:15:00.000Z") };
+        const row: StoredStop = { id: nextStopId++, ownerId: values.ownerId as number, chatId: (values.chatId as string | null) ?? null, createdAt: new Date("2026-09-16T05:15:00.000Z") };
         stops.push(row);
         return [row];
       },
@@ -68,7 +68,7 @@ const fakeDb = {
           // inArray status values are inlined (not bound params) in this
           // drizzle version, so params are [workspaceId] unscoped and
           // [workspaceId, chatId] when the cancel is chat-scoped.
-          const chatId = params.length > 1 ? (params[params.length - 1] as number) : undefined;
+          const chatId = params.length > 1 ? (params[params.length - 1] as string) : undefined;
           const affected = runs
             .filter(run => run.workspaceId === activeWorkspace.id && ["queued", "running"].includes(run.status))
             .filter(run => chatId === undefined || run.chatId === chatId);

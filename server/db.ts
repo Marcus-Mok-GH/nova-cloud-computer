@@ -32,6 +32,7 @@ import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
 import { wouldCreateWorkspaceFolderCycle } from "./workspaceFolderTree";
+import { newChatId } from "./chatId";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -467,7 +468,7 @@ async function getFileForUser(ownerId: number, fileId: number) {
   )).limit(1))[0];
 }
 
-export async function getChatForUser(ownerId: number, chatId: number) {
+export async function getChatForUser(ownerId: number, chatId: string) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(chats).where(and(
@@ -608,17 +609,26 @@ export async function listChatsForUser(ownerId: number) {
 export async function createChatForUser(ownerId: number, title: string) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  return (await db.insert(chats).values({ workspaceId: workspace.id, title }).returning())[0];
+  // A random id keeps chat links unpredictable; retry on the astronomically
+  // unlikely collision with an existing primary key.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return (await db.insert(chats).values({ id: newChatId(), workspaceId: workspace.id, title }).returning())[0];
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+  }
+  return undefined;
 }
 
-export async function listChatMessagesForUser(ownerId: number, chatId: number) {
+export async function listChatMessagesForUser(ownerId: number, chatId: string) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return undefined;
   return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
 }
 
-export async function updateChatForUser(ownerId: number, chatId: number, title: string) {
+export async function updateChatForUser(ownerId: number, chatId: string, title: string) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return undefined;
@@ -626,7 +636,7 @@ export async function updateChatForUser(ownerId: number, chatId: number, title: 
   return updated;
 }
 
-export async function appendChatMessageForUser(ownerId: number, input: { chatId: number; role: "user" | "assistant"; content: string }) {
+export async function appendChatMessageForUser(ownerId: number, input: { chatId: string; role: "user" | "assistant"; content: string }) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, input.chatId);
   if (!chat) return undefined;
@@ -954,7 +964,7 @@ export async function listAgentVmRunsForUser(ownerId: number) {
   return runs.map(toSafeAgentVmRun);
 }
 
-export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "e2b"; chatId?: number | null }) {
+export async function createAgentVmRunForUser(ownerId: number, input: { task: string; provider?: "e2b"; chatId?: string | null }) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [created] = await db.insert(agentVmRuns).values({ workspaceId: workspace.id, provider: input.provider ?? "e2b", task: input.task, status: "queued", chatId: input.chatId ?? null }).returning();
@@ -999,7 +1009,7 @@ export async function claimTelegramUpdate(updateId: number): Promise<boolean> {
  * stop to one chat's workflows (the web composer's stop button); without one
  * the stop is workspace-wide (Telegram /stop).
  */
-export async function requestAgentStopForUser(ownerId: number, chatId?: number | null) {
+export async function requestAgentStopForUser(ownerId: number, chatId?: string | null) {
   const db = await requireDb();
   await db.delete(agentStopRequests).where(eq(agentStopRequests.ownerId, ownerId));
   const [created] = await db.insert(agentStopRequests).values({ ownerId, chatId: chatId ?? null }).returning();
@@ -1023,7 +1033,7 @@ export async function holdAgentRunForContinue(ownerId: number, runId: number) {
 export interface AgentRunContinuationClaim {
   runId: number;
   segment: number;
-  chatId: number;
+  chatId: string;
   ownerId: number;
   channel: string;
   /** Telegram-only: absent for the web channel, which needs no external delivery step. */
@@ -1069,7 +1079,7 @@ export async function claimAgentRunContinuation(runId: number, expectedSegment: 
 }
 
 /** Returns the live run for a conversation, after verifying it belongs to the owner. */
-export async function getActiveAgentRunForChat(ownerId: number, chatId: number) {
+export async function getActiveAgentRunForChat(ownerId: number, chatId: string) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return undefined;
@@ -1086,7 +1096,7 @@ export async function getActiveAgentRunForChat(ownerId: number, chatId: number) 
 }
 
 /** Starts a segmented agent run ledger row: one row per user message that begins agent work. */
-export async function startAgentRunForUser(ownerId: number, input: { chatId: number; channel?: string; notifyChatId?: string }) {
+export async function startAgentRunForUser(ownerId: number, input: { chatId: string; channel?: string; notifyChatId?: string }) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, input.chatId);
   if (!chat) return undefined;
@@ -1116,7 +1126,7 @@ export async function finishAgentRunForUser(ownerId: number, runId: number, stat
 }
 
 /** True when a stop request was recorded after `startedAt` - either for `chatId`'s workflows or workspace-wide. */
-export async function hasAgentStopAfter(ownerId: number, chatId: number | undefined, startedAt: Date) {
+export async function hasAgentStopAfter(ownerId: number, chatId: string | undefined, startedAt: Date) {
   const db = await requireDb();
   const rows = await db
     .select({ id: agentStopRequests.id })
@@ -1131,7 +1141,7 @@ export async function hasAgentStopAfter(ownerId: number, chatId: number | undefi
 }
 
 /** Cancels queued/running agent VM runs - scoped to one chat when `chatId` is given, the whole workspace otherwise. */
-export async function cancelActiveAgentVmRunsForUser(ownerId: number, chatId?: number) {
+export async function cancelActiveAgentVmRunsForUser(ownerId: number, chatId?: string) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const cancelled = await db
@@ -1342,7 +1352,7 @@ export async function updateAutomationScheduleState(input: { automationId: numbe
   return updated ? toSafeAutomation(updated) : undefined;
 }
 
-export async function renameChatIfDefaultForUser(ownerId: number, chatId: number, title: string, defaultTitles: string[]) {
+export async function renameChatIfDefaultForUser(ownerId: number, chatId: string, title: string, defaultTitles: string[]) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return undefined;
@@ -1353,7 +1363,7 @@ export async function renameChatIfDefaultForUser(ownerId: number, chatId: number
   return updated;
 }
 
-export async function deleteChatForUser(ownerId: number, chatId: number) {
+export async function deleteChatForUser(ownerId: number, chatId: string) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return false;

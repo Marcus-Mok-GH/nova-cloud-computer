@@ -237,7 +237,7 @@ export default function ApiDocs() {
   const [, setLocation] = useLocation();
 
   return (
-    <main className="min-h-screen bg-[#f7f5f1] text-[#1f2529] dark:bg-[#121514] dark:text-[#f4f0e8]">
+    <main className="min-h-dvh bg-[#f7f5f1] text-[#1f2529] dark:bg-[#121514] dark:text-[#f4f0e8]">
       <header className="sticky top-0 z-40 border-b border-[#dfdcd4]/90 bg-[#f7f5f1]/95 backdrop-blur dark:border-white/10 dark:bg-[#121514]/95">
         <div className="mx-auto flex h-[70px] max-w-6xl items-center justify-between gap-5 px-5 sm:px-8">
           <a href="/" className="flex items-center gap-2.5" aria-label="Nova home">

@@ -12,7 +12,7 @@ export default function NotFound() {
   };
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-card dark:bg-background">
+    <div className="flex min-h-dvh w-full items-center justify-center bg-card dark:bg-background">
       <Card className="mx-4 w-full max-w-lg border-border bg-card shadow-[0_8px_30px_rgba(10,10,10,0.06)] dark:border-white/10 dark:bg-card">
         <CardContent className="pb-8 pt-10 text-center">
           <NovaLogo size={44} className="mx-auto" />

@@ -193,7 +193,7 @@ export type AdminInspectedMessage = {
 };
 
 export type AdminInspectedChat = {
-  id: number;
+  id: string;
   title: string;
   createdAt: Date;
   updatedAt: Date;
@@ -237,11 +237,11 @@ export async function getUserChatsForAdmin(userId: number): Promise<AdminInspect
     ) ranked
     WHERE rn <= ${ADMIN_INSPECT_MESSAGES_PER_CHAT}
   `)) as unknown as
-    | { rows?: Array<{ id: number; chatId: number; role: "user" | "assistant"; content: string; createdAt: Date | string }> }
-    | Array<{ id: number; chatId: number; role: "user" | "assistant"; content: string; createdAt: Date | string }>;
+    | { rows?: Array<{ id: number; chatId: string; role: "user" | "assistant"; content: string; createdAt: Date | string }> }
+    | Array<{ id: number; chatId: string; role: "user" | "assistant"; content: string; createdAt: Date | string }>;
   const messageRows = Array.isArray(rankedResult) ? rankedResult : (rankedResult.rows ?? []);
 
-  const messagesByChat = new Map<number, AdminInspectedMessage[]>();
+  const messagesByChat = new Map<string, AdminInspectedMessage[]>();
   for (const message of messageRows) {
     const bucket = messagesByChat.get(message.chatId) ?? [];
     bucket.push({ id: message.id, role: message.role, content: message.content, createdAt: new Date(message.createdAt) });

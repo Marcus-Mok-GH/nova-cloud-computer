@@ -36,14 +36,14 @@ export async function deleteUserAutomation(ownerId: number, id: number) { const 
 export async function setUserAutomationScheduleTask(ownerId: number, id: number, taskUid: string | null) { const database = await getDb(); const existing = await getUserAutomation(ownerId, id); if (!existing) return undefined; const [updated] = await database.update(userAutomations).set({ scheduleCronTaskUid: taskUid, updatedAt: new Date() }).where(eq(userAutomations.id, existing.id)).returning(); return updated ? safeAutomation(updated) : undefined; }
 export async function getUserAutomationForScheduleTask(taskUid: string) { const database = await getDb(); return (await database.select().from(userAutomations).where(eq(userAutomations.scheduleCronTaskUid, taskUid)).limit(1))[0]; }
 
-type AutomationRuntime = { chatId?: number; lastRunStatus?: "completed" | "continuing"; lastRunAt?: string; lastRunSummary?: string; lastArtifactId?: number };
+type AutomationRuntime = { chatId?: string; lastRunStatus?: "completed" | "continuing"; lastRunAt?: string; lastRunSummary?: string; lastArtifactId?: number };
 
 export async function runUserAutomationForScheduleTask(taskUid: string, now = new Date()) {
   const database = await getDb(); const automation = await getUserAutomationForScheduleTask(taskUid); if (!automation || !automation.enabled) return { skipped: true };
   const definition = (automation.definition ?? {}) as Record<string, unknown>;
   const runtime = definition.runtime && typeof definition.runtime === "object" ? definition.runtime as AutomationRuntime : {};
   let chatId = runtime.chatId;
-  if (!chatId || !Number.isInteger(chatId) || !(await getChatForUser(automation.ownerId, chatId))) {
+  if (!chatId || typeof chatId !== "string" || !(await getChatForUser(automation.ownerId, chatId))) {
     const chat = await createChatForUser(automation.ownerId, "Autonomous mission: " + automation.name);
     if (!chat) throw new Error("Nova could not create the automation mission conversation.");
     chatId = chat.id;

@@ -21,7 +21,7 @@ const CONTENT_WINDOW = 24_000;
 
 export type ConversationMemoryRecord = {
   id: number;
-  chatId: number | null;
+  chatId: string | null;
   kind: string;
   title: string;
   summary: string;
@@ -60,7 +60,7 @@ export async function saveMemoryForUser(
     summary: string;
     content: string;
     tags?: string | null;
-    chatId?: number | null;
+    chatId?: string | null;
     kind?: string;
   }
 ): Promise<ConversationMemoryRecord | null> {
@@ -95,7 +95,7 @@ export async function saveMemoryForUser(
 
 async function getChatMemory(
   ownerId: number,
-  chatId: number
+  chatId: string
 ): Promise<typeof conversationMemories.$inferSelect | null> {
   const db = await getDb();
   if (!db) return null;
@@ -120,7 +120,7 @@ async function getChatMemory(
  */
 export async function appendConversationTurn(
   ownerId: number,
-  chatId: number,
+  chatId: string,
   turn: { userText: string; assistantText: string }
 ): Promise<ConversationMemoryRecord | null> {
   try {

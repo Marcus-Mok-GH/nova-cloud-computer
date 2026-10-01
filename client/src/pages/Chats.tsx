@@ -12,8 +12,8 @@ export default function Chats() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false, refetchInterval: 5000, refetchIntervalInBackground: false });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const deleteChat = async (chatId: number, title: string) => {
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deleteChat = async (chatId: string, title: string) => {
     if (!window.confirm(`Delete “${title}”? This conversation and its messages will be permanently deleted.`)) return;
     setDeletingId(chatId);
     try {

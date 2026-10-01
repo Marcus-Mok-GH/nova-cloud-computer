@@ -1,13 +1,14 @@
+import CodeEditor, { type EditorCursor } from "@/components/CodeEditor";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { detectLanguage, HighlightedCode, languageLabel } from "@/lib/syntaxHighlight";
+import { detectLanguage, languageLabel } from "@/lib/syntaxHighlight";
 import { getFolderTrail } from "@/lib/workspaceBrowser";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, ChevronsDownUp, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Pencil, Save, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronsDownUp, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Trash2, X } from "lucide-react";
 import React, { useMemo, useState } from "react";
 
-type OpenFile = { id: number; name: string; content?: string | null; mimeType?: string | null; folderId?: number | null };
+type OpenFile = { id: number; name: string; content: string; mimeType?: string | null; folderId?: number | null };
 type Creating = { kind: "file" | "folder"; parentId: number | null };
 type TreeProps = { folders: any[]; files: any[]; parentId: number | null; depth: number; activeFolderId: number | null; expanded: Set<number>; setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>; selectFolder: (id: number | null) => void; open: (file: OpenFile) => void; remove: (file: any, e?: React.MouseEvent) => void; creating: Creating | null; finishCreate: (name: string) => void; cancelCreate: () => void };
 
@@ -17,22 +18,31 @@ export default function Files() {
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState<Creating | null>(null);
-  const [openFile, setOpenFile] = useState<OpenFile | null>(null);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [tabs, setTabs] = useState<OpenFile[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [cursor, setCursor] = useState<EditorCursor>({ line: 1, column: 1 });
   const folders = computer.data?.folders ?? [];
   const files = computer.data?.files ?? [];
-  const trail = useMemo(() => getFolderTrail(folders, activeFolderId), [folders, activeFolderId]);
-  const language = openFile ? detectLanguage(openFile.name, openFile.mimeType) : "text";
+  const activeFile = tabs.find(tab => tab.id === activeId) ?? null;
+  const draft = activeFile ? (drafts[activeFile.id] ?? activeFile.content) : "";
+  const isDirty = (tab: OpenFile) => drafts[tab.id] !== undefined && drafts[tab.id] !== tab.content;
+  const language = activeFile ? detectLanguage(activeFile.name, activeFile.mimeType) : "text";
+  const breadcrumb = useMemo(() => getFolderTrail(folders, activeFile?.folderId ?? null), [folders, activeFile?.folderId]);
 
   const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const deleteFile = trpc.files.delete.useMutation({
-    onSuccess: (_, vars) => { if (openFile?.id === vars.id) setOpenFile(null); utils.workspace.computer.invalidate(); toast.success("File deleted"); },
+    onSuccess: (_, vars) => { setTabs(prev => prev.filter(tab => tab.id !== vars.id)); if (activeId === vars.id) setActiveId(null); utils.workspace.computer.invalidate(); toast.success("File deleted"); },
     onError: e => toast.error(e.message),
   });
   const saveFile = trpc.files.update.useMutation({
-    onSuccess: async () => { if (openFile) setOpenFile({ ...openFile, content: draft }); setEditing(false); await utils.workspace.computer.invalidate(); toast.success("File saved"); },
+    onSuccess: (_, vars) => {
+      setDrafts(prev => { const next = { ...prev }; delete next[vars.id]; return next; });
+      setTabs(prev => prev.map(tab => tab.id === vars.id ? { ...tab, content: vars.content ?? "" } : tab));
+      utils.workspace.computer.invalidate();
+      toast.success("File saved");
+    },
     onError: e => toast.error(e.message),
   });
 
@@ -49,7 +59,20 @@ export default function Files() {
     else createFile.mutate({ name, content: "", folderId: target.parentId });
   };
   const collapseAll = () => { setExpanded(new Set()); setActiveFolderId(null); setCreating(null); };
-  const open = (file: OpenFile) => { setOpenFile(file); setDraft(file.content ?? ""); setEditing(false); };
+  const open = (file: OpenFile) => {
+    setTabs(prev => prev.some(tab => tab.id === file.id) ? prev : [...prev, { id: file.id, name: file.name, content: file.content ?? "", mimeType: file.mimeType, folderId: file.folderId }]);
+    setActiveId(file.id);
+  };
+  const closeTab = (id: number, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const index = tabs.findIndex(tab => tab.id === id);
+    const next = tabs.filter(tab => tab.id !== id);
+    if (id === activeId) setActiveId(next[index]?.id ?? next[index - 1]?.id ?? null);
+    setTabs(next);
+    setDrafts(prev => { const draft = { ...prev }; delete draft[id]; return draft; });
+  };
+  const changeDraft = (value: string) => { if (activeFile) setDrafts(prev => ({ ...prev, [activeFile.id]: value })); };
+  const save = () => { if (activeFile && isDirty(activeFile)) saveFile.mutate({ id: activeFile.id, content: draft }); };
   const selectFolder = (id: number | null) => { setActiveFolderId(id); if (id !== null) setExpanded(p => new Set(p).add(id)); };
   const remove = (file: any, e?: React.MouseEvent) => { e?.stopPropagation(); if (window.confirm(`Delete “${file.name}”? This cannot be undone.`)) deleteFile.mutate({ id: file.id }); };
 
@@ -66,11 +89,40 @@ export default function Files() {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-card dark:bg-background">
-        {openFile ? <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border bg-card px-3 dark:border-white/10 dark:bg-card"><div className="flex h-full items-center gap-2 text-sm"><span className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary"><File className="size-4" /></span><div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"><span className="hover:text-foreground dark:hover:text-white">workspace</span>{trail.map(f => <React.Fragment key={f.id}><ChevronRight className="size-3" /><span className="truncate">{f.name}</span></React.Fragment>)}<ChevronRight className="size-3" /><span className="max-w-[150px] truncate font-semibold sm:max-w-[280px] text-foreground/80 dark:text-foreground">{openFile.name}</span></div></div><button onClick={() => setOpenFile(null)} aria-label="Close file" className="ml-auto grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground dark:hover:bg-card/10 dark:hover:text-white"><X className="size-4" /></button></div>
-          <div className="flex min-h-0 flex-1 flex-col">
-            {editing ? <textarea value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} className="min-h-0 flex-1 resize-none border-0 bg-card p-5 font-mono text-[16px] leading-6 outline-none sm:text-[13px] dark:bg-background dark:text-foreground" aria-label={`Edit ${openFile.name}`} /> : <div className="min-h-0 flex-1 overflow-auto bg-card dark:bg-background"><pre className="m-0 min-h-full whitespace-pre p-5 font-mono text-[13px] leading-6 text-foreground dark:text-foreground"><HighlightedCode code={draft} language={language} /></pre></div>}
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t border-border bg-muted/70 px-4 py-2.5 dark:border-white/10 dark:bg-card/40"><span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{draft.length} characters · {languageLabel(language)}</span><div className="flex gap-2"><Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => setOpenFile(null)}><X className="mr-1.5 size-3.5" />Close</Button>{editing ? <Button size="sm" disabled={saveFile.isPending} onClick={() => saveFile.mutate({ id: openFile.id, content: draft })} className="bg-primary hover:bg-primary/90"><Save className="mr-1.5 size-3.5" />{saveFile.isPending ? "Saving…" : "Save"}</Button> : <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="mr-1.5 size-3.5" />Edit</Button>}</div></div>
+        {activeFile ? <>
+          <div role="tablist" aria-label="Open files" className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border bg-muted/40 dark:border-white/10 dark:bg-card/30">
+            {tabs.map(tab => {
+              const isActive = tab.id === activeId;
+              const dirty = isDirty(tab);
+              return <div key={tab.id} role="tab" aria-selected={isActive} className={`group relative flex min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 border-r border-border/70 px-3 text-[13px] transition dark:border-white/10 ${isActive ? "bg-card text-foreground shadow-[inset_0_2px_0_0_var(--primary)] dark:bg-[#0d0d0d]" : "text-muted-foreground hover:bg-neutral-200/40 dark:hover:bg-card/10"}`}>
+                <button onClick={() => setActiveId(tab.id)} className="flex min-w-0 items-center gap-1.5 py-2" title={tab.name}>
+                  <File className={`size-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                  <span className={`min-w-0 truncate ${dirty ? "italic" : ""}`}>{tab.name}</span>
+                </button>
+                {dirty && <span className="size-2 shrink-0 rounded-full bg-foreground/70 group-hover:hidden" aria-label="Unsaved changes" />}
+                <button onClick={e => closeTab(tab.id, e)} aria-label={`Close ${tab.name}`} className={`grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:bg-neutral-200/80 dark:hover:bg-card/20 ${dirty ? "hidden group-hover:grid" : isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}><X className="size-3.5" /></button>
+              </div>;
+            })}
+          </div>
+          <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card px-3 text-xs text-muted-foreground dark:border-white/10 dark:bg-[#0d0d0d]">
+            <Folder className="size-3 shrink-0 text-primary/70" /><span className="truncate">workspace</span>
+            {breadcrumb.map(folder => <React.Fragment key={folder.id}><ChevronRight className="size-3 shrink-0" /><span className="truncate hover:text-foreground dark:hover:text-white">{folder.name}</span></React.Fragment>)}
+            <ChevronRight className="size-3 shrink-0" /><File className="size-3 shrink-0 text-primary/70" /><span className="truncate font-medium text-foreground/80 dark:text-foreground">{activeFile.name}</span>
+          </div>
+          <CodeEditor value={draft} language={language} onChange={changeDraft} onCursorChange={setCursor} onSave={save} ariaLabel={`Edit ${activeFile.name}`} />
+          <div className="flex h-6 shrink-0 items-center justify-between gap-3 bg-primary px-3 text-[11px] font-medium text-primary-foreground">
+            <div className="flex min-w-0 items-center gap-3">
+              {isDirty(activeFile) && <span className="flex items-center gap-1" title="Unsaved changes"><span className="size-1.5 rounded-full bg-primary-foreground/80" />Unsaved</span>}
+              <span className="truncate">Ln {cursor.line}, Col {cursor.column}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span>{draft.length} characters</span>
+              <span className="hidden sm:inline">Spaces: 2</span>
+              <span className="hidden sm:inline">UTF-8</span>
+              <span className="hidden md:inline">LF</span>
+              <button onClick={save} disabled={!isDirty(activeFile) || saveFile.isPending} className="rounded px-1.5 transition hover:bg-primary-foreground/15 disabled:opacity-60">{saveFile.isPending ? "Saving…" : "Save"}</button>
+              <span>{languageLabel(language)}</span>
+            </div>
           </div>
         </> : <><div className="flex h-12 shrink-0 items-center border-b border-border bg-card px-4 text-xs font-semibold text-muted-foreground dark:border-white/10 dark:bg-card dark:text-foreground/80">{activeFolderId === null ? "NOVA WORKSPACE" : folders.find(f => f.id === activeFolderId)?.name}</div><div className="flex flex-1 items-center justify-center text-sm text-muted-foreground"><div className="text-center"><span className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15"><FolderOpen className="size-7" /></span><p className="text-muted-foreground dark:text-muted-foreground">Select a file from the Explorer to open it.</p></div></div></>}
       </main>

@@ -45,8 +45,8 @@ import {
   enqueueInferenceQueueItem,
   getInferenceQueuePosition,
   cancelWaitingInferenceQueueItemsForUser,
-  getBillingStatusForUser,
-  setBillingPlanForUser } from "./db";
+  getPriorityStatusForUser,
+  purchasePriorityForUser } from "./db";
 import { queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
@@ -170,15 +170,13 @@ export const appRouter = router({
   }),
   credits: router({ status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)) }),
   billing: router({
-    status: protectedProcedure.query(({ ctx }) => getBillingStatusForUser(ctx.user.id)),
+    status: protectedProcedure.query(({ ctx }) => getPriorityStatusForUser(ctx.user.id)),
     /**
-     * Test mode: no payment step. Clicking the upgrade button flips the account
-     * to the priority plan directly, which makes its queued requests jump ahead
-     * of standard ones during peak hours.
+     * Test mode: no payment step. Records the one-time priority purchase, which
+     * permanently makes the account's queued requests jump ahead of standard
+     * ones. The call is idempotent and there is nothing to cancel.
      */
-    setPriority: protectedProcedure
-      .input(z.object({ enabled: z.boolean() }))
-      .mutation(({ ctx, input }) => setBillingPlanForUser(ctx.user.id, input.enabled ? "priority" : "standard")),
+    purchasePriority: protectedProcedure.mutation(({ ctx }) => purchasePriorityForUser(ctx.user.id)),
   }),
   apiKeys: router({
     list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),

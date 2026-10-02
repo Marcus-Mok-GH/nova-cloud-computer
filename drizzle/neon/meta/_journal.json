@@ -260,6 +260,20 @@
       "when": 1790921303359,
       "tag": "0036_fixed_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790923179189,
+      "tag": "0037_chief_mandroid",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790923203551,
+      "tag": "0038_workable_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }

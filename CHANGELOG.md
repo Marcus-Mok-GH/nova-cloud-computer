@@ -13,12 +13,18 @@ immediately. A new `inference_queue` table holds each waiting request, and a
 worker serves exactly one item per serverless invocation (self-invoked over the
 same HMAC scheme as agent continuations) so the pool stays strictly serialized
 and every item keeps a full budget. A stale-running sweep returns items whose
-invocation was killed mid-run to the front of the line. All three surfaces are
-covered: the web chat streams a `queued` event and the polling client shows the
+invocation was killed mid-run to the front of the line, capped at three
+attempts after which the item is dead-lettered; while an item is parked in
+running, the worker watches it and recovers the queue once it goes stale. The
+whole hand-off is registered with the request runtime so it survives the HTTP
+response that triggered it. All three surfaces are covered: the web chat streams a `queued` event and the polling client shows the
 notice until the deferred run's reply lands, Telegram replies with the queue
 position and the worker pushes the eventual reply to the bot, andthe inference API returns `202` with `queue_id`, `queue_position` and a `poll_url`
 (`GET /api/v1/queue/:id`) that yields the live position and finally the stored
-completion. Stopping a chat also cancels its still-waiting queue items. Files:
+completion; a queued API request keeps the BYOK model selected at admission,
+and only curated error text reaches the caller. Stopping a chat - from the web
+composer's stop button or Telegram `/stop` - cancels its still-waiting queue
+items. Files:
 server/peakQueue.ts (new), server/peakQueueScheduler.ts (new),
 server/peakQueueWorker.ts (new), drizzle/schema.ts (+ migration 0034),
 server/db.ts, server/inferenceApi.ts, server/app.ts, server/routers.ts,

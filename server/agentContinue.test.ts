@@ -61,6 +61,7 @@ vi.mock("./db", () => ({
   createWorkspaceFileForUser: vi.fn(async () => ({})),
   isUserBanned: spies.isUserBanned,
   cancelActiveAgentVmRunsForUser: vi.fn(async () => 0),
+  cancelWaitingInferenceQueueItemsForUser: vi.fn(async () => 0),
   requestAgentStopForUser: vi.fn(async () => true),
   claimTelegramUpdate: spies.claimTelegramUpdate,
   startAgentRunForUser: spies.startAgentRunForUser,

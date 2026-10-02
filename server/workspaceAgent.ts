@@ -1,5 +1,6 @@
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
+import { runThinkerTask } from "./thinker";
 import {
   runAutonomousCoderTask,
   runCoderTask,
@@ -1029,6 +1030,30 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "thinker",
+      description:
+        "Delegate deep, open-ended reasoning to Nova's thinker sub-agent - a frontier reasoning model that thinks a hard problem through and returns a long, detailed analysis of its findings. Use it when a request needs sustained reasoning rather than lookup or computation: weighing a design or strategy decision, planning a multi-step approach, analyzing a body of material for what it implies, reviewing your own reasoning before committing to it, or untangling a subtle trade-off, risk, or failure mode. Describe the question completely and include all relevant context - the thinker cannot see the conversation or the workspace on its own. It returns its analysis only; it does not call tools or act. Do not send it simple lookups, arithmetic, or code (use research_web, solve_equation, or editor for those).",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description:
+              "The question or problem to think through, described completely, including what a good answer must resolve.",
+          },
+          context: {
+            type: "string",
+            description:
+              "Optional supporting material: relevant facts, code, data, constraints, prior reasoning, or conversation state the question depends on.",
+          },
+        },
+        required: ["question"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "accept_own_coding",
       description:
         "Records that the user explicitly accepted Nova writing the code itself while the coding specialist is down. Call this ONLY when the editor sub-agent failed in an EARLIER conversation turn AND the user's latest message clearly said yes to Nova's own attempt. It refuses inside the same run as the failure (the user must answer first), and while it has not succeeded, create_file and edit_file are blocked for non-trivial code.",
@@ -1462,7 +1487,7 @@ export function connectorStatusLine(connected: ComposioToolkit[]): string {
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
 
-You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors), the computation (solve_equation, run_vm_task, run_bash, editor), and the memory (workspace files). You are the traffic cop; they are the engine.
+You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors, thinker), the computation (solve_equation, run_vm_task, run_bash, editor), and the memory (workspace files). You are the traffic cop; they are the engine.
 
 Operating principles:
 - Classify first. Triage every request before touching a tool: simple (a greeting, a quick clarification, summarizing a short passage, recalling the conversation) you answer directly - no tools, no round-trips, no latency. Complex (code, research, math, data work, files, outside services, multi-step tasks) you route to tools and specialists. Never turn a simple question into a tool parade, and never swallow a complex one with a one-line guess - the classification itself is your highest-value skill.
@@ -1475,6 +1500,7 @@ Operating principles:
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
 - Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
 - Research before you guess. Treat internal knowledge as unverified whenever a fact matters, and verify even when you are only slightly in doubt. Check the best available source first: workspace files and records for user-specific facts, installed skills for supported procedures, dedicated tools for live state, and research_web for current or external facts. Use research_web to delegate anything current or factual you do not know for certain - it returns a full, cited research report from Exa AI's deep research models. Before every call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
+- Think deeper when the answer is hard. When a problem needs sustained reasoning rather than lookup or computation - weighing a design or strategy decision, planning a multi-step approach, untangling a subtle trade-off, risk or failure mode, analyzing a body of material for what it implies, or checking your own reasoning before committing to it - call thinker. It is a frontier reasoning sub-agent: hand it the complete question and every relevant piece of context, then use its detailed findings to decide your next action. Never delegate simple questions, lookups or arithmetic to thinker - it reasons, it does not act.
 - Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
 - Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor (Kimi K3) writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the editor is not set up on this workspace yet - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
 - Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
@@ -2793,6 +2819,66 @@ async function executeWorkspaceTool(
           action: {
             kind: "research",
             name: topic.slice(0, 60),
+            operation: "failed",
+          },
+        };
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
+      }
+    }
+    case "thinker": {
+      const question = str(args.question).trim();
+      if (!question)
+        return { ok: false, result: "A question to think through is required." };
+      const context = str(args.context) || undefined;
+      const startedAt = Date.now();
+      // The thinker works in one long model call; a quiet-stream heartbeat
+      // keeps the activity panel honest while it reasons. The elapsed-time
+      // note only fires when nothing newer has arrived.
+      let lastNoteAt = Date.now();
+      const note = (detail: string) => {
+        lastNoteAt = Date.now();
+        onProgress?.(detail);
+      };
+      const progressTimer = onProgress
+        ? setInterval(() => {
+            if (Date.now() - lastNoteAt < 25_000) return;
+            const elapsed = Math.round((Date.now() - startedAt) / 1000);
+            lastNoteAt = Date.now();
+            onProgress(
+              `The thinker sub-agent is still reasoning - ${elapsed}s elapsed…`
+            );
+          }, 10000)
+        : undefined;
+      note("The thinker sub-agent is reasoning through the question…");
+      try {
+        const thought = await runThinkerTask(question, context);
+        return {
+          ok: true,
+          result: thought.analysis,
+          detail: thought.analysis.slice(0, 16000),
+          action: {
+            kind: "tool",
+            name: `thinker: ${question.slice(0, 45)}`,
+            operation: "completed",
+          },
+        };
+      } catch (error) {
+        // Config problems (missing key, missing model ID for a custom
+        // endpoint) already carry a clean, user-facing explanation.
+        const message =
+          error instanceof NimConfigError
+            ? error.message
+            : `The thinker sub-agent failed: ${
+                error instanceof Error ? error.message : "unknown error"
+              }.`;
+        return {
+          ok: false,
+          result: message,
+          detail: message,
+          action: {
+            kind: "tool",
+            name: `thinker: ${question.slice(0, 45)}`,
             operation: "failed",
           },
         };

@@ -157,6 +157,20 @@ export const ENV = {
     "https://integrate.api.nvidia.com/v1"
       ? "moonshotai/kimi-k3"
       : ""),
+  /**
+   * The reasoning model the thinker sub-agent calls on NVIDIA NIM. On the
+   * hosted endpoint this defaults to the strongest frontier reasoning model
+   * NIM serves (Kimi K3); NVIDIA_NIM_THINKER_MODEL overrides it with a
+   * smarter or cheaper reasoning model. A self-hosted or custom endpoint
+   * registers different served model IDs, so the override must be set there -
+   * it resolves to empty until it is.
+   */
+  nimThinkerModel:
+    process.env.NVIDIA_NIM_THINKER_MODEL ??
+    ((process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1") ===
+    "https://integrate.api.nvidia.com/v1"
+      ? "moonshotai/kimi-k3"
+      : ""),
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
   /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */

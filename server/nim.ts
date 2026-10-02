@@ -56,6 +56,13 @@ export type NimChatOptions = {
   maxTokens?: number;
   /** Hard client-side cap on the request (default 240s, Vercel-bound). */
   timeoutMs?: number;
+  /**
+   * Absolute epoch-ms deadline the call must return before. Attempts and
+   * retries are clamped and skipped so the request never runs past it - the
+   * caller's run deadline would otherwise interrupt the specialist mid-flight
+   * and discard its work. Unbounded when omitted.
+   */
+  deadlineAtMs?: number;
 };
 
 export type NimAgentToolCall = {
@@ -97,6 +104,13 @@ export type NimAgentChatOptions = {
   maxTokens?: number;
   /** Hard client-side cap on the request (default 240s, Vercel-bound). */
   timeoutMs?: number;
+  /**
+   * Absolute epoch-ms deadline the call must return before. Attempts and
+   * retries are clamped and skipped so the request never runs past it - the
+   * caller's run deadline would otherwise interrupt the specialist mid-flight
+   * and discard its work. Unbounded when omitted.
+   */
+  deadlineAtMs?: number;
 };
 
 export type NimAgentReply =
@@ -144,6 +158,14 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_NIM_ATTEMPTS = 4;
 const MAX_RETRY_WAIT_MS = 90_000;
 const RETRY_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
+/**
+ * A retry (backoff wait plus another attempt) may only run when at least this
+ * much of the caller's deadline remains. Without it, a specialist can spend
+ * its whole segment on retries that were never going to fit and get its work
+ * discarded as an interruption; with it, the specialist always hands its
+ * result back before the run deadline passes.
+ */
+const MIN_ATTEMPT_BUDGET_MS = 1_000;
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -159,7 +181,8 @@ function retryAfterMs(response: Response): number | undefined {
 async function postNimChat(
   body: Record<string, unknown>,
   timeoutMs: number,
-  modelOverride?: string
+  modelOverride?: string,
+  deadlineAtMs?: number
 ): Promise<{ message?: { content?: unknown; tool_calls?: unknown } }> {
   const endpoint = nimChatEndpoint(modelOverride);
   const model = modelOverride ?? ENV.nimCoderModel;
@@ -168,10 +191,34 @@ async function postNimChat(
   // tasks. Retry transient failures with backoff, and give a request that
   // timed out exactly one second chance (NIM stalls are often momentary,
   // while a genuinely too-long generation would just reproduce itself).
+  // When a deadline is supplied, attempts and retries stay inside it: the
+  // run would otherwise kill a specialist that was still mid-request.
+  const remainingBeforeDeadline = () =>
+    deadlineAtMs === undefined
+      ? Number.POSITIVE_INFINITY
+      : deadlineAtMs - Date.now();
+  // A retry may only run when its wait plus another attempt fit before the
+  // deadline; otherwise the caller's own run deadline interrupts the request
+  // and discards whatever work the specialist had already done.
+  const canRetryAfter = (waitMs: number) =>
+    deadlineAtMs === undefined ||
+    remainingBeforeDeadline() - waitMs > MIN_ATTEMPT_BUDGET_MS;
   let attempt = 0;
   let retryWaitTotalMs = 0;
   let timedOutOnce = false;
   while (true) {
+    const remaining = remainingBeforeDeadline();
+    if (remaining <= MIN_ATTEMPT_BUDGET_MS) {
+      throw new Error(
+        "The coding specialist ran out of time before its model request could finish."
+      );
+    }
+    // Clamp each attempt to the remaining deadline so a request never runs
+    // past it even when the caller's timeout budget is larger.
+    const attemptTimeoutMs = Math.max(
+      MIN_ATTEMPT_BUDGET_MS,
+      Math.min(timeoutMs, remaining)
+    );
     attempt += 1;
     let response: Response;
     try {
@@ -187,18 +234,20 @@ async function postNimChat(
           ...nimReasoningParamsForModel(model),
           ...body,
         }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(attemptTimeoutMs),
       });
     } catch (error) {
-      if (error instanceof Error && error.name === "TimeoutError" && !timedOutOnce) {
+      if (error instanceof Error && error.name === "TimeoutError" && !timedOutOnce && canRetryAfter(0)) {
         timedOutOnce = true;
         continue;
       }
       if (attempt < MAX_NIM_ATTEMPTS && retryWaitTotalMs < MAX_RETRY_WAIT_MS) {
         const wait = RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)];
-        retryWaitTotalMs += wait;
-        await sleep(wait);
-        continue;
+        if (canRetryAfter(wait)) {
+          retryWaitTotalMs += wait;
+          await sleep(wait);
+          continue;
+        }
       }
       throw error;
     }
@@ -222,6 +271,7 @@ async function postNimChat(
       throw failure;
     }
     const wait = retryAfterMs(response) ?? RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)];
+    if (!canRetryAfter(wait)) throw failure;
     retryWaitTotalMs += wait;
     await sleep(wait);
   }
@@ -254,7 +304,8 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
         max_tokens: options.maxTokens ?? 8192,
       },
       options.timeoutMs ?? 240_000,
-      options.model
+      options.model,
+      options.deadlineAtMs
     );
     const text = extractText(message.message?.content);
     if (!text) {
@@ -286,7 +337,8 @@ export async function runNimAgentChat(
       max_tokens: options.maxTokens ?? 8192,
     },
     options.timeoutMs ?? 240_000,
-    options.model
+    options.model,
+    options.deadlineAtMs
   );
   const rawToolCalls = Array.isArray(message.message?.tool_calls)
     ? (message.message?.tool_calls as unknown[])

@@ -337,6 +337,12 @@ describe("runAutonomousCoderTask", () => {
       expect(outcome.rounds).toBe(3);
       expect(outcome.writtenPaths).toEqual([]);
       expect(outcome.commandsRun).toBe(0);
+      // The specialist's own budget end (deadline minus the 30s reserve) is
+      // handed to the model call as its hard deadline, so a retry cannot
+      // overrun it and get the result discarded as an interruption.
+      expect(runNimAgentChatMock.mock.calls[0][0].deadlineAtMs).toBe(
+        startedAt + 70_000
+      );
     } finally {
       Date.now = realNow;
     }

@@ -660,7 +660,9 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write an add function",
       undefined,
-      "Python"
+      "Python",
+      // The editor's own deadline is handed to the single-shot call too.
+      expect.any(Number)
     );
     // Its code was fed back to the model as the tool result.
     const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
@@ -1109,7 +1111,8 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write app.js properly",
       undefined,
-      undefined
+      undefined,
+      expect.any(Number)
     );
     expect(result.message.content).toBe(
       "Rewrote app.js with the coding specialist."
@@ -1238,7 +1241,8 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "review app.js",
       undefined,
-      undefined
+      undefined,
+      expect.any(Number)
     );
     expect(result.message.content).toBe(
       "Written and reviewed with the specialist."

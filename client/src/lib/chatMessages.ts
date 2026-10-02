@@ -23,6 +23,12 @@ export type ToolActivity = {
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
   /**
+   * Unified diff of what an edit_file call changed (before -> after), so the
+   * edit's dropdown can show the actual change. Absent for tools that do not
+   * rewrite a whole file.
+   */
+  diff?: string;
+  /**
    * Live-only accumulation of every progress note a running tool streamed,
    * oldest first, so long-running sub-agents (research_web, editor) can
    * show their process as an append-only log. Never persisted: completed

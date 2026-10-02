@@ -25,6 +25,7 @@ import {
   agentRuns,
   dailyCredits,
   inferenceQueue,
+  billingSubscriptions,
   type InferenceQueueItem,
   type InferenceQueuePayload,
 } from "../drizzle/schema";
@@ -1619,32 +1620,57 @@ export type EnqueueInferenceQueueInput = {
 
 /**
  * Admits one message to the peak-hours queue. The insert is the whole
- * admission decision: everything already running or waiting keeps its place,
- * and the new row is served strictly after it.
+ * admission decision: everything already waiting keeps its place, the new row
+ * is served strictly after it, and the account's billing plan is denormalized
+ * so a later plan change does not reorder an already-admitted request.
  */
 export async function enqueueInferenceQueueItem(input: EnqueueInferenceQueueInput): Promise<InferenceQueueItem> {
   const db = await requireDb();
+  const priority = await isPriorityUser(input.ownerId).catch(() => false);
   const [item] = await db.insert(inferenceQueue).values({
     ownerId: input.ownerId,
     channel: input.channel,
     chatId: input.chatId ?? null,
     content: input.content,
     payload: input.payload ?? {},
+    priority,
   }).returning();
   return item;
 }
 
 /**
- * How many requests are ahead of this one: every running or waiting item with
- * a lower id, plus one. A running item is position 1 only when nothing else
- * precedes it.
+ * How many requests are ahead of this one, in the queue's serving order
+ * (priority first, then arrival): every active item that sorts before it, plus
+ * one. A priority item only counts other priority items ahead of it; a
+ * standard item counts every priority item plus the standard items that
+ * arrived before it.
  */
 export async function getInferenceQueuePosition(queueId: number): Promise<number> {
   const db = await requireDb();
-  const [result] = await db
-    .select({ ahead: count() })
+  const [item] = await db
+    .select({ priority: inferenceQueue.priority, status: inferenceQueue.status })
     .from(inferenceQueue)
-    .where(and(inArray(inferenceQueue.status, ["waiting", "running"]), lt(inferenceQueue.id, queueId)));
+    .where(eq(inferenceQueue.id, queueId))
+    .limit(1);
+  // A running request is the one being served (only one row may run at a time),
+  // so nothing is ahead of it no matter what is waiting behind it.
+  if (item?.status === "running") return 1;
+  const minePriority = item?.priority ?? false;
+  // Nothing preempts a request that is already running, so every running row is
+  // ahead regardless of priority; beyond that, only the waiting rows the claim
+  // query would pick first count. The item itself is excluded so a running item
+  // is not counted against itself.
+  const waitingAhead = minePriority
+    ? and(eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId))
+    : or(eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId));
+  const ahead = and(
+    ne(inferenceQueue.id, queueId),
+    or(
+      eq(inferenceQueue.status, "running"),
+      and(eq(inferenceQueue.status, "waiting"), waitingAhead),
+    ),
+  );
+  const [result] = await db.select({ ahead: count() }).from(inferenceQueue).where(ahead);
   return Number(result?.ahead ?? 0) + 1;
 }
 
@@ -1659,7 +1685,7 @@ export async function claimNextInferenceQueueItem(): Promise<InferenceQueueItem 
   const result = (await db.execute(sql`
     UPDATE "inference_queue" AS q
     SET "status" = 'running', "startedAt" = now(), "attempts" = q."attempts" + 1, "updatedAt" = now()
-    WHERE q."id" = (SELECT "id" FROM "inference_queue" WHERE "status" = 'waiting' ORDER BY "id" LIMIT 1)
+    WHERE q."id" = (SELECT "id" FROM "inference_queue" WHERE "status" = 'waiting' ORDER BY "priority" DESC, "id" LIMIT 1)
       AND q."status" = 'waiting'
       AND NOT EXISTS (SELECT 1 FROM "inference_queue" WHERE "status" = 'running')
     RETURNING q."id"
@@ -1749,4 +1775,33 @@ export async function cancelWaitingInferenceQueueItemsForUser(ownerId: number, c
 export async function getInferenceQueueItemForOwner(ownerId: number, queueId: number) {
   const db = await requireDb();
   return (await db.select().from(inferenceQueue).where(and(eq(inferenceQueue.id, queueId), eq(inferenceQueue.ownerId, ownerId))).limit(1))[0];
+}
+
+/** An account's billing plan and whether it earns priority queue ordering. */
+export type BillingStatus = { plan: "standard" | "priority"; priority: boolean; updatedAt: Date | null };
+
+export async function getBillingStatusForUser(ownerId: number): Promise<BillingStatus> {
+  const db = await requireDb();
+  const row = (await db.select().from(billingSubscriptions).where(eq(billingSubscriptions.ownerId, ownerId)).limit(1))[0];
+  const plan = row?.plan ?? "standard";
+  return { plan, priority: plan === "priority", updatedAt: row?.updatedAt ?? null };
+}
+
+/** True when the account's plan earns priority ordering for newly admitted requests. */
+export async function isPriorityUser(ownerId: number): Promise<boolean> {
+  const db = await requireDb();
+  const row = (await db.select({ plan: billingSubscriptions.plan }).from(billingSubscriptions).where(eq(billingSubscriptions.ownerId, ownerId)).limit(1))[0];
+  return row?.plan === "priority";
+}
+
+/** Sets the account's plan (payment is intentionally bypassed for now). */
+export async function setBillingPlanForUser(ownerId: number, plan: "standard" | "priority"): Promise<BillingStatus> {
+  const db = await requireDb();
+  const [row] = await db
+    .insert(billingSubscriptions)
+    .values({ ownerId, plan })
+    .onConflictDoUpdate({ target: billingSubscriptions.ownerId, set: { plan, updatedAt: new Date() } })
+    .returning();
+  const resolved = row?.plan ?? plan;
+  return { plan: resolved, priority: resolved === "priority", updatedAt: row?.updatedAt ?? null };
 }

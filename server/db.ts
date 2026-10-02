@@ -1648,10 +1648,13 @@ export async function enqueueInferenceQueueItem(input: EnqueueInferenceQueueInpu
 export async function getInferenceQueuePosition(queueId: number): Promise<number> {
   const db = await requireDb();
   const [item] = await db
-    .select({ priority: inferenceQueue.priority })
+    .select({ priority: inferenceQueue.priority, status: inferenceQueue.status })
     .from(inferenceQueue)
     .where(eq(inferenceQueue.id, queueId))
     .limit(1);
+  // A running request is the one being served (only one row may run at a time),
+  // so nothing is ahead of it no matter what is waiting behind it.
+  if (item?.status === "running") return 1;
   const minePriority = item?.priority ?? false;
   // Nothing preempts a request that is already running, so every running row is
   // ahead regardless of priority; beyond that, only the waiting rows the claim

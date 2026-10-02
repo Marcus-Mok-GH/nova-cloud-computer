@@ -1,3 +1,25 @@
+2026-10-02 - Upload images from the web chat composer
+
+Images could already be sent to the agent over Telegram, but the Nova web
+composer had no upload path at all. The chat box and the "New thread" box now
+have an attach button (and image paste) that queue up to four images per
+message, show thumbnails with per-image removal, and send them with the next
+message as vision input - so the model sees the picture directly, exactly like
+the Telegram path.
+
+The browser downscales oversized photos to a 1280px longest edge and re-encodes
+to JPEG before sending, while small files are kept byte-for-byte so screenshots
+stay sharp; the total encoded size is capped so the JSON body stays within
+limits. On the server, /api/chat/stream stores each image in the user's
+workspace as a data-URI file (mirroring Telegram), passes the URIs to the agent
+as imageAttachments, and adds an attachment note to the model's turn only -
+the visible user bubble keeps the clean typed text. A message that is only an
+image is valid and is titled from the uploaded file's name. Includes
+server/chatImages.ts (new), server/app.ts (the JSON body limit rises from 1mb
+to 4mb to fit base64 images, still under Vercel's 4.5mb cap),
+server/agentRuns.ts, server/workspaceAgent.ts, client/src/lib/imageAttachments.ts
+(new), client/src/pages/Workspace.tsx, plus tests.
+
 2026-10-01 - Provider-neutral naming for the built-in AI gateway
 
 The built-in gateway serves Z.ai (GLM) and the Kilo anonymous tier alongside

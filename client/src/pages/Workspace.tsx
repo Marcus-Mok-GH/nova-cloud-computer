@@ -6,6 +6,12 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
+import {
+  collectChatImageAttachments,
+  MAX_CHAT_IMAGE_ATTACHMENTS,
+  MAX_CHAT_IMAGE_TOTAL_CHARS,
+  type ChatImageAttachment,
+} from "@/lib/imageAttachments";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import {
   appendLiveTextDelta,
@@ -27,15 +33,52 @@ import {
   CircleDashed,
   CornerDownLeft,
   Github,
+  ImagePlus,
   Mail,
   MessageSquareText,
   Send,
   Square,
+  X,
 } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { LEGACY_AI_UNAVAILABLE_PREFIX, AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+
+/** Thumbnail strip of the images queued for the next message. */
+function ImageAttachmentTray({
+  attachments,
+  onRemove,
+}: {
+  attachments: ChatImageAttachment[];
+  onRemove: (id: string) => void;
+}) {
+  if (!attachments.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2 px-1 pb-2">
+      {attachments.map(attachment => (
+        <div
+          key={attachment.id}
+          className="relative size-16 overflow-hidden rounded-lg border border-foreground/[0.12] bg-muted/40 dark:border-white/[0.12]"
+        >
+          <img
+            src={attachment.dataUri}
+            alt={attachment.name}
+            className="size-full object-cover"
+          />
+          <button
+            type="button"
+            onClick={() => onRemove(attachment.id)}
+            aria-label={`Remove ${attachment.name}`}
+            className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, {
@@ -53,12 +96,78 @@ export default function Workspace() {
     typeof window === "undefined"
       ? undefined
       : new URLSearchParams(window.location.search).get("chatId") || undefined;
+  const [composerAttachments, setComposerAttachments] = useState<
+    ChatImageAttachment[]
+  >([]);
+  const [starterAttachments, setStarterAttachments] = useState<
+    ChatImageAttachment[]
+  >([]);
+  const [preparingImages, setPreparingImages] = useState(false);
+  const composerImageInputRef = useRef<HTMLInputElement>(null);
+  const starterImageInputRef = useRef<HTMLInputElement>(null);
+
+  // Downscales and encodes picked/pasted files, then queues them for the next
+  // message up to the per-message cap.
+  const addChatImages = async (
+    setter: React.Dispatch<React.SetStateAction<ChatImageAttachment[]>>,
+    current: ChatImageAttachment[],
+    files: Iterable<File>
+  ) => {
+    setPreparingImages(true);
+    try {
+      const { attachments: prepared, error } =
+        await collectChatImageAttachments(files);
+      if (error) toast.error(error);
+      if (!prepared.length) return;
+      const room = Math.max(0, MAX_CHAT_IMAGE_ATTACHMENTS - current.length);
+      const accepted: ChatImageAttachment[] = [];
+      let totalChars = current.reduce(
+        (sum, attachment) => sum + attachment.dataUri.length,
+        0
+      );
+      for (const attachment of prepared) {
+        if (accepted.length >= room) break;
+        if (
+          totalChars + attachment.dataUri.length >
+          MAX_CHAT_IMAGE_TOTAL_CHARS
+        )
+          continue;
+        accepted.push(attachment);
+        totalChars += attachment.dataUri.length;
+      }
+      if (accepted.length < prepared.length)
+        toast.error(
+          `Attach at most ${MAX_CHAT_IMAGE_ATTACHMENTS} images within the size limit.`
+        );
+      setter([...current, ...accepted]);
+    } finally {
+      setPreparingImages(false);
+    }
+  };
+
+  // Starting a conversation clears any images queued on the previous one.
+  useEffect(() => {
+    setComposerAttachments([]);
+  }, [chatId]);
+
+  const contentFor = (text: string, attachments: ChatImageAttachment[]) =>
+    text.trim() ||
+    (attachments.length === 1
+      ? `Uploaded ${attachments[0].name}`
+      : `Uploaded ${attachments.length} images`);
+  const canSendComposer =
+    Boolean(draft.trim() || composerAttachments.length) && !preparingImages;
   const startChat = trpc.chats.create.useMutation({
     onSuccess: async chat => {
       await utils.workspace.computer.invalidate();
       setLocation(`/app?chatId=${chat.id}`);
     },
   });
+  const canStartChat =
+    Boolean(startPrompt.trim() || starterAttachments.length) &&
+    !preparingImages &&
+    !startChat.isPending &&
+    !isStreaming;
   // While a conversation is open it polls every 2.5s so activity started
   // elsewhere (e.g. Telegram) streams into this view in real time.
   const savedMessages = trpc.chats.messages.useQuery(
@@ -205,7 +314,11 @@ export default function Workspace() {
     return refreshed;
   };
   /** Streams a message into `targetChatId`, reused by the active-chat composer and the "Start a chat" prompt box. */
-  const sendMessage = async (targetChatId: string, content: string) => {
+  const sendMessage = async (
+    targetChatId: string,
+    content: string,
+    images: string[] = []
+  ) => {
     userScrolledUpRef.current = false;
     const toPersist = savedMessages.data ?? [];
     setBaselineMessageId(
@@ -223,7 +336,11 @@ export default function Workspace() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ chatId: targetChatId, content }),
+        body: JSON.stringify({
+          chatId: targetChatId,
+          content,
+          ...(images.length ? { images } : {}),
+        }),
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
@@ -292,22 +409,31 @@ export default function Workspace() {
       handleStopRun();
       return;
     }
-    if (!draft.trim() || !chatId) return;
-    const content = draft.trim();
+    if ((!draft.trim() && !composerAttachments.length) || !chatId) return;
+    const content = contentFor(draft, composerAttachments);
+    const images = composerAttachments.map(attachment => attachment.dataUri);
     setDraft("");
-    await sendMessage(chatId, content);
+    setComposerAttachments([]);
+    await sendMessage(chatId, content, images);
   };
   /** Creates a new chat from the "Ask Nova anything about your work" box, navigates to it, then streams the typed prompt as its first message. */
   const handleStartChat = async () => {
-    const content = startPrompt.trim();
-    if (!content || startChat.isPending || agentIsWorking) return;
+    if (
+      (!startPrompt.trim() && !starterAttachments.length) ||
+      startChat.isPending ||
+      agentIsWorking
+    )
+      return;
+    const content = contentFor(startPrompt, starterAttachments);
+    const images = starterAttachments.map(attachment => attachment.dataUri);
     try {
       const chat = await startChat.mutateAsync({
         title: "New workspace conversation",
       });
       setStartPrompt("");
+      setStarterAttachments([]);
       setLocation(`/app?chatId=${chat.id}`);
-      await sendMessage(chat.id, content);
+      await sendMessage(chat.id, content, images);
     } catch (error) {
       console.error("Failed to start chat:", error);
       toast.error(
@@ -649,6 +775,31 @@ export default function Workspace() {
                     Enter to send
                   </span>
                 </div>
+                <ImageAttachmentTray
+                  attachments={composerAttachments}
+                  onRemove={id =>
+                    setComposerAttachments(previous =>
+                      previous.filter(attachment => attachment.id !== id)
+                    )
+                  }
+                />
+                <input
+                  ref={composerImageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  hidden
+                  onChange={event => {
+                    const files = event.target.files;
+                    if (files?.length)
+                      void addChatImages(
+                        setComposerAttachments,
+                        composerAttachments,
+                        files
+                      );
+                    event.target.value = "";
+                  }}
+                />
                 <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]">
                   <Textarea
                     value={draft}
@@ -659,10 +810,33 @@ export default function Workspace() {
                         void submit(event);
                       }
                     }}
+                    onPaste={event => {
+                      const files = Array.from(
+                        event.clipboardData?.files ?? []
+                      ).filter(file => file.type.startsWith("image/"));
+                      if (!files.length) return;
+                      event.preventDefault();
+                      void addChatImages(
+                        setComposerAttachments,
+                        composerAttachments,
+                        files
+                      );
+                    }}
                     placeholder="Message Nova"
                     rows={1}
                     className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
                   />
+                  {!agentIsWorking && (
+                    <button
+                      type="button"
+                      onClick={() => composerImageInputRef.current?.click()}
+                      disabled={preparingImages}
+                      aria-label="Attach images"
+                      className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
+                    >
+                      <ImagePlus className="size-4" />
+                    </button>
+                  )}
                   {agentIsWorking ? (
                     <button
                       type="submit"
@@ -674,10 +848,10 @@ export default function Workspace() {
                   ) : (
                     <button
                       type="submit"
-                      disabled={!draft.trim()}
+                      disabled={!canSendComposer}
                       aria-label="Send message"
                       className={
-                        draft.trim()
+                        canSendComposer
                           ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black"
                           : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"
                       }
@@ -771,6 +945,31 @@ export default function Workspace() {
               </span>
               <span className="text-[10px] text-muted-foreground">Enter ↵</span>
             </div>
+            <ImageAttachmentTray
+              attachments={starterAttachments}
+              onRemove={id =>
+                setStarterAttachments(previous =>
+                  previous.filter(attachment => attachment.id !== id)
+                )
+              }
+            />
+            <input
+              ref={starterImageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              hidden
+              onChange={event => {
+                const files = event.target.files;
+                if (files?.length)
+                  void addChatImages(
+                    setStarterAttachments,
+                    starterAttachments,
+                    files
+                  );
+                event.target.value = "";
+              }}
+            />
             <Textarea
               value={startPrompt}
               onChange={event => setStartPrompt(event.target.value)}
@@ -779,6 +978,18 @@ export default function Workspace() {
                   event.preventDefault();
                   void handleStartChat();
                 }
+              }}
+              onPaste={event => {
+                const files = Array.from(
+                  event.clipboardData?.files ?? []
+                ).filter(file => file.type.startsWith("image/"));
+                if (!files.length) return;
+                event.preventDefault();
+                void addChatImages(
+                  setStarterAttachments,
+                  starterAttachments,
+                  files
+                );
               }}
               placeholder="What do you want Nova to help with?"
               rows={5}
@@ -789,20 +1000,29 @@ export default function Workspace() {
               <span className="text-[10px] font-medium text-muted-foreground">
                 Nova sees only your workspace.
               </span>
-              <Button
-                type="button"
-                onClick={() => void handleStartChat()}
-                disabled={
-                  !startPrompt.trim() || startChat.isPending || isStreaming
-                }
-                className={
-                  startPrompt.trim() && !startChat.isPending && !isStreaming
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => starterImageInputRef.current?.click()}
+                  disabled={preparingImages || startChat.isPending || isStreaming}
+                  aria-label="Attach images"
+                  className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
+                >
+                  <ImagePlus className="size-4" />
+                </button>
+                <Button
+                  type="button"
+                  onClick={() => void handleStartChat()}
+                  disabled={!canStartChat}
+                  className={
+                    canStartChat
                     ? "rounded-lg bg-foreground px-3.5 py-2 text-xs font-bold text-background hover:bg-foreground/90 dark:bg-white dark:text-black"
-                    : "rounded-lg bg-muted px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"
-                }
-              >
-                {startChat.isPending ? "Opening…" : "Open thread"}
-              </Button>
+                      : "rounded-lg bg-muted px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"
+                  }
+                >
+                  {startChat.isPending ? "Opening…" : "Open thread"}
+                </Button>
+              </div>
             </div>
           </div>
 

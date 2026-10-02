@@ -123,6 +123,11 @@ type WorkspaceAgentOptions = {
   /** Data-URI images attached to this turn, sent to the model as vision input. */
   imageAttachments?: string[];
   /**
+   * Attachment context appended to the model's user turn but not persisted to
+   * the chat, so the visible bubble stays the clean user text.
+   */
+  uploadContext?: string;
+  /**
    * When this run must be finished by (epoch ms). Defaults to a budget just
    * under the Vercel maxDuration so the final reply is always persisted -
    * a gateway round started too close to the limit would be killed with the
@@ -3473,11 +3478,17 @@ ${
       uri.startsWith("data:image/")
     );
     let visionActive = imageParts.length > 0;
+    // The model sees the attachment note; the persisted user bubble keeps the
+    // clean text the user actually typed (Telegram concatenates its note into
+    // the text instead, which is fine there since the user turn is not shown).
+    const modelContent = options.uploadContext
+      ? `${content}${options.uploadContext}`
+      : content;
     const currentTurn: GatewayChatMessage = {
       role: "user",
       content: visionActive
         ? [
-            { type: "text" as const, text: content },
+            { type: "text" as const, text: modelContent },
             ...imageParts.map(uri => ({
               type: "image_url" as const,
               image_url: { url: uri },
@@ -3714,7 +3725,7 @@ ${
         if (userIndex >= 0)
           messages[userIndex] = {
             role: "user",
-            content: `${content}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
+            content: `${modelContent}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
           };
         try {
           result =

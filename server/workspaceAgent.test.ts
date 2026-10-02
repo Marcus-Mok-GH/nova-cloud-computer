@@ -2742,6 +2742,38 @@ describe("Nova tool-calling workspace agent", () => {
     });
   });
 
+  it("keeps the attachment note on the model turn but not in the persisted user message", async () => {
+    const dataUri = "data:image/jpeg;base64,aGVsbG8=";
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "Nice photo of a dog." })
+    );
+    await runWorkspaceAgent(1, 3, "what is in this picture?", {
+      channel: "web",
+      uploadContext: "\n\n📎 (Attachment: image-1.png, file id 9.)",
+      imageAttachments: [dataUri],
+    });
+    const messages = chatWithAiGateway.mock.calls[0][1];
+    expect(
+      messages.find(m => m.role === "user" && Array.isArray(m.content))
+    ).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "what is in this picture?\n\n📎 (Attachment: image-1.png, file id 9.)",
+        },
+        { type: "image_url", image_url: { url: dataUri } },
+      ],
+    });
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        role: "user",
+        content: "what is in this picture?",
+      })
+    );
+  });
+
   it("routes image turns to the configured vision model", async () => {
     configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
     const dataUri = "data:image/jpeg;base64,aGVsbG8=";

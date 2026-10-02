@@ -348,7 +348,34 @@ export async function getWorkspaceModelSettingsForUser(ownerId: number) {
   return { ...settings, customModels: models };
 }
 
-export async function updateWorkspaceModelSettingsForUser(ownerId: number, input: { activeProvider?: ActiveProvider; activeModelId?: string; activeCustomModelId?: number | null; workspaceRules?: string | null }) {
+/** Structured personalisation controls. Plain strings in the database; the
+ *  router validates them against these unions before they are saved. */
+export type PersonalisationDetail = "brief" | "balanced" | "detailed";
+export type PersonalisationProactiveness = "ask_first" | "act_and_tell" | "autonomous";
+export type PersonalisationExpertise = "new" | "some" | "expert";
+export const PERSONALISATION_DETAILS: PersonalisationDetail[] = ["brief", "balanced", "detailed"];
+export const PERSONALISATION_PROACTIVENESS: PersonalisationProactiveness[] = ["ask_first", "act_and_tell", "autonomous"];
+export const PERSONALISATION_EXPERTISE: PersonalisationExpertise[] = ["new", "some", "expert"];
+
+export type PersonalisationSettings = {
+  enabled: boolean;
+  profile: string | null;
+  tone: string | null;
+  detail: PersonalisationDetail | null;
+  proactiveness: PersonalisationProactiveness | null;
+  expertise: PersonalisationExpertise | null;
+};
+
+export type PersonalisationInput = {
+  enabled?: boolean;
+  profile?: string | null;
+  tone?: string | null;
+  detail?: PersonalisationDetail | null;
+  proactiveness?: PersonalisationProactiveness | null;
+  expertise?: PersonalisationExpertise | null;
+};
+
+export async function updateWorkspaceModelSettingsForUser(ownerId: number, input: { activeProvider?: ActiveProvider; activeModelId?: string; activeCustomModelId?: number | null; workspaceRules?: string | null } & PersonalisationInput) {
   const db = await requireDb();
   const settings = await getOrCreateWorkspaceSettings(ownerId);
   const updateSet: Partial<typeof workspaceSettings.$inferInsert> = { updatedAt: new Date() };
@@ -362,6 +389,12 @@ export async function updateWorkspaceModelSettingsForUser(ownerId: number, input
   if (input.activeProvider !== undefined) updateSet.activeProvider = input.activeProvider;
   if (input.activeModelId !== undefined) updateSet.activeModelId = input.activeModelId;
   if (input.workspaceRules !== undefined) updateSet.workspaceRules = input.workspaceRules;
+  if (input.enabled !== undefined) updateSet.personalisationEnabled = input.enabled;
+  if (input.profile !== undefined) updateSet.personalisationProfile = input.profile;
+  if (input.tone !== undefined) updateSet.personalisationTone = input.tone;
+  if (input.detail !== undefined) updateSet.personalisationDetail = input.detail;
+  if (input.proactiveness !== undefined) updateSet.personalisationProactiveness = input.proactiveness;
+  if (input.expertise !== undefined) updateSet.personalisationExpertise = input.expertise;
   if (Object.keys(updateSet).length === 1) return getWorkspaceModelSettingsForUser(ownerId);
   await db.update(workspaceSettings).set(updateSet).where(eq(workspaceSettings.id, settings.id));
   return getWorkspaceModelSettingsForUser(ownerId);
@@ -389,6 +422,40 @@ export async function setCommunicationStyleForUser(ownerId: number, style: strin
   await db.update(workspaceSettings).set({ communicationStyle: trimmed, updatedAt: new Date() }).where(eq(workspaceSettings.workspaceId, workspace.id));
   return trimmed;
 }
+
+/** The user's saved personalisation controls and distilled profile. */
+export async function getPersonalisationForUser(ownerId: number): Promise<PersonalisationSettings> {
+  const settings = await getOrCreateWorkspaceSettings(ownerId);
+  return {
+    enabled: settings.personalisationEnabled,
+    profile: settings.personalisationProfile,
+    tone: settings.personalisationTone,
+    detail: settings.personalisationDetail as PersonalisationDetail | null,
+    proactiveness: settings.personalisationProactiveness as PersonalisationProactiveness | null,
+    expertise: settings.personalisationExpertise as PersonalisationExpertise | null,
+  };
+}
+
+/**
+ * Persists personalisation changes (set by the agent's `set_personalisation`
+ * tool or the Settings UI). Empty strings clear text fields; only the keys the
+ * caller passes are touched. Values are clipped so a chatty model cannot store
+ * an unbounded blob.
+ */
+export async function setPersonalisationForUser(ownerId: number, input: PersonalisationInput): Promise<PersonalisationSettings> {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const updateSet: Partial<typeof workspaceSettings.$inferInsert> = { updatedAt: new Date() };
+  if (input.enabled !== undefined) updateSet.personalisationEnabled = input.enabled;
+  if (input.profile !== undefined) updateSet.personalisationProfile = input.profile?.trim().slice(0, 2000) || null;
+  if (input.tone !== undefined) updateSet.personalisationTone = input.tone?.trim().slice(0, 60) || null;
+  if (input.detail !== undefined) updateSet.personalisationDetail = input.detail ?? null;
+  if (input.proactiveness !== undefined) updateSet.personalisationProactiveness = input.proactiveness ?? null;
+  if (input.expertise !== undefined) updateSet.personalisationExpertise = input.expertise ?? null;
+  await db.update(workspaceSettings).set(updateSet).where(eq(workspaceSettings.workspaceId, workspace.id));
+  return getPersonalisationForUser(ownerId);
+}
+
 
 export async function createProjectForUser(ownerId: number, input: { name: string; description?: string | null }) {
   const db = await requireDb();

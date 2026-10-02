@@ -104,6 +104,37 @@ vi.mock("./db", () => ({
   setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) =>
     style.trim().slice(0, 500)
   ),
+  getPersonalisationForUser: vi.fn(async () => ({
+    enabled: false,
+    profile: null,
+    tone: null,
+    detail: null,
+    proactiveness: null,
+    expertise: null,
+  })),
+  setPersonalisationForUser: vi.fn(
+    async (
+      _owner: number,
+      input: {
+        enabled?: boolean;
+        profile?: string | null;
+        tone?: string | null;
+        detail?: string | null;
+        proactiveness?: string | null;
+        expertise?: string | null;
+      }
+    ) => ({
+      enabled: input.enabled ?? false,
+      profile: input.profile ?? null,
+      tone: input.tone ?? null,
+      detail: input.detail ?? null,
+      proactiveness: input.proactiveness ?? null,
+      expertise: input.expertise ?? null,
+    })
+  ),
+  PERSONALISATION_DETAILS: ["brief", "balanced", "detailed"],
+  PERSONALISATION_PROACTIVENESS: ["ask_first", "act_and_tell", "autonomous"],
+  PERSONALISATION_EXPERTISE: ["new", "some", "expert"],
   getDatabaseTime,
   hasAgentStopAfter,
   updateWorkspacePersistentSandbox: vi.fn(async () => true),
@@ -2309,6 +2340,121 @@ describe("Nova tool-calling workspace agent", () => {
       "The user's saved preferred communication style"
     );
     expect(system?.content).toContain("Short, direct replies. No filler.");
+  });
+
+  it("saves the personalisation profile when the model calls set_personalisation", async () => {
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-personalisation",
+              name: "set_personalisation",
+              arguments: JSON.stringify({
+                enabled: true,
+                profile: "A product designer who ships fast.",
+                tone: "warm and direct",
+                detail: "brief",
+                proactiveness: "act_and_tell",
+                expertise: "expert",
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "Saved - I know how you like to work now." })
+      );
+
+    const result = await runWorkspaceAgent(
+      1,
+      3,
+      "set up my personalisation",
+      {}
+    );
+    const { setPersonalisationForUser } = await import("./db");
+    expect(setPersonalisationForUser).toHaveBeenCalledWith(1, {
+      enabled: true,
+      profile: "A product designer who ships fast.",
+      tone: "warm and direct",
+      detail: "brief",
+      proactiveness: "act_and_tell",
+      expertise: "expert",
+    });
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)!.content).toContain(
+      "Saved the user's personalisation preferences"
+    );
+    expect(String(result.message?.content)).toContain("how you like to work");
+  });
+
+  it("injects saved personalisation into the system prompt", async () => {
+    const { getPersonalisationForUser } = await import("./db");
+    vi.mocked(getPersonalisationForUser).mockResolvedValueOnce({
+      enabled: true,
+      profile: "A solo founder writing a novel.",
+      tone: "playful",
+      detail: "detailed",
+      proactiveness: "autonomous",
+      expertise: "some",
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain("Personalisation mode is ON.");
+    expect(system?.content).toContain("A solo founder writing a novel.");
+    expect(system?.content).toContain("Preferred tone: playful.");
+    expect(system?.content).toContain("thorough, detailed replies");
+  });
+
+  it("announces an enabled personalisation mode even with no saved preferences", async () => {
+    const { getPersonalisationForUser } = await import("./db");
+    vi.mocked(getPersonalisationForUser).mockResolvedValueOnce({
+      enabled: true,
+      profile: null,
+      tone: null,
+      detail: null,
+      proactiveness: null,
+      expertise: null,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain(
+      "Personalisation mode is ON, but the user has no saved preferences yet."
+    );
+  });
+
+  it("marks saved preferences as OFF when the mode is disabled", async () => {
+    const { getPersonalisationForUser } = await import("./db");
+    vi.mocked(getPersonalisationForUser).mockResolvedValueOnce({
+      enabled: false,
+      profile: "A backend engineer.",
+      tone: null,
+      detail: null,
+      proactiveness: null,
+      expertise: null,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain("Personalisation mode is OFF.");
+    expect(system?.content).toContain("A backend engineer.");
   });
 
   it("deploys a chosen directory when the model passes one", async () => {

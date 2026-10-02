@@ -4,6 +4,7 @@ import {
   ensurePersistentSandbox,
   getE2BClient,
   isE2BConfigured,
+  pauseE2BSandbox,
   withE2BWorkspaceLock,
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
@@ -248,6 +249,34 @@ export async function syncAgentSandbox(
       error instanceof Error ? error.message : error
     );
     return 0;
+  }
+}
+
+/**
+ * Pauses the workspace's persistent sandbox once a run has synced its files,
+ * so an idle machine is not billed. E2B keeps the disk across a pause, so the
+ * next run resumes the same machine instead of cold-booting a fresh one. The
+ * pause happens under the same per-workspace lifecycle lock as the sync, so
+ * it can never land in the middle of another run's restore/execute window.
+ * Never throws - a sandbox with no pause primitive, or one already paused, is
+ * simply left alone.
+ */
+export async function pauseAgentSandbox(
+  ownerId: number,
+  workspaceId: number,
+  sandbox: E2BSandboxLike | undefined
+): Promise<boolean> {
+  if (!sandbox?.pause || !isE2BConfigured()) return false;
+  try {
+    return await withE2BWorkspaceLock(ownerId, workspaceId, () =>
+      pauseE2BSandbox(sandbox)
+    );
+  } catch (error) {
+    console.error(
+      "[Sandbox] end-of-run pause failed",
+      error instanceof Error ? error.message : error
+    );
+    return false;
   }
 }
 

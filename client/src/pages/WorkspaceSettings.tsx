@@ -5,6 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import UserAutomationsCard from "@/components/UserAutomationsCard";
 import ApiKeysCard from "@/components/ApiKeysCard";
 import PersonalisationCard from "@/components/PersonalisationCard";
+import BillingCard from "@/components/BillingCard";
 import ThemeCard from "@/components/ThemeCard";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Brain, Check, Clipboard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
+import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ const settingsTabs = [
   { id: "connections", label: "Connections", icon: Plug },
   { id: "automations", label: "Automations", icon: Sparkles },
   { id: "api", label: "API keys", icon: KeySquare },
+  { id: "billing", label: "Billing", icon: CreditCard },
   { id: "account", label: "Account", icon: UserCircle },
 ] as const;
 
@@ -49,6 +51,7 @@ export default function WorkspaceSettings() {
     <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /></div>
     <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
     <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
+    <div role="tabpanel" id="settings-panel-billing" aria-labelledby="settings-tab-billing" className={activeTab === "billing" ? "space-y-7" : "hidden"}><BillingCard /></div>
     <div role="tabpanel" id="settings-panel-account" aria-labelledby="settings-tab-account" className={activeTab === "account" ? "space-y-7" : "hidden"}><AccountManagementCard /><FactoryResetCard /></div>
   </div></DashboardLayout>;
 }

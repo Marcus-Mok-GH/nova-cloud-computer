@@ -16,8 +16,9 @@ vi.mock("@/lib/trpc", () => ({
     automations: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false }) }, runs: { useQuery: () => ({ data: [], isLoading: false }) }, update: { useMutation: () => mutation }, runDue: { useMutation: () => mutation } },
     auth: { requestDeletionCode: { useMutation: () => mutation }, confirmDeleteAccount: { useMutation: () => mutation } },
     apiKeys: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }) }, create: { useMutation: () => mutation }, rename: { useMutation: () => mutation }, revoke: { useMutation: () => mutation } },
+    billing: { status: { useQuery: () => ({ data: { plan: "standard", priority: false, updatedAt: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, setPriority: { useMutation: () => mutation } },
     composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -46,6 +47,9 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Connections");
     expect(markup).toContain("Automations");
     expect(markup).toContain("API keys");
+    expect(markup).toContain("Billing");
+    expect(markup).toContain("Priority requests");
+    expect(markup).toContain("Upgrade to priority");
     expect(markup).toContain("Account</button>");
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("Personalisation");

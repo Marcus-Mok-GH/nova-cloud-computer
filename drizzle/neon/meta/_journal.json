@@ -253,6 +253,13 @@
       "when": 1790920091770,
       "tag": "0035_funny_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790921303359,
+      "tag": "0036_fixed_vapor",
+      "breakpoints": true
     }
   ]
 }

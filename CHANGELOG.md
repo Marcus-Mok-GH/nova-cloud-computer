@@ -1,3 +1,19 @@
+2026-10-02 - Billing: a priority plan that skips ahead of the peak-hours queue
+
+The peak-hours queue served everyone in arrival order, with no way to buy a
+faster place. Settings gains a Billing tab with a priority plan: the button
+upgrades the account immediately (payment is intentionally bypassed while it is
+under test) and priority accounts are served ahead of standard ones.
+
+A new `billing_subscriptions` table stores each account's plan (migration
+0036), and admission denormalizes the plan onto the queued request so a later
+plan change cannot reorder a request already in line. The claim query orders by
+priority then arrival, and the reported queue position accounts for it, so a
+priority request only counts other priority requests ahead of it. Files:
+drizzle/schema.ts (+ migration 0036), server/db.ts, server/routers.ts,
+client/src/components/BillingCard.tsx (new), client/src/pages/WorkspaceSettings.tsx,
+plus tests.
+
 2026-10-02 - Peak-hours queue: tell senders their place instead of rejecting them
 
 Nova's shared inference pool had no admission control, so during busy hours a

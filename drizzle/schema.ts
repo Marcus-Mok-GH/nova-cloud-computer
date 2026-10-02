@@ -17,6 +17,8 @@ export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying
 export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_continue", "completed", "stopped", "failed"]);
 /** One deferred request admitted to the peak-hours inference queue. */
 export const inferenceQueueStatus = pgEnum("inference_queue_status", ["waiting", "running", "completed", "failed", "cancelled"]);
+/** Billing plan for an account: standard queues normally, priority is served first. */
+export const billingPlan = pgEnum("billing_plan", ["standard", "priority"]);
 
 export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique() });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
@@ -46,6 +48,19 @@ export const userAutomations = pgTable("user_automations", {
   id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 120 }).notNull(), instructions: text("instructions").notNull(), frequency: userAutomationFrequency("frequency").default("daily").notNull(), scheduleCron: varchar("scheduleCron", { length: 64 }).notNull(), scheduleTimezone: varchar("scheduleTimezone", { length: 80 }).default("UTC").notNull(), executionPrompt: text("executionPrompt").notNull(), args: jsonb("args").$type<Record<string, unknown>>().default({}).notNull(), definition: jsonb("definition").$type<Record<string, unknown>>().default({}).notNull(), scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }).unique(), enabled: boolean("enabled").default(false).notNull(), lastRunAt: timestamp("lastRunAt", { withTimezone: true }), lastError: varchar("lastError", { length: 1200 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("user_automations_owner_idx").on(table.ownerId, table.createdAt)]);
+/**
+ * Per-account billing plan. The peak-hours queue reads `plan` at admission to
+ * decide whether the account's requests jump ahead of standard ones.
+ */
+export const billingSubscriptions = pgTable("billing_subscriptions", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  plan: billingPlan("plan").default("standard").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("billing_subscriptions_owner_unique").on(table.ownerId)]);
+export type BillingSubscription = typeof billingSubscriptions.$inferSelect;
+
 /** Webhook update ids Nova has already handled - dedupes Telegram redeliveries. */
 export const telegramUpdateLog = pgTable("telegram_update_log", { updateId: bigint("updateId", { mode: "number" }).primaryKey(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
 export const agentStopRequests = pgTable("agent_stop_requests", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("agent_stop_requests_owner_idx").on(table.ownerId, table.createdAt)]);
@@ -119,6 +134,8 @@ export const inferenceQueue = pgTable("inference_queue", {
   errorMessage: varchar("errorMessage", { length: 1200 }),
   /** Claims so far; a stale sweep stops retrying a row once it hits the cap. */
   attempts: integer("attempts").default(0).notNull(),
+  /** Denormalized billing priority at admission; priority rows are claimed first. */
+  priority: boolean("priority").default(false).notNull(),
   startedAt: timestamp("startedAt", { withTimezone: true }),
   completedAt: timestamp("completedAt", { withTimezone: true }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),

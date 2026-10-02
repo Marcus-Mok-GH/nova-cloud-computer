@@ -2,6 +2,7 @@ import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
 import { runThinkerTask } from "./thinker";
 import {
+  MIN_CALL_RESERVE_MS,
   runAutonomousCoderTask,
   runCoderTask,
   type CoderOutcome,
@@ -3319,9 +3320,18 @@ async function executeWorkspaceTool(
           if (message.includes("not configured")) throw error;
           // Transient specialist failures (timeouts, NIM hiccups) get one
           // automatic retry, so a single blip never pushes the agent into
-          // silently hand-writing the code itself.
+          // silently hand-writing the code itself. The retry only runs when
+          // the remaining budget still covers the wait plus the reserve the
+          // specialist needs to start; otherwise it would begin work after
+          // the run deadline and be discarded anyway.
+          const retryWaitMs = 1500;
+          if (
+            deadlineAtMs !== undefined &&
+            deadlineAtMs - Date.now() - retryWaitMs < 2 * MIN_CALL_RESERVE_MS
+          )
+            throw error;
           note("The coding specialist hit a snag - retrying once…");
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          await new Promise(resolve => setTimeout(resolve, retryWaitMs));
           outcome = await runSpecialist();
         }
         if (outcome.kind === "single") {

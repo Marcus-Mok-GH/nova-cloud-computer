@@ -136,7 +136,7 @@ const CODER_TOOLS: NimAgentTool[] = [
  * steps" message even when the run had budget left to continue.
  */
 /** Never start a model call that cannot finish before the deadline. */
-const MIN_CALL_RESERVE_MS = 30_000;
+export const MIN_CALL_RESERVE_MS = 30_000;
 /** The honest outcome when a segment has no time left to start the specialist. */
 const NO_START_SUMMARY =
   "The editor sub-agent could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call editor again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.";
@@ -515,11 +515,12 @@ export async function runAutonomousCoderTask(
       // first request is rejected, and the task degrades to the classic
       // single-shot reply instead of failing the whole run.
       if (error instanceof NimToolsUnsupportedError && round === 0) {
+        // Pass the raw run deadline: runCoderTask applies the reserve itself.
         const single = await runCoderTask(
           trimmedTask,
           options.context,
           options.language,
-          budgetEndMs
+          options.deadlineAtMs
         );
         return { kind: "single", ...single };
       }
@@ -680,10 +681,19 @@ export async function runCoderTask(
     parts.push(
       `Existing code, errors, and other context:\n\n${context.trim()}`
     );
+  // Reserve the same margin the autonomous path keeps: the request must
+  // return before the run deadline, not at it, or the caller's deadline race
+  // could discard the result the moment it arrives.
+  const modelDeadlineAtMs =
+    deadlineAtMs !== undefined
+      ? deadlineAtMs - MIN_CALL_RESERVE_MS
+      : undefined;
   const code = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: CODER_SYSTEM_PROMPT,
-    ...(deadlineAtMs !== undefined ? { deadlineAtMs } : {}),
+    ...(modelDeadlineAtMs !== undefined
+      ? { deadlineAtMs: modelDeadlineAtMs }
+      : {}),
   });
   return { code: code.trim(), model: ENV.nimCoderModel };
 }

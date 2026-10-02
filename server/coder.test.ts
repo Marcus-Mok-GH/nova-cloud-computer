@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runAutonomousCoderTask, runCoderTask } from "./coder";
+import { MIN_CALL_RESERVE_MS, runAutonomousCoderTask, runCoderTask } from "./coder";
 
 const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
 vi.mock("./_core/env", () => ({
@@ -52,6 +52,21 @@ describe("runCoderTask", () => {
         "Existing code, errors, and other context:\n\nthe file must be plain Python 3",
       ].join("\n\n")
     );
+  });
+
+  it("reserves a margin before the run deadline on the model request", async () => {
+    runNimChatMock.mockResolvedValueOnce("code");
+    const deadline = Date.now() + 200_000;
+    await runCoderTask("fix it", undefined, undefined, deadline);
+    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(
+      deadline - MIN_CALL_RESERVE_MS
+    );
+  });
+
+  it("omits the model deadline when the caller gives none", async () => {
+    runNimChatMock.mockResolvedValueOnce("code");
+    await runCoderTask("fix it");
+    expect(runNimChatMock.mock.calls[0][0]).not.toHaveProperty("deadlineAtMs");
   });
 
   it("omits the optional language and context lines when not provided", async () => {

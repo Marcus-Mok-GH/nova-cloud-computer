@@ -7,6 +7,7 @@ import {
   isPeakHour,
   isPeakQueueEnabled,
   parsePeakWindow,
+  priorityActiveMessage,
   queuePositionMessage,
   shouldQueue,
 } from "./peakQueue";
@@ -113,5 +114,11 @@ describe("formatPeakWindow and queuePositionMessage", () => {
     expect(queuePositionMessage(4)).toBe("You are 4 in the queue.");
     expect(queuePositionMessage(0)).toBe("You are 1 in the queue.");
     expect(queuePositionMessage(Number.NaN)).toBe("You are 1 in the queue.");
+  });
+
+  it("confirms the priority hour on the message that starts it", () => {
+    expect(priorityActiveMessage()).toBe(
+      "Priority active for 1 hour. Your requests now jump ahead during peak hours."
+    );
   });
 });

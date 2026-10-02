@@ -25,7 +25,7 @@ import {
   agentRuns,
   dailyCredits,
   inferenceQueue,
-  billingSubscriptions,
+  priorityPurchases,
   type InferenceQueueItem,
   type InferenceQueuePayload,
 } from "../drizzle/schema";
@@ -1777,31 +1777,29 @@ export async function getInferenceQueueItemForOwner(ownerId: number, queueId: nu
   return (await db.select().from(inferenceQueue).where(and(eq(inferenceQueue.id, queueId), eq(inferenceQueue.ownerId, ownerId))).limit(1))[0];
 }
 
-/** An account's billing plan and whether it earns priority queue ordering. */
-export type BillingStatus = { plan: "standard" | "priority"; priority: boolean; updatedAt: Date | null };
+/** Whether an account has bought priority, and when it did. */
+export type PriorityStatus = { priority: boolean; purchasedAt: Date | null };
 
-export async function getBillingStatusForUser(ownerId: number): Promise<BillingStatus> {
+export async function getPriorityStatusForUser(ownerId: number): Promise<PriorityStatus> {
   const db = await requireDb();
-  const row = (await db.select().from(billingSubscriptions).where(eq(billingSubscriptions.ownerId, ownerId)).limit(1))[0];
-  const plan = row?.plan ?? "standard";
-  return { plan, priority: plan === "priority", updatedAt: row?.updatedAt ?? null };
+  const row = (await db.select().from(priorityPurchases).where(eq(priorityPurchases.ownerId, ownerId)).limit(1))[0];
+  return { priority: Boolean(row), purchasedAt: row?.purchasedAt ?? null };
 }
 
-/** True when the account's plan earns priority ordering for newly admitted requests. */
+/** True when the account has bought priority, so newly admitted requests jump ahead. */
 export async function isPriorityUser(ownerId: number): Promise<boolean> {
   const db = await requireDb();
-  const row = (await db.select({ plan: billingSubscriptions.plan }).from(billingSubscriptions).where(eq(billingSubscriptions.ownerId, ownerId)).limit(1))[0];
-  return row?.plan === "priority";
+  const row = (await db.select({ id: priorityPurchases.id }).from(priorityPurchases).where(eq(priorityPurchases.ownerId, ownerId)).limit(1))[0];
+  return Boolean(row);
 }
 
-/** Sets the account's plan (payment is intentionally bypassed for now). */
-export async function setBillingPlanForUser(ownerId: number, plan: "standard" | "priority"): Promise<BillingStatus> {
+/**
+ * Records the one-time purchase (payment is intentionally bypassed for now) and
+ * returns the resulting status. Idempotent: buying again never revokes the
+ * entitlement and keeps the original purchase date.
+ */
+export async function purchasePriorityForUser(ownerId: number): Promise<PriorityStatus> {
   const db = await requireDb();
-  const [row] = await db
-    .insert(billingSubscriptions)
-    .values({ ownerId, plan })
-    .onConflictDoUpdate({ target: billingSubscriptions.ownerId, set: { plan, updatedAt: new Date() } })
-    .returning();
-  const resolved = row?.plan ?? plan;
-  return { plan: resolved, priority: resolved === "priority", updatedAt: row?.updatedAt ?? null };
+  await db.insert(priorityPurchases).values({ ownerId }).onConflictDoNothing({ target: priorityPurchases.ownerId });
+  return getPriorityStatusForUser(ownerId);
 }

@@ -8,8 +8,9 @@ under test) and priority accounts are served ahead of standard ones.
 A new `billing_subscriptions` table stores each account's plan (migration
 0036), and admission denormalizes the plan onto the queued request so a later
 plan change cannot reorder a request already in line. The claim query orders by
-priority then arrival, and the reported queue position accounts for it, so a
-priority request only counts other priority requests ahead of it. Files:
+priority then arrival, and the reported queue position accounts for it: a
+priority request jumps ahead of standard waiting requests but still waits
+behind anything already running. Files:
 drizzle/schema.ts (+ migration 0036), server/db.ts, server/routers.ts,
 client/src/components/BillingCard.tsx (new), client/src/pages/WorkspaceSettings.tsx,
 plus tests.

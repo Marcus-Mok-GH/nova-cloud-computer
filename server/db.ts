@@ -1653,10 +1653,20 @@ export async function getInferenceQueuePosition(queueId: number): Promise<number
     .where(eq(inferenceQueue.id, queueId))
     .limit(1);
   const minePriority = item?.priority ?? false;
-  const active = inArray(inferenceQueue.status, ["waiting", "running"]);
-  const ahead = minePriority
-    ? and(active, eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId))
-    : and(active, or(eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId)));
+  // Nothing preempts a request that is already running, so every running row is
+  // ahead regardless of priority; beyond that, only the waiting rows the claim
+  // query would pick first count. The item itself is excluded so a running item
+  // is not counted against itself.
+  const waitingAhead = minePriority
+    ? and(eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId))
+    : or(eq(inferenceQueue.priority, true), lt(inferenceQueue.id, queueId));
+  const ahead = and(
+    ne(inferenceQueue.id, queueId),
+    or(
+      eq(inferenceQueue.status, "running"),
+      and(eq(inferenceQueue.status, "waiting"), waitingAhead),
+    ),
+  );
   const [result] = await db.select({ ahead: count() }).from(inferenceQueue).where(ahead);
   return Number(result?.ahead ?? 0) + 1;
 }

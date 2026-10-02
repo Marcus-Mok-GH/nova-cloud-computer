@@ -8,7 +8,11 @@ from any channel - web chat, Telegram, or the inference API - settles the
 activation before the AI is handed the turn, so the countdown is confirmed
 (and the sender told "Priority active for 1 hour") before any work begins. The
 activation is a single conditional update, so concurrent messages race on the
-same row and only the winner shows the confirmation. `isPriorityUser` and the
+same row and only the winner shows the confirmation. Every channel gets that
+confirmation: the web chat streams a `priority` event, Telegram sends it as a
+message, the queued API response carries `nova_priority`, and a direct API
+completion carries it as `x-nova-priority` (on the response body, or the
+opening SSE chunk). `isPriorityUser` and the
 billing status treat an armed or expired purchase as not priority, so the
 account returns to standard arrival order and the Billing tab offers the button
 again; buying again re-arms the purchase (the one-row-per-account upsert resets

@@ -129,6 +129,12 @@ export type WorkspaceToolActivity = {
   summary?: string;
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
+  /**
+   * Unified diff of what an edit_file call changed (before -> after), so the
+   * client can show the actual change in the edit's dropdown instead of only
+   * the file name. Absent for tools that do not rewrite whole files.
+   */
+  diff?: string;
 };
 
 export type WorkspaceAgentOptions = {
@@ -412,6 +418,50 @@ export function isCodeFileName(name: string): boolean {
 /** A write this large is beyond the tiny tweak the agent may do itself. */
 export function isSubstantialCode(content: string): boolean {
   return content.split("\n").length > 15 || content.length > 800;
+}
+
+const DIFF_MAX_LINES = 400;
+
+/**
+ * A compact unified diff ("@@ -1,3 +1,4 @@" hunks with -/+ lines) between a
+ * file's old and new content, for the edit_file dropdown. edit_file replaces
+ * the whole file, so a naive line-by-line diff would mark every line changed
+ * whenever a line is inserted near the top; this trims the common prefix and
+ * suffix first and diffs only the middle, which is what makes the hunks read
+ * like a real change. Returns "" when the content is unchanged.
+ */
+export function unifiedDiff(before: string, after: string): string {
+  if (before === after) return "";
+  const oldLines = before.split("\n");
+  const newLines = after.split("\n");
+  let prefix = 0;
+  while (
+    prefix < oldLines.length &&
+    prefix < newLines.length &&
+    oldLines[prefix] === newLines[prefix]
+  )
+    prefix++;
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  )
+    suffix++;
+  const removed = oldLines.slice(prefix, oldLines.length - suffix);
+  const added = newLines.slice(prefix, newLines.length - suffix);
+  // Cap the middle so a whole-file rewrite does not balloon the persisted
+  // activity row (and the chat payload) with hundreds of changed lines.
+  const truncated = removed.length > DIFF_MAX_LINES || added.length > DIFF_MAX_LINES;
+  const shownRemoved = removed.slice(0, DIFF_MAX_LINES);
+  const shownAdded = added.slice(0, DIFF_MAX_LINES);
+  const lines = [
+    `@@ -${prefix + 1},${removed.length} +${prefix + 1},${added.length} @@`,
+    ...shownRemoved.map(line => `-${line}`),
+    ...shownAdded.map(line => `+${line}`),
+  ];
+  if (truncated) lines.push("… diff truncated …");
+  return lines.join("\n");
 }
 
 /**
@@ -1732,6 +1782,8 @@ type ToolExecution = {
   action?: AgentAction;
   /** Full raw response surfaced in the research dropdown in the UI. */
   detail?: string;
+  /** Unified diff of the change, surfaced in the edit_file dropdown in the UI. */
+  diff?: string;
   /**
    * Set when the coding specialist is confirmed unavailable (a non-config
    * error survived the internal retry, or NIM is not configured). The run
@@ -2161,6 +2213,7 @@ async function executeWorkspaceTool(
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       const content = typeof args.content === "string" ? args.content : "";
+      const previousContent = String(file.content ?? "");
       if (
         gate?.blocked &&
         isCodeFileName(file.name) &&
@@ -2192,6 +2245,9 @@ async function executeWorkspaceTool(
         ok: true,
         result: `Updated ${file.name} (id ${file.id}).`,
         action: { kind: "file", name: file.name, operation: "updated" },
+        // The dropdown shows what actually changed; an unchanged write has
+        // no diff worth surfacing.
+        diff: unifiedDiff(previousContent, content) || undefined,
       };
     }
     case "rename_file": {
@@ -4447,6 +4503,7 @@ ${
           ...(execution.detail
             ? { detail: execution.detail.slice(0, 16000) }
             : {}),
+          ...(execution.diff ? { diff: execution.diff } : {}),
         });
         messages.push({
           role: "tool",

@@ -3,6 +3,9 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import {
   CodeTaskToolActivity,
+  DiffText,
+  EditFileDetail,
+  EditFileToolActivity,
   LiveActivityCard,
   ResearchToolActivity,
   SolveEquationDetail,
@@ -175,6 +178,88 @@ describe("toolLineText", () => {
       toolLineText(activity("run_command", '{"command":"npm test"}'))
     ).toBe("Run Command: npm test");
     expect(toolLineText(activity("run_command", "{}"))).toBe("Run Command");
+  });
+});
+
+describe("EditFileToolActivity", () => {
+  const edit = (
+    state: ToolActivity["state"],
+    diff?: string
+  ): ToolActivity => ({
+    id: "e1",
+    name: "edit_file",
+    state,
+    args: { arguments: '{"file":"notes.md","content":"Hello, updated!"}' },
+    ...(diff ? { diff } : {}),
+  });
+
+  it("tints added lines green, removed lines red, and the hunk header muted", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(DiffText, {
+        diff: "@@ -1,1 +1,1 @@\n-Hello\n+Hello, updated!",
+      })
+    );
+    expect(html).toContain("edit-file-diff");
+    expect(html).toContain("-Hello");
+    expect(html).toContain("+Hello, updated!");
+    expect(html).toContain("text-emerald-600");
+    expect(html).toContain("text-red-600");
+    expect(html).toContain("@@ -1,1 +1,1 @@");
+  });
+
+  it("starts open while running with the live note, not the diff", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EditFileToolActivity, {
+        activity: edit("running"),
+      })
+    );
+    expect(html).toContain("edit-file-detail-panel");
+    expect(html).toContain("The edit is being applied…");
+    expect(html).toContain("Edit File notes.md");
+  });
+
+  it("renders collapsed with a chevron once completed, ready to reveal the diff", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EditFileToolActivity, {
+        activity: edit("completed", "@@ -1,1 +1,1 @@\n-Hello\n+Hello, updated!"),
+      })
+    );
+    expect(html).not.toContain("edit-file-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("Edit File notes.md");
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("says there was no change when the edit wrote the same content back", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EditFileDetail, { activity: edit("completed") })
+    );
+    expect(html).toContain("No changes");
+  });
+
+  it("shows the real failure reason when the edit failed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EditFileDetail, {
+        activity: {
+          id: "e2",
+          name: "edit_file",
+          state: "failed",
+          args: { arguments: '{"file":"a.ts"}' },
+          detail: "Could not edit a.ts.",
+        },
+      })
+    );
+    expect(html).toContain("Could not edit a.ts.");
+    expect(html).toContain("text-red-600");
+  });
+
+  it("renders through the shared panel dispatch so persisted rows stay panels", () => {
+    expect(isPanelToolActivity("edit_file")).toBe(true);
+    const html = renderToStaticMarkup(
+      React.createElement(ToolActivityPanel, {
+        activity: edit("running"),
+      })
+    );
+    expect(html).toContain('data-testid="edit-file-tool-activity"');
   });
 });
 

@@ -1,3 +1,26 @@
+2026-10-02 - edit_file rows open into the file's diff
+
+The web chat's "Edit File" tool row was a dead one-liner: it named the file
+but never showed what changed, even though edit_file rewrites a whole file.
+It now renders as a dropdown like the specialists: open while the edit runs
+(with the live note), then collapsed over the unified diff of the change, with
+added lines tinted green and removed lines red.
+
+server/workspaceAgent.ts computes that diff at edit time: a new exported
+`unifiedDiff(before, after)` trims the common prefix and suffix before diffing
+the middle, so an insertion near the top does not mark every following line as
+changed, and the middle is capped at 400 lines so a whole-file rewrite cannot
+balloon the persisted activity row. The result rides on the activity as a new
+`diff` field (and on `ToolExecution`) and is omitted when the content is
+unchanged. client/src/lib/toolActivityLine.tsx adds `DiffText`/`EditFileDetail`
+and the `EditFileToolActivity` panel, and registers edit_file in
+isPanelToolActivity / ToolActivityPanel so persisted rows render as panels too.
+Files: server/workspaceAgent.ts, server/workspaceAgent.test.ts,
+client/src/lib/toolActivityLine.tsx, client/src/lib/toolActivityLine.test.tsx,
+client/src/lib/chatMessages.ts. 929 tests passing, typecheck clean.
+
+---
+
 2026-10-02 - Agent prompt reframes Nova as a capable operator instead of a thin router
 
 The workspace agent's system prompt no longer frames the model as a *hybrid

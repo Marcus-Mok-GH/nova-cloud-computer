@@ -338,6 +338,8 @@ export interface ExecuteWebAgentRunInput {
   chatId: string;
   /** The clean user text for this segment (the original message, or the continuation prompt). */
   content: string;
+  /** Attachment context appended to the agent's turn but hidden from the chat bubble. */
+  uploadContext?: string;
   imageAttachments?: string[];
   requestStartedAtMs: number;
   /** Continuation segments pass the claimed ledger row; fresh runs omit it. */
@@ -362,6 +364,7 @@ export async function executeWebAgentRun(
     ownerId,
     chatId,
     content,
+    uploadContext,
     imageAttachments,
     requestStartedAtMs,
     continuation,
@@ -378,6 +381,7 @@ export async function executeWebAgentRun(
   try {
     const result = await runWorkspaceAgent(ownerId, chatId, content, {
       channel: "web",
+      uploadContext,
       imageAttachments,
       deadlineAtMs,
       continuationPlanned: canChain && run !== undefined,

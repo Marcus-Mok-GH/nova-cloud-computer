@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Agents from "./Agents";
+import Agents, { walletBudgetFromField } from "./Agents";
 
 const state = vi.hoisted(() => ({
   agents: [] as Array<{
@@ -11,7 +11,7 @@ const state = vi.hoisted(() => ({
     instructions: string | null;
     emailAlias: string;
     phoneHandle: string;
-    walletBudgetCredits: number;
+    walletBudgetCredits: number | null;
     walletSpentCredits: number;
   }>,
   chats: [] as Array<{
@@ -154,6 +154,25 @@ describe("Agents page rendered states", () => {
     expect(markup).not.toContain("No agents yet");
   });
 
+  it("marks an uncapped wallet as unlimited instead of counting credits", () => {
+    state.agents = [
+      {
+        id: 13,
+        name: "Orla",
+        role: null,
+        instructions: null,
+        emailAlias: "orla-7b3c@nova.local",
+        phoneHandle: "+1-555-0107",
+        walletBudgetCredits: null,
+        walletSpentCredits: 40,
+      },
+    ];
+    const markup = renderAgents();
+    expect(markup).toContain("Unlimited");
+    expect(markup).toContain("40 spent");
+    expect(markup).not.toContain("credits left");
+  });
+
   it("shows a pending approval with Approve and Decline controls", () => {
     state.pending = [
       {
@@ -253,5 +272,24 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("Shortlist ready");
     expect(markup).toContain("Three venues look promising.");
     expect(markup).toContain("From Mira to Pip");
+  });
+});
+
+describe("agent budget field", () => {
+  it("reads an empty budget as an unlimited wallet", () => {
+    expect(walletBudgetFromField("")).toEqual({ ok: true, credits: null });
+    expect(walletBudgetFromField("   ")).toEqual({ ok: true, credits: null });
+  });
+
+  it("keeps a typed budget as a plain credit count", () => {
+    expect(walletBudgetFromField("500")).toEqual({ ok: true, credits: 500 });
+    expect(walletBudgetFromField(" 250 ")).toEqual({ ok: true, credits: 250 });
+    expect(walletBudgetFromField("0")).toEqual({ ok: true, credits: 0 });
+  });
+
+  it("rejects anything that is not a non-negative count of credits", () => {
+    expect(walletBudgetFromField("-5")).toEqual({ ok: false });
+    expect(walletBudgetFromField("lots")).toEqual({ ok: false });
+    expect(walletBudgetFromField("500.5")).toEqual({ ok: false });
   });
 });

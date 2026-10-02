@@ -45,7 +45,8 @@ type AgentRow = {
   instructions: string | null;
   emailAlias: string;
   phoneHandle: string;
-  walletBudgetCredits: number;
+  /** Granted budget in credits; null means the wallet is unlimited. */
+  walletBudgetCredits: number | null;
   walletSpentCredits: number;
 };
 
@@ -88,21 +89,28 @@ const cardClass =
 const chipClass =
   "inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground dark:border-white/10";
 
-/** Progress bar for the wallet: spent portion first, remainder after. */
+/**
+ * Progress bar for the wallet: spent portion first, remainder after. A wallet
+ * with no budget (null) is unlimited - full bar, spent shown as a side note.
+ */
 function WalletBar({ agent }: { agent: AgentRow }) {
-  const budget = Math.max(0, agent.walletBudgetCredits);
-  const spent = Math.min(budget, Math.max(0, agent.walletSpentCredits));
-  const remaining = budget - spent;
-  const spentPercent = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+  const cap = agent.walletBudgetCredits;
+  const spent = Math.max(0, agent.walletSpentCredits);
+  const budget = cap === null ? null : Math.max(0, cap);
+  const used = budget === null ? 0 : Math.min(budget, spent);
+  const label =
+    budget === null
+      ? `Unlimited${spent > 0 ? ` · ${spent} spent` : ""}`
+      : `${budget - used} of ${budget} credits left`;
+  const spentPercent =
+    budget === null ? 100 : budget > 0 ? Math.round((used / budget) * 100) : 0;
   return (
     <div className="mt-3" data-testid={`wallet-${agent.id}`}>
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 font-semibold">
           <Wallet className="size-3.5 text-primary" /> Wallet
         </span>
-        <span>
-          {remaining} of {budget} credits left
-        </span>
+        <span>{label}</span>
       </div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted dark:bg-white/10">
         <div
@@ -112,6 +120,21 @@ function WalletBar({ agent }: { agent: AgentRow }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The wallet budget field, the dialog's one piece of real logic: an empty
+ * field is how the user asks for no cap at all (an unlimited wallet), and
+ * anything else must be a non-negative number of credits.
+ */
+export function walletBudgetFromField(
+  raw: string
+): { ok: true; credits: number | null } | { ok: false } {
+  const trimmed = raw.trim();
+  if (trimmed === "") return { ok: true, credits: null };
+  const credits = Number(trimmed);
+  if (!Number.isInteger(credits) || credits < 0) return { ok: false };
+  return { ok: true, credits };
 }
 
 /** Create-or-edit dialog for one agent. `agent` null means "create". */
@@ -128,8 +151,13 @@ function AgentDialog({
   const [name, setName] = useState(agent?.name ?? "");
   const [role, setRole] = useState(agent?.role ?? "");
   const [instructions, setInstructions] = useState(agent?.instructions ?? "");
+  // An empty field is how the user asks for an unlimited wallet.
   const [budget, setBudget] = useState(
-    String(agent?.walletBudgetCredits ?? 500)
+    agent
+      ? agent.walletBudgetCredits === null
+        ? ""
+        : String(agent.walletBudgetCredits)
+      : "500"
   );
 
   const createAgent = trpc.agents.create.useMutation({
@@ -150,11 +178,14 @@ function AgentDialog({
   });
 
   const save = () => {
-    const budgetCredits = Number.parseInt(budget, 10);
-    if (!Number.isFinite(budgetCredits) || budgetCredits < 0) {
-      toast.error("The wallet budget must be 0 or more credits.");
+    const parsed = walletBudgetFromField(budget);
+    if (!parsed.ok) {
+      toast.error(
+        "The wallet budget must be 0 or more credits - or empty for unlimited."
+      );
       return;
     }
+    const budgetCredits = parsed.credits;
     if (agent) {
       updateAgent.mutate({
         id: agent.id,
@@ -233,11 +264,12 @@ function AgentDialog({
               min={0}
               max={100000}
               value={budget}
+              placeholder="Unlimited"
               onChange={event => setBudget(event.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Purchases from this wallet always wait for your approval in the
-              Agents page.
+              Leave it empty for an unlimited wallet. Purchases from this
+              wallet always wait for your approval in the Agents page.
             </p>
           </div>
         </div>

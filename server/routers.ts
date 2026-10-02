@@ -115,8 +115,10 @@ const terminalRouteError = (error: unknown, fallback: string) => {
 };
 const gatewayCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want Nova to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
 const agentName = z.string().trim().min(1, "An agent needs a name.").max(80, "Names are at most 80 characters.");
-const agentCreateInput = z.object({ name: agentName, role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: z.number().int().min(0).max(100000).optional() });
-const agentUpdateInput = z.object({ id: z.number().int().positive(), name: agentName.optional(), role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: z.number().int().min(0).max(100000).optional() }).refine(input => input.name !== undefined || input.role !== undefined || input.instructions !== undefined || input.walletBudgetCredits !== undefined, { message: "Provide at least one agent change." });
+/** `walletBudgetCredits: null` grants an unlimited wallet (no cap). */
+const agentBudgetCredits = z.number().int().min(0).max(100000).nullable().optional();
+const agentCreateInput = z.object({ name: agentName, role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: agentBudgetCredits });
+const agentUpdateInput = z.object({ id: z.number().int().positive(), name: agentName.optional(), role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: agentBudgetCredits }).refine(input => input.name !== undefined || input.role !== undefined || input.instructions !== undefined || input.walletBudgetCredits !== undefined, { message: "Provide at least one agent change." });
 const teamCreateInput = z.object({ name: z.string().trim().min(1, "A team needs a name.").max(160), goal: z.string().trim().min(1, "A team needs a shared goal.").max(2000), agentIds: z.array(z.number().int().positive()).min(2, "A team needs at least two agents.").max(8) });
 /** Agent mutations surface their two typed failures as proper TRPC errors. */
 const agentRouteError = (error: unknown, fallback: string): never => {

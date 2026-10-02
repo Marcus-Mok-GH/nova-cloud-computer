@@ -315,6 +315,7 @@ vi.mock("./telegram", () => ({
 
 const {
   runWorkspaceAgent,
+  agentIdentityPromptBlock,
   END_TURN_NUDGE_PREFIX,
   FAILURE_NUDGE_PREFIX,
   autoTitleChatForUser,
@@ -4408,5 +4409,35 @@ describe("connector tool gating", () => {
       userText: "remember this task",
       assistantText: "Done.",
     });
+  });
+});
+
+describe("agent identity prompt wallet line", () => {
+  const profile = {
+    id: 11,
+    name: "Mira",
+    role: "Researcher",
+    instructions: null,
+    emailAlias: "mira-4f2a@nova.local",
+    phoneHandle: "+1-555-0142",
+    walletBudgetCredits: 500 as number | null,
+    walletSpentCredits: 120,
+  };
+
+  it("reports the credits left in a capped wallet", () => {
+    const block = agentIdentityPromptBlock(
+      { profile: { ...profile } },
+      "no pending requests"
+    );
+    expect(block).toContain("380 of 500 credits remaining");
+  });
+
+  it("tells the agent an uncapped wallet has no budget at all", () => {
+    const block = agentIdentityPromptBlock(
+      { profile: { ...profile, walletBudgetCredits: null } },
+      "no pending requests"
+    );
+    expect(block).toContain("wallet: unlimited, no budget cap (120 credits spent)");
+    expect(block).not.toContain("credits remaining");
   });
 });

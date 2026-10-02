@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Peak-hours queueing is time-of-day dependent; keep the shared suite
+    // deterministic and cover the enabled path explicitly in peakQueue tests.
+    env: { NOVA_PEAK_QUEUE: "off" },
     include: [
       "server/**/*.test.ts",
       "server/**/*.spec.ts",

@@ -140,6 +140,17 @@ function TryApiConsole() {
         signal: controller.signal,
       });
 
+      // During peak hours a request is queued rather than streamed: the
+      // server answers 202 with a position and a poll URL.
+      if (response.status === 202) {
+        const data = await response.json().catch(() => null);
+        const position = data?.queue_position;
+        const message = data?.message || (position ? "You are " + position + " in the queue." : "Your request joined the peak-hours queue.");
+        const pollUrl = data?.poll_url || "/api/v1/queue/<id>";
+        setError("Peak hours: " + message + " Poll " + pollUrl + " until the completion is ready.");
+        return;
+      }
+
       // Failures before the stream opens (bad key, rejected model, quota) come
       // back as a normal JSON error envelope rather than as SSE.
       if (!response.ok || !response.body) {
@@ -329,6 +340,7 @@ export default function ApiDocs() {
               <div className="flex gap-4 p-5"><Terminal className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Text only for now.</span> Tools and function calling are not supported by the v1 inference API.</p></div>
               <div className="flex gap-4 p-5"><BookOpen className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">40 messages per request.</span> The combined prompt content limit is 100,000 characters.</p></div>
               <div className="flex gap-4 p-5"><KeyRound className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Usage follows your workspace.</span> Requests to <code>nova-pro</code> use the owner's daily Nova credits and inference allowance; a BYOK model runs on your own provider and claims none.</p></div>
+              <div className="flex gap-4 p-5"><Zap className="mt-0.5 size-4 shrink-0 text-[#b65f38] dark:text-[#e59468]" /><p className="text-sm leading-6"><span className="font-semibold">Peak hours use a queue.</span> During the daily peak window a chat completion request returns <code>202</code> with <code>{'{ queue_id, queue_position, poll_url }'}</code> instead of a completion. Poll <code>GET /api/v1/queue/:id</code> for the live position, then the stored completion once it reaches the front.</p></div>
             </div>
           </section>
 

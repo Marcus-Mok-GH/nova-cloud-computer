@@ -40,12 +40,22 @@ import {
   deleteWorkspaceFolderForUser,
   getChatForUser,
   getCommunicationStyleForUser,
+  getPersonalisationForUser,
   getTelegramCredentialsForUser,
   getUserIdentityForUser,
   getWorkspaceComputer,
   listChatMessagesForUser,
   renameChatIfDefaultForUser,
   setCommunicationStyleForUser,
+  setPersonalisationForUser,
+  PERSONALISATION_DETAILS,
+  PERSONALISATION_EXPERTISE,
+  PERSONALISATION_PROACTIVENESS,
+  type PersonalisationDetail,
+  type PersonalisationExpertise,
+  type PersonalisationInput,
+  type PersonalisationProactiveness,
+  type PersonalisationSettings,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
 } from "./db";
@@ -685,6 +695,51 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
         },
         required: ["style"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_personalisation",
+      description:
+        "Save or update the user's personalisation profile and the structured preferences that tune how Nova works with them. Use it during a personalisation session, and whenever the user states a lasting preference about how you should work, communicate or collaborate. Only pass the fields you are changing - pass an empty string to clear a text field.",
+      parameters: {
+        type: "object",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Turn personalisation mode on or off for this workspace.",
+          },
+          profile: {
+            type: "string",
+            description:
+              "A concise profile of the user distilled from what they tell you - their role, goals, recurring work and what matters to them. A few sentences at most.",
+          },
+          tone: {
+            type: "string",
+            description:
+              "Preferred tone, e.g. 'warm and encouraging' or 'direct and no-nonsense'.",
+          },
+          detail: {
+            type: "string",
+            enum: ["brief", "balanced", "detailed"],
+            description: "How much detail the user prefers in your replies.",
+          },
+          proactiveness: {
+            type: "string",
+            enum: ["ask_first", "act_and_tell", "autonomous"],
+            description:
+              "How much Nova should do on its own before checking in: ask_first, act_and_tell, or autonomous.",
+          },
+          expertise: {
+            type: "string",
+            enum: ["new", "some", "expert"],
+            description:
+              "The user's familiarity with these tools, which sets how much you explain: new, some, or expert.",
+          },
+        },
+        required: [],
       },
     },
   },
@@ -1486,6 +1541,29 @@ export function connectorStatusLine(connected: ComposioToolkit[]): string {
   return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
 }
 
+const PERSONALISATION_DETAIL_LABELS: Record<PersonalisationDetail, string> = { brief: "keep replies brief", balanced: "a balanced level of detail", detailed: "thorough, detailed replies" };
+const PERSONALISATION_PROACTIVENESS_LABELS: Record<PersonalisationProactiveness, string> = { ask_first: "ask before acting", act_and_tell: "act and then explain", autonomous: "work fully autonomously" };
+const PERSONALISATION_EXPERTISE_LABELS: Record<PersonalisationExpertise, string> = { new: "a newcomer who needs things explained", some: "familiar with the tools", expert: "an expert - skip the basics" };
+
+/**
+ * Composes the personalisation block injected into every agent system prompt.
+ * Returns an empty string when nothing is saved, so the prompt stays clean for
+ * users who never open the feature.
+ */
+function formatPersonalisationForPrompt(settings: PersonalisationSettings): string {
+  const lines: string[] = [];
+  if (settings.profile) lines.push(`What I know about the user: ${settings.profile}`);
+  if (settings.tone) lines.push(`Preferred tone: ${settings.tone}.`);
+  if (settings.detail) lines.push(`Preferred reply length: ${PERSONALISATION_DETAIL_LABELS[settings.detail]}.`);
+  if (settings.proactiveness) lines.push(`Collaboration style: ${PERSONALISATION_PROACTIVENESS_LABELS[settings.proactiveness]}.`);
+  if (settings.expertise) lines.push(`The user is ${PERSONALISATION_EXPERTISE_LABELS[settings.expertise]}.`);
+  if (!lines.length) return "";
+  const intro = settings.enabled
+    ? "The user has personalisation mode on. Their saved preferences - which you should keep learning and refining:"
+    : "The user's saved personalisation preferences:";
+  return `${intro}\n${lines.map(line => `- ${line}`).join("\n")}`;
+}
+
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
 
 You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors, thinker), the computation (solve_equation, run_vm_task, run_bash, editor), and the memory (workspace files). You are the traffic cop; they are the engine.
@@ -1515,6 +1593,7 @@ Operating principles:
 - End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text.
 {{progress_updates}}
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
+- Personalisation: when the user asks to set up, tune, or change how you work with them, run a short personalisation session - ask one focused question at a time about their role and goals, how they like your replies, how much you should act on your own, and how familiar they are with the tools, waiting for each answer before asking the next, then read the saved profile back in one short paragraph. Save each thing you learn with set_personalisation as you go, and set enabled: true. Outside a session, whenever the user states a lasting preference about how you should work, save it with set_personalisation too - but only when personalisation mode is on (their saved preferences appear above; when the section is absent, personalisation mode is off and you should offer to turn it on instead of saving). Never invent preferences the user has not expressed.
 
 Formatting: render replies in Markdown when it helps readability - **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 
@@ -1528,6 +1607,7 @@ Workspace rules:
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 {{style}}
+{{personalisation}}
 This request arrived via: {{channel}}.
 
 Recent memories (search_memories finds more, read_memory returns the full record; list_workspace lists every file and folder):
@@ -2492,6 +2572,46 @@ async function executeWorkspaceTool(
         return {
           ok: false,
           result: `Could not save the style preference: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+    case "set_personalisation": {
+      const input: PersonalisationInput = {};
+      if (typeof args.enabled === "boolean") input.enabled = args.enabled;
+      if (args.profile !== undefined) input.profile = str(args.profile) || null;
+      if (args.tone !== undefined) input.tone = str(args.tone) || null;
+      const detail = str(args.detail);
+      if (args.detail !== undefined && (detail === "" || PERSONALISATION_DETAILS.includes(detail as PersonalisationDetail)))
+        input.detail = detail === "" ? null : (detail as PersonalisationDetail);
+      const proactiveness = str(args.proactiveness);
+      if (args.proactiveness !== undefined && (proactiveness === "" || PERSONALISATION_PROACTIVENESS.includes(proactiveness as PersonalisationProactiveness)))
+        input.proactiveness = proactiveness === "" ? null : (proactiveness as PersonalisationProactiveness);
+      const expertise = str(args.expertise);
+      if (args.expertise !== undefined && (expertise === "" || PERSONALISATION_EXPERTISE.includes(expertise as PersonalisationExpertise)))
+        input.expertise = expertise === "" ? null : (expertise as PersonalisationExpertise);
+      if (Object.keys(input).length === 0)
+        return {
+          ok: false,
+          result:
+            "No personalisation changes were provided. Pass at least one of enabled, profile, tone, detail, proactiveness or expertise.",
+        };
+      try {
+        const saved = await setPersonalisationForUser(ownerId, input);
+        const summary = [
+          saved.profile ? `profile: "${saved.profile}"` : null,
+          saved.tone ? `tone: ${saved.tone}` : null,
+          saved.detail ? `detail: ${saved.detail}` : null,
+          saved.proactiveness ? `proactiveness: ${saved.proactiveness}` : null,
+          saved.expertise ? `expertise: ${saved.expertise}` : null,
+        ].filter(Boolean).join(", ");
+        return {
+          ok: true,
+          result: `Saved the user's personalisation preferences${summary ? ` (${summary})` : ""}.${saved.enabled ? " Personalisation mode is on - keep noticing and saving lasting preferences." : " Personalisation mode is off."}`,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          result: `Could not save the personalisation preferences: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }
@@ -3515,6 +3635,7 @@ ${
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
+    const personalisation = await getPersonalisationForUser(ownerId);
     // The deployment registry - every site's ID, URL and description - rides
     // along in the system prompt so targeting deployments stays explicit
     // across every chat.
@@ -3544,6 +3665,10 @@ ${
             communicationStyle
               ? `The user's saved preferred communication style: "${communicationStyle}" - follow it in every reply.`
               : ""
+          )
+          .replace(
+            "{{personalisation}}",
+            formatPersonalisationForPrompt(personalisation)
           )
           .replace("{{user}}", userLine)
           .replace(

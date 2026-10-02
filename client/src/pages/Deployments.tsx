@@ -18,6 +18,7 @@ type DeploymentRow = {
   createdAt: Date | string;
 };
 
+/** The Deployments page: the live site, its deploy history, and taking hosted deployments offline. */
 export default function Deployments() {
   const utils = trpc.useUtils();
   const status = trpc.deployments.status.useQuery(undefined, { retry: false, refetchInterval: 30_000 });
@@ -39,6 +40,7 @@ export default function Deployments() {
     onError: error => toast.error(error.message),
   });
 
+  /** Takes one hosted deployment offline, after the user confirms its URL will go away. */
   const deleteDeployment = (row: DeploymentRow) => {
     const key = row.deploymentKey ?? row.siteId;
     if (!window.confirm(`Delete deployment ${key}? Its website and URL go offline permanently.`)) return;

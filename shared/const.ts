@@ -21,8 +21,13 @@ export function isDeveloperEmail(email: string | null | undefined): boolean {
  * Messages persisted before the rename still carry the legacy prefix, which
  * the client also recognizes.
  */
-export const MISTRAL_UNAVAILABLE_PREFIX = "Nova AI service error: ";
-export const LEGACY_MISTRAL_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
+export const AI_UNAVAILABLE_PREFIX = "Nova AI service error: ";
+/**
+ * Legacy form of the marker above. The literal text is part of message rows
+ * already persisted in the database, so it must stay byte-for-byte identical
+ * for the client to keep recognizing (and hiding) those older replies.
+ */
+export const LEGACY_AI_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
 
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no

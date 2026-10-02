@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
 import {
-  LEGACY_MISTRAL_UNAVAILABLE_PREFIX,
-  MISTRAL_UNAVAILABLE_PREFIX,
+  LEGACY_AI_UNAVAILABLE_PREFIX,
+  AI_UNAVAILABLE_PREFIX,
 } from "@shared/const";
 import { ENV } from "./_core/env";
-import { MistralGatewayClientError } from "./mistralGateway";
+import { AiGatewayClientError } from "./aiGateway";
 import {
   startAgentRunForUser,
   finishAgentRunForUser,
@@ -59,7 +59,7 @@ const RESCUABLE_SEGMENT_MIN_MS = 120_000;
  * rescued. Unknown errors are treated as permanent for the same reason.
  */
 export function isTransientRunError(error: unknown): boolean {
-  if (error instanceof MistralGatewayClientError) {
+  if (error instanceof AiGatewayClientError) {
     return (
       error.kind === "unavailable" ||
       error.kind === "rate_limit" ||
@@ -176,10 +176,10 @@ export async function executeTelegramAgentRun(
     ).trim();
     // The failure marker is an internal detection hook for the web UI;
     // Telegram users get the notice without it (legacy markers included).
-    const reply = rawReply.startsWith(MISTRAL_UNAVAILABLE_PREFIX)
-      ? rawReply.slice(MISTRAL_UNAVAILABLE_PREFIX.length)
-      : rawReply.startsWith(LEGACY_MISTRAL_UNAVAILABLE_PREFIX)
-        ? rawReply.slice(LEGACY_MISTRAL_UNAVAILABLE_PREFIX.length)
+    const reply = rawReply.startsWith(AI_UNAVAILABLE_PREFIX)
+      ? rawReply.slice(AI_UNAVAILABLE_PREFIX.length)
+      : rawReply.startsWith(LEGACY_AI_UNAVAILABLE_PREFIX)
+        ? rawReply.slice(LEGACY_AI_UNAVAILABLE_PREFIX.length)
         : rawReply;
     // Chain the continuation BEFORE delivering anything: scheduling is the
     // survival-critical step (it must fit inside the remaining runtime

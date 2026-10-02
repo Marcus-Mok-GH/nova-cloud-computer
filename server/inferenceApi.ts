@@ -3,7 +3,7 @@ import express, { type Request, type Response } from "express";
 import { API_KEY_PREFIX, findOwnerByApiKey } from "./apiKeys";
 import { chatWithCustomModel, getActiveCustomModel } from "./byokGateway";
 import { getDailyCreditStatusForUser } from "./db";
-import { chatWithMistralGateway, type GatewayChatMessage, type GatewayChatResult, MistralGatewayClientError } from "./mistralGateway";
+import { chatWithAiGateway, type GatewayChatMessage, type GatewayChatResult, AiGatewayClientError } from "./aiGateway";
 import type { CustomModel } from "../drizzle/schema";
 
 /**
@@ -180,7 +180,7 @@ export function buildOpenAiSseChunk(id: string, model: string, delta: Record<str
 }
 
 /** Maps gateway client errors to OpenAI-style status, type and code. */
-export function mapGatewayClientError(error: MistralGatewayClientError): { status: number; type: string; code: string } {
+export function mapGatewayClientError(error: AiGatewayClientError): { status: number; type: string; code: string } {
   switch (error.kind) {
     case "client_error":
       return { status: 400, type: "invalid_request_error", code: "bad_request" };
@@ -217,7 +217,7 @@ async function requireApiOwner(req: Request, res: Response): Promise<number | nu
 
 function handleInferenceError(res: Response, error: unknown) {
   if (error instanceof InferenceApiError) return sendError(res, error.status, error.message, error.type, error.code);
-  if (error instanceof MistralGatewayClientError) {
+  if (error instanceof AiGatewayClientError) {
     const mapped = mapGatewayClientError(error);
     return sendError(res, mapped.status, error.message, mapped.type, mapped.code);
   }
@@ -263,7 +263,7 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     // choice alongside `nova-pro`, and each choice routes to its own backend.
     const choice = resolveInferenceModel(await getActiveCustomModel(ownerId), model);
     const runChat = (options: { onChunk?: (chunk: string) => void; signal?: AbortSignal }) =>
-      choice.customModel ? chatWithCustomModel(choice.customModel, messages, options) : chatWithMistralGateway(ownerId, messages, options);
+      choice.customModel ? chatWithCustomModel(choice.customModel, messages, options) : chatWithAiGateway(ownerId, messages, options);
 
     if (!stream) {
       const result = await runChat({});
@@ -297,7 +297,7 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     // Once the SSE stream has begun the client is committed to it: surface
     // the failure as an error event instead of a status code.
     if (sseStarted) {
-      const reason = error instanceof InferenceApiError || error instanceof MistralGatewayClientError ? error.message : "Nova's inference service hit an unexpected error.";
+      const reason = error instanceof InferenceApiError || error instanceof AiGatewayClientError ? error.message : "Nova's inference service hit an unexpected error.";
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({ error: { message: reason, type: "server_error", code: "internal_error" } })}\n\n`);
         res.write("data: [DONE]\n\n");

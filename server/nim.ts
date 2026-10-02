@@ -4,9 +4,10 @@
  * (https://build.nvidia.com): a personal key from build.nvidia.com unlocks
  * the hosted endpoint at https://integrate.api.nvidia.com/v1, and a
  * self-hosted NIM container speaks the same protocol, so the base URL is
- * overridable. The gateway behind Nova's own model is Mistral; specialist
- * delegates with different strengths (the coder, the researcher) live next
- * to it and call their providers directly through this small client. */
+ * overridable. Nova's own model is served by its built-in AI gateway;
+ * specialist delegates with different strengths (the coder, the researcher)
+ * live next to it and call their providers directly through this small
+ * client. */
 
 import { ENV } from "./_core/env";
 

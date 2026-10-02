@@ -27,7 +27,7 @@ vi.mock("./_core/heartbeat", () => ({ createHeartbeatJob, updateHeartbeatJob }))
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
-vi.mock("./mistralGateway", () => ({ getMistralGatewayStatus: vi.fn(), completeWithMistralGateway: vi.fn(), MistralGatewayClientError: class extends Error {} }));
+vi.mock("./aiGateway", () => ({ getAiGatewayStatus: vi.fn(), completeWithAiGateway: vi.fn(), AiGatewayClientError: class extends Error {} }));
 
 const { appRouter } = await import("./routers");
 

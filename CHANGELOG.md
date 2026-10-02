@@ -1,3 +1,28 @@
+2026-10-01 - Provider-neutral naming for the built-in AI gateway
+
+The built-in gateway serves Z.ai (GLM) and the Kilo anonymous tier alongside
+its original provider, so naming it after one vendor was misleading. The
+module is now server/aiGateway.ts and its exports are provider-neutral
+(AiGatewayClientError, chatWithAiGateway, getAiGatewayStatus,
+listGatewayModels, defaultGatewayModel, and friends); the tRPC router moved
+from mistral.* to ai.*, and user-facing copy no longer names a provider.
+
+This is a rename only - both transport modes keep working unchanged. The
+MISTRAL_* environment variables, the api.mistral.ai default base URL, and the
+ministral model defaults are all untouched, and are now documented as the
+gateway's "default provider" mode. The database is untouched too: the
+model_provider enum value 'mistral' and the mistral_inference_allowances
+table keep their legacy physical names behind neutral TypeScript symbols
+(inferenceAllowances, claimInferenceRequestForUser), each with a comment
+explaining why. LEGACY_AI_UNAVAILABLE_PREFIX keeps its exact legacy string so
+error replies already persisted still render as the offline state instead of
+leaking raw detail. docs/mistral-gateway-contract.md became
+docs/ai-gateway-contract.md and was rewritten to match the current two-mode
+implementation. Files: server/aiGateway.ts (renamed), server/routers.ts,
+server/db.ts, server/byokGateway.ts, server/workspaceAgent.ts,
+server/inferenceApi.ts, server/status.ts, server/agentRuns.ts,
+shared/const.ts, drizzle/schema.ts, client/src/pages/*, plus tests and docs.
+
 2026-09-30 - Account deletion now requires an emailed verification code
 
 Deleting an account from Settings > Account previously only asked the signed-in

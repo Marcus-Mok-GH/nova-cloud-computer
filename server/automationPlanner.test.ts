@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const complete = vi.fn();
 
-class MockMistralGatewayClientError extends Error {
+class MockAiGatewayClientError extends Error {
   kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response";
   constructor(
     message: string,
@@ -13,9 +13,9 @@ class MockMistralGatewayClientError extends Error {
   }
 }
 
-vi.mock("./mistralGateway", () => ({
-  completeWithMistralGateway: complete,
-  MistralGatewayClientError: MockMistralGatewayClientError,
+vi.mock("./aiGateway", () => ({
+  completeWithAiGateway: complete,
+  AiGatewayClientError: MockAiGatewayClientError,
   LONG_COMPLETION_TIMEOUT_MS: 120_000,
 }));
 
@@ -44,7 +44,7 @@ describe("planAutomation", () => {
 
   it("propagates gateway failures immediately without retrying", async () => {
     complete.mockRejectedValue(
-      new MockMistralGatewayClientError("gateway down", "unavailable")
+      new MockAiGatewayClientError("gateway down", "unavailable")
     );
 
     await expect(

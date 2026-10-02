@@ -380,20 +380,26 @@ export async function executeWebAgentRun(
     : await startAgentRunForUser(ownerId, { chatId, channel: "web" }).catch(
         () => undefined
       );
+  // Resolve routing before the try so the catch path can skip team auto-continue.
+  const route = await getAgentChatRoute(ownerId, chatId).catch(
+    () => ({ kind: "plain" } as const)
+  );
+  // Team chats must not auto-continue: a continuation re-invokes
+  // executeWebAgentRun, which would re-run the full roster (and persist
+  // CONTINUATION_PROMPT as a user message). Personal/plain chats chain as
+  // before; teams ask the user to send "continue" instead.
+  const mayChain = canChain && route.kind !== "team";
   try {
     // Agent-aware routing, shared by every web entry point (chats.send, the
     // SSE stream, the peak queue, continuations): a personal-agent chat runs
     // one agent with its identity, a team chat gives each roster member a
     // turn, and everything else runs the default Nova assistant unchanged.
-    const route = await getAgentChatRoute(ownerId, chatId).catch(
-      () => ({ kind: "plain" } as const)
-    );
     const baseOptions = {
       channel: "web" as const,
       uploadContext,
       imageAttachments,
       deadlineAtMs,
-      continuationPlanned: canChain && run !== undefined,
+      continuationPlanned: mayChain && run !== undefined,
       onChunk,
       onEvent,
     };
@@ -419,13 +425,13 @@ export async function executeWebAgentRun(
       // fresh serverless invocation, exactly like the Telegram path - the
       // only difference is there is no external message to send.
       const chained =
-        Boolean(result.outOfBudget) && canChain
+        Boolean(result.outOfBudget) && mayChain
           ? await holdAndScheduleContinuation(ownerId, run.id, run.segment)
           : false;
       if (chained) {
         // The claimed next segment owns the ledger row now; it closes the
         // run when the task finishes.
-      } else if (Boolean(result.outOfBudget) && canChain) {
+      } else if (Boolean(result.outOfBudget) && mayChain) {
         await finishAgentRunForUser(ownerId, run.id, "completed").catch(
           () => {}
         );
@@ -451,7 +457,7 @@ export async function executeWebAgentRun(
     // delivers the real result.
     if (
       run &&
-      canChain &&
+      mayChain &&
       Date.now() - requestStartedAtMs >= RESCUABLE_SEGMENT_MIN_MS &&
       isTransientRunError(error)
     ) {

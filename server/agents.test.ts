@@ -272,22 +272,35 @@ describe("agent email gating", () => {
 
 describe("approval decisions", () => {
   it("approving a purchase debits the wallet and executes the approval", async () => {
-    script.state.selects = [[approvalRow()], [agentRow({ walletSpentCredits: 120 })]];
-    script.state.updates = [[{ id: 99 }], [approvalRow({ status: "executed", resultSummary: "Approved - paid 40 credits for \"domain name\". 340 credits remain in the wallet." })]];
+    // Claim (pending -> executed), debit, finalize summary.
+    script.state.updates = [
+      [approvalRow({ status: "executed", resultSummary: "Approval claimed - completing the action." })],
+      [{ id: 99 }],
+      [approvalRow({ status: "executed", resultSummary: "Approved - paid 40 credits for \"domain name\". 340 credits remain in the wallet." })],
+    ];
+    script.state.selects = [[agentRow({ walletSpentCredits: 160 })]];
     const result = await decideApprovalForUser(1, 12, "approve");
     expect(result?.executed).toBe(true);
     expect(result?.approval.status).toBe("executed");
     expect(result?.approval.resultSummary).toContain("paid 40 credits");
-    // First update is the guarded debit on the agent row, not the approval.
-    expect(script.state.updateCalls[0].table).toBe(agentProfiles);
-    expect(script.state.updateCalls[1].table).toBe(agentApprovals);
-    expect(script.state.updateCalls[1].values).toMatchObject({ status: "executed" });
+    expect(script.state.updateCalls[0].table).toBe(agentApprovals);
+    expect(script.state.updateCalls[0].values).toMatchObject({ status: "executed" });
+    expect(script.state.updateCalls[1].table).toBe(agentProfiles);
+    expect(script.state.updateCalls[2].table).toBe(agentApprovals);
+    expect(script.state.updateCalls[2].values).toMatchObject({ status: "executed" });
   });
 
   it("marks a purchase failed when the budget can no longer cover it", async () => {
-    script.state.selects = [[approvalRow()], [agentRow({ walletBudgetCredits: 500, walletSpentCredits: 500 })]];
-    // The guarded debit returned no row: the WHERE budget check rejected it.
-    script.state.updates = [[], [approvalRow({ status: "failed", resultSummary: "Not completed: the wallet budget is exhausted (0 credits left)." })]];
+    script.state.updates = [
+      [approvalRow({ status: "executed", resultSummary: "Approval claimed - completing the action." })],
+      [], // guarded debit returned no row
+      [approvalRow({ status: "failed", resultSummary: "Not completed: the wallet budget is exhausted (0 credits left)." })],
+    ];
+    // One lookup for the remaining-credits message, one inside finish().
+    script.state.selects = [
+      [agentRow({ walletBudgetCredits: 500, walletSpentCredits: 500 })],
+      [agentRow({ walletBudgetCredits: 500, walletSpentCredits: 500 })],
+    ];
     const result = await decideApprovalForUser(1, 12, "approve");
     expect(result?.executed).toBe(false);
     expect(result?.approval.status).toBe("failed");
@@ -295,8 +308,8 @@ describe("approval decisions", () => {
   });
 
   it("denying never touches the wallet", async () => {
-    script.state.selects = [[approvalRow()], [agentRow()]];
     script.state.updates = [[approvalRow({ status: "denied", resultSummary: "The user declined this request." })]];
+    script.state.selects = [[agentRow()]];
     const result = await decideApprovalForUser(1, 12, "deny");
     expect(result).toMatchObject({ executed: false });
     expect(result?.approval.status).toBe("denied");
@@ -305,19 +318,30 @@ describe("approval decisions", () => {
   });
 
   it("returns null for a missing or already-decided approval", async () => {
-    script.state.selects = [[]];
+    // Claim UPDATE matches no pending row.
+    script.state.updates = [[]];
     await expect(decideApprovalForUser(1, 12, "approve")).resolves.toBeNull();
   });
 
   it("approving an email delivers it to the internal mailbox", async () => {
-    script.state.selects = [[approvalRow({
-      action: "send_email",
-      params: { to: "pip-9c1d@nova.local", toAgentId: 12, subject: "Hi", body: "Hello" },
-    })], [agentRow()]];
+    script.state.updates = [
+      [approvalRow({
+        action: "send_email",
+        status: "executed",
+        params: { to: "pip-9c1d@nova.local", toAgentId: 12, subject: "Hi", body: "Hello" },
+        resultSummary: "Approval claimed - completing the action.",
+      })],
+      [approvalRow({
+        action: "send_email",
+        status: "executed",
+        resultSummary: "Approved - email delivered to pip-9c1d@nova.local.",
+      })],
+    ];
     script.state.inserts = [[{ id: 7 }]];
-    script.state.updates = [[approvalRow({ status: "executed", resultSummary: "Approved - email delivered to pip-9c1d@nova.local." })]];
+    script.state.selects = [[agentRow()]];
     const result = await decideApprovalForUser(1, 12, "approve");
     expect(result?.executed).toBe(true);
+    expect(script.state.updateCalls[0].table).toBe(agentApprovals);
     expect(script.state.insertCalls[0].table).toBe(agentEmails);
     expect(script.state.insertCalls[0].values).toMatchObject({
       fromAgentId: 11,

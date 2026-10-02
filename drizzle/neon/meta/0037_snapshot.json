@@ -1,5 +1,5 @@
 {
-  "id": "b22f1f3e-4cbf-49ff-a7b2-b6adee340641",
+  "id": "9a751da2-0cd6-41a0-920f-9db0d0efc83b",
   "prevId": "13779492-d880-4a53-b8f5-552336bd463a",
   "version": "7",
   "dialect": "postgresql",
@@ -834,6 +834,83 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.billing_subscriptions": {
+      "name": "billing_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ownerId": {
+          "name": "ownerId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plan": {
+          "name": "plan",
+          "type": "billing_plan",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'standard'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "billing_subscriptions_owner_unique": {
+          "name": "billing_subscriptions_owner_unique",
+          "columns": [
+            {
+              "expression": "ownerId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "billing_subscriptions_ownerId_users_id_fk": {
+          "name": "billing_subscriptions_ownerId_users_id_fk",
+          "tableFrom": "billing_subscriptions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "ownerId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.chat_messages": {
       "name": "chat_messages",
       "schema": "",
@@ -1579,6 +1656,82 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.priority_purchases": {
+      "name": "priority_purchases",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ownerId": {
+          "name": "ownerId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purchasedAt": {
+          "name": "purchasedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "priority_purchases_owner_unique": {
+          "name": "priority_purchases_owner_unique",
+          "columns": [
+            {
+              "expression": "ownerId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "priority_purchases_ownerId_users_id_fk": {
+          "name": "priority_purchases_ownerId_users_id_fk",
+          "tableFrom": "priority_purchases",
+          "tableTo": "users",
+          "columnsFrom": [
+            "ownerId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -2801,6 +2954,14 @@
         "succeeded",
         "failed",
         "skipped"
+      ]
+    },
+    "public.billing_plan": {
+      "name": "billing_plan",
+      "schema": "public",
+      "values": [
+        "standard",
+        "priority"
       ]
     },
     "public.chat_message_role": {

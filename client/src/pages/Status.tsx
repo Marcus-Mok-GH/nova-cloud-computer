@@ -13,6 +13,7 @@ export const APP_PAGES: Array<{ path: string; name: string; description: string 
   { path: "/app", name: "Overview", description: "Workspace dashboard" },
   { path: "/app/files", name: "Files", description: "File explorer" },
   { path: "/app/chats", name: "Chats", description: "Conversation list" },
+  { path: "/app/agents", name: "Agents", description: "Personal agents and teams" },
   { path: "/app/deployments", name: "Deployments", description: "Deployed apps" },
   { path: "/app/terminal", name: "Terminal", description: "Live sandbox shell" },
   { path: "/app/profile", name: "Profile", description: "Account profile" },

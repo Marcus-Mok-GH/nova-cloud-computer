@@ -51,7 +51,7 @@ describe("filterPublicServices", () => {
 describe("Status page", () => {
   it("covers every app route in the page probe list", () => {
     const paths = APP_PAGES.map(page => page.path);
-    expect(paths).toEqual(["/", "/sign-in", "/app", "/app/files", "/app/chats", "/app/deployments", "/app/terminal", "/app/profile", "/app/settings", "/app/status", "/app/more"]);
+    expect(paths).toEqual(["/", "/sign-in", "/app", "/app/files", "/app/chats", "/app/agents", "/app/deployments", "/app/terminal", "/app/profile", "/app/settings", "/app/status", "/app/more"]);
   });
 
   it("renders the status page skeleton with Services and Pages sections", () => {

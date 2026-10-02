@@ -33,6 +33,12 @@ import {
   searchMemoriesForUser,
 } from "./memories";
 import {
+  describeApprovalsForPrompt,
+  requestAgentEmailApproval,
+  requestWalletPurchaseApproval,
+  type AgentProfileContext,
+} from "./agents";
+import {
   appendChatMessageForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
@@ -124,7 +130,7 @@ export type WorkspaceToolActivity = {
   detail?: string;
 };
 
-type WorkspaceAgentOptions = {
+export type WorkspaceAgentOptions = {
   onEvent?: (event: {
     type: "tool";
     tool: WorkspaceToolActivity;
@@ -153,6 +159,29 @@ type WorkspaceAgentOptions = {
    * have to act on, instead of asking them to send "continue".
    */
   continuationPlanned?: boolean;
+  /**
+   * Personal-agent context: which agent is speaking (identity, wallet,
+   * memory scope) and, on team chats, the shared goal and roster. Absent on
+   * ordinary Nova conversations, which behave exactly as before.
+   */
+  agentChat?: AgentChatRunOptions;
+  /**
+   * False when the caller already persisted the user's message - a team
+   * hand-off turn. The run then keeps it out of the ledger and injects it
+   * into the model's context only.
+   */
+  persistUserMessage?: boolean;
+};
+
+/** Identity + team context for one personal-agent run. */
+export type AgentChatRunOptions = {
+  profile: AgentProfileContext;
+  /** Present only in team chats: shared goal, roster, and whether this agent delivers the final reply. */
+  team?: {
+    goal: string;
+    roster: Array<{ id: number; name: string; role: string | null }>;
+    finalMember: boolean;
+  };
 };
 
 /**
@@ -427,6 +456,52 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
         },
         required: ["reply"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "request_purchase",
+      description:
+        "Request a purchase from your agent wallet (personal agents only). The credits are NOT spent by this call: it records a request that only the user can confirm, in Nova's Agents page. Use it for anything that costs wallet credits; an amount over the remaining budget is rejected immediately. After calling it, tell the user the purchase is waiting for their approval, then end your turn.",
+      parameters: {
+        type: "object",
+        properties: {
+          item: {
+            type: "string",
+            description: 'What is being bought, e.g. "domain name for the launch site".',
+          },
+          amount_credits: {
+            type: "integer",
+            description: "Cost in wallet credits.",
+          },
+          note: {
+            type: "string",
+            description: "Optional context for the user reviewing the request.",
+          },
+        },
+        required: ["item", "amount_credits"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_agent_email",
+      description:
+        "Send an email from your agent identity (personal agents only). Recipients are other agents' Nova email aliases, or 'user' for the workspace owner. The mail is NOT sent by this call: it records a request that only the user can confirm, in Nova's Agents page. After calling it, tell the user the email is waiting for their approval, then end your turn.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: {
+            type: "string",
+            description: "Recipient: an agent's Nova email alias, or 'user'.",
+          },
+          subject: { type: "string", description: "Email subject." },
+          body: { type: "string", description: "Email body text." },
+        },
+        required: ["to", "subject", "body"],
       },
     },
   },
@@ -1573,7 +1648,7 @@ function formatPersonalisationForPrompt(settings: PersonalisationSettings): stri
     : intro;
 }
 
-const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
+const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}
 
 You are a hybrid supervisor: a router that also does light work itself. Classification is the one thing a small model does best, so classify every request first. Simple requests - a greeting, a quick clarification, summarizing a short passage, recalling what was just said - you answer directly with your own knowledge: no tools, no delegation, zero added latency. Complex requests - anything involving real code, research, computation, files, outside services, or multi-step work - you route to the right tool or specialist and verify what comes back. Inside routed work you are still a thin reasoner, not an encyclopedia: your internal knowledge is spotty, your arithmetic is unreliable, and your recall over long context degrades, so never trust those faculties when a tool can carry the load. The tools hold the knowledge (research_web, connectors, thinker), the computation (solve_equation, run_vm_task, run_bash, editor), and the memory (workspace files). You are the traffic cop; they are the engine.
 
@@ -1621,6 +1696,36 @@ This request arrived via: {{channel}}.
 
 Recent memories (search_memories finds more, read_memory returns the full record; list_workspace lists every file and folder):
 {{memories}}`;
+
+/**
+ * The {{agent_identity}} block, injected right after Nova's opening line so a
+ * personal agent knows who it is, what its identity can do, what awaits the
+ * user's approval, and (in team chats) how turns work. Returns "" for the
+ * default assistant, leaving the prompt byte-identical to before.
+ */
+export function agentIdentityPromptBlock(
+  agentChat: AgentChatRunOptions,
+  approvalsLine: string
+): string {
+  const { profile, team } = agentChat;
+  const remaining = Math.max(
+    0,
+    profile.walletBudgetCredits - profile.walletSpentCredits
+  );
+  const lines = [
+    ` In this conversation you are not the default workspace assistant - you are ${profile.name}${profile.role ? `, the ${profile.role}` : ""}, a personal agent of this workspace: stay in character, act and sign your replies as ${profile.name}.`,
+    profile.instructions
+      ? `\nYour standing instructions: ${profile.instructions}`
+      : "",
+    `\nYour Nova-native identity - email: ${profile.emailAlias} (Nova-internal mail; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${remaining} of ${profile.walletBudgetCredits} credits remaining.`,
+    `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
+    "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
+    team
+      ? `\nThis is an AGENT TEAM chat. Shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. Do your part of the goal, keep your reply focused on your own contribution, and end your turn with end_turn so the next teammate can go - when you are the last teammate, synthesize the team's work into the final reply for the user. Your reply is shown to the user with a [${profile.name}] attribution.`
+      : "",
+  ];
+  return lines.filter(Boolean).join("");
+}
 
 type ToolExecution = {
   ok: boolean;
@@ -1770,7 +1875,9 @@ async function executeWorkspaceTool(
    * as they happen, so they stream as first-class activity rows like the
    * agent's own tool calls instead of prose notes.
    */
-  onSubToolActivity?: (tool: WorkspaceToolActivity) => void | Promise<void>
+  onSubToolActivity?: (tool: WorkspaceToolActivity) => void | Promise<void>,
+  /** Personal-agent context: scopes memory and enables the gated identity tools. */
+  agentChat?: AgentChatRunOptions
 ): Promise<ToolExecution> {
   let args: Record<string, unknown> = {};
   try {
@@ -1781,6 +1888,11 @@ async function executeWorkspaceTool(
   }
   const str = (value: unknown) =>
     typeof value === "string" ? value.trim() : "";
+  // An agent's memory tools read and write its own scope (plus shared notes);
+  // the default assistant stays in the shared workspace scope.
+  const memoryScope = agentChat
+    ? { agentId: agentChat.profile.id }
+    : undefined;
   // Sandbox-first execution: the workspace sandbox (woken at run start) is
   // the live execution surface, and the durable Neon/S3 store syncs from it.
   // Every mutating file/folder operation is mirrored onto the sandbox
@@ -1805,7 +1917,9 @@ async function executeWorkspaceTool(
       const query = str(args.query).trim();
       const limitArg = Number(args.limit);
       const limit = Number.isFinite(limitArg) && limitArg >= 1 ? limitArg : 8;
-      const records = await searchMemoriesForUser(ownerId, query, limit);
+      const records = memoryScope
+        ? await searchMemoriesForUser(ownerId, query, limit, memoryScope)
+        : await searchMemoriesForUser(ownerId, query, limit);
       return {
         ok: true,
         result: records.length
@@ -1827,7 +1941,7 @@ async function executeWorkspaceTool(
       const id = Number(args.id);
       const record =
         Number.isFinite(id) && id > 0
-          ? await readMemoryForUser(ownerId, id)
+          ? await readMemoryForUser(ownerId, id, memoryScope)
           : null;
       if (!record)
         return {
@@ -1864,6 +1978,7 @@ async function executeWorkspaceTool(
         summary,
         content,
         tags: args.tags !== undefined ? str(args.tags) : null,
+        agentId: agentChat?.profile.id ?? null,
       });
       if (!record)
         return {
@@ -1889,7 +2004,7 @@ async function executeWorkspaceTool(
       const id = Number(args.id);
       const deleted =
         Number.isFinite(id) && id > 0
-          ? await deleteMemoryForUser(ownerId, id)
+          ? await deleteMemoryForUser(ownerId, id, memoryScope)
           : false;
       if (!deleted)
         return {
@@ -1906,6 +2021,56 @@ async function executeWorkspaceTool(
         result: `Deleted memory ${id}.`,
         action: { kind: "tool", name: `memory ${id}`, operation: "deleted" },
       };
+    }
+    case "request_purchase": {
+      if (!agentChat)
+        return {
+          ok: false,
+          result:
+            "request_purchase is only available to personal agents with a wallet.",
+          action: { kind: "tool", name: "purchase request", operation: "failed" },
+        };
+      const outcome = await requestWalletPurchaseApproval(ownerId, {
+        agentId: agentChat.profile.id,
+        chatId: chatId ?? null,
+        item: str(args.item),
+        amountCredits: Number(args.amount_credits),
+        note: str(args.note) || null,
+      });
+      if (!outcome.ok)
+        return {
+          ok: false,
+          result: outcome.error,
+          action: {
+            kind: "tool",
+            name: `purchase ${str(args.item).slice(0, 50) || "request"}`,
+            operation: "failed",
+          },
+        };
+      return { ok: true, result: outcome.message };
+    }
+    case "send_agent_email": {
+      if (!agentChat)
+        return {
+          ok: false,
+          result:
+            "send_agent_email is only available to personal agents with an identity.",
+          action: { kind: "tool", name: "agent email", operation: "failed" },
+        };
+      const outcome = await requestAgentEmailApproval(ownerId, {
+        agentId: agentChat.profile.id,
+        chatId: chatId ?? null,
+        to: str(args.to),
+        subject: str(args.subject),
+        body: str(args.body),
+      });
+      if (!outcome.ok)
+        return {
+          ok: false,
+          result: outcome.error,
+          action: { kind: "tool", name: "agent email", operation: "failed" },
+        };
+      return { ok: true, result: outcome.message };
     }
     case "list_workspace": {
       const { folders, files } = describeWorkspace(computer);
@@ -3472,6 +3637,13 @@ export async function runWorkspaceAgent(
     }
   };
   /**
+   * In a team chat every reply is attributed to the agent that wrote it;
+   * personal and ordinary chats keep unattributed replies.
+   */
+  const authorPrefix = options.agentChat?.team
+    ? `[${options.agentChat.profile.name}] `
+    : "";
+  /**
    * Appends the assistant's reply to the chat and returns the persisted
    * message. Every call is an end-of-run reply, so the completed turn is
    * also captured into the chat's conversation memory (the record the
@@ -3482,12 +3654,16 @@ export async function runWorkspaceAgent(
     const message = await appendChatMessageForUser(ownerId, {
       chatId,
       role: "assistant",
-      content: reply,
+      content: `${authorPrefix}${reply}`,
     });
-    await appendConversationTurn(ownerId, chatId, {
-      userText: content,
-      assistantText: reply,
-    });
+    const turn = { userText: content, assistantText: reply };
+    if (options.agentChat) {
+      await appendConversationTurn(ownerId, chatId, turn, {
+        agentId: options.agentChat.profile.id,
+      });
+    } else {
+      await appendConversationTurn(ownerId, chatId, turn);
+    }
     return message;
   };
   /**
@@ -3503,7 +3679,7 @@ export async function runWorkspaceAgent(
       await appendChatMessageForUser(ownerId, {
         chatId,
         role: "assistant",
-        content: text,
+        content: `${authorPrefix}${text}`,
       });
     } catch (error) {
       console.error("[Chat] failed to persist interim reply text", error);
@@ -3582,7 +3758,11 @@ ${
   >();
   let failureNudgeSent = false;
 
-  await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+  // A team hand-off turn is context for the next teammate only: the user's
+  // real message was already persisted by the first teammate's run.
+  if (options.persistUserMessage !== false) {
+    await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+  }
 
   // The workspace sandbox wakes with every run: state is shared with the
   // finally block below, which syncs the live sandbox filesystem back into
@@ -3657,16 +3837,45 @@ ${
     // in the web app the user watches the tool activity live, and offering
     // the tool there only produces stray Telegram pings.
     const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
-      tool =>
-        options.channel === "telegram" ||
-        (tool.function.name !== "present_file" &&
-          tool.function.name !== "send_progress_update")
+      tool => {
+        if (
+          options.channel !== "telegram" &&
+          (tool.function.name === "present_file" ||
+            tool.function.name === "send_progress_update")
+        )
+          return false;
+        // The gated identity tools belong to personal agents only.
+        if (
+          !options.agentChat &&
+          (tool.function.name === "request_purchase" ||
+            tool.function.name === "send_agent_email")
+        )
+          return false;
+        return true;
+      }
     );
-    const memoriesLine = await listRecentMemoriesForPrompt(ownerId);
+    const memoriesLine = await listRecentMemoriesForPrompt(
+      ownerId,
+      8,
+      options.agentChat ? { agentId: options.agentChat.profile.id } : undefined
+    );
+    // Personal agents see their own approval state (what of theirs is still
+    // waiting on the user, and how the last few were decided) and get the
+    // identity block; the default assistant's prompt stays unchanged.
+    const agentIdentityLine = options.agentChat
+      ? agentIdentityPromptBlock(
+          options.agentChat,
+          await describeApprovalsForPrompt(
+            ownerId,
+            options.agentChat.profile.id
+          )
+        )
+      : "";
     const systemMessage = (): GatewayChatMessage => {
       return {
         role: "system",
         content: WORKSPACE_AGENT_PROMPT.replace("{{memories}}", memoriesLine)
+          .replace("{{agent_identity}}", agentIdentityLine)
           .replace("{{connectors}}", connectorStatusLine(connectedConnectors))
           .replace("{{deployments}}", deploymentsLine)
           .replace(
@@ -3754,9 +3963,20 @@ ${
         previous.content = `${previous.content}\n\n${turn.content}`;
       else historyTurns.push(turn);
     }
-    if (historyTurns.length)
+    // On a team hand-off turn the user's message is NOT the last persisted
+    // row (a teammate's reply is), so the internal note is added as its own
+    // model-visible turn instead of overwriting history; role alternation is
+    // kept by folding it into a trailing user row when one exists.
+    if (historyTurns.length && options.persistUserMessage !== false)
       historyTurns[historyTurns.length - 1] = currentTurn;
-    else historyTurns.push(currentTurn);
+    else if (
+      historyTurns.length &&
+      historyTurns[historyTurns.length - 1].role === "user" &&
+      typeof currentTurn.content === "string"
+    ) {
+      const lastTurn = historyTurns[historyTurns.length - 1];
+      lastTurn.content = `${lastTurn.content}\n\n${currentTurn.content}`;
+    } else historyTurns.push(currentTurn);
     const messages: GatewayChatMessage[] = [systemMessage(), ...historyTurns];
 
     // /stop support: a stop request recorded after the run started aborts the
@@ -4157,7 +4377,8 @@ ${
                 // activity rows: emitted live to the open chat AND persisted
                 // through emitTool, so they read back from the ledger exactly
                 // like the agent's own tool calls.
-                subTool => emitTool(subTool)
+                subTool => emitTool(subTool),
+                options.agentChat
               ),
             deadlineAtMs
           );

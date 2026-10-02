@@ -178,3 +178,14 @@
 - [x] Clone and reconcile the user-updated `Marcus-Mok-GH/nova-cloud-computer` repository before continuing the local NVIDIA integration work.
 - [x] Harden Nova’s server-only NVIDIA status client against an empty successful gateway-health body while retaining explicit safe provider-readiness and chat-endpoint failure handling.
 - [x] Remove Codebuff entirely: planner UI, Settings key card, tRPC routes, encrypted credentials, SDK dependency, and related docs/tests.
+
+# Cue-style Personal Agents
+
+- [x] Research Manus's Cue app (agent identity, team chats, wallets, approvals) and agree the Nova scope: all four capabilities, Nova-native identity (no third-party telephony/mail/payments), and a dedicated Agents destination.
+- [x] Add agent storage: agent_profiles (identity + wallet), chat_agents (team rosters), agent_approvals, agent_emails, chats.kind/agentId/teamGoal, and per-agent conversation_memories.agentId, with a re-runnable migration.
+- [x] Scope conversation memory per agent: agents read their own plus shared memories, write only to their own, and the default assistant never sees agent-private memories.
+- [x] Implement the server data layer for agent CRUD, Nova-internal identity minting, team chats, approval-gated purchases and email, approval decisions, and the internal mailbox.
+- [x] Run personal-agent chats and team chats through the agent runtime: identity block in the system prompt, gated request_purchase / send_agent_email tools, [Name]-attributed team turns, and shared-deadline roster orchestration behind one dispatch in executeWebAgentRun.
+- [x] Add the protected agents tRPC router (list/create/update/delete, startChat, createTeam, chats, approvals, approve, deny, inbox).
+- [x] Build the Agents sidebar destination: agent cards with identity chips and wallet bar, create/edit dialogs, team builder, pending-approval controls, recent decisions, and the agent inbox.
+- [x] Verify typecheck, the full test suite (new agent, team, and render tests), and the production build.

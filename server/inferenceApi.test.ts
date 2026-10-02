@@ -11,7 +11,7 @@ import {
   readApiKeyFromRequest,
   resolveInferenceModel,
 } from "./inferenceApi";
-import { MistralGatewayClientError } from "./mistralGateway";
+import { AiGatewayClientError } from "./aiGateway";
 import type { CustomModel } from "../drizzle/schema";
 
 function customModelFixture(overrides: Partial<CustomModel> = {}): CustomModel {
@@ -50,13 +50,13 @@ describe("parseInferenceApiMessages", () => {
         { role: "system", content: "You are terse." },
         { role: "user", content: "Hi" },
       ],
-      model: "mistral-small-latest",
+      model: "chat-small-latest",
     });
     expect(parsed.messages).toEqual([
       { role: "system", content: "You are terse." },
       { role: "user", content: "Hi" },
     ]);
-    expect(parsed.model).toBe("mistral-small-latest");
+    expect(parsed.model).toBe("chat-small-latest");
     expect(parsed.stream).toBe(false);
   });
 
@@ -115,21 +115,21 @@ describe("resolveInferenceModel", () => {
   });
 
   it("rejects a model outside the workspace's choices", () => {
-    expect(() => resolveInferenceModel(null, "mistral-large-latest")).toThrow(InferenceApiError);
+    expect(() => resolveInferenceModel(null, "chat-large-latest")).toThrow(InferenceApiError);
     expect(() => resolveInferenceModel(customModelFixture(), "some-other-model")).toThrow(InferenceApiError);
   });
 });
 
 describe("mapGatewayClientError", () => {
   it("maps exhausted credits and allowances to 429s", () => {
-    expect(mapGatewayClientError(new MistralGatewayClientError("out", "credits_exhausted"))).toEqual({ status: 429, type: "rate_limit_error", code: "insufficient_credits" });
-    expect(mapGatewayClientError(new MistralGatewayClientError("capped", "allowance_reached"))).toEqual({ status: 429, type: "rate_limit_error", code: "allowance_reached" });
+    expect(mapGatewayClientError(new AiGatewayClientError("out", "credits_exhausted"))).toEqual({ status: 429, type: "rate_limit_error", code: "insufficient_credits" });
+    expect(mapGatewayClientError(new AiGatewayClientError("capped", "allowance_reached"))).toEqual({ status: 429, type: "rate_limit_error", code: "allowance_reached" });
   });
 
   it("maps configuration and client errors", () => {
-    expect(mapGatewayClientError(new MistralGatewayClientError("no gateway", "configuration"))).toMatchObject({ status: 503 });
-    expect(mapGatewayClientError(new MistralGatewayClientError("bad", "client_error"))).toMatchObject({ status: 400 });
-    expect(mapGatewayClientError(new MistralGatewayClientError("boom", "invalid_response"))).toMatchObject({ status: 500 });
+    expect(mapGatewayClientError(new AiGatewayClientError("no gateway", "configuration"))).toMatchObject({ status: 503 });
+    expect(mapGatewayClientError(new AiGatewayClientError("bad", "client_error"))).toMatchObject({ status: 400 });
+    expect(mapGatewayClientError(new AiGatewayClientError("boom", "invalid_response"))).toMatchObject({ status: 500 });
   });
 });
 
@@ -138,12 +138,12 @@ describe("OpenAI response shapes", () => {
     const payload = buildOpenAiChatCompletion({
       text: "Hello!",
       toolCalls: [],
-      model: "mistral-small-latest",
+      model: "chat-small-latest",
       usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
       allowance: { usedRequests: 1, maxRequests: 500, remainingRequests: 499, exhausted: false },
     });
     expect(payload.object).toBe("chat.completion");
-    expect(payload.model).toBe("mistral-small-latest");
+    expect(payload.model).toBe("chat-small-latest");
     expect(payload.choices[0].message).toEqual({ role: "assistant", content: "Hello!" });
     expect(payload.choices[0].finish_reason).toBe("stop");
     expect(payload.usage).toEqual({ prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 });
@@ -165,13 +165,13 @@ describe("OpenAI response shapes", () => {
   });
 
   it("builds SSE chunks in the chat.completion.chunk format", () => {
-    const chunk = buildOpenAiSseChunk("chatcmpl-1", "mistral-small-latest", { content: "Hi" }, null);
+    const chunk = buildOpenAiSseChunk("chatcmpl-1", "chat-small-latest", { content: "Hi" }, null);
     expect(chunk.startsWith("data: {")).toBe(true);
     expect(chunk.endsWith("\n\n")).toBe(true);
     const payload = JSON.parse(chunk.slice("data: ".length).trim());
     expect(payload.object).toBe("chat.completion.chunk");
     expect(payload.choices[0].delta).toEqual({ content: "Hi" });
-    const finalChunk = buildOpenAiSseChunk("chatcmpl-1", "mistral-small-latest", {}, "stop");
+    const finalChunk = buildOpenAiSseChunk("chatcmpl-1", "chat-small-latest", {}, "stop");
     expect(JSON.parse(finalChunk.slice("data: ".length).trim()).choices[0].finish_reason).toBe("stop");
   });
 });

@@ -6,18 +6,18 @@ const status = vi.fn(async (ownerId: number) => ({
   reachable: ownerId === 1,
   providerConfigured: ownerId === 1,
   provider: "mistral" as const,
-  model: "mistral-large-latest",
+  model: "chat-large-latest",
   allowance: { usedRequests: ownerId === 1 ? 2 : 0, maxRequests: 50, remainingRequests: ownerId === 1 ? 48 : 50, exhausted: false },
 }));
 const complete = vi.fn(async (ownerId: number, prompt: string) => ({
   text: `owner ${ownerId}: ${prompt}`,
-  model: "mistral-large-latest",
+  model: "chat-large-latest",
   usage: null,
   allowance: { usedRequests: 3, maxRequests: 50, remainingRequests: 47, exhausted: false },
 }));
 const listModels = vi.fn(async () => [{ id: "meta/llama-3.1-8b-instruct", kind: "text" as const }]);
 
-class MockMistralGatewayClientError extends Error {
+class MockAiGatewayClientError extends Error {
   constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
     super(message);
   }
@@ -34,11 +34,11 @@ vi.mock("./db", () => ({
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
-vi.mock("./mistralGateway", () => ({
-  getMistralGatewayStatus: status,
-  listMistralModels: listModels,
-  completeWithMistralGateway: complete,
-  MistralGatewayClientError: MockMistralGatewayClientError,
+vi.mock("./aiGateway", () => ({
+  getAiGatewayStatus: status,
+  listGatewayModels: listModels,
+  completeWithAiGateway: complete,
+  AiGatewayClientError: MockAiGatewayClientError,
 }));
 
 const { appRouter } = await import("./routers");
@@ -47,15 +47,15 @@ function context(id: number): TrpcContext {
   return { user: { id, openId: String(id), name: null, email: null, loginMethod: "test", role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() }, req: {} as TrpcContext["req"], res: {} as TrpcContext["res"] };
 }
 
-describe("Mistral protected router", () => {
+describe("AI gateway protected router", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("scopes gateway status and completions to the signed-in workspace owner", async () => {
     const owner = appRouter.createCaller(context(1));
     const stranger = appRouter.createCaller(context(2));
-    await expect(owner.mistral.status()).resolves.toMatchObject({ configured: true, allowance: { usedRequests: 2 } });
-    await expect(stranger.mistral.status()).resolves.toMatchObject({ configured: false, allowance: { usedRequests: 0 } });
-    await expect(owner.mistral.complete({ prompt: "Summarize these workspace notes" })).resolves.toMatchObject({ text: "owner 1: Summarize these workspace notes" });
+    await expect(owner.ai.status()).resolves.toMatchObject({ configured: true, allowance: { usedRequests: 2 } });
+    await expect(stranger.ai.status()).resolves.toMatchObject({ configured: false, allowance: { usedRequests: 0 } });
+    await expect(owner.ai.complete({ prompt: "Summarize these workspace notes" })).resolves.toMatchObject({ text: "owner 1: Summarize these workspace notes" });
     expect(status).toHaveBeenCalledWith(1);
     expect(status).toHaveBeenCalledWith(2);
     expect(complete).toHaveBeenCalledWith(1, "Summarize these workspace notes", undefined);
@@ -63,15 +63,15 @@ describe("Mistral protected router", () => {
 
   it("enforces bounded prompts and maps allowance exhaustion to a safe rate-limit error", async () => {
     const owner = appRouter.createCaller(context(1));
-    await expect(owner.mistral.complete({ prompt: "no" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(owner.mistral.complete({ prompt: "x".repeat(12001) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    complete.mockRejectedValueOnce(new MockMistralGatewayClientError("Workspace allowance reached.", "rate_limit"));
-    await expect(owner.mistral.complete({ prompt: "Draft a compact release plan" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: "Workspace allowance reached." });
+    await expect(owner.ai.complete({ prompt: "no" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.ai.complete({ prompt: "x".repeat(12001) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    complete.mockRejectedValueOnce(new MockAiGatewayClientError("Workspace allowance reached.", "rate_limit"));
+    await expect(owner.ai.complete({ prompt: "Draft a compact release plan" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: "Workspace allowance reached." });
   });
 
   it("bypasses the server model cache when a refresh is requested", async () => {
     const owner = appRouter.createCaller(context(1));
-    await expect(owner.mistral.models({ forceRefresh: true })).resolves.toHaveLength(1);
+    await expect(owner.ai.models({ forceRefresh: true })).resolves.toHaveLength(1);
     expect(listModels).toHaveBeenCalledWith(true);
   });
 });

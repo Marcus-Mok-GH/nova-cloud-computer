@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// These tests exercise the raw gateway stream handling in chatWithMistralGateway
+// These tests exercise the raw gateway stream handling in chatWithAiGateway
 // with a stubbed global fetch - the paths that turn a long tool-calling reply
-// into "Mistral returned an invalid response" or a hung webhook.
+// into "the gateway returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),
-  getMistralInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
-  claimMistralInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
+  getInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
+  claimInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
 }));
 
-import { chatWithMistralGateway, reasoningParamsForModel, resetMistralGatewayHealthCache } from "./mistralGateway";
+import { chatWithAiGateway, reasoningParamsForModel, resetAiGatewayHealthCache } from "./aiGateway";
 
 const ORIGINAL_FETCH = global.fetch;
 
@@ -31,7 +31,7 @@ function sseResponse(chunks: string[]) {
 
 function modelsResponse() {
   return new Response(
-    JSON.stringify({ data: [{ id: "mistral/test-model" }] }),
+    JSON.stringify({ data: [{ id: "testco/test-model" }] }),
     { status: 200, headers: { "content-type": "application/json" } }
   );
 }
@@ -39,7 +39,7 @@ function modelsResponse() {
 beforeEach(() => {
   // Tokens shorter than 32 chars are ignored by configuredGatewayToken().
   process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "test-gateway-token-0123456789abcdef012345";
-  resetMistralGatewayHealthCache();
+  resetAiGatewayHealthCache();
   process.env.MISTRAL_GATEWAY_URL = "https://gateway.example.com/v1";
   vi.useFakeTimers();
 });
@@ -62,11 +62,11 @@ function gatewayFetchStub(respond: (path: string) => Promise<Response> | Respons
   });
 }
 
-describe("Mistral gateway chat stream handling", () => {
+describe("AI gateway chat stream handling", () => {
   it("stitches streamed text and tool-call fragments into a result", async () => {
     const fetchImpl = gatewayFetchStub(() =>
       sseResponse([
-        `data: ${JSON.stringify({ model: "mistral/test-model", choices: [{ delta: { content: "Let me check " } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "testco/test-model", choices: [{ delta: { content: "Let me check " } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { content: "your files." } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", function: { name: "create_folder", arguments: '{"na' } }] } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'me":"A"}' } }] } }] })}\n\n`,
@@ -75,7 +75,7 @@ describe("Mistral gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     const chunks: string[] = [];
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
       onChunk: chunk => chunks.push(chunk),
     });
     expect(result.text).toBe("Let me check your files.");
@@ -91,7 +91,7 @@ describe("Mistral gateway chat stream handling", () => {
     const fetchImpl = gatewayFetchStub(() => sseResponse(["data: [DONE]\n\n"]));
     global.fetch = fetchImpl as unknown as typeof fetch;
     await expect(
-      chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
+      chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
         onChunk: () => {},
       })
     ).rejects.toMatchObject({ kind: "invalid_response" });
@@ -111,7 +111,7 @@ describe("Mistral gateway chat stream handling", () => {
       ]);
     });
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(
+    const result = await chatWithAiGateway(
       1,
       [{ role: "user", content: "hi" }],
       { onChunk: () => {} }
@@ -129,7 +129,7 @@ describe("Mistral gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     await expect(
-      chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
+      chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
         onChunk: () => {},
       })
     ).rejects.toMatchObject({
@@ -156,7 +156,7 @@ describe("Mistral gateway chat stream handling", () => {
       );
     });
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(1, [
+    const result = await chatWithAiGateway(1, [
       { role: "user", content: "hi" },
     ]);
     expect(result.text).toBe("Back online.");
@@ -186,7 +186,7 @@ describe("Mistral gateway chat stream handling", () => {
     global.fetch = fetchImpl as unknown as typeof fetch;
 
     let settled: unknown;
-    const attempt = chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {
+    const attempt = chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
       onChunk: () => {},
     }).then(
       value => {
@@ -211,7 +211,7 @@ describe("Mistral gateway chat stream handling", () => {
   it("streams the model's private reasoning (reasoning_content) before the answer", async () => {
     const fetchImpl = gatewayFetchStub(() =>
       sseResponse([
-        `data: ${JSON.stringify({ model: "mistral/test-model", choices: [{ delta: { reasoning_content: "The user wants " } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "testco/test-model", choices: [{ delta: { reasoning_content: "The user wants " } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "a file listing first." } }] })}\n\n`,
         `data: ${JSON.stringify({ choices: [{ delta: { content: "Here are your files." } }] })}\n\n`,
         "data: [DONE]\n\n",
@@ -219,7 +219,7 @@ describe("Mistral gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     const reasoningChunks: string[] = [];
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "list files" }], {
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "list files" }], {
       onChunk: () => {},
       onReasoning: chunk => reasoningChunks.push(chunk),
     });
@@ -239,7 +239,7 @@ describe("Mistral gateway chat stream handling", () => {
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
     const reasoningChunks: string[] = [];
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "list files" }], {
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "list files" }], {
       onChunk: () => {},
       onReasoning: chunk => reasoningChunks.push(chunk),
     });
@@ -260,7 +260,7 @@ describe("Mistral gateway chat stream handling", () => {
       )
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Done.");
     expect(result.reasoning).toBe("Planned it out.");
   });
@@ -277,7 +277,7 @@ describe("Mistral gateway chat stream handling", () => {
       )
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Done.");
     expect(result.reasoning).toBe("Planned it out.");
   });
@@ -294,7 +294,7 @@ describe("Mistral gateway chat stream handling", () => {
       )
     );
     global.fetch = fetchImpl as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Done.");
     expect(result.reasoning).toBe("Planned it out.");
   });
@@ -307,7 +307,7 @@ describe("Mistral gateway chat stream handling", () => {
     // No unknown fields for models without a thinking mode - strict
     // endpoints must never see a parameter they do not implement.
     expect(reasoningParamsForModel("ministral-14b-latest")).toEqual({});
-    expect(reasoningParamsForModel("open-mistral-nemo")).toEqual({});
+    expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
   });
 
   it("sends the thinking fields to the provider for a GLM-family model", async () => {
@@ -323,7 +323,7 @@ describe("Mistral gateway chat stream handling", () => {
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }) as unknown as typeof fetch;
-    const result = await chatWithMistralGateway(1, [{ role: "user", content: "hi" }], {});
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Thought it through.");
     expect(requestBody.model).toBe("glm-5.3-flash");
     expect(requestBody.thinking).toEqual({ type: "enabled" });

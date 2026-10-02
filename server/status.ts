@@ -1,5 +1,5 @@
 import { getDb, getOrCreateWorkspace } from "./db";
-import { getMistralGatewayStatus, isMistralGatewayConfigured } from "./mistralGateway";
+import { getAiGatewayStatus, isAiGatewayConfigured } from "./aiGateway";
 import { isComposioConfigured } from "./composio";
 import { validateTelegramBotToken } from "./telegram";
 
@@ -13,7 +13,7 @@ export type ServiceStatusDeps = {
   now?: () => number;
   processUptimeSeconds?: () => number;
   dbProbe?: () => Promise<void>;
-  inferenceStatus?: (ownerId: number) => Promise<Awaited<ReturnType<typeof getMistralGatewayStatus>>>;
+  inferenceStatus?: (ownerId: number) => Promise<Awaited<ReturnType<typeof getAiGatewayStatus>>>;
   inferenceConfigured?: () => boolean;
   telegramCheck?: () => Promise<TelegramCheck>;
   composioConfigured?: () => boolean;
@@ -90,8 +90,8 @@ export async function collectServiceStatus(
   const now = deps.now ?? (() => Date.now());
   const processUptimeSeconds = deps.processUptimeSeconds ?? (() => process.uptime());
   const dbProbe = deps.dbProbe ?? defaultDbProbe;
-  const inferenceStatus = deps.inferenceStatus ?? getMistralGatewayStatus;
-  const inferenceConfigured = deps.inferenceConfigured ?? isMistralGatewayConfigured;
+  const inferenceStatus = deps.inferenceStatus ?? getAiGatewayStatus;
+  const inferenceConfigured = deps.inferenceConfigured ?? isAiGatewayConfigured;
   const telegramCheck = deps.telegramCheck ?? defaultTelegramCheck;
   const composioConfigured = deps.composioConfigured ?? isComposioConfigured;
   const workspaceLookup =

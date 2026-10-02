@@ -47,7 +47,7 @@ import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDelet
 import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, revokeApiKeyForUser } from "./apiKeys";
 import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
-import { getDeploymentStatusForUser } from "./siteDeploy";
+import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
@@ -268,6 +268,12 @@ export const appRouter = router({
   deployments: router({
     /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only - the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
     status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),
+    /** Takes one hosted deployment offline by its ID (d-01, ...) - the Deployments page's own management action. */
+    delete: protectedProcedure.input(z.object({ deployment: z.string().trim().min(1).max(64) })).mutation(async ({ ctx, input }) => {
+      const result = await deleteWorkspaceSite(ctx.user.id, { deployment: input.deployment });
+      if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.message });
+      return { deleted: result.deleted, failed: result.failed };
+    }),
   }),
   terminal: router({
     /** Direct shell access to the workspace's persistent agent VM. */

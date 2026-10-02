@@ -137,6 +137,9 @@ const CODER_TOOLS: NimAgentTool[] = [
  */
 /** Never start a model call that cannot finish before the deadline. */
 const MIN_CALL_RESERVE_MS = 30_000;
+/** The honest outcome when a segment has no time left to start the specialist. */
+const NO_START_SUMMARY =
+  "The editor sub-agent could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call editor again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.";
 const READ_LIMIT = 16_000;
 const COMMAND_OUTPUT_LIMIT = 4_000;
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -444,6 +447,26 @@ export async function runAutonomousCoderTask(
   const trimmedTask = options.task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
 
+  // The specialist's own budget ends one reserve before the run deadline, so
+  // it can always report back before the caller's deadline race fires. When
+  // even that is already gone there is no point listing the workspace - the
+  // listing alone would overrun the deadline - so return the honest
+  // "could not start" outcome straight away.
+  const budgetEndMs =
+    options.deadlineAtMs !== undefined
+      ? options.deadlineAtMs - MIN_CALL_RESERVE_MS
+      : Number.POSITIVE_INFINITY;
+  if (budgetEndMs - Date.now() < MIN_CALL_RESERVE_MS) {
+    return {
+      kind: "autonomous",
+      summary: NO_START_SUMMARY,
+      writtenPaths: [],
+      commandsRun: 0,
+      rounds: 0,
+      model: ENV.nimCoderModel,
+    };
+  }
+
   const workspaceListing = await listWorkspaceFiles(options.sandbox);
   const intro: string[] = [];
   if (options.language?.trim())
@@ -466,10 +489,6 @@ export async function runAutonomousCoderTask(
   // No time cap of its own: with a deadline the specialist uses the full
   // remaining segment budget (minus the reserve the final summary needs);
   // without one it runs until the final summary, however long that takes.
-  const budgetEndMs =
-    options.deadlineAtMs !== undefined
-      ? options.deadlineAtMs - MIN_CALL_RESERVE_MS
-      : Number.POSITIVE_INFINITY;
   let roundsRun = 0;
 
   while (true) {
@@ -484,6 +503,12 @@ export async function runAutonomousCoderTask(
         tools: CODER_TOOLS,
         maxTokens: 8192,
         timeoutMs: Math.min(240_000, Math.max(30_000, remainingMs - 15_000)),
+        // Hard-stop attempts and retries at the specialist's own budget end,
+        // not the run deadline: without this a timed-out request's second
+        // chance (or a backoff retry) could run past the run deadline, where
+        // the caller's race would interrupt it mid-flight and throw the
+        // specialist's work away.
+        deadlineAtMs: budgetEndMs,
       });
     } catch (error) {
       // Some NIM-served models do not implement function calling: the
@@ -493,7 +518,8 @@ export async function runAutonomousCoderTask(
         const single = await runCoderTask(
           trimmedTask,
           options.context,
-          options.language
+          options.language,
+          budgetEndMs
         );
         return { kind: "single", ...single };
       }
@@ -607,8 +633,7 @@ export async function runAutonomousCoderTask(
   if (roundsRun === 0) {
     return {
       kind: "autonomous",
-      summary:
-        "The editor sub-agent could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call editor again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.",
+      summary: NO_START_SUMMARY,
       writtenPaths: [],
       commandsRun: 0,
       rounds: 0,
@@ -640,7 +665,9 @@ export async function runAutonomousCoderTask(
 export async function runCoderTask(
   task: string,
   context?: string,
-  language?: string
+  language?: string,
+  /** Absolute epoch-ms deadline the model request must return before. */
+  deadlineAtMs?: number
 ): Promise<CoderResult> {
   const trimmedTask = task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
@@ -656,6 +683,7 @@ export async function runCoderTask(
   const code = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: CODER_SYSTEM_PROMPT,
+    ...(deadlineAtMs !== undefined ? { deadlineAtMs } : {}),
   });
   return { code: code.trim(), model: ENV.nimCoderModel };
 }

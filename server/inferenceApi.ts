@@ -149,7 +149,7 @@ export function parseInferenceApiMessages(body: { messages?: unknown; model?: un
   return { messages, model, stream };
 }
 
-export function buildOpenAiChatCompletion(result: GatewayChatResult, modelId?: string) {
+export function buildOpenAiChatCompletion(result: GatewayChatResult, modelId?: string, priorityNotice?: string) {
   return {
     id: `chatcmpl-nova-${randomUUID()}`,
     object: "chat.completion",
@@ -168,16 +168,20 @@ export function buildOpenAiChatCompletion(result: GatewayChatResult, modelId?: s
       total_tokens: result.usage?.total_tokens ?? 0,
     },
     "x-nova-allowance": result.allowance,
+    // Surfaced on the direct response too, so an API caller that started a
+    // priority window outside peak hours still sees the confirmation.
+    ...(priorityNotice ? { "x-nova-priority": priorityNotice } : {}),
   };
 }
 
-export function buildOpenAiSseChunk(id: string, model: string, delta: Record<string, unknown>, finishReason: string | null) {
+export function buildOpenAiSseChunk(id: string, model: string, delta: Record<string, unknown>, finishReason: string | null, extra?: Record<string, unknown>) {
   return `data: ${JSON.stringify({
     id,
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model,
     choices: [{ index: 0, delta, finish_reason: finishReason }],
+    ...(extra ?? {}),
   })}\n\n`;
 }
 
@@ -333,7 +337,7 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
 
     if (!stream) {
       const result = await runChat({});
-      return res.json(buildOpenAiChatCompletion(result, choice.id));
+      return res.json(buildOpenAiChatCompletion(result, choice.id, priorityNotice));
     }
 
     completionId = `chatcmpl-nova-${randomUUID()}`;
@@ -344,7 +348,9 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     sseStarted = true;
     res.setHeader("content-type", "text/event-stream; charset=utf-8");
     res.setHeader("cache-control", "no-store, no-cache, must-revalidate");
-    res.write(buildOpenAiSseChunk(completionId, choice.id, { role: "assistant" }, null));
+    // Attach the confirmation to the opening chunk: extra fields are ignored
+    // by OpenAI-compatible clients, so the stream shape stays compatible.
+    res.write(buildOpenAiSseChunk(completionId, choice.id, { role: "assistant" }, null, priorityNotice ? { "x-nova-priority": priorityNotice } : undefined));
 
     const result = await runChat({
       onChunk: chunk => {

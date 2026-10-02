@@ -1,3 +1,34 @@
+2026-10-02 - Billing: priority lasts one hour, starting on your next message
+
+Priority was a permanent entitlement once bought, so a single purchase kept an
+account ahead of the queue forever. It is now a one-hour window that starts on
+the first message the account sends after buying, not at the purchase. Buying
+*arms* the purchase (`priority_purchases.activatedAt` NULL); the next message
+from any channel - web chat, Telegram, or the inference API - settles the
+activation before the AI is handed the turn, so the countdown is confirmed
+(and the sender told "Priority active for 1 hour") before any work begins. The
+activation is a single conditional update, so concurrent messages race on the
+same row and only the winner shows the confirmation. Every channel gets that
+confirmation: the web chat streams a `priority` event, Telegram sends it as a
+message, the queued API response carries `nova_priority`, and a direct API
+completion carries it as `x-nova-priority` (on the response body, or the
+opening SSE chunk). `isPriorityUser` and the
+billing status treat an armed or expired purchase as not priority, so the
+account returns to standard arrival order and the Billing tab offers the button
+again; buying again re-arms the purchase (the one-row-per-account upsert resets
+`activatedAt` to NULL). The Billing tab shows a live per-second countdown (and
+a progress bar) of the remaining priority time, flipping the card back to
+standard the moment it reaches zero. The queue's admission-time denormalization
+is unchanged - a request admitted while the window is open keeps its priority
+even if the hour lapses while it waits. Files: server/db.ts, server/app.ts,
+server/routers.ts, server/inferenceApi.ts, server/peakQueue.ts,
+drizzle/schema.ts (+ migration 0039, adds the nullable `activatedAt`),
+client/src/components/BillingCard.tsx, client/src/pages/Workspace.tsx, plus
+tests. Migration 0039 is idempotent (`ADD COLUMN IF NOT EXISTS`) so the
+deploy-build and boot-time schema bootstrap can re-run it without stopping at
+an "already exists" error and leaving the rest of the schema uncreated; a new
+migrate test guards the newest migration against bare DDL.
+
 2026-10-02 - Billing: a one-time priority purchase for the peak-hours queue
 
 The peak-hours queue served everyone in arrival order, with no way to buy a

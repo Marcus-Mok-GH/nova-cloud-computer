@@ -65,6 +65,30 @@ describe("automatic database schema bootstrap", () => {
     expect(ran.filter(statement => statement.startsWith('INSERT INTO "drizzle"."__drizzle_migrations"'))).toHaveLength(journalEntryCount());
   });
 
+  it("keeps the newest migration safe to re-run", () => {
+    // A migration that was applied out-of-band (or whose bookkeeping was not
+    // recorded) must be able to run again: a bare CREATE TABLE / ADD COLUMN
+    // stops the deploy build at "already exists" and leaves the rest of the
+    // schema uncreated. New migrations are hand-hardened to match the
+    // idempotent style of the earlier ones.
+    const folder = resolveMigrationsFolder();
+    const journal = JSON.parse(readFileSync(path.join(folder!, "meta", "_journal.json"), "utf8")) as {
+      entries: Array<{ tag: string }>;
+    };
+    const newest = journal.entries[journal.entries.length - 1];
+    const sql = readFileSync(path.join(folder!, `${newest.tag}.sql`), "utf8");
+    const unguarded = sql
+      .split("--> statement-breakpoint")
+      .map(statement => statement.trim())
+      .filter(Boolean)
+      .filter(
+        statement =>
+          /^(CREATE TABLE|CREATE (UNIQUE )?INDEX|CREATE TYPE|ALTER TABLE .* ADD COLUMN|ALTER TABLE .* ADD CONSTRAINT)\b/i.test(statement) &&
+          !/IF NOT EXISTS|EXCEPTION WHEN duplicate_object|IF to_regclass/i.test(statement)
+      );
+    expect(unguarded).toEqual([]);
+  });
+
   it("skips migrations already recorded by a prior run", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
     querySpy.mockImplementation(async (statement: string) =>

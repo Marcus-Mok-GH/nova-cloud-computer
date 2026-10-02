@@ -48,15 +48,19 @@ export const userAutomations = pgTable("user_automations", {
 }, table => [index("user_automations_owner_idx").on(table.ownerId, table.createdAt)]);
 
 /**
- * A one-time purchase of priority queue placement. The row existing is the
- * whole entitlement - there is no plan, renewal, or expiry - so once bought,
- * the account's requests are served ahead of standard ones whenever the
- * peak-hours queue is active, no matter when the purchase was made.
+ * A one-time purchase of priority queue placement. The row holds one account's
+ * most recent purchase. Buying *arms* it (`activatedAt` NULL); the one-hour
+ * window (see PRIORITY_DURATION_MS in server/db.ts) starts only when the
+ * account next sends a message, and runs from `activatedAt`. While the window
+ * is open the account's requests are served ahead of standard ones whenever the
+ * peak-hours queue is active. Buying again re-arms the purchase, so the next
+ * message starts a fresh hour.
  */
 export const priorityPurchases = pgTable("priority_purchases", {
   id: serial("id").primaryKey(),
   ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
   purchasedAt: timestamp("purchasedAt", { withTimezone: true }).defaultNow().notNull(),
+  activatedAt: timestamp("activatedAt", { withTimezone: true }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("priority_purchases_owner_unique").on(table.ownerId)]);

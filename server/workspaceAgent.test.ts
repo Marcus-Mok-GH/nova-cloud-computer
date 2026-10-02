@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
+import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { ensurePersistentSandbox, getE2BClient, isE2BConfigured } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
@@ -109,7 +109,7 @@ vi.mock("./db", () => ({
   updateWorkspacePersistentSandbox: vi.fn(async () => true),
 }));
 
-const completeWithMistralGateway = vi.fn();
+const completeWithAiGateway = vi.fn();
 // A plain reply no longer ends the run: when the loop sends its end-turn
 // control nudge, this default mock impl answers the way a well-behaved
 // model does - end_turn echoing the last assistant text - so existing
@@ -143,13 +143,13 @@ const endTurnEchoOnNudge = (
   }
   return undefined;
 };
-const chatWithMistralGateway = vi.fn(endTurnEchoOnNudge);
-const getMistralGatewayStatus = vi.fn(() => ({
+const chatWithAiGateway = vi.fn(endTurnEchoOnNudge);
+const getAiGatewayStatus = vi.fn(() => ({
   configured: true,
   reachable: true,
   providerConfigured: true,
   providerConfigurationKnown: true,
-  model: "mistral-medium-latest",
+  model: "chat-medium-latest",
   allowance: {
     usedRequests: 0,
     maxRequests: 50,
@@ -157,7 +157,7 @@ const getMistralGatewayStatus = vi.fn(() => ({
     exhausted: false,
   },
 }));
-class MistralGatewayClientError extends Error {
+class AiGatewayClientError extends Error {
   kind:
     | "configuration"
     | "unavailable"
@@ -166,18 +166,18 @@ class MistralGatewayClientError extends Error {
     | "invalid_response";
   constructor(message, kind) {
     super(message);
-    this.name = "MistralGatewayClientError";
+    this.name = "AiGatewayClientError";
     this.kind = kind;
   }
 }
 const configuredVisionChatModel = vi.fn(() => undefined);
 
-vi.mock("./mistralGateway", () => ({
-  completeWithMistralGateway,
-  chatWithMistralGateway,
-  getMistralGatewayStatus,
+vi.mock("./aiGateway", () => ({
+  completeWithAiGateway,
+  chatWithAiGateway,
+  getAiGatewayStatus,
   configuredVisionChatModel,
-  MistralGatewayClientError,
+  AiGatewayClientError,
 }));
 
 // startAgentVmRun (imported by workspaceAgent) pulls the E2B client; keep a
@@ -306,7 +306,7 @@ const chatResult = (
 ) => ({
   text: overrides.text ?? "",
   toolCalls: overrides.toolCalls ?? [],
-  model: "mistral-medium-latest",
+  model: "chat-medium-latest",
   usage: null,
   allowance: {
     usedRequests: 1,
@@ -363,14 +363,14 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("runs every message through the model with workspace tools exposed", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Sure - what should it contain?" })
     );
     await runWorkspaceAgent(1, 3, "hi");
     // A plain reply no longer ends the run: the answer is followed by the
     // end-turn nudge, which the model answers with end_turn.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(2);
-    const [owner, messages, options] = chatWithMistralGateway.mock.calls[0];
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(2);
+    const [owner, messages, options] = chatWithAiGateway.mock.calls[0];
     expect(owner).toBe(1);
     expect(options.tools.length).toBeGreaterThan(10);
     const toolNames = options.tools.map(
@@ -400,11 +400,11 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("frames the agent as a thin reasoner with SLM-optimized tool triggers", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Sure - what should it contain?" })
     );
     await runWorkspaceAgent(1, 3, "hi");
-    const [, messages, options] = chatWithMistralGateway.mock.calls[0];
+    const [, messages, options] = chatWithAiGateway.mock.calls[0];
     const system = messages[0].content;
     // Hybrid-supervisor framing: classify first, tools carry the heavy load.
     expect(system).toContain("hybrid supervisor");
@@ -455,11 +455,11 @@ describe("Nova tool-calling workspace agent", () => {
       },
       { id: 4, role: "user", content: "Are you done?" },
     ]);
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Yep, all set!" })
     );
     await runWorkspaceAgent(1, 3, "Are you done?");
-    const messages = chatWithMistralGateway.mock.calls[0][1];
+    const messages = chatWithAiGateway.mock.calls[0][1];
     // The messages array is mutated in place across rounds (draft + end-turn
     // nudge rows land after the first call), so the prior conversation is
     // asserted as the leading rows, in order, without the tool-activity row.
@@ -474,7 +474,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("creates a file when the model calls create_file, then finishes with a reply", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -513,7 +513,7 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
     // The tool loop fed the tool result back to the model (the messages
     // array is mutated in place across rounds, so assert membership).
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -534,7 +534,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("solves an equation when the model calls solve_equation, then finishes with a reply", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -559,7 +559,7 @@ describe("Nova tool-calling workspace agent", () => {
       }
     );
     // The tool loop fed the exact solved answer back to the model.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -582,7 +582,7 @@ describe("Nova tool-calling workspace agent", () => {
       code: "def add(a, b):\n    return a + b",
       model: "moonshotai/kimi-k3",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -608,7 +608,7 @@ describe("Nova tool-calling workspace agent", () => {
       "Python"
     );
     // Its code was fed back to the model as the tool result.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -635,7 +635,7 @@ describe("Nova tool-calling workspace agent", () => {
         "The coding specialist is not configured on this workspace - the workspace owner must finish setting it up."
       )
     );
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -653,7 +653,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       );
     const result = await runWorkspaceAgent(1, 3, "build me a todo app");
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolRow = [...secondCallMessages]
       .reverse()
       .find(m => m.role === "tool");
@@ -679,7 +679,7 @@ describe("Nova tool-calling workspace agent", () => {
         code: "// specialist version",
         model: "moonshotai/kimi-k3",
       });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -708,7 +708,7 @@ describe("Nova tool-calling workspace agent", () => {
     runCoderTaskMock.mockRejectedValue(
       new Error("NVIDIA NIM responded with status 500.")
     );
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -743,7 +743,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     await runWorkspaceAgent(1, 3, "build me a website");
     expect(runCoderTaskMock).toHaveBeenCalledTimes(2); // initial call + one retry
-    const toolRow = chatWithMistralGateway.mock.calls
+    const toolRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -758,7 +758,7 @@ describe("Nova tool-calling workspace agent", () => {
     );
     // The same-run self-write is mechanically blocked: the file is never
     // created and the tool result carries the acceptance question policy.
-    const blockedRow = chatWithMistralGateway.mock.calls
+    const blockedRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -807,7 +807,7 @@ describe("Nova tool-calling workspace agent", () => {
     chatMessages
       .mockResolvedValueOnce(pendingHistory)
       .mockResolvedValueOnce(pendingHistory);
-    chatWithMistralGateway
+    chatWithAiGateway
       // The model first tries to self-code without recording acceptance:
       // the gate blocks the substantial write.
       .mockResolvedValueOnce(
@@ -851,7 +851,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     await runWorkspaceAgent(1, 3, "Yes, go ahead yourself.");
     // Pre-acceptance write: blocked, with the acceptance policy in the result.
-    const blockedRow = chatWithMistralGateway.mock.calls
+    const blockedRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -872,7 +872,7 @@ describe("Nova tool-calling workspace agent", () => {
       })
     );
     // The post-acceptance write now succeeds.
-    const acceptedRow = chatWithMistralGateway.mock.calls
+    const acceptedRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -884,7 +884,7 @@ describe("Nova tool-calling workspace agent", () => {
       .find(m => m.role === "tool" && m.tool_call_id === "call-gate-3");
     expect(acceptedRow?.content).toContain("Created index.html");
     // The marker rows never reach the model's history.
-    const historySeesMarker = chatWithMistralGateway.mock.calls.some(call =>
+    const historySeesMarker = chatWithAiGateway.mock.calls.some(call =>
       (call[1] as Array<{ content?: unknown }>).some(
         m =>
           typeof m.content === "string" &&
@@ -899,7 +899,7 @@ describe("Nova tool-calling workspace agent", () => {
     runCoderTaskMock.mockRejectedValue(
       new Error("NVIDIA NIM responded with status 500.")
     );
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -925,7 +925,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       );
     await runWorkspaceAgent(1, 3, "build me a website");
-    const acceptRow = chatWithMistralGateway.mock.calls
+    const acceptRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -951,7 +951,7 @@ describe("Nova tool-calling workspace agent", () => {
         "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one."
       )
     );
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -969,7 +969,7 @@ describe("Nova tool-calling workspace agent", () => {
     await runWorkspaceAgent(1, 3, "build me a website");
     // Config failures are classified by type, not message text: no retry.
     expect(runCoderTaskMock).toHaveBeenCalledTimes(1);
-    const toolRow = chatWithMistralGateway.mock.calls
+    const toolRow = chatWithAiGateway.mock.calls
       .flatMap(
         call =>
           call[1] as Array<{
@@ -989,7 +989,7 @@ describe("Nova tool-calling workspace agent", () => {
   // nudge row shows up in every later gateway call - dedupe by content.
   const coderNudgeMessages = () => {
     const seen = new Map<string, string>();
-    for (const call of chatWithMistralGateway.mock.calls) {
+    for (const call of chatWithAiGateway.mock.calls) {
       for (const m of call[1] as Array<{ role: string; content?: unknown }>) {
         if (
           m.role === "user" &&
@@ -1012,7 +1012,7 @@ describe("Nova tool-calling workspace agent", () => {
       code: "// specialist version",
       model: "moonshotai/kimi-k3",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1062,7 +1062,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("does not nudge for non-code files the agent writes itself", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1084,7 +1084,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("does not nudge for trivial code the agent writes itself", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1111,7 +1111,7 @@ describe("Nova tool-calling workspace agent", () => {
       code: "// specialist version",
       model: "moonshotai/kimi-k3",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1153,7 +1153,7 @@ describe("Nova tool-calling workspace agent", () => {
       code: "// specialist version",
       model: "moonshotai/kimi-k3",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1214,7 +1214,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("reports a failed solve_equation call back to the model instead of breaking the run", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1230,7 +1230,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Sorry, that one was not solvable." })
       );
     const result = await runWorkspaceAgent(1, 3, "solve garbage");
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolRow = [...secondCallMessages]
       .reverse()
       .find(m => m.role === "tool");
@@ -1298,7 +1298,7 @@ describe("Nova tool-calling workspace agent", () => {
           }
         );
       runCoderTaskMock.mockReset();
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1331,7 +1331,7 @@ describe("Nova tool-calling workspace agent", () => {
       // The model heard the summary and the changed-file list, and was told
       // to verify the work.
       const toolResult = lastToolResult(
-        chatWithMistralGateway.mock.calls[1][1]
+        chatWithAiGateway.mock.calls[1][1]
       )!;
       expect(toolResult.tool_call_id).toBe("call-code");
       expect(toolResult.content).toContain("worked autonomously");
@@ -1381,7 +1381,7 @@ describe("Nova tool-calling workspace agent", () => {
             };
           }
         );
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1437,7 +1437,7 @@ describe("Nova tool-calling workspace agent", () => {
     it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(chatResult({ text: "All set." }));
@@ -1461,7 +1461,7 @@ describe("Nova tool-calling workspace agent", () => {
         name: "notes.txt",
         content: "hello world",
       });
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1496,7 +1496,7 @@ describe("Nova tool-calling workspace agent", () => {
         stdout: "welcome.md",
         stderr: "",
       });
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1518,7 +1518,7 @@ describe("Nova tool-calling workspace agent", () => {
       expect(result.actions).toEqual([
         { kind: "vm", name: "bash", operation: "completed" },
       ]);
-      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
       expect(secondCallMessages).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1543,7 +1543,7 @@ describe("Nova tool-calling workspace agent", () => {
         ok: true,
         result: "Exit code 0.\n\nstdout:\npage loaded",
       });
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1571,7 +1571,7 @@ describe("Nova tool-calling workspace agent", () => {
       expect(result.actions).toEqual([
         { kind: "browser", name: "open", operation: "completed" },
       ]);
-      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
       const fedBack = secondCallMessages.find(
         (m: { role: string; tool_call_id?: string }) =>
           m.role === "tool" && m.tool_call_id === "call-browse"
@@ -1581,7 +1581,7 @@ describe("Nova tool-calling workspace agent", () => {
 
     it("browse without a live sandbox reports the fallback to the model", async () => {
       vi.mocked(isE2BConfigured).mockReturnValue(false);
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1599,7 +1599,7 @@ describe("Nova tool-calling workspace agent", () => {
       expect(result.actions).toEqual([
         { kind: "browser", name: "browser", operation: "disabled" },
       ]);
-      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
       const fedBack = secondCallMessages.find(
         (m: { role: string; tool_call_id?: string }) =>
           m.role === "tool" && m.tool_call_id === "call-browse-off"
@@ -1610,7 +1610,7 @@ describe("Nova tool-calling workspace agent", () => {
 
     it("run_bash without a live sandbox reports the fallback to the model", async () => {
       vi.mocked(isE2BConfigured).mockReturnValue(false);
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(
@@ -1628,7 +1628,7 @@ describe("Nova tool-calling workspace agent", () => {
       expect(result.actions).toEqual([
         { kind: "vm", name: "bash", operation: "disabled" },
       ]);
-      const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+      const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
       const fedBack = secondCallMessages.find(
         (m: { role: string; tool_call_id?: string }) =>
           m.role === "tool" && m.tool_call_id === "call-bash-off"
@@ -1639,7 +1639,7 @@ describe("Nova tool-calling workspace agent", () => {
 
     it("does not wake the sandbox when E2B is not configured", async () => {
       vi.mocked(isE2BConfigured).mockReturnValue(false);
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(chatResult({ text: "Hi." }));
@@ -1652,7 +1652,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("deletes the live website when the model calls delete_website", async () => {
     deleteWebsite.mockClear();
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1682,7 +1682,7 @@ describe("Nova tool-calling workspace agent", () => {
         operation: "deleted",
       },
     ]);
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1718,7 +1718,7 @@ describe("Nova tool-calling workspace agent", () => {
       message:
         "The complete target list is: d-01 (https://nova-live-site.netlify.app - portfolio site); d-02 (https://nova-old-site.netlify.app - bakery landing page). Re-call with all: true and confirm_all set to exactly these deployment IDs - and only after the user has explicitly confirmed deleting every one of them.",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1749,7 +1749,7 @@ describe("Nova tool-calling workspace agent", () => {
       },
     ]);
     // The tool result hands the model the exact target list.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1763,7 +1763,7 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("executes the sweep when the model re-calls with confirm_all bound to the listed URLs", async () => {
     deleteWebsite.mockClear();
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1800,7 +1800,7 @@ describe("Nova tool-calling workspace agent", () => {
       ok: false,
       message: "Netlify responded with status 500.",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1819,7 +1819,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([
       { kind: "deployment", name: "", operation: "failed" },
     ]);
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1832,7 +1832,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("deploys the workspace website when the model calls deploy_website", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -1866,7 +1866,7 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
     // The tool result fed the live URL back to the model (the messages
     // array is mutated in place across rounds, so assert membership).
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1902,11 +1902,11 @@ describe("Nova tool-calling workspace agent", () => {
   it("writes the deadline closing status as a passive progress note when a continuation is planned", async () => {
     // Segmented runs chain automatically, so the closing status must not ask
     // the user to send "continue" - the next segment starts on its own.
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: "Research done, starting the write-up now.",
     });
     deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -1924,18 +1924,18 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe(
       "Research done, starting the write-up now."
     );
-    const prompt = String(completeWithMistralGateway.mock.calls[0][1]);
+    const prompt = String(completeWithAiGateway.mock.calls[0][1]);
     expect(prompt).toContain("continues automatically");
     expect(prompt).toContain("Do not ask the user to reply or wait");
     expect(prompt).not.toContain('send "continue"');
   });
 
   it("asks the user to send continue at the deadline when no continuation is planned", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: "Out of time - send continue to resume.",
     });
     deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -1952,16 +1952,16 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe(
       "Out of time - send continue to resume."
     );
-    const prompt = String(completeWithMistralGateway.mock.calls[0][1]);
+    const prompt = String(completeWithAiGateway.mock.calls[0][1]);
     expect(prompt).toContain('they can send "continue"');
   });
 
   it("uses the model-written closing status at the deadline when the gateway answers", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: 'I got the research done but ran out of time to write the file. Send "continue" and I will pick up right where I left off.',
     });
     deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -1984,8 +1984,8 @@ describe("Nova tool-calling workspace agent", () => {
     // Round 0 used to be unraced: a stalled or retrying first model round
     // could push the whole task past the runtime kill with no reply. It is
     // now raced whenever the budget is not already gone.
-    chatWithMistralGateway.mockImplementationOnce(() => new Promise(() => {}));
-    completeWithMistralGateway.mockResolvedValueOnce({
+    chatWithAiGateway.mockImplementationOnce(() => new Promise(() => {}));
+    completeWithAiGateway.mockResolvedValueOnce({
       text: 'I did not finish in time. Send "continue" and I will pick up right where I left off.',
     });
     const result = await runWorkspaceAgent(1, 3, "publish my site", {
@@ -2006,7 +2006,7 @@ describe("Nova tool-calling workspace agent", () => {
     // final-round margin left, so the race must be observed on fast-forward.
     vi.useFakeTimers();
     try {
-      chatWithMistralGateway
+      chatWithAiGateway
         .mockResolvedValueOnce(
           chatResult({
             toolCalls: [
@@ -2019,7 +2019,7 @@ describe("Nova tool-calling workspace agent", () => {
           })
         )
         .mockImplementationOnce(() => new Promise(() => {})); // hangs: never resolves
-      completeWithMistralGateway.mockResolvedValueOnce({
+      completeWithAiGateway.mockResolvedValueOnce({
         text: 'I read the file but ran out of time to finish the answer. Send "continue" and I will pick up right where I left off.',
       });
       const run = runWorkspaceAgent(1, 3, "research this topic", {
@@ -2034,7 +2034,7 @@ describe("Nova tool-calling workspace agent", () => {
       const reply = result.message.content;
       // The close is model-written and briefed with the round's tool summary.
       expect(reply).toContain('Send "continue"');
-      expect(completeWithMistralGateway.mock.calls.at(-1)[1]).toContain(
+      expect(completeWithAiGateway.mock.calls.at(-1)[1]).toContain(
         "read_file"
       );
     } finally {
@@ -2045,7 +2045,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("closes with a model-written reply when the run budget runs out before the final model round", async () => {
     // The deploy consumed the request budget: the next gateway round would
     // be killed by maxDuration before the reply could persist.
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -2056,7 +2056,7 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: 'The site is live at https://nova-live-site.netlify.app - I ran out of time for the last checks. Send "continue" and I will pick up right where I left off.',
     });
     const onChunk = vi.fn();
@@ -2065,12 +2065,12 @@ describe("Nova tool-calling workspace agent", () => {
       deadlineAtMs: Date.now() + 1_000,
     });
     // No second model round was started.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     // The closing reply is model-written, briefed with the tool summary.
     const reply = result.message.content;
     expect(reply).toContain("https://nova-live-site.netlify.app");
     expect(reply).toContain('Send "continue"');
-    expect(completeWithMistralGateway.mock.calls.at(-1)[1]).toContain(
+    expect(completeWithAiGateway.mock.calls.at(-1)[1]).toContain(
       "Deployed the website: https://nova-live-site.netlify.app"
     );
     // It streams to the client like any other reply.
@@ -2091,7 +2091,7 @@ describe("Nova tool-calling workspace agent", () => {
     // function mid-tool and the user never saw a reply. The race stops
     // waiting on the call and closes the run instead.
     deployWebsite.mockImplementationOnce(() => new Promise(() => {}));
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -2102,7 +2102,7 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: 'The deploy was still running when I ran out of time and did not finish. Send "continue" and I will pick up right where I left off.',
     });
     const onChunk = vi.fn();
@@ -2111,12 +2111,12 @@ describe("Nova tool-calling workspace agent", () => {
       deadlineAtMs: Date.now() + 25,
     });
     // No second model round - the run closed at the deadline.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     const reply = result.message.content;
     // The closing reply is model-written; the interrupted step is briefed to
     // it and the reply tells the user how to keep going.
     expect(reply).toContain('Send "continue"');
-    const closePrompt = completeWithMistralGateway.mock.calls.at(-1)[1];
+    const closePrompt = completeWithAiGateway.mock.calls.at(-1)[1];
     expect(closePrompt).toContain("deploy_website");
     expect(closePrompt).toContain("interrupted, not finished");
     // The interrupted call is recorded as failed activity, not left "running".
@@ -2133,7 +2133,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("skips a tool without starting it when the budget is already gone when the call begins", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         toolCalls: [
           {
@@ -2144,7 +2144,7 @@ describe("Nova tool-calling workspace agent", () => {
         ],
       })
     );
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: 'I did not get to the deploy before time ran out, so it never started. Send "continue" and I will pick up right where I left off.',
     });
     const onChunk = vi.fn();
@@ -2152,12 +2152,12 @@ describe("Nova tool-calling workspace agent", () => {
       onChunk,
       deadlineAtMs: Date.now() - 1_000,
     });
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     // The call's side effects never began - nothing deployed after closing.
     expect(deployWebsite).not.toHaveBeenCalled();
     const reply = result.message.content;
     expect(reply).toContain('Send "continue"');
-    const closePrompt = completeWithMistralGateway.mock.calls.at(-1)[1];
+    const closePrompt = completeWithAiGateway.mock.calls.at(-1)[1];
     expect(closePrompt).toContain("deploy_website");
     expect(closePrompt).toContain("skipped because time ran out");
     // The skipped call is recorded as failed activity with the reason.
@@ -2178,7 +2178,7 @@ describe("Nova tool-calling workspace agent", () => {
       message:
         "Add an index.html file to your workspace first - it is your website's entry page.",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2197,7 +2197,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.actions).toEqual([
       { kind: "deployment", name: "", operation: "failed" },
     ]);
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "The website was not deployed"
     );
@@ -2208,7 +2208,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("saves the communication style when the model calls set_communication_style", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2238,7 +2238,7 @@ describe("Nova tool-calling workspace agent", () => {
       "Keep replies short and direct."
     );
     // The tool result confirmed the save back to the model.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-style",
@@ -2254,10 +2254,10 @@ describe("Nova tool-calling workspace agent", () => {
     vi.mocked(getCommunicationStyleForUser).mockResolvedValueOnce(
       "Short, direct replies. No filler."
     );
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
 
     await runWorkspaceAgent(1, 3, "do the thing", {});
-    const messages = chatWithMistralGateway.mock.calls[0][1] as Array<{
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
       role: string;
       content: string;
     }>;
@@ -2269,7 +2269,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("deploys a chosen directory when the model passes one", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2301,14 +2301,14 @@ describe("Nova tool-calling workspace agent", () => {
         operation: "deployed",
       },
     ]);
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "published from /my-react-app"
     );
   });
 
   it("refuses to deploy when the model does not choose a directory", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2321,7 +2321,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "put my site online");
     expect(deployWebsite).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "You must choose the directory to deploy"
     );
@@ -2329,7 +2329,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("scaffolds a project template when the model calls create_project_template", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2374,7 +2374,7 @@ describe("Nova tool-calling workspace agent", () => {
       { kind: "project", name: "my-portfolio", operation: "created" },
     ]);
     // The tool result teaches the model where to point deploy_website.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "deploy_website"
     );
@@ -2395,7 +2395,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("scaffolds the react template when the model omits the stack", async () => {
     // No template argument at all: the default stack is a real React project,
     // not a loose HTML file, and it is used instead of failing the call.
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2418,7 +2418,7 @@ describe("Nova tool-calling workspace agent", () => {
       parentId: null,
     });
     // The tool result names the template that was used so the model can say so.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "(react template)"
     );
@@ -2428,7 +2428,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("rejects an unknown template instead of improvising one", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2446,7 +2446,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "make me a svelte blog");
     expect(createFolder).not.toHaveBeenCalled();
     expect(createFile).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "Unknown template: svelte"
     );
@@ -2466,7 +2466,7 @@ describe("Nova tool-calling workspace agent", () => {
       ],
       files: [{ id: 99, name: "index.html", content: "old", folderId: 22 }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2489,7 +2489,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "make a traffic jam game");
     expect(createFolder).not.toHaveBeenCalled();
     expect(createFile).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolResult = lastToolResult(secondCallMessages)!.content;
     expect(toolResult).toContain("already exists with files");
     expect(toolResult).toContain("traffic-jam-escape");
@@ -2509,7 +2509,7 @@ describe("Nova tool-calling workspace agent", () => {
       ],
       files: [{ id: 99, name: "main.jsx", content: "old", folderId: 23 }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2532,7 +2532,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "rebuild my game");
     expect(createFolder).not.toHaveBeenCalled();
     expect(createFile).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "already exists with files"
     );
@@ -2547,7 +2547,7 @@ describe("Nova tool-calling workspace agent", () => {
       folders: [],
       files: [{ id: 30, name: "index.html", content: "old", folderId: null }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2566,7 +2566,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "add a file");
     expect(createFile).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolResult = lastToolResult(secondCallMessages)!.content;
     expect(toolResult).toContain("A file named Index.HTML already exists");
     expect(toolResult).toContain("workspace root");
@@ -2581,7 +2581,7 @@ describe("Nova tool-calling workspace agent", () => {
       folders: [{ id: 22, name: "empty-site", parentId: null }],
       files: [],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2612,7 +2612,7 @@ describe("Nova tool-calling workspace agent", () => {
       folders: [{ id: 22, name: "traffic-jam-escape", parentId: null }],
       files: [],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2631,7 +2631,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "make a folder");
     expect(createFolder).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolResult = lastToolResult(secondCallMessages)!.content;
     expect(toolResult).toContain(
       "A folder named Traffic-Jam-Escape already exists"
@@ -2651,7 +2651,7 @@ describe("Nova tool-calling workspace agent", () => {
       'duplicate key value violates unique constraint "workspace_files_folder_name_unique"'
     );
     createFile.mockRejectedValueOnce(dbError);
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2669,7 +2669,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       );
     await runWorkspaceAgent(1, 3, "add a file");
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     const toolResult = lastToolResult(secondCallMessages)!.content;
     expect(toolResult).toContain("The tool call failed unexpectedly:");
     expect(toolResult).toContain(
@@ -2682,7 +2682,7 @@ describe("Nova tool-calling workspace agent", () => {
       token: "bot-token",
       chatId: "42",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2706,7 +2706,7 @@ describe("Nova tool-calling workspace agent", () => {
       "I'll get this done within about 30 seconds."
     );
     // The tool result confirms delivery back to the model.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-progress",
@@ -2723,14 +2723,14 @@ describe("Nova tool-calling workspace agent", () => {
 
   it("sends uploaded images to the model as vision input on the user turn", async () => {
     const dataUri = "data:image/jpeg;base64,aGVsbG8=";
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Nice photo of a dog." })
     );
     await runWorkspaceAgent(1, 3, "what is in this picture?", {
       channel: "telegram",
       imageAttachments: [dataUri],
     });
-    const messages = chatWithMistralGateway.mock.calls[0][1];
+    const messages = chatWithAiGateway.mock.calls[0][1];
     expect(
       messages.find(m => m.role === "user" && Array.isArray(m.content))
     ).toMatchObject({
@@ -2745,59 +2745,59 @@ describe("Nova tool-calling workspace agent", () => {
   it("routes image turns to the configured vision model", async () => {
     configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
     const dataUri = "data:image/jpeg;base64,aGVsbG8=";
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "A dog." })
     );
     await runWorkspaceAgent(1, 3, "what is in this picture?", {
       channel: "telegram",
       imageAttachments: [dataUri],
     });
-    expect(chatWithMistralGateway.mock.calls[0][2]).toMatchObject({
+    expect(chatWithAiGateway.mock.calls[0][2]).toMatchObject({
       model: "glm-4.6v-flash",
     });
   });
 
   it("keeps text turns on the default chat model when a vision model is configured", async () => {
     configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Hello!" })
     );
     await runWorkspaceAgent(1, 3, "hi");
-    const options = chatWithMistralGateway.mock.calls[0][2] ?? {};
+    const options = chatWithAiGateway.mock.calls[0][2] ?? {};
     expect(options.model).toBeUndefined();
   });
 
   it("keeps image turns on the default chat model when no vision model is configured", async () => {
     configuredVisionChatModel.mockReturnValue(undefined);
     const dataUri = "data:image/jpeg;base64,aGVsbG8=";
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "A dog." })
     );
     await runWorkspaceAgent(1, 3, "what is in this picture?", {
       channel: "telegram",
       imageAttachments: [dataUri],
     });
-    const options = chatWithMistralGateway.mock.calls[0][2] ?? {};
+    const options = chatWithAiGateway.mock.calls[0][2] ?? {};
     expect(options.model).toBeUndefined();
   });
 
   it("drops the attachment instead of failing when the model cannot see images", async () => {
     const dataUri = "data:image/png;base64,aGVsbG8=";
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockRejectedValueOnce(
-        new MistralGatewayClientError(
+        new AiGatewayClientError(
           "image input is not supported by this model",
           "unavailable"
         )
       )
       .mockRejectedValueOnce(
-        new MistralGatewayClientError(
+        new AiGatewayClientError(
           "image input is not supported by this model",
           "unavailable"
         )
       )
       .mockRejectedValueOnce(
-        new MistralGatewayClientError(
+        new AiGatewayClientError(
           "image input is not supported by this model",
           "unavailable"
         )
@@ -2810,7 +2810,7 @@ describe("Nova tool-calling workspace agent", () => {
       channel: "telegram",
       imageAttachments: [dataUri],
     });
-    const retriedContent = chatWithMistralGateway.mock.calls
+    const retriedContent = chatWithAiGateway.mock.calls
       .flatMap(call => call[1])
       .find(
         message =>
@@ -2826,7 +2826,7 @@ describe("Nova tool-calling workspace agent", () => {
       token: "bot-token",
       chatId: "42",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2851,7 +2851,7 @@ describe("Nova tool-calling workspace agent", () => {
       { name: "welcome.md", content: "Hello", mimeType: undefined },
       "Your file"
     );
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-present",
@@ -2864,7 +2864,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("fails gracefully when Telegram is not connected for a present_file call", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2881,7 +2881,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     await runWorkspaceAgent(1, 3, "send me the file", { channel: "telegram" });
     expect(presentTelegramFile).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       content: expect.stringContaining("Telegram is not connected"),
@@ -2893,7 +2893,7 @@ describe("Nova tool-calling workspace agent", () => {
       token: "bot-token",
       chatId: "42",
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           text: 'The function call that best answers the given prompt is {"name": "present_file", "parameters": {"file": "welcome.md", "caption": "Your file"}}',
@@ -2911,7 +2911,7 @@ describe("Nova tool-calling workspace agent", () => {
       "Your file"
     );
     // The gateway saw a genuine assistant tool call and its tool result.
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(
       secondCallMessages.find(
         m => m.role === "assistant" && Array.isArray(m.tool_calls)
@@ -2942,7 +2942,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("leaves ordinary JSON in replies alone", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(
+    chatWithAiGateway.mockResolvedValueOnce(
       chatResult({
         text: 'Here is the payload: {"name": "unknown_thing", "parameters": {}}',
       })
@@ -2953,14 +2953,14 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("exposes send_progress_update only to the Telegram bot, never to the web app", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi");
-    const telegramTools = chatWithMistralGateway.mock.calls[0][2].tools.map(
+    const telegramTools = chatWithAiGateway.mock.calls[0][2].tools.map(
       tool => tool.function.name
     );
-    const webTools = chatWithMistralGateway.mock.calls[2][2].tools.map(
+    const webTools = chatWithAiGateway.mock.calls[2][2].tools.map(
       tool => tool.function.name
     );
     expect(telegramTools).toContain("send_progress_update");
@@ -2970,7 +2970,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("refuses a web-run send_progress_update call and sends no Telegram ping", async () => {
     // No Telegram credentials here: the channel guard must fire before any
     // credential lookup, so a web run can never reach Telegram.
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -2985,7 +2985,7 @@ describe("Nova tool-calling workspace agent", () => {
       .mockResolvedValueOnce(chatResult({ text: "All done." }));
     await runWorkspaceAgent(1, 3, "organize my files");
     expect(sendTelegramMessage).not.toHaveBeenCalled();
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)).toMatchObject({
       role: "tool",
       tool_call_id: "call-progress",
@@ -2994,14 +2994,14 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("exposes present_file only to the Telegram bot, never to the web app", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "ok" }));
     await runWorkspaceAgent(1, 3, "hi");
-    const telegramTools = chatWithMistralGateway.mock.calls[0][2].tools.map(
+    const telegramTools = chatWithAiGateway.mock.calls[0][2].tools.map(
       tool => tool.function.name
     );
-    const webTools = chatWithMistralGateway.mock.calls[2][2].tools.map(
+    const webTools = chatWithAiGateway.mock.calls[2][2].tools.map(
       tool => tool.function.name
     );
     expect(telegramTools).toContain("present_file");
@@ -3009,9 +3009,9 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("reports the request channel and progress guidance through the system prompt", async () => {
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
     await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
-    const telegramPrompt = chatWithMistralGateway.mock.calls[0][1][0].content;
+    const telegramPrompt = chatWithAiGateway.mock.calls[0][1][0].content;
     expect(telegramPrompt).toContain("Telegram");
     expect(telegramPrompt).toContain(
       "the user only sees the messages you send"
@@ -3025,9 +3025,9 @@ describe("Nova tool-calling workspace agent", () => {
       "never let more than a minute or so pass in silence"
     );
 
-    chatWithMistralGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
     await runWorkspaceAgent(1, 3, "hi");
-    const webPrompt = chatWithMistralGateway.mock.calls[2][1][0].content;
+    const webPrompt = chatWithAiGateway.mock.calls[2][1][0].content;
     expect(webPrompt).toContain("the Nova web app");
     expect(webPrompt).toContain("the user sees your tool activity live");
     // The web prompt keeps the interim-notes guidance but swaps it for the
@@ -3038,14 +3038,14 @@ describe("Nova tool-calling workspace agent", () => {
     expect(webPrompt).not.toContain("present it with present_file");
 
     // The progress tool stays Telegram-only.
-    const tools = chatWithMistralGateway.mock.calls[2][2].tools;
+    const tools = chatWithAiGateway.mock.calls[2][2].tools;
     expect(tools.map(tool => tool.function.name)).not.toContain(
       "send_progress_update"
     );
   });
 
   it("edits an existing file's content through edit_file", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3075,7 +3075,7 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("reports tool failures back to the model instead of claiming success", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3116,8 +3116,8 @@ describe("Nova tool-calling workspace agent", () => {
   it("runs tool rounds without a step cap until the model stops calling tools", async () => {
     // The model requests 12 (failing) tool calls before finishing with text.
     // The old 8-round cap would have stopped it; the agent now keeps going.
-    chatWithMistralGateway.mockImplementation(async () => {
-      const calls = chatWithMistralGateway.mock.calls.length;
+    chatWithAiGateway.mockImplementation(async () => {
+      const calls = chatWithAiGateway.mock.calls.length;
       if (calls >= 12)
         return chatResult({
           toolCalls: [
@@ -3142,14 +3142,14 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "loop forever", {
       onChunk,
     });
-    expect(chatWithMistralGateway.mock.calls.length).toBe(12);
+    expect(chatWithAiGateway.mock.calls.length).toBe(12);
     expect(result.message.content).toContain("Done after 12 rounds.");
   });
 
   it("stops the run at the next round boundary when /stop was requested", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(() =>
+    chatWithAiGateway.mockReset().mockImplementation(() =>
       Promise.resolve(
-        chatWithMistralGateway.mock.calls.length === 1
+        chatWithAiGateway.mock.calls.length === 1
           ? chatResult({
               toolCalls: [
                 {
@@ -3169,15 +3169,15 @@ describe("Nova tool-calling workspace agent", () => {
 
     const result = await runWorkspaceAgent(1, 3, "do something long", {});
     expect(createFile).toHaveBeenCalledTimes(1);
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
     expect(result.message.content).toContain("at your request");
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
   it("aborts a long streamed reply mid-response when /stop arrives", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(
+    chatWithAiGateway.mockReset().mockImplementation(
       (
         _ownerId: number,
         _messages: unknown,
@@ -3205,12 +3205,12 @@ describe("Nova tool-calling workspace agent", () => {
     });
     expect(result.message.content).toContain("\u23f9\ufe0f Stopped");
     expect(result.message.content).toContain("at your request");
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
   it("stops between tool calls so a long research run cannot continue", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(() =>
+    chatWithAiGateway.mockReset().mockImplementation(() =>
       Promise.resolve(
         chatResult({
           toolCalls: [
@@ -3236,12 +3236,12 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "two tools", {});
     expect(createFile).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("⏹️ Stopped");
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     hasAgentStopAfter.mockReset();
   });
 
   it("surfaces a disabled Telegram tool to the model", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3262,13 +3262,13 @@ describe("Nova tool-calling workspace agent", () => {
       "send a telegram message saying ping"
     );
     expect(result.actions).toEqual([]);
-    const toolMessage = lastToolResult(chatWithMistralGateway.mock.calls[1][1]);
+    const toolMessage = lastToolResult(chatWithAiGateway.mock.calls[1][1]);
     expect(toolMessage!.content).toContain("Telegram is not connected");
     expect(result.message.content).toBe("Connect Telegram in Settings first.");
   });
 
   it("streams reply chunks to onChunk as the model produces them", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockImplementationOnce(async (owner, messages, options) => {
         options?.onChunk?.("Hello");
         options?.onChunk?.(" world");
@@ -3289,15 +3289,15 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("hides the backend error behind a generic notice when every retry fails", async () => {
-    chatWithMistralGateway.mockRejectedValue(
-      new MistralGatewayClientError(
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError(
         "fetch failed: connection reset by peer",
         "unavailable"
       )
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(result.message.content).toContain(MISTRAL_UNAVAILABLE_PREFIX);
+    expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
     // The raw backend error - and any endpoint or service it names - never
     // reaches the chat.
     expect(result.message.content).not.toContain(
@@ -3305,7 +3305,7 @@ describe("Nova tool-calling workspace agent", () => {
     );
     expect(result.message.content).not.toContain("Mistral");
     expect(onChunk).toHaveBeenCalled();
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
   });
 
   it("keeps the database cause behind a drizzle Failed query wrapper out of the chat", async () => {
@@ -3320,15 +3320,15 @@ describe("Nova tool-calling workspace agent", () => {
       'Failed query: select "deploymentKey" from "site_deployments"\nparams: 4,500'
     );
     wrapped.cause = cause;
-    chatWithMistralGateway.mockRejectedValue(wrapped);
+    chatWithAiGateway.mockRejectedValue(wrapped);
     const result = await runWorkspaceAgent(1, 3, "organize my deployments");
-    expect(result.message.content).toContain(MISTRAL_UNAVAILABLE_PREFIX);
+    expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
     expect(result.message.content).not.toContain("Failed query");
     expect(result.message.content).not.toContain("deploymentKey");
   });
 
   it("reports configuration error when the gateway is not configured", async () => {
-    getMistralGatewayStatus.mockReturnValueOnce({
+    getAiGatewayStatus.mockReturnValueOnce({
       configured: false,
       reachable: false,
       providerConfigured: false,
@@ -3343,11 +3343,11 @@ describe("Nova tool-calling workspace agent", () => {
     });
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
-    expect(chatWithMistralGateway).not.toHaveBeenCalled();
+    expect(chatWithAiGateway).not.toHaveBeenCalled();
   });
 
   it("reports unreachable gateway when health check fails", async () => {
-    getMistralGatewayStatus.mockReturnValueOnce({
+    getAiGatewayStatus.mockReturnValueOnce({
       configured: true,
       reachable: false,
       providerConfigured: false,
@@ -3362,16 +3362,16 @@ describe("Nova tool-calling workspace agent", () => {
     });
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("unreachable");
-    expect(chatWithMistralGateway).not.toHaveBeenCalled();
+    expect(chatWithAiGateway).not.toHaveBeenCalled();
   });
 
   it("reports allowance exhausted when request cap is reached", async () => {
-    getMistralGatewayStatus.mockReturnValueOnce({
+    getAiGatewayStatus.mockReturnValueOnce({
       configured: true,
       reachable: true,
       providerConfigured: true,
       providerConfigurationKnown: true,
-      model: "mistral-medium-latest",
+      model: "chat-medium-latest",
       allowance: {
         usedRequests: 50,
         maxRequests: 50,
@@ -3381,22 +3381,22 @@ describe("Nova tool-calling workspace agent", () => {
     });
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("exhausted");
-    expect(chatWithMistralGateway).not.toHaveBeenCalled();
+    expect(chatWithAiGateway).not.toHaveBeenCalled();
   });
 
   it("returns the allowance message when the workspace cap is reached", async () => {
-    chatWithMistralGateway.mockRejectedValueOnce(
-      new MistralGatewayClientError("cap", "allowance_reached")
+    chatWithAiGateway.mockRejectedValueOnce(
+      new AiGatewayClientError("cap", "allowance_reached")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("allowance");
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
   });
 
   it("waits once and retries an upstream 429 instead of failing", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockRejectedValueOnce(
-        new MistralGatewayClientError("Too Many Requests", "rate_limit")
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
       )
       .mockResolvedValueOnce(
         chatResult({ text: "Back online - here is your answer." })
@@ -3408,7 +3408,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // One patient retry, then the reply, then the explicit end_turn round.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
     expect(result.message.content).toContain("Back online");
   });
 
@@ -3416,7 +3416,7 @@ describe("Nova tool-calling workspace agent", () => {
     // The model keeps re-calling the same read of a file that does not
     // exist - the exact loop from the failed project run screenshot.
     // Earlier tests leave persistent mock rejections behind: start clean.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     const doomedRead = chatResult({
       toolCalls: [
         {
@@ -3426,7 +3426,7 @@ describe("Nova tool-calling workspace agent", () => {
         },
       ],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(doomedRead)
       .mockResolvedValueOnce(doomedRead)
       .mockResolvedValueOnce(doomedRead);
@@ -3434,10 +3434,10 @@ describe("Nova tool-calling workspace agent", () => {
     // The first two rounds execute the read for real; the third identical
     // attempt is refused without execution and the loop answers with the
     // end_turn echo, so the gateway sees exactly 4 rounds.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(4);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(4);
     // The refusal reaches the model as a tool result naming the earlier
     // failure, not as another dead-end "File not found".
-    const refusal = lastToolResult(chatWithMistralGateway.mock.calls[3][1])!;
+    const refusal = lastToolResult(chatWithAiGateway.mock.calls[3][1])!;
     expect(refusal.content).toContain("already failed twice");
     expect(refusal.content).toContain("[repeated-failure control]");
     // The refused attempt is persisted as a failed activity with a summary
@@ -3459,7 +3459,7 @@ describe("Nova tool-calling workspace agent", () => {
     // The failed-run loop: the model wrote "ph-meter-2/index.html" (and
     // "./ph-meter-2/index.html") instead of the bare file name and got
     // "File not found" even though the file existed inside the folder.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     computer.mockResolvedValueOnce({
       workspace: { id: 41, persistentSandboxId: "sbx-vm" },
       folders: [{ id: 22, name: "ph-meter-2", parentId: null }],
@@ -3467,7 +3467,7 @@ describe("Nova tool-calling workspace agent", () => {
         { id: 99, name: "index.html", content: "<h1>PH</h1>", folderId: 22 },
       ],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3483,7 +3483,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Read it - the PH meter site is coming along." })
       );
     const result = await runWorkspaceAgent(1, 3, "check my ph meter site");
-    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1])!;
     expect(toolResult.content).toContain("Content of index.html");
     expect(toolResult.content).toContain("<h1>PH</h1>");
     expect(result.message.content).toContain("coming along");
@@ -3492,13 +3492,13 @@ describe("Nova tool-calling workspace agent", () => {
   it("resolves dotfiles like .env without stripping the leading dot", async () => {
     // normalizeWorkspaceRef used to strip leading dots, mapping ".env" to
     // "env" and making the dotfile unresolvable.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     computer.mockResolvedValueOnce({
       workspace: { id: 41, persistentSandboxId: "sbx-vm" },
       folders: [],
       files: [{ id: 90, name: ".env", content: "KEY=1", folderId: null }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3512,7 +3512,7 @@ describe("Nova tool-calling workspace agent", () => {
       )
       .mockResolvedValueOnce(chatResult({ text: "Got your env file." }));
     await runWorkspaceAgent(1, 3, "read my env file");
-    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1])!;
     expect(toolResult.content).toContain("Content of .env");
     expect(toolResult.content).toContain("KEY=1");
   });
@@ -3520,13 +3520,13 @@ describe("Nova tool-calling workspace agent", () => {
   it("refuses to delete a basename match from the wrong folder in strict mode", async () => {
     // delete_file("wrong-folder/report.md") must not fall back to deleting
     // the first report.md it finds elsewhere.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     computer.mockResolvedValueOnce({
       workspace: { id: 41, persistentSandboxId: "sbx-vm" },
       folders: [{ id: 22, name: "reports", parentId: null }],
       files: [{ id: 90, name: "report.md", content: "quarter", folderId: 22 }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3545,7 +3545,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const result = await runWorkspaceAgent(1, 3, "delete my report");
     expect(deleteFile).not.toHaveBeenCalled();
-    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1])!;
     expect(toolResult.content).toContain(
       "File not found: wrong-folder/report.md."
     );
@@ -3554,13 +3554,13 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("deletes a path-qualified file when the folder matches exactly", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     computer.mockResolvedValueOnce({
       workspace: { id: 41, persistentSandboxId: "sbx-vm" },
       folders: [{ id: 22, name: "reports", parentId: null }],
       files: [{ id: 90, name: "report.md", content: "quarter", folderId: 22 }],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3584,7 +3584,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("suggests the closest existing files when a read misses, instead of a bare not-found", async () => {
     // "ph-meter/index.html" does not exist, but "ph-meter-2.html" does: the
     // refusal must name it so the model stops guessing path variants.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
     computer.mockResolvedValueOnce({
       workspace: { id: 41, persistentSandboxId: "sbx-vm" },
       folders: [{ id: 22, name: "ph-meter-2", parentId: null }],
@@ -3597,7 +3597,7 @@ describe("Nova tool-calling workspace agent", () => {
         },
       ],
     });
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3613,7 +3613,7 @@ describe("Nova tool-calling workspace agent", () => {
         chatResult({ text: "Found it - reading ph-meter-2.html instead." })
       );
     await runWorkspaceAgent(1, 3, "check my ph meter site");
-    const toolResult = lastToolResult(chatWithMistralGateway.mock.calls[1][1])!;
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1])!;
     expect(toolResult.content).toContain(
       "File not found: ph-meter/index.html."
     );
@@ -3623,8 +3623,8 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("nudges the model to disclose failed steps in its final reply", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
-    chatWithMistralGateway
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3642,7 +3642,7 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "make a site");
     // After the failing round, a one-per-run control message tells the
     // model the final reply must disclose the failure.
-    const messagesAfterFailure = chatWithMistralGateway.mock.calls[1][1];
+    const messagesAfterFailure = chatWithAiGateway.mock.calls[1][1];
     const nudge = messagesAfterFailure.find(
       m =>
         m.role === "user" &&
@@ -3654,7 +3654,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(nudge?.content).toContain("final reply MUST state plainly");
     // Only ever one nudge per run: the messages array carries forward, so
     // count within the final round's snapshot rather than across rounds.
-    const finalRoundMessages = chatWithMistralGateway.mock.calls.at(-1)![1];
+    const finalRoundMessages = chatWithAiGateway.mock.calls.at(-1)![1];
     const nudgesInFinalRound = finalRoundMessages.filter(
       m =>
         m.role === "user" &&
@@ -3666,8 +3666,8 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("discloses failed steps when an inference error ends the run mid-flight", async () => {
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
-    chatWithMistralGateway
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -3680,7 +3680,7 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockRejectedValue(
-        new MistralGatewayClientError(
+        new AiGatewayClientError(
           "The service may be temporarily overloaded, please try again later",
           "rate_limit"
         )
@@ -3703,19 +3703,19 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("stops after one patient 429 retry and leads with the provider's own error", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockRejectedValueOnce(
-        new MistralGatewayClientError("Too Many Requests", "rate_limit")
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
       )
       .mockRejectedValueOnce(
-        new MistralGatewayClientError("Too Many Requests", "rate_limit")
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
       )
       .mockRejectedValueOnce(
-        new MistralGatewayClientError("Too Many Requests", "rate_limit")
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
       );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // The wait happens once per run, never as a fast-retry hammer.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(2);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(2);
     // The reply explains the throttle in user-facing terms instead of
     // quoting the upstream provider's raw error text.
     expect(result.message.content).toContain("Too many requests right now");
@@ -3729,33 +3729,33 @@ describe("Nova tool-calling workspace agent", () => {
     // Earlier tests leave queued mock rejections behind (clearAllMocks only
     // clears call history), so start from a clean slate like the other
     // error-path tests do.
-    chatWithMistralGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
-    chatWithMistralGateway.mockRejectedValue(
-      new MistralGatewayClientError("Model not found", "client_error")
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("Model not found", "client_error")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     // A 4xx rejection cannot succeed by retrying, so the agent stops at once.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("rejected this request");
     // The provider's raw error text stays out of the chat.
     expect(result.message.content).not.toContain("Model not found");
   });
 
   it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
-    chatWithMistralGateway.mockRejectedValue(
-      new MistralGatewayClientError("Too Many Requests", "rate_limit")
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("Too Many Requests", "rate_limit")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?", {
       deadlineAtMs: Date.now() + 10_000,
     });
     // No time for the wait: fail immediately with a user-facing explanation.
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("Too many requests right now");
   });
 
   it("returns configuration message when the chat throws a configuration error", async () => {
-    chatWithMistralGateway.mockRejectedValueOnce(
-      new MistralGatewayClientError("no key", "configuration")
+    chatWithAiGateway.mockRejectedValueOnce(
+      new AiGatewayClientError("no key", "configuration")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
@@ -3764,18 +3764,18 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("returns invalid-response message when every retry is invalid", async () => {
-    chatWithMistralGateway.mockRejectedValue(
-      new MistralGatewayClientError("bad", "invalid_response")
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("bad", "invalid_response")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("invalid response");
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
   });
 
   it("recovers from a transient gateway failure by retrying the round", async () => {
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockRejectedValueOnce(
-        new MistralGatewayClientError("blip", "unavailable")
+        new AiGatewayClientError("blip", "unavailable")
       )
       .mockResolvedValueOnce(chatResult({ text: "All good." }))
       .mockResolvedValueOnce(
@@ -3783,7 +3783,7 @@ describe("Nova tool-calling workspace agent", () => {
       );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(3);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
     expect(result.message.content).toBe("All good.");
     expect(onChunk).toHaveBeenCalledWith("All good.");
   });
@@ -3791,15 +3791,15 @@ describe("Nova tool-calling workspace agent", () => {
   it("does not retry once text has already streamed to the client", async () => {
     // Simulate a mid-stream failure: a chunk reached the client, then the
     // gateway round aborted. Retrying would duplicate what the user saw.
-    chatWithMistralGateway.mockImplementationOnce(
+    chatWithAiGateway.mockImplementationOnce(
       async (owner, messages, options) => {
         options?.onChunk?.("Partial ");
-        throw new MistralGatewayClientError("blip", "unavailable");
+        throw new AiGatewayClientError("blip", "unavailable");
       }
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(chatWithMistralGateway).toHaveBeenCalledTimes(1);
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith("Partial ");
     // The partial reply the user already watched is kept, with a note that the
     // gateway dropped - not replaced by a bare error notice.
@@ -3816,7 +3816,7 @@ describe("Nova tool-calling workspace agent", () => {
   it("keeps tool-narration text streamed in earlier rounds when the final round fails", async () => {
     // Round 1 streams "Checking your files" and requests a tool; round 2
     // fails with nothing streamed - the user still keeps what they watched.
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockImplementationOnce(async (owner, messages, options) => {
         options?.onChunk?.("Checking your files. ");
         return chatResult({
@@ -3831,7 +3831,7 @@ describe("Nova tool-calling workspace agent", () => {
         });
       })
       .mockRejectedValue(
-        new MistralGatewayClientError("dead", "invalid_response")
+        new AiGatewayClientError("dead", "invalid_response")
       );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "make a folder", { onChunk });
@@ -3846,8 +3846,8 @@ describe("autoTitleChatForUser", () => {
     vi.clearAllMocks();
   });
 
-  it("renames a default-titled chat from its first messages via Mistral AI", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({
+  it("renames a default-titled chat from its first messages via the AI gateway", async () => {
+    completeWithAiGateway.mockResolvedValueOnce({
       text: "Sprint planning",
     });
     await autoTitleChatForUser(1, 3);
@@ -3862,7 +3862,7 @@ describe("autoTitleChatForUser", () => {
   it("leaves already-titled chats alone", async () => {
     chat.mockResolvedValueOnce({ id: 3, title: "Custom title" });
     await autoTitleChatForUser(1, 3);
-    expect(completeWithMistralGateway).not.toHaveBeenCalled();
+    expect(completeWithAiGateway).not.toHaveBeenCalled();
     expect(renameChat).not.toHaveBeenCalled();
   });
 
@@ -3871,19 +3871,19 @@ describe("autoTitleChatForUser", () => {
       { id: 1, role: "user", content: "Help me plan a sprint." },
     ]);
     await autoTitleChatForUser(1, 3);
-    expect(completeWithMistralGateway).not.toHaveBeenCalled();
+    expect(completeWithAiGateway).not.toHaveBeenCalled();
   });
 
   it("strips wrapping quotes and newlines from the model title", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({
+    completeWithAiGateway.mockResolvedValueOnce({
       text: '"Sprint\nplanning ideas"',
     });
     await autoTitleChatForUser(1, 3);
     expect(renameChat).toHaveBeenCalledWith(1, 3, "Sprint", expect.any(Array));
   });
 
-  it("does not rename when the Mistral title is missing", async () => {
-    completeWithMistralGateway.mockResolvedValueOnce({ text: "" });
+  it("does not rename when the generated title is missing", async () => {
+    completeWithAiGateway.mockResolvedValueOnce({ text: "" });
     await autoTitleChatForUser(1, 3);
     expect(renameChat).not.toHaveBeenCalled();
   });
@@ -3955,12 +3955,12 @@ describe("connector tool gating", () => {
   });
 
   it("exposes the memory tools to the model", async () => {
-    chatWithMistralGateway.mockReset();
-    chatWithMistralGateway
+    chatWithAiGateway.mockReset();
+    chatWithAiGateway
       .mockResolvedValueOnce(chatResult({ text: "Hi!" }))
       .mockResolvedValueOnce(endTurnReply({ reply: "Hi!" }));
     await runWorkspaceAgent(1, 3, "hi");
-    const [, , options] = chatWithMistralGateway.mock.calls[0];
+    const [, , options] = chatWithAiGateway.mock.calls[0];
     const names = options.tools.map(
       (t: { function: { name: string } }) => t.function.name
     );
@@ -3975,7 +3975,7 @@ describe("connector tool gating", () => {
   });
 
   it("feeds search_memories results back to the model", async () => {
-    chatWithMistralGateway.mockReset();
+    chatWithAiGateway.mockReset();
     searchMemoriesForUser.mockClear();
     appendConversationTurn.mockClear();
     searchMemoriesForUser.mockResolvedValueOnce([
@@ -3992,7 +3992,7 @@ describe("connector tool gating", () => {
         updatedAt: new Date("2026-09-20T10:00:00Z"),
       },
     ]);
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
           toolCalls: [
@@ -4008,7 +4008,7 @@ describe("connector tool gating", () => {
       .mockResolvedValueOnce(endTurnReply({ reply: "Found it." }));
     await runWorkspaceAgent(1, 3, "what did we do with the portfolio site?");
     expect(searchMemoriesForUser).toHaveBeenCalledWith(1, "portfolio", 8);
-    const secondCallMessages = chatWithMistralGateway.mock.calls[1][1];
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(secondCallMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -4023,9 +4023,9 @@ describe("connector tool gating", () => {
   });
 
   it("captures the completed turn into the conversation memory", async () => {
-    chatWithMistralGateway.mockReset();
+    chatWithAiGateway.mockReset();
     appendConversationTurn.mockClear();
-    chatWithMistralGateway
+    chatWithAiGateway
       .mockResolvedValueOnce(chatResult({ text: "Done." }))
       .mockResolvedValueOnce(endTurnReply({ reply: "Done." }));
     await runWorkspaceAgent(1, 3, "remember this task");

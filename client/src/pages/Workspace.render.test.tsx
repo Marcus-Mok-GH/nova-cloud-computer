@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Workspace, { TypingIndicator } from "./Workspace";
-import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
+import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 
 const state = vi.hoisted(() => ({
   computer: {
@@ -31,13 +31,13 @@ const state = vi.hoisted(() => ({
     isError: false,
     isLoading: false,
   },
-  mistralStatus: {
+  gatewayStatus: {
     data: {
       configured: false,
       reachable: false,
       providerConfigured: false,
       provider: "mistral",
-      model: "mistral-medium-latest",
+      model: "chat-medium-latest",
       allowance: {
         usedRequests: 0,
         maxRequests: 50,
@@ -112,8 +112,8 @@ vi.mock("@/lib/trpc", () => ({
     },
     composio: { status: { useQuery: () => state.composioStatus } },
     telegram: { status: { useQuery: () => state.telegramStatus } },
-    mistral: {
-      status: { useQuery: () => state.mistralStatus },
+    ai: {
+      status: { useQuery: () => state.gatewayStatus },
       models: { useQuery: () => ({ data: [] }) },
     },
     folders: {
@@ -146,7 +146,7 @@ vi.mock("@/lib/trpc", () => ({
       workspace: { computer: { invalidate } },
       chats: { messages: { invalidate } },
       agentVm: { list: { invalidate } },
-      mistral: { status: { invalidate } },
+      ai: { status: { invalidate } },
     }),
   },
 }));
@@ -192,13 +192,13 @@ describe("Workspace rendered browser states", () => {
       isError: false,
       isLoading: false,
     };
-    state.mistralStatus = {
+    state.gatewayStatus = {
       data: {
         configured: false,
         reachable: false,
         providerConfigured: false,
         provider: "mistral",
-        model: "mistral-medium-latest",
+        model: "chat-medium-latest",
         allowance: {
           usedRequests: 0,
           maxRequests: 50,
@@ -425,13 +425,13 @@ describe("Workspace rendered browser states", () => {
       isError: false,
       isLoading: false,
     };
-    state.mistralStatus = {
+    state.gatewayStatus = {
       data: {
         configured: true,
         reachable: true,
         providerConfigured: true,
         provider: "mistral",
-        model: "mistral-medium-latest",
+        model: "chat-medium-latest",
         allowance: {
           usedRequests: 12,
           maxRequests: 50,
@@ -458,7 +458,7 @@ describe("Workspace rendered browser states", () => {
       {
         id: 1,
         role: "assistant",
-        content: `${MISTRAL_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset`,
+        content: `${AI_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset`,
       },
     ];
     const markup = renderChat();
@@ -487,11 +487,11 @@ describe("Workspace rendered browser states", () => {
 
     // A plain assistant reply never matches the error marker.
     state.chatMessages = [
-      { id: 1, role: "assistant", content: "Mistral is a fine model" },
+      { id: 1, role: "assistant", content: "That model is a fine choice" },
     ];
     const plainMarkup = renderChat();
     expect(plainMarkup).not.toContain('data-testid="assistant-error"');
-    expect(plainMarkup).toContain("Mistral is a fine model");
+    expect(plainMarkup).toContain("That model is a fine choice");
   });
 
   it("renders a normal persisted assistant message as a regular bubble with exactly one label", () => {

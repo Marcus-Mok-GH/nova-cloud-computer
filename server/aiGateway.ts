@@ -1,7 +1,7 @@
 import {
   claimDailyCreditForUser,
-  claimMistralInferenceRequestForUser,
-  getMistralInferenceAllowanceForUser,
+  claimInferenceRequestForUser,
+  getInferenceAllowanceForUser,
   settleDailyCreditUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
@@ -32,7 +32,7 @@ export type GatewayCompletion = {
   };
 };
 
-type MistralModel = {
+type GatewayModel = {
   id: string;
   object?: string;
   created?: number;
@@ -44,17 +44,17 @@ type MistralModel = {
   modalities?: string[];
 };
 
-type MistralModelsResponse = {
-  data?: MistralModel[];
+type GatewayModelsResponse = {
+  data?: GatewayModel[];
 };
 
-export type AvailableMistralModel = MistralModel & {
+export type AvailableGatewayModel = GatewayModel & {
   /** Models in the picker always support chat; vision models also accept image input. */
   kind: "text" | "vision";
 };
 
 let modelCache:
-  { models: AvailableMistralModel[]; expiresAt: number } | undefined;
+  { models: AvailableGatewayModel[]; expiresAt: number } | undefined;
 
 type GatewayHealthFlags = {
   configured: boolean;
@@ -67,11 +67,11 @@ let gatewayHealthCache:
   { key: string; expiresAt: number; flags: GatewayHealthFlags } | undefined;
 
 /** Clears the in-process gateway health cache (used by tests between cases). */
-export function resetMistralGatewayHealthCache() {
+export function resetAiGatewayHealthCache() {
   gatewayHealthCache = undefined;
 }
 
-export type MistralGatewayClientErrorKind =
+export type AiGatewayClientErrorKind =
   | "configuration"
   | "unavailable"
   | "rate_limit"
@@ -88,7 +88,7 @@ export type MistralGatewayClientErrorKind =
  * problems - a bad model id or an oversized prompt - that retrying cannot fix,
  * so the workspace agent must not burn its retry budget on them.
  */
-export function classifyGatewayHttpError(status: number): MistralGatewayClientErrorKind {
+export function classifyGatewayHttpError(status: number): AiGatewayClientErrorKind {
   if (status === 429) return "rate_limit";
   if (status === 401 || status === 403) return "configuration";
   if (status >= 400 && status < 500 && status !== 408 && status !== 425)
@@ -96,33 +96,34 @@ export function classifyGatewayHttpError(status: number): MistralGatewayClientEr
   return "unavailable";
 }
 
-export class MistralGatewayClientError extends Error {
+export class AiGatewayClientError extends Error {
   constructor(
     message: string,
-    public readonly kind: MistralGatewayClientErrorKind
+    public readonly kind: AiGatewayClientErrorKind
   ) {
     super(message);
-    this.name = "MistralGatewayClientError";
+    this.name = "AiGatewayClientError";
   }
 }
 
-/** Default transport: Mistral AI's OpenAI-compatible hosted API. */
-const MISTRAL_API_BASE_URL = "https://api.mistral.ai/v1";
+/** Default transport: the default provider's OpenAI-compatible hosted API. */
+const DEFAULT_PROVIDER_BASE_URL = "https://api.mistral.ai/v1";
 
 /** Default transport for the Z.ai (Zhipu GLM) gateway. */
 const ZAI_API_BASE_URL = "https://api.z.ai/api/paas/v4";
 
 /**
- * The gateway serves either Mistral or Z.ai (Zhipu GLM). Mode is chosen by
- * which credential is configured: a ZAI_API_KEY switches the gateway to Z.ai,
- * including its env var names (ZAI_GATEWAY_URL, ZAI_DEFAULT_MODEL,
- * ZAI_FALLBACK_MODEL) and default base URL; without it the legacy Mistral
- * configuration (MISTRAL_API_KEY / NOVA_MISTRAL_GATEWAY_TOKEN,
- * MISTRAL_GATEWAY_URL, MISTRAL_DEFAULT_MODEL, MISTRAL_FALLBACK_MODEL) keeps
- * working unchanged. Reading the credential and its companion vars from the
- * same mode keeps the switch atomic: a deployment that sets ZAI_API_KEY but
- * has not yet set ZAI_GATEWAY_URL falls back to Z.ai's own base URL, never to
- * a Mistral URL paired with a Z.ai credential.
+ * The gateway serves either Z.ai (Zhipu GLM) or the default provider. Mode is
+ * chosen by which credential is configured: a ZAI_API_KEY switches the gateway
+ * to Z.ai, including its env var names (ZAI_GATEWAY_URL, ZAI_DEFAULT_MODEL,
+ * ZAI_FALLBACK_MODEL) and default base URL; without it the default provider
+ * configuration (the legacy MISTRAL_*-prefixed vars: MISTRAL_API_KEY /
+ * NOVA_MISTRAL_GATEWAY_TOKEN, MISTRAL_GATEWAY_URL, MISTRAL_DEFAULT_MODEL,
+ * MISTRAL_FALLBACK_MODEL) keeps working unchanged. Reading the credential and
+ * its companion vars from the same mode keeps the switch atomic: a deployment
+ * that sets ZAI_API_KEY but has not yet set ZAI_GATEWAY_URL falls back to
+ * Z.ai's own base URL, never to the default provider's URL paired with a Z.ai
+ * credential.
  */
 function zaiGatewayToken() {
   const token =
@@ -131,7 +132,7 @@ function zaiGatewayToken() {
   return token && token.length >= 32 ? token : undefined;
 }
 
-function mistralGatewayToken() {
+function defaultProviderToken() {
   const token =
     process.env.MISTRAL_API_KEY?.trim() ||
     process.env.NOVA_MISTRAL_GATEWAY_TOKEN?.trim();
@@ -142,7 +143,7 @@ function configuredGatewayUrl() {
   const zai = !!zaiGatewayToken();
   const raw = zai
     ? process.env.ZAI_GATEWAY_URL?.trim() || ZAI_API_BASE_URL
-    : process.env.MISTRAL_GATEWAY_URL?.trim() || MISTRAL_API_BASE_URL;
+    : process.env.MISTRAL_GATEWAY_URL?.trim() || DEFAULT_PROVIDER_BASE_URL;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return undefined;
@@ -153,7 +154,7 @@ function configuredGatewayUrl() {
 }
 
 function configuredGatewayToken() {
-  return zaiGatewayToken() ?? mistralGatewayToken();
+  return zaiGatewayToken() ?? defaultProviderToken();
 }
 
 /**
@@ -175,8 +176,8 @@ function gatewayErrorMessageFromPayload(
   return (raw ?? message)?.slice(0, ERROR_MESSAGE_LIMIT) || undefined;
 }
 
-/** Best-effort human-readable description of a failed Mistral HTTP response. */
-function describeMistralError(
+/** Best-effort human-readable description of a failed gateway HTTP response. */
+function describeGatewayError(
   payload: unknown,
   status: number
 ): string | undefined {
@@ -203,11 +204,11 @@ function describeMistralError(
   const message = raw ?? record?.message ?? detail ?? record?.title;
   if (message) parts.push(String(message).slice(0, 300));
   parts.push(`HTTP ${status}`);
-  return `Mistral request failed (${parts.join(" · ")})`;
+  return `Gateway request failed (${parts.join(" · ")})`;
 }
 
 /**
- * Daily Mistral inference request cap per workspace. Returns null (no cap) unless
+ * Daily inference request cap per workspace. Returns null (no cap) unless
  * MISTRAL_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
@@ -276,7 +277,7 @@ async function gatewayFetch(
     token: configuredGatewayToken(),
   };
   if (!resolvedTarget.baseUrl || (!target && !resolvedTarget.token))
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
       "configuration"
     );
@@ -304,7 +305,7 @@ async function gatewayFetch(
   } catch (error) {
     // Only a user /stop is "stopped"; timeouts and gateway outages stay
     // "unavailable" so transient-failure handling can retry them.
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       externalSignal?.aborted
         ? "This reply was stopped with /stop."
         : sanitizeGatewayError(error),
@@ -316,15 +317,17 @@ async function gatewayFetch(
   }
 }
 
-export function isMistralGatewayConfigured() {
+export function isAiGatewayConfigured() {
   return !!(configuredGatewayUrl() && configuredGatewayToken());
 }
 
-/** Returns cached or freshly-probed Mistral gateway health flags and the user's current allowance. */
-export async function getMistralGatewayStatus(ownerId: number) {
-  const allowance = await getMistralInferenceAllowanceForUser(ownerId);
+/** Returns cached or freshly-probed gateway health flags and the user's current allowance. */
+export async function getAiGatewayStatus(ownerId: number) {
+  const allowance = await getInferenceAllowanceForUser(ownerId);
   const maxRequests = getMaxRequests();
   const base = {
+    // Legacy identifier: this matches the `model_provider` enum value stored
+    // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
     model: configuredDefaultChatModel(),
     allowance: {
@@ -337,7 +340,7 @@ export async function getMistralGatewayStatus(ownerId: number) {
       exhausted: maxRequests !== null && allowance.usedRequests >= maxRequests,
     },
   };
-  if (!isMistralGatewayConfigured()) {
+  if (!isAiGatewayConfigured()) {
     return {
       ...base,
       configured: false as const,
@@ -351,11 +354,11 @@ export async function getMistralGatewayStatus(ownerId: number) {
     gatewayHealthCache?.key === cacheKey &&
     gatewayHealthCache.expiresAt > Date.now()
   ) {
-    return { ...base, model: defaultMistralModel(), ...gatewayHealthCache.flags };
+    return { ...base, model: defaultGatewayModel(), ...gatewayHealthCache.flags };
   }
   try {
     const response = await gatewayFetch("/models");
-    // Mistral has no dedicated health route: a successful /models round-trip proves
+    // The provider has no dedicated health route: a successful /models round-trip proves
     // both reachability and that the API key is accepted.
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -373,12 +376,12 @@ export async function getMistralGatewayStatus(ownerId: number) {
     // model directly instead of hitting the no-vision fallback.
     if (response.ok) {
       const payload = (await response.json().catch(() => undefined)) as
-        | MistralModelsResponse
+        | GatewayModelsResponse
         | undefined;
-      const models = parseMistralModels(payload);
-      if (models.length > 0) cacheMistralModels(models);
+      const models = parseGatewayModels(payload);
+      if (models.length > 0) cacheGatewayModels(models);
     }
-    return { ...base, model: defaultMistralModel(), ...flags };
+    return { ...base, model: defaultGatewayModel(), ...flags };
   } catch {
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -391,11 +394,11 @@ export async function getMistralGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    return { ...base, model: defaultMistralModel(), ...flags };
+    return { ...base, model: defaultGatewayModel(), ...flags };
   }
 }
 
-function modelKind(model: MistralModel): "text" | "vision" | undefined {
+function modelKind(model: GatewayModel): "text" | "vision" | undefined {
   const explicitTask = model.task?.toLowerCase().trim();
   if (
     explicitTask &&
@@ -442,7 +445,7 @@ function modelKind(model: MistralModel): "text" | "vision" | undefined {
       ? "vision"
       : "text";
   }
-  // Mistral's OpenAI-compatible /v1/models response normally only includes the
+  // The provider's OpenAI-compatible /v1/models response normally only includes the
   // model ID and ownership fields. Treat metadata-poor models as text chat models
   // unless their ID identifies a known non-chat model family; otherwise the picker
   // is empty even though the gateway successfully returned available models.
@@ -456,13 +459,13 @@ function modelKind(model: MistralModel): "text" | "vision" | undefined {
 }
 
 /**
- * Default chat model: ministral-14b - the strongest model the free-tier
- * Mistral subscription serves (verified 2026-09-18: medium/small/magistral
+ * Default chat model: ministral-14b - the strongest model the default
+ * provider's free tier serves (verified 2026-09-18: its medium/small/magistral
  * families are all paid-tier-only and return misleading 429s on free keys).
  * Text-only with function/tool calling and a 128K-token context, served
  * over the OpenAI-compatible chat API.
  */
-export const DEFAULT_MISTRAL_MODEL = "ministral-14b-latest";
+export const DEFAULT_CHAT_MODEL = "ministral-14b-latest";
 
 /**
  * Text-only fallback if model discovery proves the default is not served here.
@@ -472,8 +475,8 @@ export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
 
 /**
  * Free-tier text fallback for Z.ai deployments: like the default model, the
- * free flash models are served but unlisted by /models, so the Mistral
- * fallback id would never resolve there.
+ * free flash models are served but unlisted by /models, so the default
+ * provider's fallback id would never resolve there.
  */
 export const ZAI_TEXT_FALLBACK_MODEL = "glm-4.5-flash";
 
@@ -495,7 +498,7 @@ export const ZAI_LAST_RESORT_MODEL_ID = "glm-4.6v-flash";
 
 /**
  * Operator override for the default chat model id. The hardcoded default is
- * Mistral-specific, but the gateway can serve any OpenAI-compatible provider
+ * specific to the default provider, but the gateway can serve any OpenAI-compatible provider
  * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
  * deployment point the default at the provider's own model id - for example
  * ZAI_DEFAULT_MODEL=glm-4.7-flash - without a code change. The override
@@ -507,7 +510,7 @@ export const ZAI_LAST_RESORT_MODEL_ID = "glm-4.6v-flash";
  * gateway's Z.ai family) accept `thinking: { type: "enabled" }` in the
  * OpenAI-compatible body; GLM-5.2 and newer additionally take
  * `reasoning_effort`, where "max" is the deepest reasoning Z.ai serves.
- * Mistral-mode models (ministral) have no thinking mode, and sending unknown
+ * Default-provider models (ministral) have no thinking mode, and sending unknown
  * fields to a strict endpoint risks a rejection, so everything else gets
  * none. Exported so the BYOK gateway applies the same per-model logic to a
  * workspace's custom GLM-family models.
@@ -528,12 +531,12 @@ export function configuredDefaultChatModel(): string {
   const override = zaiGatewayToken()
     ? process.env.ZAI_DEFAULT_MODEL?.trim()
     : process.env.MISTRAL_DEFAULT_MODEL?.trim();
-  return override || DEFAULT_MISTRAL_MODEL;
+  return override || DEFAULT_CHAT_MODEL;
 }
 
 /**
  * Operator override for the vision model id used on chat turns with image
- * attachments. Returns undefined in Mistral mode so model resolution keeps
+ * attachments. Returns undefined in default-provider mode so model resolution keeps
  * its discovery-based vision preference there; in Z.ai mode the override (or
  * the hardcoded free vision model) is authoritative, mirroring the
  * configured-default behaviour.
@@ -545,7 +548,7 @@ export function configuredVisionChatModel(): string | undefined {
 
 /**
  * Operator override for the text fallback model id, mirroring
- * configuredDefaultChatModel for deployments on a non-Mistral provider.
+ * configuredDefaultChatModel for deployments on a different provider.
  */
 export function configuredTextFallbackModel(): string {
   const override = zaiGatewayToken()
@@ -553,7 +556,7 @@ export function configuredTextFallbackModel(): string {
     : process.env.MISTRAL_FALLBACK_MODEL?.trim();
   if (override) return override;
   // Z.ai's /models endpoint omits the free flash models, so the hardcoded
-  // Mistral fallback id cannot resolve there; the other free flash model is
+  // default-provider fallback id cannot resolve there; the other free flash model is
   // the verified-served Z.ai default (used for pool-overload degradation).
   return zaiGatewayToken() ? ZAI_TEXT_FALLBACK_MODEL : TEXT_FALLBACK_MODEL;
 }
@@ -561,7 +564,7 @@ export function configuredTextFallbackModel(): string {
 /**
  * Third and final pool-overload tier for Z.ai deployments: when the default
  * and fallback pools are both congested, requests retry on this model.
- * Returns undefined in Mistral mode so the two-tier chain (default, then
+ * Returns undefined in default-provider mode so the two-tier chain (default, then
  * configured text fallback) keeps its existing behaviour there.
  */
 export function configuredLastResortModel(): string | undefined {
@@ -669,12 +672,12 @@ const POOL_DEGRADE_MS = 5 * 60_000;
 /** Timestamp (epoch ms) until which the resolved chat model stays degraded. */
 let poolDegradedUntil = 0;
 /** Test hook: clear pool-overload degradation between suites. */
-export function resetMistralPoolDegradation() {
+export function resetGatewayPoolDegradation() {
   poolDegradedUntil = 0;
 }
 
 /** Test hook: drop the discovered-model cache between suites. */
-export function resetMistralModelCache() {
+export function resetGatewayModelCache() {
   modelCache = undefined;
 }
 
@@ -683,16 +686,16 @@ export function resetMistralModelCache() {
  * reach the model directly. Falls back to the text default until discovery
  * finds a vision model.
  */
-export function defaultMistralModel(): string {
+export function defaultGatewayModel(): string {
   const defaultModel = configuredDefaultChatModel();
   const textFallbackModel = configuredTextFallbackModel();
   // Z.ai serves free flash models that its /models endpoint does not list, so
   // a configured Z.ai override is authoritative without the served-check
   // below - discovery would otherwise degrade a deliberate glm-4.7-flash
   // default to the first listed (paid) model and trip the account balance
-  // wall. The Mistral side keeps the served-check: its /models list is
+  // wall. The default provider keeps the served-check: its /models list is
   // authoritative.
-  if (defaultModel !== DEFAULT_MISTRAL_MODEL && zaiGatewayToken())
+  if (defaultModel !== DEFAULT_CHAT_MODEL && zaiGatewayToken())
     return defaultModel;
   if (!modelCache || modelCache.expiresAt <= Date.now()) return defaultModel;
   // The configured default is authoritative whenever this gateway serves it.
@@ -715,22 +718,22 @@ export function defaultMistralModel(): string {
   );
 }
 
-function parseMistralModels(payload: MistralModelsResponse | undefined): AvailableMistralModel[] {
+function parseGatewayModels(payload: GatewayModelsResponse | undefined): AvailableGatewayModel[] {
   const rawData = payload?.data;
   if (!Array.isArray(rawData)) return [];
   return rawData
     .filter(
-      (model): model is MistralModel =>
+      (model): model is GatewayModel =>
         typeof model?.id === "string" && model.id.trim().length > 0
     )
     .map(model => ({ ...model, id: model.id.trim() }))
     .map(model => ({ ...model, kind: modelKind(model) }))
     .filter(
-      (model): model is AvailableMistralModel => model.kind !== undefined
+      (model): model is AvailableGatewayModel => model.kind !== undefined
     );
 }
 
-function cacheMistralModels(models: AvailableMistralModel[]) {
+function cacheGatewayModels(models: AvailableGatewayModel[]) {
   const deduplicated = Array.from(
     new Map(models.map(model => [model.id, model])).values()
   ).sort((a, b) => a.id.localeCompare(b.id));
@@ -742,35 +745,35 @@ function cacheMistralModels(models: AvailableMistralModel[]) {
 }
 
 /**
- * Discovers chat-capable Mistral text/VLM models from the gateway's OpenAI-compatible
+ * Discovers chat-capable text/VLM models from the gateway's OpenAI-compatible
  * /v1/models endpoint. Vision-language models remain eligible because they accept text
  * chat as well as image input. Results are cached briefly for model pickers.
+ * Returns the list of available gateway models, cached for five minutes.
  */
-/** Returns the list of available Mistral models, cached for five minutes. */
-export async function listMistralModels(forceRefresh = false) {
+export async function listGatewayModels(forceRefresh = false) {
   if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now())
     return modelCache.models;
   const response = await gatewayFetch("/models");
   const payload = (await response.json().catch(() => undefined)) as
-    MistralModelsResponse | { error?: { message?: string } } | undefined;
+    GatewayModelsResponse | { error?: { message?: string } } | undefined;
   if (!response.ok) {
     const message =
       payload && "error" in payload ? payload.error?.message : undefined;
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       message ??
-        describeMistralError(payload, response.status) ??
+        describeGatewayError(payload, response.status) ??
         "AI model discovery is temporarily unavailable.",
       classifyGatewayHttpError(response.status)
     );
   }
-  const models = parseMistralModels(payload as MistralModelsResponse | undefined);
+  const models = parseGatewayModels(payload as GatewayModelsResponse | undefined);
   if (models.length === 0) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "The AI service returned no available chat models.",
       "invalid_response"
     );
   }
-  return cacheMistralModels(models);
+  return cacheGatewayModels(models);
 }
 
 /**
@@ -833,9 +836,9 @@ async function readGatewayStreamedCompletion(
     | undefined;
   if (!response.ok) {
     const message = gatewayErrorMessageFromPayload(payload);
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       message ??
-        describeMistralError(payload, response.status) ??
+        describeGatewayError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
       classifyGatewayHttpError(response.status)
     );
@@ -860,7 +863,7 @@ async function readGatewayStreamedCompletion(
 async function claimDailyCreditOrThrow(ownerId: number) {
   const claim = await claimDailyCreditForUser(ownerId);
   if (!claim) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Your daily Nova credits are used up. They reset tomorrow.",
       "credits_exhausted"
     );
@@ -877,31 +880,31 @@ async function settleGatewayCredit(ownerId: number, model: string | undefined, u
   return chargedCredits;
 }
 
-export async function completeWithMistralGateway(
+export async function completeWithAiGateway(
   ownerId: number,
   prompt: string,
   modelId?: string,
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
-  const status = await getMistralGatewayStatus(ownerId);
+  const status = await getAiGatewayStatus(ownerId);
   if (
     !status.configured ||
     !status.reachable ||
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
   await claimDailyCreditOrThrow(ownerId);
-  const claim = await claimMistralInferenceRequestForUser(
+  const claim = await claimInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests
   );
   if (!claim) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "allowance_reached"
     );
@@ -923,7 +926,7 @@ export async function completeWithMistralGateway(
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
     if (!text) {
-      throw new MistralGatewayClientError(
+      throw new AiGatewayClientError(
         "The AI service returned an invalid completion. Please retry shortly.",
         "invalid_response"
       );
@@ -956,9 +959,9 @@ export async function completeWithMistralGateway(
     | undefined;
   if (!response.ok) {
     const message = gatewayErrorMessageFromPayload(payload);
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       message ??
-        describeMistralError(payload, response.status) ??
+        describeGatewayError(payload, response.status) ??
         "Nova’s AI service is temporarily unavailable. Please retry shortly.",
       classifyGatewayHttpError(response.status)
     );
@@ -971,7 +974,7 @@ export async function completeWithMistralGateway(
             { choices?: Array<{ message?: { content?: string } }> } | undefined
         )?.choices?.[0]?.message?.content ?? "");
   if (!bufferedText) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "The AI service returned an invalid completion. Please retry shortly.",
       "invalid_response"
     );
@@ -1198,7 +1201,7 @@ export async function readGatewayStreamedChatResult(
         // connection) instead of throwing - cancel and fail as unavailable so
         // the agent loop can retry instead of hanging forever.
         await reader.cancel().catch(() => {});
-        throw new MistralGatewayClientError(
+        throw new AiGatewayClientError(
           "The AI service stopped responding mid-stream. Please retry shortly.",
           "unavailable"
         );
@@ -1293,8 +1296,8 @@ export async function readGatewayStreamedChatResult(
       }
     }
   } catch (error) {
-    if (error instanceof MistralGatewayClientError) throw error;
-    throw new MistralGatewayClientError(
+    if (error instanceof AiGatewayClientError) throw error;
+    throw new AiGatewayClientError(
       "The AI service interrupted the response stream. Please retry shortly.",
       "unavailable"
     );
@@ -1330,9 +1333,9 @@ export async function readGatewayStreamedChatResult(
  * model instead of pinning to a dead pool.
  */
 async function attemptWithPoolFallback<T>(
-  status: Awaited<ReturnType<typeof getMistralGatewayStatus>>,
+  status: Awaited<ReturnType<typeof getAiGatewayStatus>>,
   claim: NonNullable<
-    Awaited<ReturnType<typeof claimMistralInferenceRequestForUser>>
+    Awaited<ReturnType<typeof claimInferenceRequestForUser>>
   >,
   resolvedModel: string,
   attempt: (model: string) => Promise<T>,
@@ -1357,19 +1360,19 @@ async function attemptWithPoolFallback<T>(
       return await attempt(chain[index]);
     } catch (error) {
       const isOverload =
-        error instanceof MistralGatewayClientError && error.kind === "rate_limit";
+        error instanceof AiGatewayClientError && error.kind === "rate_limit";
       if (!isOverload) throw error;
       if (index + 1 < chain.length) {
         if (chain[index] === resolvedModel) {
           poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
           console.warn(
-            `[Mistral gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
+            `[AI gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
               POOL_DEGRADE_MS / 60_000
             }m`
           );
         } else {
           console.warn(
-            `[Mistral gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
+            `[AI gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
           );
         }
         continue;
@@ -1393,17 +1396,17 @@ async function attemptWithPoolFallback<T>(
           // congested, so the next request should skip straight past them
           // (and reach this tier again) instead of re-probing each dead pool.
           console.warn(
-            `[Mistral gateway] Z.ai chain fully congested - served by the Kilo anonymous tier ${hops[hopIndex]}`
+            `[AI gateway] Z.ai chain fully congested - served by the Kilo anonymous tier ${hops[hopIndex]}`
           );
           return result;
         } catch (kiloError) {
           const kiloOverload =
-            kiloError instanceof MistralGatewayClientError &&
+            kiloError instanceof AiGatewayClientError &&
             kiloError.kind === "rate_limit";
           if (!kiloOverload) throw kiloError;
           if (hopIndex + 1 < hops.length) {
             console.warn(
-              `[Mistral gateway] Kilo anonymous hop ${hops[hopIndex]} also overloaded - trying ${hops[hopIndex + 1]}`
+              `[AI gateway] Kilo anonymous hop ${hops[hopIndex]} also overloaded - trying ${hops[hopIndex + 1]}`
             );
             continue;
           }
@@ -1419,7 +1422,7 @@ async function attemptWithPoolFallback<T>(
   throw new Error("unreachable");
 }
 
-export async function chatWithMistralGateway(
+export async function chatWithAiGateway(
   ownerId: number,
   messages: GatewayChatMessage[],
   options: {
@@ -1433,24 +1436,24 @@ export async function chatWithMistralGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
-  const status = await getMistralGatewayStatus(ownerId);
+  const status = await getAiGatewayStatus(ownerId);
   if (
     !status.configured ||
     !status.reachable ||
     (status.providerConfigurationKnown && !status.providerConfigured)
   ) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
       "configuration"
     );
   }
   await claimDailyCreditOrThrow(ownerId);
-  const claim = await claimMistralInferenceRequestForUser(
+  const claim = await claimInferenceRequestForUser(
     ownerId,
     status.allowance.maxRequests
   );
   if (!claim) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
       "allowance_reached"
     );
@@ -1473,14 +1476,14 @@ export async function chatWithMistralGateway(
 
 /**
  * One OpenAI-compatible chat attempt against a specific model, streaming or
- * buffered. Extracted from chatWithMistralGateway so the pool-overload
+ * buffered. Extracted from chatWithAiGateway so the pool-overload
  * fallback can retry the same request against a different model without
  * re-claiming the inference allowance.
  */
 async function attemptGatewayChat(
-  status: Awaited<ReturnType<typeof getMistralGatewayStatus>>,
+  status: Awaited<ReturnType<typeof getAiGatewayStatus>>,
   claim: NonNullable<
-    Awaited<ReturnType<typeof claimMistralInferenceRequestForUser>>
+    Awaited<ReturnType<typeof claimInferenceRequestForUser>>
   >,
   messages: GatewayChatMessage[],
   options: {
@@ -1525,7 +1528,7 @@ async function attemptGatewayChat(
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";
     console.warn(
-      `[Mistral gateway] empty completion for model ${resolvedModel}${suffix}`
+      `[AI gateway] empty completion for model ${resolvedModel}${suffix}`
     );
   };
   if (options.onChunk) {
@@ -1543,9 +1546,9 @@ async function attemptGatewayChat(
           | { error?: { message?: string } }
           | undefined;
         const message = gatewayErrorMessageFromPayload(payload);
-        throw new MistralGatewayClientError(
+        throw new AiGatewayClientError(
           message ??
-            describeMistralError(payload, response.status) ??
+            describeGatewayError(payload, response.status) ??
             "Nova’s AI service is temporarily unavailable. Please retry shortly.",
           classifyGatewayHttpError(response.status)
         );
@@ -1575,7 +1578,7 @@ async function attemptGatewayChat(
       ]);
     }
     if (!streamed) {
-      throw new MistralGatewayClientError(
+      throw new AiGatewayClientError(
         upstreamError
           ? `The AI service returned an error completion: ${upstreamError}`
           : "The AI service returned an invalid completion. Please retry shortly.",
@@ -1623,9 +1626,9 @@ async function attemptGatewayChat(
         | { error?: { message?: string } }
         | undefined;
       const message = gatewayErrorMessageFromPayload(errorPayload);
-      throw new MistralGatewayClientError(
+      throw new AiGatewayClientError(
         message ??
-          describeMistralError(errorPayload, response.status) ??
+          describeGatewayError(errorPayload, response.status) ??
           "Nova’s AI service is temporarily unavailable. Please retry shortly.",
         classifyGatewayHttpError(response.status)
       );
@@ -1697,7 +1700,7 @@ async function attemptGatewayChat(
     ]);
   }
   if (!buffered) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       bufferedUpstreamError
         ? `The AI service returned an error completion: ${bufferedUpstreamError}`
         : "The AI service returned an invalid completion. Please retry shortly.",

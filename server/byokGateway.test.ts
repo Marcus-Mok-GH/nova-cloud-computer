@@ -9,12 +9,12 @@ vi.mock("./db", () => ({
 }));
 
 const { builtinChat } = vi.hoisted(() => {
-  const builtinResult = () => ({ text: "built-in", toolCalls: [], model: "mistral-large-latest", usage: null, allowance: { usedRequests: 1, maxRequests: 100, remainingRequests: 99, exhausted: false } });
+  const builtinResult = () => ({ text: "built-in", toolCalls: [], model: "chat-large-latest", usage: null, allowance: { usedRequests: 1, maxRequests: 100, remainingRequests: 99, exhausted: false } });
   return { builtinChat: vi.fn(async () => builtinResult()) };
 });
-vi.mock("./mistralGateway", async importOriginal => {
-  const actual = await importOriginal<typeof import("./mistralGateway")>();
-  return { ...actual, chatWithMistralGateway: builtinChat, completeWithMistralGateway: vi.fn(async () => ({ text: "built-in", model: "mistral-large-latest", usage: null, allowance: { usedRequests: 1, maxRequests: 100, remainingRequests: 99, exhausted: false } })) };
+vi.mock("./aiGateway", async importOriginal => {
+  const actual = await importOriginal<typeof import("./aiGateway")>();
+  return { ...actual, chatWithAiGateway: builtinChat, completeWithAiGateway: vi.fn(async () => ({ text: "built-in", model: "chat-large-latest", usage: null, allowance: { usedRequests: 1, maxRequests: 100, remainingRequests: 99, exhausted: false } })) };
 });
 
 vi.mock("./modelSecrets", () => ({
@@ -29,7 +29,7 @@ vi.mock("node:dns/promises", () => ({
 
 import { chatWithWorkspaceModel, completeWithWorkspaceModel, testCustomModelEndpoint, chatWithCustomModel } from "./byokGateway";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { MistralGatewayClientError } from "./mistralGateway";
+import { AiGatewayClientError } from "./aiGateway";
 import { getActiveCustomModelForUser } from "./db";
 import type { CustomModel } from "../drizzle/schema";
 
@@ -243,7 +243,7 @@ describe("BYOK chat behavior", () => {
     global.fetch = vi.fn();
     await expect(
       chatWithCustomModel(model, [{ role: "user", content: "Hi" }])
-    ).rejects.toBeInstanceOf(MistralGatewayClientError);
+    ).rejects.toBeInstanceOf(AiGatewayClientError);
   });
 });
 

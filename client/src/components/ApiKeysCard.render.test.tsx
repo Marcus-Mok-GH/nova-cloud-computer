@@ -15,6 +15,7 @@ vi.mock("@/lib/trpc", () => ({
     apiKeys: {
       list: { useQuery: () => state.keys },
       create: { useMutation: (_options?: unknown) => mutation },
+      rename: { useMutation: (_options?: unknown) => mutation },
       revoke: { useMutation: (_options?: unknown) => mutation },
     },
   },
@@ -39,6 +40,7 @@ describe("ApiKeysCard", () => {
     expect(markup).toContain("playground");
     expect(markup).toContain("never used");
     expect(markup).toContain("Revoke");
+    expect(markup).toContain("Rename");
     expect(markup).toContain("Create key");
   });
 

@@ -16,6 +16,8 @@ import {
   runWorkspaceAgent,
   MAX_RUN_BUDGET_MS,
 } from "./workspaceAgent";
+import { getAgentChatRoute } from "./agents";
+import { runTeamChatTurns } from "./agentChats";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
 
@@ -379,15 +381,39 @@ export async function executeWebAgentRun(
         () => undefined
       );
   try {
-    const result = await runWorkspaceAgent(ownerId, chatId, content, {
-      channel: "web",
+    // Agent-aware routing, shared by every web entry point (chats.send, the
+    // SSE stream, the peak queue, continuations): a personal-agent chat runs
+    // one agent with its identity, a team chat gives each roster member a
+    // turn, and everything else runs the default Nova assistant unchanged.
+    const route = await getAgentChatRoute(ownerId, chatId).catch(
+      () => ({ kind: "plain" } as const)
+    );
+    const baseOptions = {
+      channel: "web" as const,
       uploadContext,
       imageAttachments,
       deadlineAtMs,
       continuationPlanned: canChain && run !== undefined,
       onChunk,
       onEvent,
-    });
+    };
+    const result =
+      route.kind === "team"
+        ? await runTeamChatTurns({
+            ownerId,
+            chatId,
+            content,
+            route,
+            options: baseOptions,
+          })
+        : await runWorkspaceAgent(
+            ownerId,
+            chatId,
+            content,
+            route.kind === "personal"
+              ? { ...baseOptions, agentChat: { profile: route.profile } }
+              : baseOptions
+          );
     if (run) {
       // A segment that ran out of budget with work remaining chains to a
       // fresh serverless invocation, exactly like the Telegram path - the

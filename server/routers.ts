@@ -62,6 +62,19 @@ import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
 import { completeWithAiGateway, getAiGatewayStatus, listGatewayModels, AiGatewayClientError } from "./aiGateway";
 import { testCustomModelEndpoint } from "./byokGateway";
 import { autoTitleChatForUser } from "./workspaceAgent";
+import {
+  AgentNameTakenError,
+  createAgentForUser,
+  createTeamChatForUser,
+  decideApprovalForUser,
+  deleteAgentForUser,
+  listAgentChatsForUser,
+  listAgentEmailsForUser,
+  listAgentsForUser,
+  listApprovalsForUser,
+  startAgentChatForUser,
+  updateAgentForUser,
+} from "./agents";
 import { executeWebAgentRun } from "./agentRuns";
 import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
@@ -101,6 +114,16 @@ const terminalRouteError = (error: unknown, fallback: string) => {
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
 };
 const gatewayCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want Nova to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
+const agentName = z.string().trim().min(1, "An agent needs a name.").max(80, "Names are at most 80 characters.");
+const agentCreateInput = z.object({ name: agentName, role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: z.number().int().min(0).max(100000).optional() });
+const agentUpdateInput = z.object({ id: z.number().int().positive(), name: agentName.optional(), role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: z.number().int().min(0).max(100000).optional() }).refine(input => input.name !== undefined || input.role !== undefined || input.instructions !== undefined || input.walletBudgetCredits !== undefined, { message: "Provide at least one agent change." });
+const teamCreateInput = z.object({ name: z.string().trim().min(1, "A team needs a name.").max(160), goal: z.string().trim().min(1, "A team needs a shared goal.").max(2000), agentIds: z.array(z.number().int().positive()).min(2, "A team needs at least two agents.").max(8) });
+/** Agent mutations surface their two typed failures as proper TRPC errors. */
+const agentRouteError = (error: unknown, fallback: string): never => {
+  if (error instanceof AgentNameTakenError) throw new TRPCError({ code: "CONFLICT", message: error.message });
+  console.warn("[Agents] mutation failed:", error instanceof Error ? error.message : error);
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
+};
 
 export const appRouter = router({
   system: systemRouter,
@@ -352,7 +375,64 @@ export const appRouter = router({
       await requestAgentStopForUser(ctx.user.id, input.chatId);
       return { stopped: true as const, cancelledVmRuns, cancelledQueueItems };
     }),
-    send: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24).nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => { const chat = input.chatId ? undefined : await createChatForUser(ctx.user.id, "New conversation"); const chatId = input.chatId ?? chat?.id; if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." }); const activation = await activatePriorityWindowForUser(ctx.user.id).catch(() => ({ priority: false, justActivated: false, expiresAt: null as Date | null })); const priorityNotice = activation.justActivated ? priorityActiveMessage() : undefined; if (shouldQueue()) { const item = await enqueueInferenceQueueItem({ ownerId: ctx.user.id, channel: "web", chatId, content: input.content, payload: {} }); const queuePosition = await getInferenceQueuePosition(item.id); kickPeakQueue(); return { chatId, queued: true as const, queueId: item.id, queuePosition, message: queuePositionMessage(queuePosition), ...(priorityNotice ? { priorityNotice } : {}) }; } const result = await executeWebAgentRun({ ownerId: ctx.user.id, chatId, content: input.content, requestStartedAtMs: Date.now() }); void autoTitleChatForUser(ctx.user.id, chatId).catch(() => {}); return { chatId, ...(priorityNotice ? { priorityNotice } : {}), ...(await result) }; }),
+    send: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24).nullable().optional(), content: z.string().trim().min(1).max(12000) })).mutation(async ({ ctx, input }) => { const chat = input.chatId ? undefined : await createChatForUser(ctx.user.id, "New conversation"); const chatId = input.chatId ?? chat?.id; if (!chatId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start that conversation." }); const activation = await activatePriorityWindowForUser(ctx.user.id).catch(() => ({ priority: false, justActivated: false, expiresAt: null as Date | null })); const priorityNotice = activation.justActivated ? priorityActiveMessage() : undefined; if (shouldQueue()) { const item = await enqueueInferenceQueueItem({ ownerId: ctx.user.id, channel: "web", chatId, content: input.content, payload: {} }); const queuePosition = await getInferenceQueuePosition(item.id); kickPeakQueue(); return { chatId, queued: true as const, queueId: item.id, queuePosition, message: queuePositionMessage(queuePosition), ...(priorityNotice ? { priorityNotice } : {}) }; } const result = await executeWebAgentRun({ ownerId: ctx.user.id, chatId, content: input.content, requestStartedAtMs: Date.now() }); void autoTitleChatForUser(ctx.user.id, chatId).catch(() => {});      return { chatId, ...(priorityNotice ? { priorityNotice } : {}), ...(await result) }; }),
+  }),
+  agents: router({
+    /** The workspace's personal agents with their Nova-native identity and wallets. */
+    list: protectedProcedure.query(({ ctx }) => listAgentsForUser(ctx.user.id)),
+    create: protectedProcedure.input(agentCreateInput).mutation(async ({ ctx, input }) => {
+      try {
+        const agent = await createAgentForUser(ctx.user.id, input);
+        if (!agent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that agent." });
+        return agent;
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        return agentRouteError(error, "Nova could not create that agent.");
+      }
+    }),
+    update: protectedProcedure.input(agentUpdateInput).mutation(async ({ ctx, input }) => {
+      try {
+        const { id, ...patch } = input;
+        const agent = await updateAgentForUser(ctx.user.id, id, patch);
+        if (!agent) throw new TRPCError({ code: "NOT_FOUND", message: "That agent does not exist in your Nova space." });
+        return agent;
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        return agentRouteError(error, "Nova could not update that agent.");
+      }
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const deleted = await deleteAgentForUser(ctx.user.id, input.id);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That agent does not exist in your Nova space." });
+      return { success: true } as const;
+    }),
+    /** Opens (or reuses) the 1:1 conversation for one agent. */
+    startChat: protectedProcedure.input(z.object({ agentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const chat = await startAgentChatForUser(ctx.user.id, input.agentId);
+      if (!chat) throw new TRPCError({ code: "NOT_FOUND", message: "That agent does not exist in your Nova space." });
+      return chat;
+    }),
+    /** Agent-owned conversations: 1:1 chats and team chats with their rosters. */
+    chats: protectedProcedure.query(({ ctx }) => listAgentChatsForUser(ctx.user.id)),
+    createTeam: protectedProcedure.input(teamCreateInput).mutation(async ({ ctx, input }) => {
+      const result = await createTeamChatForUser(ctx.user.id, input);
+      if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+      return result;
+    }),
+    /** Approvals waiting on the user, plus the most recently decided ones. */
+    approvals: protectedProcedure.query(({ ctx }) => listApprovalsForUser(ctx.user.id)),
+    approve: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const result = await decideApprovalForUser(ctx.user.id, input.id, "approve");
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That request is no longer waiting for a decision." });
+      return result;
+    }),
+    deny: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const result = await decideApprovalForUser(ctx.user.id, input.id, "deny");
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That request is no longer waiting for a decision." });
+      return result;
+    }),
+    /** Nova-internal mail between agents (and to the workspace owner). */
+    inbox: protectedProcedure.query(({ ctx }) => listAgentEmailsForUser(ctx.user.id)),
   }),
   models: router({ createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)), deleteCustom: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteCustomModelForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "custom model"); return { success: true } as const; }), /** Tests a candidate BYOK endpoint (base URL + key + model ID) without saving it. */ testCustom: protectedProcedure.input(z.object({ baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), apiKey: z.string().trim().min(1, "An API key is required.").max(4096), modelId: z.string().trim().min(1, "A model ID is required.").max(240) })).mutation(async ({ input }) => { try { return await testCustomModelEndpoint(input); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The provider endpoint could not be reached." }); } }) }),
   projects: router({ list: protectedProcedure.query(({ ctx }) => listProjectsForUser(ctx.user.id)), get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => { const project = await getProjectForUser(ctx.user.id, input.id); if (!project) throwIfNotFound(project, "project"); return project; }), create: protectedProcedure.input(projectInput).mutation(async ({ ctx, input }) => { const project = await createProjectForUser(ctx.user.id, input); if (!project) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that project." }); return project; }), update: protectedProcedure.input(projectUpdateInput).mutation(async ({ ctx, input }) => { const project = await updateProjectForUser(ctx.user.id, input.id, input); if (!project) throwIfNotFound(project, "project"); return project; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteProjectForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "project"); return { success: true } as const; }) }),

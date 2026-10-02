@@ -1,3 +1,50 @@
+2026-10-02 - Personal agents: Cue-style identity, wallets, teams, and approval gates
+
+Nova gained a personal-agent layer modeled on Manus's Cue app. Each agent
+(`agent_profiles`) has a name, role, and instructions, a Nova-native identity -
+an internal email alias (`<name>-<suffix>@nova.local`) and a virtual
++1-555-01XX phone handle (workspace-local, no third-party telephony or mail) -
+and a spending wallet (a credit budget the user grants, default 500). Memory
+gained a scope: `conversation_memories.agentId` partitions memory per agent, an
+agent reads its own memories plus the workspace's shared ones and writes only
+to its own, and the default assistant never sees agent-private memories.
+`chats` gained `kind`, `agentId`, and `teamGoal`: a personal agent chat runs one
+agent whose identity block (role, instructions, wallet balance, approval state,
+memory scope, gated tools) is injected into the system prompt via a new
+`{{agent_identity}}` placeholder, and a `team` chat runs every roster member
+(`chat_agents`, in turn order) once per user message inside the same run - the
+telemate carrying the user message persists it, later teammates receive an
+internal hand-off note that never reaches the chat ledger, each reply is
+attributed with a `[Name]` prefix, and the shared run deadline stops the roster
+when the budget runs out. Gated actions - `request_purchase` and
+`send_agent_email`, available only to personal agents - never act directly:
+they record a pending `agent_approvals` row, the agent is told nothing was
+spent or sent, and the outcome reaches the agent through an approvals line in
+its prompt. The user decides in the new Agents page; approving a purchase
+debits the wallet with an atomic budget-guarded update (so concurrent approvals
+can never overdraw, and a short budget marks the request failed with the
+remaining balance), and approving an email delivers it to the Nova-internal
+mailbox (`agent_emails`). `executeWebAgentRun` now resolves the chat's agent
+route first, so every web entry point - chats.send, the SSE stream, the peak
+queue, and continuations - shares the same personal/team/plain dispatch, and
+ordinary Nova chats behave exactly as before. The new `agents` tRPC router
+covers list/create/update/delete (with typed name-collision errors), 1:1 chat
+entry, team creation, approvals, and the inbox; the client gains an Agents
+sidebar destination with agent cards (identity chips, wallet bar, chat entry),
+a team builder gated on two or more agents, pending-approval controls, recent
+decisions, and the mailbox. Migration 0040 is hand-idempotent (guarded CREATE
+TYPE/TABLE/INDEX, `ADD COLUMN IF NOT EXISTS`, `DO $$ ... duplicate_object`
+constraints) so the deploy-build and boot-time schema bootstrap can re-run it;
+the migrate test guarding the newest migration passes unchanged. Files:
+drizzle/schema.ts (+ migration 0040), server/agents.ts, server/agentChats.ts,
+server/workspaceAgent.ts, server/agentRuns.ts, server/memories.ts,
+server/routers.ts, client/src/pages/Agents.tsx, client/src/lib/nav.ts,
+client/src/App.tsx, client/src/pages/Status.tsx, plus tests
+(server/agents.test.ts, server/agentChats.test.ts,
+client/src/pages/Agents.render.test.tsx).
+
+---
+
 2026-10-02 - Billing: priority lasts one hour, starting on your next message
 
 Priority was a permanent entitlement once bought, so a single purchase kept an

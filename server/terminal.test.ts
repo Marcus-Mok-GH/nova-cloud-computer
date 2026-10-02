@@ -107,6 +107,11 @@ vi.mock("./workspaceSync", () => ({
   }),
 }));
 
+// The idle-cost pause at the end of a terminal session is a seam: assert the
+// call is made without pulling in the real lifecycle-lock machinery.
+const pauseAgentSandbox = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("./sandboxWorkspace", () => ({ pauseAgentSandbox }));
+
 function configure(configured = true) {
   state.client = configured
     ? { create: vi.fn(), connect: vi.fn(async () => state.sandbox) }
@@ -123,6 +128,7 @@ async function settle() {
 beforeEach(() => {
   resetTerminalSessionsForTests();
   state.persisted = 0;
+  pauseAgentSandbox.mockClear();
   configure(true);
 });
 
@@ -181,6 +187,8 @@ describe("terminal sessions", () => {
     expect(stopped).toMatchObject({ success: true });
     expect(state.pty.kills).toEqual([421]);
     expect(state.persisted).toBe(1);
+    // The sandbox is paused so an idle machine is not billed.
+    expect(pauseAgentSandbox).toHaveBeenCalledWith(1, 3, state.sandbox);
     expect(readTerminalForUser(1, 0)).toMatchObject({ active: false });
     await expect(stopTerminalForUser(1)).resolves.toMatchObject({ success: false });
   });
@@ -201,6 +209,15 @@ describe("terminal sessions", () => {
     await settle();
     expect(getTerminalStatusForUser(1)).toMatchObject({ active: false });
     expect(state.persisted).toBe(1);
+    expect(pauseAgentSandbox).toHaveBeenCalledWith(1, 3, state.sandbox);
+  });
+
+  it("does not pause the sandbox while the terminal is still open", async () => {
+    await startTerminalForUser(1, { cols: 80, rows: 24 });
+    await writeTerminalForUser(1, "ls\n");
+    state.pty.emit("output");
+    await settle();
+    expect(pauseAgentSandbox).not.toHaveBeenCalled();
   });
 
   it("ignores a stale shell exit after a newer session took over", async () => {

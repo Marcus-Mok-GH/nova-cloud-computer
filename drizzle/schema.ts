@@ -15,6 +15,8 @@ export const userAutomationFrequency = pgEnum("user_automation_frequency", ["hou
 export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying", "live", "failed", "deleted"]);
 /** Ledger of segmented agent runs: one row per user message that starts agent work. */
 export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_continue", "completed", "stopped", "failed"]);
+/** One deferred request admitted to the peak-hours inference queue. */
+export const inferenceQueueStatus = pgEnum("inference_queue_status", ["waiting", "running", "completed", "failed", "cancelled"]);
 
 export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique() });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
@@ -80,3 +82,46 @@ export const agentRuns = pgTable("agent_runs", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("agent_runs_workspace_status_idx").on(table.workspaceId, table.status), index("agent_runs_chat_idx").on(table.chatId)]);
+
+/** Payload a deferred queue item needs to run after it leaves the queue. */
+export type InferenceQueuePayload = {
+  /** Web/Telegram: attachment context appended to the agent turn but hidden from the bubble. */
+  uploadContext?: string;
+  /** Web/Telegram: base64 image attachments for the run. */
+  images?: string[];
+  /** Telegram: the chat id the deferred reply is pushed to. */
+  notifyChatId?: string;
+  /** Inference API: the requested model id. */
+  modelId?: string;
+  /** Inference API: the BYOK row selected at admission, so a later active-model change cannot reroute the request. */
+  customModelId?: number | null;
+  /** Inference API: the normalized OpenAI-style messages to complete. */
+  messages?: unknown[];
+  /** Inference API: whether the caller asked for a streamed response. */
+  stream?: boolean;
+};
+
+/**
+ * A single FIFO queue for messages that arrive during the peak window. The
+ * worker admits one row at a time (status running) so the shared inference
+ * pool is never saturated; every other row waits and can read its position.
+ */
+export const inferenceQueue = pgTable("inference_queue", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** "web", "telegram", or "api" - how the deferred result is delivered. */
+  channel: varchar("channel", { length: 32 }).notNull(),
+  status: inferenceQueueStatus("status").default("waiting").notNull(),
+  chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "set null" }),
+  content: text("content").notNull(),
+  payload: jsonb("payload").$type<InferenceQueuePayload>().default({}).notNull(),
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  errorMessage: varchar("errorMessage", { length: 1200 }),
+  /** Claims so far; a stale sweep stops retrying a row once it hits the cap. */
+  attempts: integer("attempts").default(0).notNull(),
+  startedAt: timestamp("startedAt", { withTimezone: true }),
+  completedAt: timestamp("completedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("inference_queue_status_id_idx").on(table.status, table.id), index("inference_queue_owner_status_idx").on(table.ownerId, table.status)]);
+export type InferenceQueueItem = typeof inferenceQueue.$inferSelect;

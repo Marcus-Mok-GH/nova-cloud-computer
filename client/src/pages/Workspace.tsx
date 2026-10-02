@@ -95,6 +95,9 @@ export default function Workspace() {
   const [pendingUserContent, setPendingUserContent] = useState("");
   const [liveEvents, setLiveEvents] = useState<LiveChatEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Peak hours defer the turn: the server answers with a queue position and
+  // this notice stays up until the deferred run actually starts.
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId =
     typeof window === "undefined"
@@ -206,10 +209,25 @@ export default function Workspace() {
     }
   );
   const agentIsWorking = isStreaming || Boolean(runStatus.data?.active);
+  // The worker flips the deferred turn into a live agent run; at that point the
+  // waiting notice has done its job and the normal working indicator takes over.
+  useEffect(() => {
+    if (runStatus.data?.active) setQueueNotice(null);
+  }, [runStatus.data?.active]);
+  // A queued turn has no agent-run row yet, so it would otherwise look idle;
+  // treat it as busy so the composer offers Stop, which cancels the queued item.
+  const composerBusy = agentIsWorking || Boolean(queueNotice);
+  // A notice belongs to the conversation it was raised in.
+  useEffect(() => {
+    setQueueNotice(null);
+  }, [chatId]);
   // Stops the chat's in-flight agent run and its queued/running VM workflows
   // (the composer's send button turns into this stop button while Nova works).
   const stopRun = trpc.chats.stop.useMutation({
-    onSuccess: () => runStatus.refetch(),
+    onSuccess: () => {
+      setQueueNotice(null);
+      void runStatus.refetch();
+    },
     onError: error =>
       toast.error(
         error instanceof Error
@@ -338,6 +356,7 @@ export default function Workspace() {
     );
     setPendingUserContent(content);
     setLiveEvents([]);
+    setQueueNotice(null);
     setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -386,8 +405,15 @@ export default function Workspace() {
               const parsed = JSON.parse(data) as {
                 type?: string;
                 tool?: ToolActivity;
+                message?: string;
                 choices?: Array<{ delta?: { content?: string } }>;
               };
+              if (parsed.type === "queued") {
+                setQueueNotice(
+                  typeof parsed.message === "string" ? parsed.message : null
+                );
+                continue;
+              }
               if (parsed.type === "tool" && parsed.tool?.id) {
                 setLiveEvents(previous =>
                   upsertLiveToolEvent(previous, parsed.tool!)
@@ -416,8 +442,9 @@ export default function Workspace() {
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
-    // While Nova works, both the Enter key and the composer button stop the run.
-    if (agentIsWorking) {
+    // While Nova works - or while this turn waits in the peak-hours queue -
+    // both the Enter key and the composer button stop the run.
+    if (composerBusy) {
       handleStopRun();
       return;
     }
@@ -799,6 +826,15 @@ export default function Workspace() {
           >
             <div className="mx-auto w-full max-w-[1240px]">
               <div className="border border-foreground/[0.14] bg-card/85 p-2 shadow-[0_14px_45px_rgba(36,40,34,0.10)] backdrop-blur-xl transition focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]">
+                {queueNotice && (
+                  <div
+                    data-testid="queue-notice"
+                    role="status"
+                    className="mx-2.5 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
+                  >
+                    {queueNotice}
+                  </div>
+                )}
                 <div className="flex items-center justify-end px-2.5 pb-1.5">
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
                     Enter to send
@@ -855,7 +891,7 @@ export default function Workspace() {
                     rows={1}
                     className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
                   />
-                  {!agentIsWorking && (
+                  {!composerBusy && (
                     <button
                       type="button"
                       onClick={() => composerImageInputRef.current?.click()}
@@ -866,7 +902,7 @@ export default function Workspace() {
                       <ImagePlus className="size-4" />
                     </button>
                   )}
-                  {agentIsWorking ? (
+                  {composerBusy ? (
                     <button
                       type="submit"
                       aria-label="Stop Nova"

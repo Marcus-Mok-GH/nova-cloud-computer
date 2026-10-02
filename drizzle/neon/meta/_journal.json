@@ -239,6 +239,20 @@
       "when": 1790913638336,
       "tag": "0033_conscious_ironclad",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790918656359,
+      "tag": "0034_damp_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790920091770,
+      "tag": "0035_funny_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

@@ -685,10 +685,12 @@ export async function listApprovalsForUser(ownerId: number): Promise<{
 }
 
 /**
- * Approves or denies a pending request. Approving a purchase moves the
- * credits (atomically guarded so the wallet can never overdraw); approving
- * an email delivers it to the Nova-internal inbox. Returns null when the
- * approval is missing, not pending, or belongs to someone else.
+ * Approves or denies a pending request. The pending row is claimed with a
+ * single status-guarded UPDATE first so concurrent approve/deny calls cannot
+ * both run side effects (double wallet debit or duplicate email delivery).
+ * Approving a purchase then moves credits with a budget-guarded UPDATE;
+ * approving an email delivers it to the Nova-internal inbox. Returns null
+ * when the approval is missing, not pending, or belongs to someone else.
  */
 export async function decideApprovalForUser(
   ownerId: number,
@@ -697,24 +699,15 @@ export async function decideApprovalForUser(
 ): Promise<{ approval: ApprovalView; executed: boolean } | null> {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db
-    .select()
-    .from(agentApprovals)
-    .where(
-      and(
-        eq(agentApprovals.id, approvalId),
-        eq(agentApprovals.ownerId, ownerId),
-        eq(agentApprovals.status, "pending")
-      )
-    )
-    .limit(1);
-  const approval = rows[0];
-  if (!approval) return null;
-  const params = (approval.params ?? {}) as Record<string, unknown>;
   const now = new Date();
+  const pendingClaim = and(
+    eq(agentApprovals.id, approvalId),
+    eq(agentApprovals.ownerId, ownerId),
+    eq(agentApprovals.status, "pending")
+  );
 
   if (decision === "deny") {
-    const [updated] = await db
+    const [denied] = await db
       .update(agentApprovals)
       .set({
         status: "denied",
@@ -722,20 +715,63 @@ export async function decideApprovalForUser(
         decidedAt: now,
         updatedAt: now,
       })
-      .where(eq(agentApprovals.id, approval.id))
+      .where(pendingClaim)
       .returning();
-    const agent = await getAgentForUser(ownerId, approval.agentId);
-    return updated
-      ? { approval: toApprovalView(updated, agent?.name ?? "Deleted agent"), executed: false }
-      : null;
+    if (!denied) return null;
+    const agent = await getAgentForUser(ownerId, denied.agentId);
+    return {
+      approval: toApprovalView(denied, agent?.name ?? "Deleted agent"),
+      executed: false,
+    };
   }
 
-  if (approval.action === "wallet_purchase") {
+  // Claim the pending row before any side effect. Only one concurrent
+  // approver wins; losers see null because status is no longer pending.
+  const [claimed] = await db
+    .update(agentApprovals)
+    .set({
+      status: "executed",
+      resultSummary: "Approval claimed - completing the action.",
+      decidedAt: now,
+      updatedAt: now,
+    })
+    .where(pendingClaim)
+    .returning();
+  if (!claimed) return null;
+
+  const params = (claimed.params ?? {}) as Record<string, unknown>;
+  const finish = async (
+    status: "executed" | "failed",
+    resultSummary: string,
+    executed: boolean
+  ) => {
+    const [updated] = await db
+      .update(agentApprovals)
+      .set({ status, resultSummary, decidedAt: now, updatedAt: now })
+      .where(eq(agentApprovals.id, claimed.id))
+      .returning();
+    const agent = await getAgentForUser(ownerId, claimed.agentId);
+    return updated
+      ? {
+          approval: toApprovalView(updated, agent?.name ?? "Deleted agent"),
+          executed,
+        }
+      : null;
+  };
+
+  if (claimed.action === "wallet_purchase") {
     const amount = Math.trunc(Number(params.amountCredits ?? 0));
     const item = String(params.item ?? "a purchase");
+    if (!Number.isFinite(amount) || amount < 1 || amount > MAX_PURCHASE_CREDITS) {
+      return finish(
+        "failed",
+        `Not completed: the purchase amount (${String(params.amountCredits)}) is invalid.`,
+        false
+      );
+    }
     // Atomic guarded debit: the WHERE clause re-checks the budget inside the
-    // UPDATE, so two approvals racing each other can never overdraw.
-    const claimed = await db
+    // UPDATE, so two distinct approvals racing each other can never overdraw.
+    const debited = await db
       .update(agentProfiles)
       .set({
         walletSpentCredits: sql`${agentProfiles.walletSpentCredits} + ${amount}`,
@@ -743,92 +779,59 @@ export async function decideApprovalForUser(
       })
       .where(
         and(
-          eq(agentProfiles.id, approval.agentId),
+          eq(agentProfiles.id, claimed.agentId),
           sql`${agentProfiles.walletSpentCredits} + ${amount} <= ${agentProfiles.walletBudgetCredits}`
         )
       )
       .returning({ id: agentProfiles.id });
-    if (!claimed.length) {
-      const agent = await getAgentForUser(ownerId, approval.agentId);
+    if (!debited.length) {
+      const agent = await getAgentForUser(ownerId, claimed.agentId);
       const remaining = agent ? walletRemainingCredits(agent) : 0;
-      const [failed] = await db
-        .update(agentApprovals)
-        .set({
-          status: "failed",
-          resultSummary: `Not completed: the wallet budget is exhausted (${remaining} credits left), so "${item}" could not be paid.`,
-          decidedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(agentApprovals.id, approval.id))
-        .returning();
-      return failed
-        ? {
-            approval: toApprovalView(failed, agent?.name ?? "Deleted agent"),
-            executed: false,
-          }
-        : null;
+      return finish(
+        "failed",
+        `Not completed: the wallet budget is exhausted (${remaining} credits left), so "${item}" could not be paid.`,
+        false
+      );
     }
-    const agent = await getAgentForUser(ownerId, approval.agentId);
+    const agent = await getAgentForUser(ownerId, claimed.agentId);
     const remaining = agent ? walletRemainingCredits(agent) : 0;
-    const [executed] = await db
-      .update(agentApprovals)
-      .set({
-        status: "executed",
-        resultSummary: `Approved - paid ${amount} credits for "${item}". ${remaining} credits remain in the wallet.`,
-        decidedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(agentApprovals.id, approval.id))
-      .returning();
-    return executed
-      ? { approval: toApprovalView(executed, agent?.name ?? "Deleted agent"), executed: true }
-      : null;
+    return finish(
+      "executed",
+      `Approved - paid ${amount} credits for "${item}". ${remaining} credits remain in the wallet.`,
+      true
+    );
   }
 
-  if (approval.action === "send_email") {
+  if (claimed.action === "send_email") {
     const [delivered] = await db
       .insert(agentEmails)
       .values({
-        workspaceId: approval.workspaceId,
-        fromAgentId: approval.agentId,
+        workspaceId: claimed.workspaceId,
+        fromAgentId: claimed.agentId,
         toAgentId: (params.toAgentId as number | null) ?? null,
         subject: String(params.subject ?? "(no subject)"),
         body: String(params.body ?? ""),
       })
       .returning();
-    const agent = await getAgentForUser(ownerId, approval.agentId);
-    const [executed] = await db
-      .update(agentApprovals)
-      .set({
-        status: "executed",
-        resultSummary: delivered
-          ? `Approved - email delivered to ${String(params.to ?? "the user")}.`
-          : "Approved, but delivery failed - Nova could not store the email.",
-        decidedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(agentApprovals.id, approval.id))
-      .returning();
-    return executed
-      ? { approval: toApprovalView(executed, agent?.name ?? "Deleted agent"), executed: Boolean(delivered) }
-      : null;
+    if (!delivered) {
+      return finish(
+        "failed",
+        "Approved, but delivery failed - Nova could not store the email.",
+        false
+      );
+    }
+    return finish(
+      "executed",
+      `Approved - email delivered to ${String(params.to ?? "the user")}.`,
+      true
+    );
   }
 
-  // Unknown action: close it out rather than leaving it pending forever.
-  const [failed] = await db
-    .update(agentApprovals)
-    .set({
-      status: "failed",
-      resultSummary: `Unknown action "${approval.action}" - this request could not be executed.`,
-      decidedAt: now,
-      updatedAt: now,
-    })
-    .where(eq(agentApprovals.id, approval.id))
-    .returning();
-  const agent = await getAgentForUser(ownerId, approval.agentId);
-  return failed
-    ? { approval: toApprovalView(failed, agent?.name ?? "Deleted agent"), executed: false }
-    : null;
+  return finish(
+    "failed",
+    `Unknown action "${claimed.action}" - this request could not be executed.`,
+    false
+  );
 }
 
 /**

@@ -1547,8 +1547,9 @@ const PERSONALISATION_EXPERTISE_LABELS: Record<PersonalisationExpertise, string>
 
 /**
  * Composes the personalisation block injected into every agent system prompt.
- * Returns an empty string when nothing is saved, so the prompt stays clean for
- * users who never open the feature.
+ * Returns an empty string only when the mode is off and nothing is saved, so
+ * the prompt stays clean for users who never open the feature; whenever the
+ * mode is on or any preference exists, the block carries an explicit mode line.
  */
 function formatPersonalisationForPrompt(settings: PersonalisationSettings): string {
   const lines: string[] = [];

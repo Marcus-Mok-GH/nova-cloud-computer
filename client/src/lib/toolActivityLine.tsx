@@ -715,14 +715,6 @@ export function DiffText({ diff }: { diff: string }) {
   );
 }
 
-/**
- * edit_file calls get a dropdown showing the actual change: the unified diff
- * the server computed for the edit (before -> after), with additions and
- * removals tinted. It starts open while the edit runs so the live note is
- * visible, then collapses to the diff on demand. An edit whose content was
- * unchanged (or whose diff was not recorded) says so rather than opening an
- * empty panel.
- */
 /** The settled (completed/failed) body of an edit_file panel: the diff. */
 export function EditFileDetail({ activity }: { activity: ToolActivity }) {
   if (activity.diff) return <DiffText diff={activity.diff} />;
@@ -744,7 +736,9 @@ export function EditFileDetail({ activity }: { activity: ToolActivity }) {
  * edit_file calls get a dropdown showing the actual change: the unified diff
  * the server computed for the edit (before -> after), with additions and
  * removals tinted. It starts open while the edit runs so the live note is
- * visible, then collapses to the diff on demand.
+ * visible, then collapses to the diff on demand. An edit whose content was
+ * unchanged (or whose diff was not recorded) says so rather than opening an
+ * empty panel.
  */
 export function EditFileToolActivity({ activity }: { activity: ToolActivity }) {
   const [open, setOpen] = useState(activity.state === "running");

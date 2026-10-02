@@ -17,6 +17,8 @@ export const siteDeploymentStatus = pgEnum("site_deployment_status", ["deploying
 export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_continue", "completed", "stopped", "failed"]);
 /** One deferred request admitted to the peak-hours inference queue. */
 export const inferenceQueueStatus = pgEnum("inference_queue_status", ["waiting", "running", "completed", "failed", "cancelled"]);
+/** Lifecycle of an agent action the user must confirm: pending review, executed (approved and carried out), denied (declined), or failed (approved but not carried out, e.g. the wallet ran out of budget). */
+export const agentApprovalStatus = pgEnum("agent_approval_status", ["pending", "executed", "denied", "failed"]);
 
 export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique() });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
@@ -29,9 +31,24 @@ export const workspaceSettings = pgTable("workspace_settings", { id: serial("id"
 personalisationEnabled: boolean("personalisationEnabled").default(false).notNull(), personalisationProfile: text("personalisationProfile"), personalisationTone: varchar("personalisationTone", { length: 60 }), personalisationDetail: varchar("personalisationDetail", { length: 20 }), personalisationProactiveness: varchar("personalisationProactiveness", { length: 20 }), personalisationExpertise: varchar("personalisationExpertise", { length: 20 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)]);
 export const workspaceFolders = pgTable("workspace_folders", { id: serial("id").primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), parentId: integer("parentId").references((): any => workspaceFolders.id, { onDelete: "cascade" }), name: varchar("name", { length: 160 }).notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("workspace_folders_parent_name_unique").on(table.workspaceId, table.parentId, table.name)]);
 export const workspaceFiles = pgTable("workspace_files", { id: serial("id").primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), folderId: integer("folderId").references(() => workspaceFolders.id, { onDelete: "set null" }), name: varchar("name", { length: 240 }).notNull(), content: text("content").default("").notNull(), mimeType: varchar("mimeType", { length: 120 }).default("text/plain").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("workspace_files_folder_name_unique").on(table.workspaceId, table.folderId, table.name)]);
-export const chats = pgTable("chats", { id: varchar("id", { length: 24 }).primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), title: varchar("title", { length: 160 }).notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() });
+export const chats = pgTable("chats", {
+  id: varchar("id", { length: 24 }).primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 160 }).notNull(),
+  /** "personal" - an ordinary Nova conversation or a 1:1 chat with one agent. "team" - a group chat where several agents collaborate toward teamGoal. */
+  kind: varchar("kind", { length: 16 }).default("personal").notNull(),
+  /** The agent this personal conversation belongs to; null for ordinary Nova chats. */
+  agentId: integer("agentId").references((): any => agentProfiles.id, { onDelete: "set null" }),
+  /** The shared goal an agent team chat works toward. */
+  teamGoal: text("teamGoal"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+});
 export const chatMessages = pgTable("chat_messages", { id: serial("id").primaryKey(), chatId: varchar("chatId", { length: 24 }).notNull().references(() => chats.id, { onDelete: "cascade" }), role: chatMessageRole("role").notNull(), content: text("content").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
-export const conversationMemories = pgTable("conversation_memories", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "cascade" }), kind: varchar("kind", { length: 32 }).default("conversation").notNull(), title: varchar("title", { length: 300 }).notNull(), summary: text("summary").notNull(), tags: varchar("tags", { length: 500 }), content: text("content").notNull(), s3Uri: varchar("s3Uri", { length: 500 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("conversation_memories_owner_updated_idx").on(table.ownerId, table.updatedAt)]);
+export const conversationMemories = pgTable("conversation_memories", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "cascade" }),
+  /** The agent this memory belongs to; null = the workspace's shared (default Nova) memory scope. Each personal agent remembers on its own. */
+  agentId: integer("agentId").references((): any => agentProfiles.id, { onDelete: "cascade" }),
+  kind: varchar("kind", { length: 32 }).default("conversation").notNull(), title: varchar("title", { length: 300 }).notNull(), summary: text("summary").notNull(), tags: varchar("tags", { length: 500 }), content: text("content").notNull(), s3Uri: varchar("s3Uri", { length: 500 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("conversation_memories_owner_updated_idx").on(table.ownerId, table.updatedAt)]);
 export const telegramBotSettings = pgTable("telegram_bot_settings", { id: serial("id").primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), encryptedBotToken: text("encryptedBotToken").notNull(), chatId: varchar("chatId", { length: 64 }), botUsername: varchar("botUsername", { length: 128 }), botDisplayName: varchar("botDisplayName", { length: 256 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("telegram_bot_settings_workspace_unique").on(table.workspaceId)]);
 export const apiKeys = pgTable("api_keys", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), name: varchar("name", { length: 120 }).notNull(), keyHash: varchar("keyHash", { length: 64 }).notNull().unique(), keyPreview: varchar("keyPreview", { length: 40 }).notNull(), lastUsedAt: timestamp("lastUsedAt", { withTimezone: true }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("api_keys_owner_idx").on(table.ownerId)]);
 // Legacy physical table/index names for the built-in gateway's allowances.
@@ -147,3 +164,83 @@ export const inferenceQueue = pgTable("inference_queue", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("inference_queue_status_id_idx").on(table.status, table.id), index("inference_queue_owner_status_idx").on(table.ownerId, table.status)]);
 export type InferenceQueueItem = typeof inferenceQueue.$inferSelect;
+
+/**
+ * A personal agent in a workspace - Nova's Cue-style agent identity. Each
+ * agent carries its own name/role/instructions, a Nova-native identity (an
+ * internal email alias and a virtual phone handle), and a spending wallet the
+ * user tops up as a credit budget. Agents chat in 1:1 conversations and in
+ * team chats (see chats.kind / chat_agents).
+ */
+export const agentProfiles = pgTable("agent_profiles", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 80 }).notNull(),
+  role: varchar("role", { length: 120 }),
+  instructions: text("instructions"),
+  /** Nova-internal mail address, e.g. `mira-4f2a@nova.local`. */
+  emailAlias: varchar("emailAlias", { length: 160 }).notNull(),
+  /** Virtual phone handle, e.g. `+1-555-0142` (a handle, not real telephony). */
+  phoneHandle: varchar("phoneHandle", { length: 40 }).notNull(),
+  /** Spending budget in workspace credits the user grants this agent. */
+  walletBudgetCredits: integer("walletBudgetCredits").default(500).notNull(),
+  /** Credits spent from approved purchases. Remaining = budget - spent. */
+  walletSpentCredits: integer("walletSpentCredits").default(0).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("agent_profiles_workspace_name_unique").on(table.workspaceId, table.name),
+  uniqueIndex("agent_profiles_workspace_alias_unique").on(table.workspaceId, table.emailAlias),
+]);
+export type AgentProfileRow = typeof agentProfiles.$inferSelect;
+
+/** Membership of an agent in a team chat, in turn order. */
+export const chatAgents = pgTable("chat_agents", {
+  id: serial("id").primaryKey(),
+  chatId: varchar("chatId", { length: 24 }).notNull().references(() => chats.id, { onDelete: "cascade" }),
+  agentId: integer("agentId").notNull().references(() => agentProfiles.id, { onDelete: "cascade" }),
+  /** Roster order: teammates take their turn in this order. */
+  position: integer("position").default(0).notNull(),
+}, table => [uniqueIndex("chat_agents_chat_agent_unique").on(table.chatId, table.agentId)]);
+export type ChatAgentRow = typeof chatAgents.$inferSelect;
+
+/**
+ * An agent action awaiting (or having received) the user's confirmation:
+ * wallet purchases and outbound agent email are always gated this way. The
+ * approval row doubles as the wallet's transaction history.
+ */
+export const agentApprovals = pgTable("agent_approvals", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  agentId: integer("agentId").notNull().references(() => agentProfiles.id, { onDelete: "cascade" }),
+  /** The chat the request was made from; null when the chat was deleted. */
+  chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "set null" }),
+  /** "wallet_purchase" | "send_email" - which gated action this is. */
+  action: varchar("action", { length: 32 }).notNull(),
+  /** Action-specific payload: purchase {item, amountCredits, note?} / email {to, subject, body}. */
+  params: jsonb("params").$type<Record<string, unknown>>().default({}).notNull(),
+  status: agentApprovalStatus("status").default("pending").notNull(),
+  /** Outcome text the agent and user see once decided. */
+  resultSummary: text("resultSummary"),
+  decidedAt: timestamp("decidedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index("agent_approvals_owner_status_idx").on(table.ownerId, table.status),
+  index("agent_approvals_agent_status_idx").on(table.agentId, table.status),
+]);
+export type AgentApprovalRow = typeof agentApprovals.$inferSelect;
+
+/** Nova-internal mail between agents (or from an agent to the workspace owner). */
+export const agentEmails = pgTable("agent_emails", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  fromAgentId: integer("fromAgentId").notNull().references(() => agentProfiles.id, { onDelete: "cascade" }),
+  /** Receiving agent; null = the workspace owner (the user's own inbox). */
+  toAgentId: integer("toAgentId").references((): any => agentProfiles.id, { onDelete: "set null" }),
+  subject: varchar("subject", { length: 240 }).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("agent_emails_workspace_created_idx").on(table.workspaceId, table.createdAt)]);
+export type AgentEmailRow = typeof agentEmails.$inferSelect;

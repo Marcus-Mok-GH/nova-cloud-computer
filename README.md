@@ -19,12 +19,13 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Browser (React SPA, Vite)                                  │
-│  /  /sign-in  /app  /app/files  /app/chats  /app/deployments │
+│  /  /sign-in  /app  /app/files  /app/chats  /app/agents  /app/deployments │
 └───────────────┬─────────────────────────────────────────────┘
                 │  /api/trpc (tRPC, superjson) + Bearer auth
 ┌───────────────▼─────────────────────────────────────────────┐
-│  Express server (server/app.ts → server/index.ts)           │
-│  • tRPC router (server/routers.ts)                          │
+│  Express server (server/app.ts → server/index.ts)           ││   • tRPC router (server/routers.ts)                          │
+│     (auth, workspace, telegram, ai, agentVm, automations,    │
+│      files, chats, agents, models, projects, tasks)          │
 │  • Telegram webhook (/api/telegram/webhook/:token)           │
 │  • Scheduled automation callback (/api/scheduled/automation)│
 │  • Static SPA fallback                                      │
@@ -105,6 +106,7 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 - **workspaces** - one per user; holds model settings, persistent sandbox ID, Telegram settings.
 - **users / sessions** - authentication.
 - **chats / chat_messages** - conversations with the AI agent.
+- **agent_profiles / chat_agents / agent_approvals / agent_emails** - personal agents with a Nova-native identity (internal email alias, virtual phone handle), a spending wallet, team chats, and approval-gated actions (purchases, outbound email).
 - **folders / files** - the user's workspace file tree.
 - **automations / automation_runs** - scheduled tasks.
 - **projects / tasks** - project & task management.

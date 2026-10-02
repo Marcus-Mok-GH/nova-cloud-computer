@@ -288,6 +288,13 @@
       "when": 1790937772492,
       "tag": "0040_cue_agent_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790951114266,
+      "tag": "0041_round_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

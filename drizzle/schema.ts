@@ -182,8 +182,12 @@ export const agentProfiles = pgTable("agent_profiles", {
   emailAlias: varchar("emailAlias", { length: 160 }).notNull(),
   /** Virtual phone handle, e.g. `+1-555-0142` (a handle, not real telephony). */
   phoneHandle: varchar("phoneHandle", { length: 40 }).notNull(),
-  /** Spending budget in workspace credits the user grants this agent. */
-  walletBudgetCredits: integer("walletBudgetCredits").default(500).notNull(),
+  /**
+   * Spending budget in workspace credits the user grants this agent. Null
+   * means the wallet has no cap at all (unlimited - an empty budget field in
+   * the Agents dialog stores this).
+   */
+  walletBudgetCredits: integer("walletBudgetCredits").default(500),
   /** Credits spent from approved purchases. Remaining = budget - spent. */
   walletSpentCredits: integer("walletSpentCredits").default(0).notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),

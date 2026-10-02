@@ -42,7 +42,8 @@ export type AgentProfileContext = {
   instructions: string | null;
   emailAlias: string;
   phoneHandle: string;
-  walletBudgetCredits: number;
+  /** Granted budget in credits; null means the wallet has no cap at all. */
+  walletBudgetCredits: number | null;
   walletSpentCredits: number;
 };
 
@@ -91,11 +92,15 @@ export function agentPhoneHandleFor(): string {
   return `+1-555-01${block}`;
 }
 
-/** Credits left in an agent's wallet (never negative). */
+/**
+ * Credits left in an agent's wallet (never negative). An uncapped wallet -
+ * `walletBudgetCredits === null` - always has room, so it reports Infinity.
+ */
 export function walletRemainingCredits(agent: {
-  walletBudgetCredits: number;
+  walletBudgetCredits: number | null;
   walletSpentCredits: number;
 }): number {
+  if (agent.walletBudgetCredits === null) return Number.POSITIVE_INFINITY;
   return Math.max(0, agent.walletBudgetCredits - agent.walletSpentCredits);
 }
 
@@ -169,17 +174,23 @@ export async function createAgentForUser(
     name: string;
     role?: string | null;
     instructions?: string | null;
-    walletBudgetCredits?: number;
+    /** null grants an unlimited wallet; undefined keeps the default budget. */
+    walletBudgetCredits?: number | null;
   }
 ): Promise<AgentProfileRow | undefined> {
   const db = await getDb();
   if (!db) return undefined;
   const workspace = await getOrCreateWorkspace(ownerId);
   const name = input.name.trim().slice(0, 80);
-  const budget = Math.max(
-    0,
-    Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits ?? DEFAULT_AGENT_WALLET_CREDITS))
-  );
+  const budget =
+    input.walletBudgetCredits === undefined
+      ? DEFAULT_AGENT_WALLET_CREDITS
+      : input.walletBudgetCredits === null
+        ? null
+        : Math.max(
+            0,
+            Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits))
+          );
   // The alias carries a random suffix, so a collision is astronomically
   // unlikely - retry a few times anyway to ride out a lost race.
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -218,7 +229,8 @@ export async function updateAgentForUser(
     name?: string;
     role?: string | null;
     instructions?: string | null;
-    walletBudgetCredits?: number;
+    /** null lifts the cap entirely, making the wallet unlimited. */
+    walletBudgetCredits?: number | null;
   }
 ): Promise<AgentProfileRow | undefined> {
   const db = await getDb();
@@ -232,12 +244,16 @@ export async function updateAgentForUser(
   if (input.instructions !== undefined)
     updateSet.instructions = input.instructions?.trim().slice(0, 4000) || null;
   if (input.walletBudgetCredits !== undefined) {
-    // A budget may never drop below what the agent has already spent - that
-    // would silently overdraw the wallet.
-    updateSet.walletBudgetCredits = Math.max(
-      existing.walletSpentCredits,
-      Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits))
-    );
+    // null means "no cap": the wallet becomes unlimited. A concrete budget may
+    // never drop below what the agent has already spent - that would silently
+    // overdraw the wallet.
+    updateSet.walletBudgetCredits =
+      input.walletBudgetCredits === null
+        ? null
+        : Math.max(
+            existing.walletSpentCredits,
+            Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits))
+          );
   }
   try {
     const rows = await db
@@ -529,6 +545,7 @@ export async function requestWalletPurchaseApproval(
       error: `Over budget: "${item}" costs ${amount} credits but only ${remaining} of ${agent.walletBudgetCredits} remain in ${agent.name}'s wallet.`,
     };
   }
+  // An unlimited wallet (budget null) never hits the check above.
   const db = await getDb();
   if (!db) return { ok: false, error: "Nova could not reach your workspace data." };
   const [approval] = await db
@@ -771,6 +788,8 @@ export async function decideApprovalForUser(
     }
     // Atomic guarded debit: the WHERE clause re-checks the budget inside the
     // UPDATE, so two distinct approvals racing each other can never overdraw.
+    // A null budget is uncapped, so it skips that comparison entirely (in SQL,
+    // `spent + amount <= NULL` would match no row and fail every purchase).
     const debited = await db
       .update(agentProfiles)
       .set({
@@ -780,7 +799,7 @@ export async function decideApprovalForUser(
       .where(
         and(
           eq(agentProfiles.id, claimed.agentId),
-          sql`${agentProfiles.walletSpentCredits} + ${amount} <= ${agentProfiles.walletBudgetCredits}`
+          sql`(${agentProfiles.walletBudgetCredits} IS NULL OR ${agentProfiles.walletSpentCredits} + ${amount} <= ${agentProfiles.walletBudgetCredits})`
         )
       )
       .returning({ id: agentProfiles.id });
@@ -795,9 +814,12 @@ export async function decideApprovalForUser(
     }
     const agent = await getAgentForUser(ownerId, claimed.agentId);
     const remaining = agent ? walletRemainingCredits(agent) : 0;
+    const remainNote = Number.isFinite(remaining)
+      ? `${remaining} credits remain in the wallet.`
+      : `The wallet has no budget cap - ${agent?.walletSpentCredits ?? 0} credits spent so far.`;
     return finish(
       "executed",
-      `Approved - paid ${amount} credits for "${item}". ${remaining} credits remain in the wallet.`,
+      `Approved - paid ${amount} credits for "${item}". ${remainNote}`,
       true
     );
   }

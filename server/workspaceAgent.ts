@@ -129,6 +129,12 @@ export type WorkspaceToolActivity = {
   summary?: string;
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
+  /**
+   * Unified diff of what an edit_file call changed (before -> after), so the
+   * client can show the actual change in the edit's dropdown instead of only
+   * the file name. Absent for tools that do not rewrite whole files.
+   */
+  diff?: string;
 };
 
 export type WorkspaceAgentOptions = {
@@ -412,6 +418,72 @@ export function isCodeFileName(name: string): boolean {
 /** A write this large is beyond the tiny tweak the agent may do itself. */
 export function isSubstantialCode(content: string): boolean {
   return content.split("\n").length > 15 || content.length > 800;
+}
+
+const DIFF_MAX_LINES = 400;
+const DIFF_MAX_CHARS = 16000;
+
+/**
+ * A compact unified diff ("@@ -1,3 +1,4 @@" hunks with -/+ lines) between a
+ * file's old and new content, for the edit_file dropdown. edit_file replaces
+ * the whole file, so a naive line-by-line diff would mark every line changed
+ * whenever a line is inserted near the top; this trims the common prefix and
+ * suffix first and diffs only the middle, which is what makes the hunks read
+ * like a real change. Returns "" when the content is unchanged.
+ */
+export function unifiedDiff(before: string, after: string): string {
+  if (before === after) return "";
+  // An empty file has no lines to anchor a range to, not one blank line -
+  // otherwise creating a file reports a removal of line 1.
+  const oldLines = before === "" ? [] : before.split("\n");
+  const newLines = after === "" ? [] : after.split("\n");
+  let prefix = 0;
+  while (
+    prefix < oldLines.length &&
+    prefix < newLines.length &&
+    oldLines[prefix] === newLines[prefix]
+  )
+    prefix++;
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] ===
+      newLines[newLines.length - 1 - suffix]
+  )
+    suffix++;
+  const removed = oldLines.slice(prefix, oldLines.length - suffix);
+  const added = newLines.slice(prefix, newLines.length - suffix);
+  // Cap the middle so a whole-file rewrite does not balloon the persisted
+  // activity row (and the chat payload) with hundreds of changed lines.
+  const shownRemoved = removed.slice(0, DIFF_MAX_LINES);
+  const shownAdded = added.slice(0, DIFF_MAX_LINES);
+  // A zero-count range points at the line the change follows rather than the
+  // first changed line, so an insertion after line N reads -N,0 (and 0,0 for a
+  // file created from nothing).
+  const oldStart = removed.length ? prefix + 1 : prefix;
+  const newStart = added.length ? prefix + 1 : prefix;
+  const header = `@@ -${oldStart},${removed.length} +${newStart},${added.length} @@`;
+  const truncated =
+    shownRemoved.length < removed.length || shownAdded.length < added.length;
+  const lines = [header];
+  for (const line of shownRemoved) lines.push(`-${line}`);
+  for (const line of shownAdded) lines.push(`+${line}`);
+  if (truncated) lines.push("… diff truncated …");
+  const text = lines.join("\n");
+  if (text.length <= DIFF_MAX_CHARS) return text;
+  // Line count is not the only way a diff blows up: a minified bundle or a
+  // single-line JSON puts hundreds of thousands of characters in one line, so
+  // keep whole lines up to the character budget instead.
+  const note = "\n… diff truncated …";
+  const kept = [header];
+  let keptChars = header.length;
+  for (const line of lines.slice(1)) {
+    if (keptChars + 1 + line.length + note.length > DIFF_MAX_CHARS) break;
+    kept.push(line);
+    keptChars += 1 + line.length;
+  }
+  return `${kept.join("\n")}${note}`;
 }
 
 /**
@@ -1732,6 +1804,8 @@ type ToolExecution = {
   action?: AgentAction;
   /** Full raw response surfaced in the research dropdown in the UI. */
   detail?: string;
+  /** Unified diff of the change, surfaced in the edit_file dropdown in the UI. */
+  diff?: string;
   /**
    * Set when the coding specialist is confirmed unavailable (a non-config
    * error survived the internal retry, or NIM is not configured). The run
@@ -2161,6 +2235,7 @@ async function executeWorkspaceTool(
       if (!file)
         return { ok: false, result: fileNotFoundResult(computer, args.file) };
       const content = typeof args.content === "string" ? args.content : "";
+      const previousContent = String(file.content ?? "");
       if (
         gate?.blocked &&
         isCodeFileName(file.name) &&
@@ -2192,6 +2267,9 @@ async function executeWorkspaceTool(
         ok: true,
         result: `Updated ${file.name} (id ${file.id}).`,
         action: { kind: "file", name: file.name, operation: "updated" },
+        // The dropdown shows what actually changed; an unchanged write has
+        // no diff worth surfacing.
+        diff: unifiedDiff(previousContent, content) || undefined,
       };
     }
     case "rename_file": {
@@ -4447,6 +4525,7 @@ ${
           ...(execution.detail
             ? { detail: execution.detail.slice(0, 16000) }
             : {}),
+          ...(execution.diff ? { diff: execution.diff } : {}),
         });
         messages.push({
           role: "tool",

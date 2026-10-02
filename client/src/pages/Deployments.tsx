@@ -2,7 +2,7 @@ import React from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Check, Copy, ExternalLink, Globe, Loader2, Rocket, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, ExternalLink, Globe, Loader2, Rocket, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type DeploymentRow = {
@@ -18,14 +18,34 @@ type DeploymentRow = {
   createdAt: Date | string;
 };
 
+/** The Deployments page: the live site, its deploy history, and taking hosted deployments offline. */
 export default function Deployments() {
+  const utils = trpc.useUtils();
   const status = trpc.deployments.status.useQuery(undefined, { retry: false, refetchInterval: 30_000 });
 
   const configured = Boolean(status.data?.configured);
-  const latest = (status.data?.latest ?? null) as unknown as DeploymentRow | null;
-  const history = (status.data?.history ?? []) as unknown as DeploymentRow[];
+  // Deleted deployments are not shown at all: a taken-down site is never
+  // advertised as live and its runs stay out of the history list.
+  const latestRow = (status.data?.latest ?? null) as unknown as DeploymentRow | null;
+  const latest = latestRow && latestRow.status !== "deleted" ? latestRow : null;
+  const history = ((status.data?.history ?? []) as unknown as DeploymentRow[]).filter(row => row.status !== "deleted");
   const live = latest?.status === "live";
   const deploying = latest?.status === "deploying";
+
+  const removeDeployment = trpc.deployments.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Deployment deleted.");
+      void utils.deployments.status.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  /** Takes one hosted deployment offline, after the user confirms its URL will go away. */
+  const deleteDeployment = (row: DeploymentRow) => {
+    const key = row.deploymentKey ?? row.siteId;
+    if (!window.confirm(`Delete deployment ${key}? Its website and URL go offline permanently.`)) return;
+    removeDeployment.mutate({ deployment: key });
+  };
 
   const copyUrl = async () => {
     if (!latest?.siteUrl || !navigator.clipboard) return;
@@ -77,7 +97,7 @@ export default function Deployments() {
                   <div>
                     <h2 className="text-sm font-bold">Your live website</h2>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {latest && latest.status !== "deleted" ? latest.siteUrl : "Not deployed yet"}
+                      {latest ? latest.siteUrl : "Not deployed yet"}
                     </p>
                     {latest?.deploymentKey && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -100,11 +120,6 @@ export default function Deployments() {
                 {deploying && (
                   <span className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                     <Loader2 size={14} className="animate-spin" /> Deploying
-                  </span>
-                )}
-                {latest?.status === "deleted" && (
-                  <span className="flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-600 dark:bg-zinc-500/10 dark:text-zinc-300">
-                    Deleted
                   </span>
                 )}
               </div>
@@ -154,6 +169,16 @@ export default function Deployments() {
                             <Copy size={15} /> Copy URL
                           </Button>
                         </>
+                      )}
+                      {latest && (
+                        <Button
+                          variant="outline"
+                          onClick={() => deleteDeployment(latest)}
+                          disabled={removeDeployment.isPending}
+                          aria-label={`Delete deployment ${latest.deploymentKey ?? latest.siteId}`}
+                        >
+                          <Trash2 size={15} /> Delete
+                        </Button>
                       )}
                     </div>
                     {deploying && (
@@ -207,23 +232,31 @@ export default function Deployments() {
                           {new Date(row.createdAt).toLocaleString()}
                         </p>
                       </div>
-                      {row.status === "live" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-                          <Check size={12} /> Live
-                        </span>
-                      ) : row.status === "deploying" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-                          <Loader2 size={12} className="animate-spin" /> Deploying
-                        </span>
-                      ) : row.status === "deleted" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-bold text-zinc-600 dark:bg-zinc-500/10 dark:text-zinc-300">
-                          Deleted
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-bold text-red-700 dark:text-red-300">
-                          <AlertTriangle size={12} /> Failed
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {row.status === "live" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                            <Check size={12} /> Live
+                          </span>
+                        ) : row.status === "deploying" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                            <Loader2 size={12} className="animate-spin" /> Deploying
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-bold text-red-700 dark:text-red-300">
+                            <AlertTriangle size={12} /> Failed
+                          </span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
+                          onClick={() => deleteDeployment(row)}
+                          disabled={removeDeployment.isPending}
+                          aria-label={`Delete deployment ${row.deploymentKey ?? row.siteId}`}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
                     </li>
                   ))}
                 </ul>

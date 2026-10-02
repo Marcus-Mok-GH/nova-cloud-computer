@@ -6,7 +6,7 @@ import { getDb, getOrCreateWorkspace } from "./db";
 /** Keys are shown in full exactly once, at creation time. */
 export const API_KEY_PREFIX = "nova_sk_";
 /** How many keys one account can hold at once. */
-export const MAX_API_KEYS_PER_OWNER = 10;
+export const MAX_API_KEYS_PER_OWNER = 5;
 /** Upper bound for the human-readable name stored with a key. */
 export const MAX_API_KEY_NAME_LENGTH = 120;
 
@@ -56,6 +56,10 @@ export type CreateApiKeyDeps = {
   countFor?: (ownerId: number) => Promise<number>;
 };
 
+export type RenameApiKeyDeps = {
+  rename?: (ownerId: number, keyId: number, name: string) => Promise<ApiKey | null>;
+};
+
 async function defaultCreate(ownerId: number, values: { name: string; keyHash: string; keyPreview: string }) {
   const db = await getDb();
   if (!db) throw new ApiKeyStorageError();
@@ -85,6 +89,21 @@ export async function listApiKeysForUser(ownerId: number) {
   if (!db) throw new ApiKeyStorageError();
   const rows = await db.select().from(apiKeys).where(eq(apiKeys.ownerId, ownerId)).orderBy(desc(apiKeys.createdAt));
   return rows.map(toSafeApiKey);
+}
+
+async function defaultRename(ownerId: number, keyId: number, name: string): Promise<ApiKey | null> {
+  const db = await getDb();
+  if (!db) throw new ApiKeyStorageError();
+  const [row] = await db.update(apiKeys).set({ name, updatedAt: new Date() }).where(and(eq(apiKeys.id, keyId), eq(apiKeys.ownerId, ownerId))).returning();
+  return row ?? null;
+}
+
+/** Renames one of the caller's own keys. Returns null when the id does not belong to them. */
+export async function renameApiKeyForUser(ownerId: number, keyId: number, name: string, deps: RenameApiKeyDeps = {}) {
+  const rename = deps.rename ?? defaultRename;
+  const trimmed = name.trim().slice(0, MAX_API_KEY_NAME_LENGTH);
+  const row = await rename(ownerId, keyId, trimmed);
+  return row ? toSafeApiKey(row) : null;
 }
 
 /** Deletes one of the caller's own keys. Returns false when the id does not belong to them. */

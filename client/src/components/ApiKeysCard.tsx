@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { Braces, Check, Clipboard, Loader2, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Braces, Check, Clipboard, Loader2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 type ApiKeyRow = {
@@ -29,8 +29,9 @@ function relativeTime(value: string | Date | null) {
 }
 
 /**
- * Settings card for the OpenAI-compatible inference API: create, inspect and
- * revoke Nova API keys. The full key value is shown exactly once, at creation.
+ * Settings card for the OpenAI-compatible inference API: create, rename,
+ * inspect and revoke Nova API keys. The full key value is shown exactly once,
+ * at creation.
  */
 export default function ApiKeysCard() {
   const utils = trpc.useUtils();
@@ -51,10 +52,33 @@ export default function ApiKeysCard() {
     },
     onError: error => toast.error(error.message || "Could not revoke the API key."),
   });
+  const renameKey = trpc.apiKeys.rename.useMutation({
+    onSuccess: async () => {
+      await utils.apiKeys.list.invalidate();
+      setEditingId(null);
+      setDraftName("");
+      toast.success("API key renamed.");
+    },
+    onError: error => toast.error(error.message || "Could not rename the API key."),
+  });
 
   const [newKeyName, setNewKeyName] = useState("");
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draftName, setDraftName] = useState("");
+
+  const startRenaming = (key: ApiKeyRow) => {
+    setFreshKey(null);
+    setEditingId(key.id);
+    setDraftName(key.name);
+  };
+
+  const saveRename = (key: ApiKeyRow) => {
+    const name = draftName.trim();
+    if (!name || name === key.name) { setEditingId(null); return; }
+    renameKey.mutate({ id: key.id, name });
+  };
 
   const copyKey = async () => {
     if (!freshKey) return;
@@ -127,15 +151,49 @@ export default function ApiKeysCard() {
           <ul className="divide-y divide-border rounded-xl border">
             {(keys.data ?? []).map((key: ApiKeyRow) => (
               <li key={key.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{key.name}</p>
-                  <p className="truncate font-mono text-xs text-muted-foreground">{key.keyPreview}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Created {formatDay(key.createdAt)} · {relativeTime(key.lastUsedAt)}</p>
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0 border-red-500/30 text-red-600 hover:bg-red-500/10" onClick={() => revokeKey.mutate({ id: key.id })} disabled={revokeKey.isPending && revokeKey.variables?.id === key.id}>
-                  {revokeKey.isPending && revokeKey.variables?.id === key.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                  Revoke
-                </Button>
+                {editingId === key.id ? (
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                    <Input
+                      value={draftName}
+                      onChange={event => setDraftName(event.target.value)}
+                      maxLength={120}
+                      autoFocus
+                      aria-label={`Rename ${key.name}`}
+                      onKeyDown={event => {
+                        if (event.key === "Enter") saveRename(key);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                    />
+                    <div className="flex shrink-0 gap-2">
+                      <Button size="sm" variant="outline" className="sm:w-24" onClick={() => saveRename(key)} disabled={!draftName.trim() || (renameKey.isPending && renameKey.variables?.id === key.id)}>
+                        {renameKey.isPending && renameKey.variables?.id === key.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" className="sm:w-20" onClick={() => setEditingId(null)} disabled={renameKey.isPending && renameKey.variables?.id === key.id}>
+                        <X size={14} />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{key.name}</p>
+                      <p className="truncate font-mono text-xs text-muted-foreground">{key.keyPreview}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Created {formatDay(key.createdAt)} · {relativeTime(key.lastUsedAt)}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button size="sm" variant="outline" onClick={() => startRenaming(key)} disabled={renameKey.isPending || revokeKey.isPending}>
+                        <Pencil size={14} />
+                        Rename
+                      </Button>
+                      <Button size="sm" variant="outline" className="border-red-500/30 text-red-600 hover:bg-red-500/10" onClick={() => revokeKey.mutate({ id: key.id })} disabled={revokeKey.isPending && revokeKey.variables?.id === key.id}>
+                        {revokeKey.isPending && revokeKey.variables?.id === key.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        Revoke
+                      </Button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>

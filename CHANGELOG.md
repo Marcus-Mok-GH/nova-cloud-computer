@@ -1,17 +1,20 @@
-2026-10-02 - Billing: a priority plan that skips ahead of the peak-hours queue
+2026-10-02 - Billing: a one-time priority purchase for the peak-hours queue
 
 The peak-hours queue served everyone in arrival order, with no way to buy a
-faster place. Settings gains a Billing tab with a priority plan: the button
-upgrades the account immediately (payment is intentionally bypassed while it is
-under test) and priority accounts are served ahead of standard ones.
+faster place. Settings gains a Billing tab with a one-time purchase of
+priority: the button records the purchase immediately (payment is intentionally
+bypassed while it is under test), and the entitlement is permanent - there is
+no plan to change, renew, or cancel. A priority account's requests are served
+ahead of standard ones whenever peak hours are active, no matter when the
+purchase was made.
 
-A new `billing_subscriptions` table stores each account's plan (migration
-0036), and admission denormalizes the plan onto the queued request so a later
-plan change cannot reorder a request already in line. The claim query orders by
-priority then arrival, and the reported queue position accounts for it: a
-priority request jumps ahead of standard waiting requests but still waits
+A new `priority_purchases` table holds one row per buying account (migrations
+0037-0038), and admission denormalizes the entitlement onto the queued request
+so a later purchase cannot reorder a request already in line. The claim query
+orders by priority then arrival, and the reported queue position accounts for
+it: a priority request jumps ahead of standard waiting requests but still waits
 behind anything already running. Files:
-drizzle/schema.ts (+ migration 0036), server/db.ts, server/routers.ts,
+drizzle/schema.ts (+ migrations 0037-0038), server/db.ts, server/routers.ts,
 client/src/components/BillingCard.tsx (new), client/src/pages/WorkspaceSettings.tsx,
 plus tests.
 

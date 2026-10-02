@@ -5,26 +5,38 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 /**
- * Billing tab. Priority is a paid tier, but payment is intentionally bypassed
- * while it is under test: the button flips the account's plan directly, which
- * makes its requests jump ahead of standard ones in the peak-hours queue.
+ * Billing tab: a one-time purchase of priority queue placement. Payment is
+ * intentionally bypassed while the tier is under test - the button records the
+ * purchase directly - and the entitlement is permanent, so there is no
+ * downgrade, renewal, or expiry.
  */
 export default function BillingCard() {
   const utils = trpc.useUtils();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });
-  const setPriority = trpc.billing.setPriority.useMutation({
+  const purchase = trpc.billing.purchasePriority.useMutation({
     onSuccess: async result => {
       await utils.billing.status.invalidate();
-      toast.success(
-        result.priority
-          ? "You're on the priority plan - your requests now skip ahead during peak hours."
-          : "You're back on the standard plan."
-      );
+      if (result.priority) {
+        toast.success(
+          result.purchasedAt
+            ? "Priority purchased. Your requests now skip ahead during peak hours."
+            : "Priority purchased."
+        );
+      } else {
+        toast.error("Nova could not record that purchase.");
+      }
     },
     onError: error =>
-      toast.error(error.message || "Nova could not update your plan."),
+      toast.error(error.message || "Nova could not record that purchase."),
   });
   const priority = status.data?.priority ?? false;
+  const purchasedAt = status.data?.purchasedAt
+    ? new Date(status.data.purchasedAt).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
   return (
     <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -32,13 +44,12 @@ export default function BillingCard() {
           <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
             Billing
           </p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight">
-            Priority requests
-          </h2>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">Priority requests</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            During peak hours Nova serves requests through a queue. Priority
-            accounts are served ahead of standard ones, so their messages spend
-            far less time waiting.
+            During peak hours Nova serves requests through a queue. A one-time
+            purchase of priority moves your requests ahead of standard ones from
+            then on - whenever you bought it, and whether or not peak hours are
+            active at the time.
           </p>
         </div>
         <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -48,11 +59,13 @@ export default function BillingCard() {
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
         <div>
-          <p className="text-sm font-bold">Current plan</p>
+          <p className="text-sm font-bold">Priority</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {priority
-              ? "Priority - your requests are served first during peak hours."
-              : "Standard - your requests join the queue in arrival order."}
+              ? purchasedAt
+                ? `Purchased on ${purchasedAt}. Your requests are served first during peak hours.`
+                : "Purchased. Your requests are served first during peak hours."
+              : "Not purchased yet - your requests join the queue in arrival order."}
           </p>
         </div>
         {priority ? (
@@ -66,39 +79,27 @@ export default function BillingCard() {
         )}
       </div>
 
-      <div className="mt-4 rounded-2xl border bg-muted/20 p-5">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <p className="text-sm font-bold">
-            {priority ? "Leave the priority plan" : "Upgrade to priority"}
+      {!priority && (
+        <div className="mt-4 rounded-2xl border bg-muted/20 p-5">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-4 text-primary" />
+            <p className="text-sm font-bold">Buy priority (one-time)</p>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Testing mode: payment is disabled, so clicking the button records the
+            purchase immediately. It is a one-time buy - there is nothing to
+            renew or cancel.
           </p>
+          <Button
+            className="mt-4"
+            onClick={() => purchase.mutate()}
+            disabled={purchase.isPending || status.isLoading}
+          >
+            {purchase.isPending && <Loader2 className="animate-spin" size={15} />}
+            Buy priority
+          </Button>
         </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          {priority
-            ? "Going back to standard returns your requests to arrival order in the peak-hours queue."
-            : "Testing mode: payment is disabled, so clicking the button upgrades this account immediately."}
-        </p>
-        {priority ? (
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => setPriority.mutate({ enabled: false })}
-            disabled={setPriority.isPending || status.isLoading}
-          >
-            {setPriority.isPending && <Loader2 className="animate-spin" size={15} />}
-            Switch to standard
-          </Button>
-        ) : (
-          <Button
-            className="mt-4"
-            onClick={() => setPriority.mutate({ enabled: true })}
-            disabled={setPriority.isPending || status.isLoading}
-          >
-            {setPriority.isPending && <Loader2 className="animate-spin" size={15} />}
-            Upgrade to priority
-          </Button>
-        )}
-      </div>
+      )}
     </section>
   );
 }

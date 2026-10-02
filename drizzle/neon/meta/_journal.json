@@ -260,6 +260,20 @@
       "when": 1790921303359,
       "tag": "0036_fixed_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790924454580,
+      "tag": "0037_furry_ravenous",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790924531485,
+      "tag": "0038_absent_puma",
+      "breakpoints": true
     }
   ]
 }

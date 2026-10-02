@@ -1557,11 +1557,19 @@ function formatPersonalisationForPrompt(settings: PersonalisationSettings): stri
   if (settings.detail) lines.push(`Preferred reply length: ${PERSONALISATION_DETAIL_LABELS[settings.detail]}.`);
   if (settings.proactiveness) lines.push(`Collaboration style: ${PERSONALISATION_PROACTIVENESS_LABELS[settings.proactiveness]}.`);
   if (settings.expertise) lines.push(`The user is ${PERSONALISATION_EXPERTISE_LABELS[settings.expertise]}.`);
-  if (!lines.length) return "";
+  // Only a disabled mode with nothing saved is truly "no block". The agent
+  // reads the mode from this explicit line, not from the section's absence, so
+  // an enabled-but-empty profile must still be announced and a disabled mode
+  // with saved preferences must say so.
+  if (!settings.enabled && !lines.length) return "";
   const intro = settings.enabled
-    ? "The user has personalisation mode on. Their saved preferences - which you should keep learning and refining:"
-    : "The user's saved personalisation preferences:";
-  return `${intro}\n${lines.map(line => `- ${line}`).join("\n")}`;
+    ? lines.length
+      ? "Personalisation mode is ON. The user's saved preferences - which you should keep learning and refining:"
+      : "Personalisation mode is ON, but the user has no saved preferences yet. Notice and save lasting preferences with set_personalisation as you work."
+    : "Personalisation mode is OFF. The user's saved preferences (apply them, but do not save new ones):";
+  return lines.length
+    ? `${intro}\n${lines.map(line => `- ${line}`).join("\n")}`
+    : intro;
 }
 
 const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.
@@ -1593,7 +1601,7 @@ Operating principles:
 - End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text.
 {{progress_updates}}
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
-- Personalisation: when the user asks to set up, tune, or change how you work with them, run a short personalisation session - ask one focused question at a time about their role and goals, how they like your replies, how much you should act on your own, and how familiar they are with the tools, waiting for each answer before asking the next, then read the saved profile back in one short paragraph. Save each thing you learn with set_personalisation as you go, and set enabled: true. Outside a session, whenever the user states a lasting preference about how you should work, save it with set_personalisation too - but only when personalisation mode is on (their saved preferences appear above; when the section is absent, personalisation mode is off and you should offer to turn it on instead of saving). Never invent preferences the user has not expressed.
+- Personalisation: when the user asks to set up, tune, or change how you work with them, run a short personalisation session - ask one focused question at a time about their role and goals, how they like your replies, how much you should act on your own, and how familiar they are with the tools, waiting for each answer before asking the next, then read the saved profile back in one short paragraph. Save each thing you learn with set_personalisation as you go, and set enabled: true. Outside a session, when the user states a lasting preference about how you should work, save it with set_personalisation too - but only when the personalisation block above states that the mode is ON; if it states OFF, or there is no block at all (the mode was never enabled and nothing is saved), offer to turn the mode on instead of saving. Never invent preferences the user has not expressed.
 
 Formatting: render replies in Markdown when it helps readability - **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
 

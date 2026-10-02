@@ -12,6 +12,7 @@ import type { E2BSandboxLike } from "./e2b";
 import {
   type SandboxOp,
   mirrorWorkspaceOp,
+  pauseAgentSandbox,
   prepareAgentSandbox,
   runBashOnSandbox,
   syncAgentSandbox,
@@ -4265,8 +4266,16 @@ ${
   } finally {
     // End of run, on every exit path (completed, stopped, deadline, error):
     // sync the live sandbox filesystem - files created or changed by bash,
-    // VM tasks, or mirrored tool ops - back into the durable Neon/S3 store.
-    if (agentSandbox && sandboxWorkspaceId !== undefined)
+    // VM tasks, or mirrored tool ops - back into the durable Neon/S3 store,
+    // then pause the persistent machine so it is not billed while idle.
+    if (agentSandbox && sandboxWorkspaceId !== undefined) {
       await syncAgentSandbox(ownerId, sandboxWorkspaceId, agentSandbox);
+      // A run chaining straight into its next segment resumes within seconds:
+      // pausing it would add a cold resume to every continuation, so it is
+      // left warm. Every other exit path pauses. The next run reconnects and
+      // E2B auto-resumes the paused machine.
+      if (!options.continuationPlanned)
+        await pauseAgentSandbox(ownerId, sandboxWorkspaceId, agentSandbox);
+    }
   }
 }

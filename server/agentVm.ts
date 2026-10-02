@@ -11,12 +11,14 @@ import {
   buildE2BWorkspaceBundle,
   getE2BClient,
   isE2BConfigured,
+  pauseE2BSandbox,
   runE2BTaskInPersistentSandbox,
   ensurePersistentSandbox,
   getE2BSandboxStatus,
   withE2BWorkspaceLock,
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
+import { pauseAgentSandbox } from "./sandboxWorkspace";
 
 const ERROR_LIMIT = 1000;
 
@@ -64,7 +66,7 @@ export async function listAgentVmRuns(ownerId: number) {
 export async function startAgentVmRun(
   ownerId: number,
   input: { task: string; code?: string; chatId?: string | null },
-  options: { skipRestore?: boolean } = {}
+  options: { skipRestore?: boolean; pauseWhenDone?: boolean } = {}
 ) {
   const client = getE2BClient();
   if (!client) {
@@ -116,6 +118,11 @@ export async function startAgentVmRun(
           ownerId,
           completedSandbox
         );
+        // A standalone run (the VM panel, not a tool call inside an agent run)
+        // is over: pause the machine so it is not billed while idle. Done
+        // directly rather than through pauseAgentSandbox because we already
+        // hold the workspace lifecycle lock, which is not reentrant.
+        if (options.pauseWhenDone) await pauseE2BSandbox(completedSandbox);
 
         await updateWorkspacePersistentSandbox(
           syncedComputer.workspace.id,
@@ -163,6 +170,20 @@ export async function startAgentVmRun(
       errorMessage: safeError(error),
       completedAt: new Date(),
     });
+    // A standalone run that failed is still over - pause the machine so it is
+    // not billed while idle. Best-effort: a lookup or connect failure must
+    // never replace the run's own failure result.
+    if (options.pauseWhenDone) {
+      try {
+        const stored = await getStoredWorkspaceSandboxId(ownerId);
+        if (stored?.persistentSandboxId) {
+          const sandbox = await client.connect(stored.persistentSandboxId);
+          await pauseAgentSandbox(ownerId, computer.workspace.id, sandbox);
+        }
+      } catch {
+        // The run already reported its failure; the pause is pure cost saving.
+      }
+    }
     return {
       configured: true as const,
       run: failed,

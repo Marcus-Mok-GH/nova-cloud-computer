@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -1381,23 +1381,25 @@ export async function deleteChatForUser(ownerId: number, chatId: string) {
 
 export type SiteDeploymentRow = typeof siteDeployments.$inferSelect;
 
-/** Latest website deployment for the workspace (any status), for site reuse and the live URL. */
+/** Latest website deployment for the workspace, for the live URL. Deleted
+ * deployments are excluded so a taken-down site never reappears on the page. */
 export async function getLatestSiteDeploymentForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   const [latest] = await db.select().from(siteDeployments)
-    .where(eq(siteDeployments.workspaceId, workspace.id))
+    .where(and(eq(siteDeployments.workspaceId, workspace.id), ne(siteDeployments.status, "deleted")))
     .orderBy(desc(siteDeployments.createdAt))
     .limit(1);
   return latest ?? null;
 }
 
-/** Recent website deployments, newest first. */
+/** Recent website deployments, newest first. Deleted deployments are excluded
+ * so the Deployments page only shows sites that are still hosted. */
 export async function listSiteDeploymentsForUser(ownerId: number, limit = 10) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return db.select().from(siteDeployments)
-    .where(eq(siteDeployments.workspaceId, workspace.id))
+    .where(and(eq(siteDeployments.workspaceId, workspace.id), ne(siteDeployments.status, "deleted")))
     .orderBy(desc(siteDeployments.createdAt))
     .limit(limit);
 }

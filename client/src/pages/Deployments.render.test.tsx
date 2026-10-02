@@ -61,6 +61,7 @@ vi.mock("@/lib/trpc", () => ({
     deployments: {
       status: { useQuery: () => ({ data: state.data, isLoading: state.query.isLoading, isError: state.query.isError, error: state.query.errorMessage ? { message: state.query.errorMessage } : null, refetch: vi.fn(), isFetching: false }) },
       deploy: { useMutation: () => mutation },
+      delete: { useMutation: () => mutation },
     },
     useUtils: () => ({ deployments: { status: { invalidate: vi.fn() } } }),
   },
@@ -112,7 +113,7 @@ describe("Deployments page", () => {
     expect(markup).toContain("Try again");
   });
 
-  it("shows the deleted state when the live site was taken down", () => {
+  it("does not show a deleted deployment", () => {
     state.data = {
       ...state.data,
       latest: { ...state.data.latest!, status: "deleted" } as never,
@@ -122,10 +123,17 @@ describe("Deployments page", () => {
       ],
     };
     const markup = renderToStaticMarkup(<Deployments />);
-    // A deleted latest record no longer advertises a live URL.
+    // A deleted latest record no longer advertises a live URL, and the deleted
+    // run is filtered out of the history entirely.
     expect(markup).toContain("Not deployed yet");
     expect(markup).not.toContain("Live 24/7");
-    expect(markup).toContain("Deleted");
+    expect(markup).not.toContain("Deleted");
+  });
+
+  it("manages hosted deployments with a delete control", () => {
+    const markup = renderToStaticMarkup(<Deployments />);
+    expect(markup).toContain("Delete");
+    expect(markup).toContain("Delete deployment d-01");
   });
 
   it("surfaces the failure of the latest deployment", () => {

@@ -128,7 +128,7 @@ const {
   STILL_WORKING_MESSAGE,
   TRANSIENT_ERROR_CONTINUING_MESSAGE,
 } = await import("./agentRuns");
-const { MistralGatewayClientError } = await import("./mistralGateway");
+const { AiGatewayClientError } = await import("./aiGateway");
 
 const realFetch = globalThis.fetch.bind(globalThis);
 
@@ -514,7 +514,7 @@ describe("Segment chaining inside the runner", () => {
     // completed work were thrown away. A segment that already did real work
     // chains a fresh segment that resumes where it broke off.
     spies.runWorkspaceAgent.mockRejectedValueOnce(
-      new MistralGatewayClientError(
+      new AiGatewayClientError(
         "the upstream provider returned 503",
         "unavailable"
       )
@@ -552,7 +552,7 @@ describe("Segment chaining inside the runner", () => {
     // A failure in the first seconds means the service is hard down:
     // chaining would only burn another invocation to fail identically.
     spies.runWorkspaceAgent.mockRejectedValueOnce(
-      new MistralGatewayClientError(
+      new AiGatewayClientError(
         "the upstream provider returned 503",
         "unavailable"
       )
@@ -580,7 +580,7 @@ describe("Segment chaining inside the runner", () => {
     // A wrong credential or spent allowance fails identically in a fresh
     // segment, so the run must fail outright instead of chaining.
     spies.runWorkspaceAgent.mockRejectedValueOnce(
-      new MistralGatewayClientError("gateway not configured", "configuration")
+      new AiGatewayClientError("gateway not configured", "configuration")
     );
     const result = await executeTelegramAgentRun({
       ownerId: 7,
@@ -689,7 +689,7 @@ describe("Segment chaining inside the runner", () => {
   it("rescues an out-of-budget web segment's transient failure with a continuation and a persisted note", async () => {
     spies.startAgentRunForUser.mockResolvedValue({ id: 604, segment: 0 });
     spies.runWorkspaceAgent.mockRejectedValueOnce(
-      new MistralGatewayClientError(
+      new AiGatewayClientError(
         "the upstream stream stalled",
         "unavailable"
       )

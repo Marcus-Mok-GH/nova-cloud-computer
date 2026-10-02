@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { completeWithWorkspaceModel } from "./byokGateway";
-import { LONG_COMPLETION_TIMEOUT_MS } from "./mistralGateway";
+import { LONG_COMPLETION_TIMEOUT_MS } from "./aiGateway";
 
 export type PlannedAutomation = {
   name: string;
@@ -126,7 +126,7 @@ export async function planAutomation(
     `Convert this automation request into the requested JSON object.\n${cleaned}`,
   ].join("\n");
 
-  // Mistral AI returns free-form text. Instruct it to emit the plan as a single
+  // The model returns free-form text. Instruct it to emit the plan as a single
   // JSON object and retry only when parsing/sanitizing the returned plan fails,
   // so model output quirks cannot break automation creation. Gateway failures
   // (configuration, rate limit, unreachable) must propagate immediately: every

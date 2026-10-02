@@ -10,7 +10,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
-    mistral: { status: { useQuery: () => ({ data: { model: "mistral-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
+    ai: { status: { useQuery: () => ({ data: { model: "chat-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
     automations: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false }) }, runs: { useQuery: () => ({ data: [], isLoading: false }) }, update: { useMutation: () => mutation }, runDue: { useMutation: () => mutation } },
     auth: { requestDeletionCode: { useMutation: () => mutation }, confirmDeleteAccount: { useMutation: () => mutation } },

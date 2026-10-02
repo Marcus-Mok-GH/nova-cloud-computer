@@ -2,10 +2,10 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { decryptModelApiKey } from "./modelSecrets";
 import { getActiveCustomModelForUser } from "./db";
 import {
-  chatWithMistralGateway,
+  chatWithAiGateway,
   classifyGatewayHttpError,
-  completeWithMistralGateway,
-  MistralGatewayClientError,
+  completeWithAiGateway,
+  AiGatewayClientError,
   readGatewayStreamedChatResult,
   reasoningParamsForModel,
   sanitizeGatewayError,
@@ -14,17 +14,17 @@ import {
   type GatewayCompletion,
   type GatewayToolCall,
   type GatewayToolDefinition,
-} from "./mistralGateway";
+} from "./aiGateway";
 import type { CustomModel } from "../drizzle/schema";
 
 /**
  * BYOK ("bring your own key") inference: when a workspace selects one of its
  * custom models, all agent traffic is routed to that provider's
  * OpenAI-compatible endpoint with the user's own encrypted API key instead of
- * Nova's built-in Mistral gateway. Requests against a user's own provider do
+ * Nova's built-in AI gateway. Requests against a user's own provider do
  * not claim the built-in inference allowance.
  *
- * The request/response handling intentionally mirrors the Mistral gateway
+ * The request/response handling intentionally mirrors the built-in gateway
  * (same message and tool-call schema, same SSE streaming) because every
  * supported endpoint speaks the OpenAI chat-completions dialect.
  */
@@ -93,12 +93,12 @@ export async function assertSafeUpstreamUrl(baseUrl: string) {
   try {
     url = new URL(baseUrl);
   } catch {
-    throw new MistralGatewayClientError("That provider endpoint is not a valid URL.", "configuration");
+    throw new AiGatewayClientError("That provider endpoint is not a valid URL.", "configuration");
   }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   const isLoopback = isLiteralLoopbackHost(hostname);
   if (url.protocol !== "https:" && !isLoopback) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Provider endpoints must use HTTPS. Plain http is only allowed for localhost servers.",
       "configuration"
     );
@@ -109,11 +109,11 @@ export async function assertSafeUpstreamUrl(baseUrl: string) {
   try {
     addresses = await dnsLookup(hostname, { all: true });
   } catch {
-    throw new MistralGatewayClientError("That provider endpoint hostname could not be resolved.", "configuration");
+    throw new AiGatewayClientError("That provider endpoint hostname could not be resolved.", "configuration");
   }
   for (const { address } of addresses) {
     if (!isPublicUpstreamIp(address)) {
-      throw new MistralGatewayClientError(
+      throw new AiGatewayClientError(
         "That provider endpoint is not allowed: provider endpoints must be publicly reachable addresses, not private, link-local, or cloud-metadata hosts.",
         "configuration"
       );
@@ -131,7 +131,7 @@ function decryptCustomModelKey(model: CustomModel) {
   try {
     return decryptModelApiKey(model.encryptedApiKey);
   } catch {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       "Your saved provider key could not be decrypted. Re-enter the API key for this provider in Settings.",
       "configuration"
     );
@@ -187,10 +187,10 @@ async function byokFetch(
     return response;
   } catch (error) {
     // Guard rejections (bad URL, private host, failed DNS) keep their own kind.
-    if (error instanceof MistralGatewayClientError) throw error;
+    if (error instanceof AiGatewayClientError) throw error;
     // Only a user /stop is "stopped"; timeouts and provider outages stay
     // "unavailable" so callers keep their normal retry handling.
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       externalSignal?.aborted ? "This reply was stopped with /stop." : sanitizeGatewayError(error),
       externalSignal?.aborted ? "stopped" : "unavailable"
     );
@@ -278,7 +278,7 @@ export async function chatWithCustomModel(
       ]);
     }
     if (!streamed) {
-      throw new MistralGatewayClientError(
+      throw new AiGatewayClientError(
         upstreamError
           ? `Your provider returned an error completion: ${upstreamError}`
           : "Your provider returned an invalid completion. Please retry shortly.",
@@ -358,7 +358,7 @@ export async function chatWithCustomModel(
     ]);
   }
   if (!buffered) {
-    throw new MistralGatewayClientError(
+    throw new AiGatewayClientError(
       bufferedUpstreamError
         ? `Your provider returned an error completion: ${bufferedUpstreamError}`
         : "Your provider returned an invalid completion. Please retry shortly.",
@@ -384,7 +384,7 @@ async function byokHttpError(response: Response) {
     | { error?: { message?: string } }
     | undefined;
   const message = payload?.error?.message;
-  return new MistralGatewayClientError(
+  return new AiGatewayClientError(
     (message ?? `Your provider rejected the request (HTTP ${response.status}).`).slice(0, 1200),
     classifyGatewayHttpError(response.status)
   );
@@ -416,7 +416,7 @@ export async function getActiveCustomModel(ownerId: number) {
 
 /**
  * Chat completions for the active workspace model: the user's own provider
- * when one is selected (BYOK), otherwise Nova's built-in Mistral gateway.
+ * when one is selected (BYOK), otherwise Nova's built-in AI gateway.
  */
 export async function chatWithWorkspaceModel(
   ownerId: number,
@@ -434,7 +434,7 @@ export async function chatWithWorkspaceModel(
     const { model: _requestedModel, ...customOptions } = options;
     return chatWithCustomModel(custom, messages, customOptions);
   }
-  return chatWithMistralGateway(ownerId, messages, options);
+  return chatWithAiGateway(ownerId, messages, options);
 }
 
 /** Prompt completions for the active workspace model (BYOK or built-in gateway). */
@@ -452,7 +452,7 @@ export async function completeWithWorkspaceModel(
     // the built-in gateway path below.
     return completeWithCustomModel(custom, prompt, onChunk);
   }
-  return completeWithMistralGateway(ownerId, prompt, modelId, onChunk, timeoutMs);
+  return completeWithAiGateway(ownerId, prompt, modelId, onChunk, timeoutMs);
 }
 
 /**
@@ -466,7 +466,7 @@ export async function testCustomModelEndpoint(input: {
 }): Promise<{ ok: boolean; message: string }> {
   const modelId = input.modelId.trim();
   if (!modelId) {
-    throw new MistralGatewayClientError("Enter the model ID before testing the connection.", "configuration");
+    throw new AiGatewayClientError("Enter the model ID before testing the connection.", "configuration");
   }
   const response = await byokFetch(
     input.baseUrl,

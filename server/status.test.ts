@@ -3,7 +3,7 @@ import { collectServiceStatus } from "./status";
 
 const healthyInference = {
   provider: "mistral" as const,
-  model: "mistral-small-latest",
+  model: "chat-small-latest",
   configured: true,
   reachable: true,
   providerConfigured: true,

@@ -15,7 +15,7 @@ import {
   workspaceFolders,
   workspaceSettings,
   telegramBotSettings,
-  mistralInferenceAllowances,
+  inferenceAllowances,
   agentVmRuns,
   agentStopRequests,
   telegramUpdateLog,
@@ -270,6 +270,8 @@ export async function getOrCreateWorkspace(ownerId: number) {
   }
 }
 
+// "mistral" is the legacy stored identifier for Nova's built-in AI gateway.
+// It is the persisted `model_provider` enum value, so it stays as-is.
 type ActiveProvider = "anthropic" | "openai" | "gemini" | "custom" | "mistral";
 type ModelCompatibility = "openai" | "anthropic";
 
@@ -809,18 +811,23 @@ export async function findWorkspaceOwnerByTelegramToken(token: string, chatId?: 
   return null;
 }
 
-export async function getMistralInferenceAllowanceForUser(ownerId: number) {
+export async function getInferenceAllowanceForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const allowance = (await db.select().from(mistralInferenceAllowances).where(eq(mistralInferenceAllowances.workspaceId, workspace.id)).limit(1))[0];
+  const allowance = (await db.select().from(inferenceAllowances).where(eq(inferenceAllowances.workspaceId, workspace.id)).limit(1))[0];
   return {
     usedRequests: Number(allowance?.usedRequests ?? 0),
     updatedAt: allowance?.updatedAt ?? null,
   };
 }
 
-/** Atomically claim one workspace request only when its configured allowance remains available. */
-export async function claimMistralInferenceRequestForUser(ownerId: number, maxRequests: number | null) {
+/**
+ * Atomically claim one workspace request only when its configured allowance remains available.
+ * `mistral_inference_allowances` is the legacy physical table name for the
+ * built-in gateway's allowances; it is referenced verbatim here because the
+ * table has not been renamed in the database.
+ */
+export async function claimInferenceRequestForUser(ownerId: number, maxRequests: number | null) {
   if (maxRequests !== null && (!Number.isInteger(maxRequests) || maxRequests < 1)) return undefined;
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);

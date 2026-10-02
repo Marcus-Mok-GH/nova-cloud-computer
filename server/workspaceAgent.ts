@@ -1,4 +1,4 @@
-import { MISTRAL_UNAVAILABLE_PREFIX } from "@shared/const";
+import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { runResearch } from "./researcher";
 import {
   runAutonomousCoderTask,
@@ -48,13 +48,13 @@ import {
   updateWorkspaceFolderForUser,
 } from "./db";
 import {
-  getMistralGatewayStatus,
+  getAiGatewayStatus,
   type GatewayChatMessage,
   type GatewayToolCall,
   type GatewayToolDefinition,
-  MistralGatewayClientError,
+  AiGatewayClientError,
   configuredVisionChatModel,
-} from "./mistralGateway";
+} from "./aiGateway";
 import {
   chatWithWorkspaceModel,
   completeWithWorkspaceModel,
@@ -3120,7 +3120,7 @@ const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
 let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
 /**
- * Mistral AI applies per-tier rate limits (requests per second plus token
+ * The upstream provider applies per-tier rate limits (requests per second plus token
  * budgets), and a 429 lockout can persist for a while - every request sent
  * during the lockout can extend it. So upstream rate limits get ONE patient
  * retry (transient 429s under load do clear in seconds), never the fast
@@ -3191,12 +3191,12 @@ async function chatWithGatewayRetry(
       // A user-requested stop aborts the in-flight request: never retry it.
       if (options.signal?.aborted) throw error;
       const retryable =
-        error instanceof MistralGatewayClientError &&
+        error instanceof AiGatewayClientError &&
         GATEWAY_RETRY_KINDS.has(error.kind);
       // Upstream 429: one patient retry, deadline-gated, once per run. The
       // fast loop must never hammer a lockout - that only extends it.
       const isUpstreamRateLimit =
-        error instanceof MistralGatewayClientError &&
+        error instanceof AiGatewayClientError &&
         error.kind === "rate_limit";
       const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
       if (
@@ -3220,7 +3220,7 @@ async function chatWithGatewayRetry(
 }
 
 /**
- * Runs the workspace agent for a message: a tool-calling loop over the Mistral
+ * Runs the workspace agent for a message: a tool-calling loop over the AI
  * gateway. Every message goes through the model with workspace tools
  * (create/read/edit/rename/move/delete files and folders, Telegram, VM runs);
  * the loop executes requested tools and continues until the model produces a
@@ -3374,7 +3374,7 @@ ${
     // gateway, so its health flags do not gate the run.
     const customModel = await getActiveCustomModel(ownerId);
     if (!customModel) {
-      const status = await getMistralGatewayStatus(ownerId);
+      const status = await getAiGatewayStatus(ownerId);
       if (!status.configured) {
         const reply =
           "Nova's AI is not connected on this workspace yet. An administrator must finish setting it up before chat is available.";
@@ -4102,9 +4102,9 @@ ${
     const message = await persistAssistant(reply);
     return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
-    console.error("[Chat] Mistral chat failed", error);
+    console.error("[Chat] AI gateway chat failed", error);
     const kind =
-      error instanceof MistralGatewayClientError ? error.kind : "unavailable";
+      error instanceof AiGatewayClientError ? error.kind : "unavailable";
     const failureNote =
       "\n\nNova lost the connection to its AI service before this reply finished. Everything so far is saved - send another message and I will continue from here.";
     // A run that dies mid-flight on an inference error must still disclose
@@ -4155,7 +4155,7 @@ ${
         // stays in the server log above; the chat gets a fixed generic notice
         // instead of an internal service or endpoint name.
         reply =
-          MISTRAL_UNAVAILABLE_PREFIX +
+          AI_UNAVAILABLE_PREFIX +
           "Nova hit an unexpected error and could not finish this reply. Everything so far is saved - please try again shortly.";
       }
     }

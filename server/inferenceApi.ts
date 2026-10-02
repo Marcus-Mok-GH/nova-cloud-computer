@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { API_KEY_PREFIX, findOwnerByApiKey } from "./apiKeys";
 import { chatWithCustomModel, getActiveCustomModel } from "./byokGateway";
-import { getDailyCreditStatusForUser } from "./db";
+import { enqueueInferenceQueueItem, getDailyCreditStatusForUser, getInferenceQueueItemForOwner, getInferenceQueuePosition } from "./db";
+import { queuePositionMessage, shouldQueue } from "./peakQueue";
+import { kickPeakQueue } from "./peakQueueScheduler";
 import { chatWithAiGateway, type GatewayChatMessage, type GatewayChatResult, AiGatewayClientError } from "./aiGateway";
 import type { CustomModel } from "../drizzle/schema";
 
@@ -252,6 +254,45 @@ inferenceApiRouter.get("/me", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Polls a deferred request accepted with 202 during peak hours. While it
+ * waits or runs the caller gets its live queue position; once it completes the
+ * stored completion is returned in the same shape as a synchronous call, so
+ * an OpenAI-style client can parse it unchanged.
+ */
+inferenceApiRouter.get("/queue/:id", async (req: Request, res: Response) => {
+  try {
+    const ownerId = await requireApiOwner(req, res);
+    if (ownerId === null) return;
+    const queueId = Number(req.params.id);
+    if (!Number.isInteger(queueId) || queueId <= 0) {
+      return sendError(res, 400, "`id` must be a positive queue id.", "invalid_request_error", "invalid_queue_id");
+    }
+    const item = await getInferenceQueueItemForOwner(ownerId, queueId);
+    if (!item) {
+      return sendError(res, 404, "No queued request with that id exists for this API key.", "invalid_request_error", "queue_not_found");
+    }
+    if (item.status === "waiting" || item.status === "running") {
+      const position = await getInferenceQueuePosition(item.id);
+      return res.status(202).json({
+        queue_id: item.id,
+        status: item.status,
+        queue_position: position,
+        message: queuePositionMessage(position),
+      });
+    }
+    if (item.status === "completed") {
+      return res.json(item.result ?? { queue_id: item.id, status: "completed" });
+    }
+    if (item.status === "failed") {
+      return sendError(res, 502, item.errorMessage ?? "The queued request could not be completed.", "server_error", "queue_failed");
+    }
+    return sendError(res, 410, "That queued request was cancelled.", "invalid_request_error", "queue_cancelled");
+  } catch (error) {
+    handleInferenceError(res, error);
+  }
+});
+
 inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response) => {
   let sseStarted = false;
   let completionId = "";
@@ -262,6 +303,26 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     // The API is BYOK-aware: an active workspace custom model is a callable
     // choice alongside `nova-pro`, and each choice routes to its own backend.
     const choice = resolveInferenceModel(await getActiveCustomModel(ownerId), model);
+    // Peak hours defer admission instead of rejecting it: the caller gets a
+    // queue id and a poll URL, and the worker serves the request when it
+    // reaches the front of a strictly serialized queue.
+    if (shouldQueue()) {
+      const item = await enqueueInferenceQueueItem({
+        ownerId,
+        channel: "api",
+        content: "",
+        payload: { modelId: model, messages, stream },
+      });
+      const position = await getInferenceQueuePosition(item.id);
+      kickPeakQueue();
+      return res.status(202).json({
+        queue_id: item.id,
+        queue_position: position,
+        status: "queued",
+        message: queuePositionMessage(position),
+        poll_url: `/api/v1/queue/${item.id}`,
+      });
+    }
     const runChat = (options: { onChunk?: (chunk: string) => void; signal?: AbortSignal }) =>
       choice.customModel ? chatWithCustomModel(choice.customModel, messages, options) : chatWithAiGateway(ownerId, messages, options);
 

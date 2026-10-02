@@ -95,6 +95,9 @@ export default function Workspace() {
   const [pendingUserContent, setPendingUserContent] = useState("");
   const [liveEvents, setLiveEvents] = useState<LiveChatEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Peak hours defer the turn: the server answers with a queue position and
+  // this notice stays up until the deferred run actually starts.
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId =
     typeof window === "undefined"
@@ -206,6 +209,11 @@ export default function Workspace() {
     }
   );
   const agentIsWorking = isStreaming || Boolean(runStatus.data?.active);
+  // The worker flips the deferred turn into a live agent run; at that point the
+  // waiting notice has done its job and the normal working indicator takes over.
+  useEffect(() => {
+    if (runStatus.data?.active) setQueueNotice(null);
+  }, [runStatus.data?.active]);
   // Stops the chat's in-flight agent run and its queued/running VM workflows
   // (the composer's send button turns into this stop button while Nova works).
   const stopRun = trpc.chats.stop.useMutation({
@@ -338,6 +346,7 @@ export default function Workspace() {
     );
     setPendingUserContent(content);
     setLiveEvents([]);
+    setQueueNotice(null);
     setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -386,8 +395,15 @@ export default function Workspace() {
               const parsed = JSON.parse(data) as {
                 type?: string;
                 tool?: ToolActivity;
+                message?: string;
                 choices?: Array<{ delta?: { content?: string } }>;
               };
+              if (parsed.type === "queued") {
+                setQueueNotice(
+                  typeof parsed.message === "string" ? parsed.message : null
+                );
+                continue;
+              }
               if (parsed.type === "tool" && parsed.tool?.id) {
                 setLiveEvents(previous =>
                   upsertLiveToolEvent(previous, parsed.tool!)
@@ -799,6 +815,15 @@ export default function Workspace() {
           >
             <div className="mx-auto w-full max-w-[1240px]">
               <div className="border border-foreground/[0.14] bg-card/85 p-2 shadow-[0_14px_45px_rgba(36,40,34,0.10)] backdrop-blur-xl transition focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]">
+                {queueNotice && (
+                  <div
+                    data-testid="queue-notice"
+                    role="status"
+                    className="mx-2.5 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
+                  >
+                    {queueNotice}
+                  </div>
+                )}
                 <div className="flex items-center justify-end px-2.5 pb-1.5">
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
                     Enter to send

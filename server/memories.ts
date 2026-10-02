@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "crypto";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { conversationMemories } from "../drizzle/schema";
 
@@ -15,6 +15,31 @@ import { conversationMemories } from "../drizzle/schema";
 const TITLE_LIMIT = 300;
 const SUMMARY_LIMIT = 280;
 const TAGS_LIMIT = 500; // matches the varchar(500) tags column
+
+/**
+ * Memory is scoped: the workspace's shared scope (`agentId IS NULL`, what the
+ * default Nova assistant uses) plus each personal agent's own scope. An agent
+ * reads its own memories *and* the shared ones, but only ever writes to its
+ * own; the default assistant never sees agent-private memories.
+ */
+export type MemoryScope = { agentId?: number | null };
+
+function readScopeCondition(scope?: MemoryScope) {
+  const agentId = scope?.agentId ?? null;
+  return agentId
+    ? or(
+        isNull(conversationMemories.agentId),
+        eq(conversationMemories.agentId, agentId)
+      )
+    : isNull(conversationMemories.agentId);
+}
+
+function writeScopeCondition(scope?: MemoryScope) {
+  const agentId = scope?.agentId ?? null;
+  return agentId
+    ? eq(conversationMemories.agentId, agentId)
+    : isNull(conversationMemories.agentId);
+}
 // The DB row keeps a rolling window of the transcript; S3 (when configured)
 // receives the same full text so nothing is lost.
 const CONTENT_WINDOW = 24_000;
@@ -62,6 +87,8 @@ export async function saveMemoryForUser(
     tags?: string | null;
     chatId?: string | null;
     kind?: string;
+    /** Owning agent for agent-private memories; omit for the shared scope. */
+    agentId?: number | null;
   }
 ): Promise<ConversationMemoryRecord | null> {
   const db = await getDb();
@@ -79,6 +106,7 @@ export async function saveMemoryForUser(
     .values({
       ownerId,
       chatId: input.chatId ?? null,
+      agentId: input.agentId ?? null,
       kind: input.kind ?? "note",
       title,
       summary,
@@ -95,7 +123,8 @@ export async function saveMemoryForUser(
 
 async function getChatMemory(
   ownerId: number,
-  chatId: string
+  chatId: string,
+  scope?: MemoryScope
 ): Promise<typeof conversationMemories.$inferSelect | null> {
   const db = await getDb();
   if (!db) return null;
@@ -106,7 +135,8 @@ async function getChatMemory(
       and(
         eq(conversationMemories.ownerId, ownerId),
         eq(conversationMemories.chatId, chatId),
-        eq(conversationMemories.kind, "conversation")
+        eq(conversationMemories.kind, "conversation"),
+        writeScopeCondition(scope)
       )
     )
     .limit(1);
@@ -121,7 +151,8 @@ async function getChatMemory(
 export async function appendConversationTurn(
   ownerId: number,
   chatId: string,
-  turn: { userText: string; assistantText: string }
+  turn: { userText: string; assistantText: string },
+  scope?: MemoryScope
 ): Promise<ConversationMemoryRecord | null> {
   try {
     const db = await getDb();
@@ -129,7 +160,7 @@ export async function appendConversationTurn(
     const userText = turn.userText.trim();
     const assistantText = turn.assistantText.trim();
     if (!userText && !assistantText) return null;
-    const existing = await getChatMemory(ownerId, chatId);
+    const existing = await getChatMemory(ownerId, chatId, scope);
     const turnBlock = `User: ${userText}\nNova: ${assistantText}`;
     const content = existing
       ? `${existing.content}\n\n---\n\n${turnBlock}`
@@ -153,6 +184,7 @@ export async function appendConversationTurn(
           .values({
             ownerId,
             chatId,
+            agentId: scope?.agentId ?? null,
             kind: "conversation",
             title,
             summary,
@@ -174,7 +206,8 @@ export async function appendConversationTurn(
 export async function searchMemoriesForUser(
   ownerId: number,
   query?: string | null,
-  limit = 8
+  limit = 8,
+  scope?: MemoryScope
 ): Promise<ConversationMemoryRecord[]> {
   const db = await getDb();
   if (!db) return [];
@@ -184,6 +217,7 @@ export async function searchMemoriesForUser(
   const where = trimmed
     ? and(
         eq(conversationMemories.ownerId, ownerId),
+        readScopeCondition(scope),
         or(
           ilike(conversationMemories.title, `%${trimmed}%`),
           ilike(conversationMemories.summary, `%${trimmed}%`),
@@ -191,7 +225,10 @@ export async function searchMemoriesForUser(
           ilike(conversationMemories.content, `%${trimmed}%`)
         )
       )
-    : eq(conversationMemories.ownerId, ownerId);
+    : and(
+        eq(conversationMemories.ownerId, ownerId),
+        readScopeCondition(scope)
+      );
   const rows = await db
     .select()
     .from(conversationMemories)
@@ -203,7 +240,8 @@ export async function searchMemoriesForUser(
 
 export async function readMemoryForUser(
   ownerId: number,
-  memoryId: number
+  memoryId: number,
+  scope?: MemoryScope
 ): Promise<ConversationMemoryRecord | null> {
   const db = await getDb();
   if (!db) return null;
@@ -213,7 +251,8 @@ export async function readMemoryForUser(
     .where(
       and(
         eq(conversationMemories.ownerId, ownerId),
-        eq(conversationMemories.id, memoryId)
+        eq(conversationMemories.id, memoryId),
+        readScopeCondition(scope)
       )
     )
     .limit(1);
@@ -222,7 +261,8 @@ export async function readMemoryForUser(
 
 export async function deleteMemoryForUser(
   ownerId: number,
-  memoryId: number
+  memoryId: number,
+  scope?: MemoryScope
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -231,7 +271,8 @@ export async function deleteMemoryForUser(
     .where(
       and(
         eq(conversationMemories.ownerId, ownerId),
-        eq(conversationMemories.id, memoryId)
+        eq(conversationMemories.id, memoryId),
+        writeScopeCondition(scope)
       )
     )
     .returning({ id: conversationMemories.id });
@@ -241,9 +282,10 @@ export async function deleteMemoryForUser(
 /** Compact recall lines for the system prompt. */
 export async function listRecentMemoriesForPrompt(
   ownerId: number,
-  limit = 8
+  limit = 8,
+  scope?: MemoryScope
 ): Promise<string> {
-  const records = await searchMemoriesForUser(ownerId, null, limit);
+  const records = await searchMemoriesForUser(ownerId, null, limit, scope);
   if (!records.length) return "none yet";
   return records
     .map(

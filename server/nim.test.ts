@@ -180,3 +180,51 @@ describe("NIM transient-failure retries", () => {
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("NIM deadline awareness", () => {
+  it("never starts a request once the caller's deadline has passed", async () => {
+    await expect(
+      runNimChat({
+        prompt: "p",
+        systemPrompt: "s",
+        deadlineAtMs: Date.now() - 1,
+      })
+    ).rejects.toThrow(
+      "The coding specialist ran out of time before its model request could finish."
+    );
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("still retries a transient failure when the deadline leaves room", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "rate limited" }, { status: 429, headers: { "retry-after": "0" } }));
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await expect(
+      runNimChat({
+        systemPrompt: "s",
+        prompt: "p",
+        deadlineAtMs: Date.now() + 60_000,
+      })
+    ).resolves.toBe("ok");
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips a backoff retry that cannot fit before the deadline instead of overrunning it", async () => {
+    // One attempt fits (remaining > the 1s floor), but the 5s Retry-After plus
+    // another attempt does not - so the first failure is surfaced now rather
+    // than after the run deadline has already passed.
+    fetchStub.mockResolvedValue(
+      new Response(JSON.stringify({ error: "overloaded" }), {
+        status: 503,
+        headers: { "content-type": "application/json", "retry-after": "5" },
+      })
+    );
+    await expect(
+      runNimChat({
+        systemPrompt: "s",
+        prompt: "p",
+        deadlineAtMs: Date.now() + 1_500,
+      })
+    ).rejects.toThrow(/status 503/);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+});

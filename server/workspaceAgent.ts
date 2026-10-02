@@ -3301,10 +3301,9 @@ async function executeWorkspaceTool(
                   }
                 : {}),
             })
-          : runCoderTask(task, context, language).then(result => ({
-              kind: "single",
-              ...result,
-            }));
+          : runCoderTask(task, context, language, deadlineAtMs).then(
+              result => ({ kind: "single", ...result })
+            );
       try {
         let outcome: CoderOutcome;
         try {

@@ -20,7 +20,10 @@ even if the hour lapses while it waits. Files: server/db.ts, server/app.ts,
 server/routers.ts, server/inferenceApi.ts, server/peakQueue.ts,
 drizzle/schema.ts (+ migration 0039, adds the nullable `activatedAt`),
 client/src/components/BillingCard.tsx, client/src/pages/Workspace.tsx, plus
-tests.
+tests. Migration 0039 is idempotent (`ADD COLUMN IF NOT EXISTS`) so the
+deploy-build and boot-time schema bootstrap can re-run it without stopping at
+an "already exists" error and leaving the rest of the schema uncreated; a new
+migrate test guards the newest migration against bare DDL.
 
 2026-10-02 - Billing: a one-time priority purchase for the peak-hours queue
 

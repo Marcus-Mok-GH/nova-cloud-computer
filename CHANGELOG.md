@@ -1,3 +1,36 @@
+2026-10-02 - Peak-hours queue: tell senders their place instead of rejecting them
+
+Nova's shared inference pool had no admission control, so during busy hours a
+burst of requests just piled onto the provider. A new peak window (14:00-18:00
+UTC by default, `NOVA_PEAK_HOURS_UTC`, disable with `NOVA_PEAK_QUEUE`) now
+defers rather than rejects: every message that arrives during peak joins a
+single FIFO queue and the sender is told "You are N in the queue." exactly once
+per message they send - never on the internal inference calls a run makes. The
+notice is shown when the user sends, not on every model call.
+
+The queue is a real deferred queue, not a label on a run that still starts
+immediately. A new `inference_queue` table holds each waiting request, and a
+worker serves exactly one item per serverless invocation (self-invoked over the
+same HMAC scheme as agent continuations) so the pool stays strictly serialized
+and every item keeps a full budget. A stale-running sweep returns items whose
+invocation was killed mid-run to the front of the line, capped at three
+attempts after which the item is dead-lettered; while an item is parked in
+running, the worker watches it and recovers the queue once it goes stale. The
+whole hand-off is registered with the request runtime so it survives the HTTP
+response that triggered it. All three surfaces are covered: the web chat streams a `queued` event and the polling client shows the
+notice until the deferred run's reply lands, Telegram replies with the queue
+position and the worker pushes the eventual reply to the bot, andthe inference API returns `202` with `queue_id`, `queue_position` and a `poll_url`
+(`GET /api/v1/queue/:id`) that yields the live position and finally the stored
+completion; a queued API request keeps the BYOK model selected at admission,
+and only curated error text reaches the caller. Stopping a chat - from the web
+composer's stop button or Telegram `/stop` - cancels its still-waiting queue
+items. Files:
+server/peakQueue.ts (new), server/peakQueueScheduler.ts (new),
+server/peakQueueWorker.ts (new), drizzle/schema.ts (+ migration 0034),
+server/db.ts, server/inferenceApi.ts, server/app.ts, server/routers.ts,
+client/src/pages/Workspace.tsx, client/src/pages/ApiDocs.tsx, vitest.config.ts,
+plus tests.
+
 2026-10-02 - Personalisation mode: a settings tab that learns how you like to work
 
 Nova had standing workspace rules and a communication style, but no first-class

@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -24,6 +24,9 @@ import {
   siteDeployments,
   agentRuns,
   dailyCredits,
+  inferenceQueue,
+  type InferenceQueueItem,
+  type InferenceQueuePayload,
 } from "../drizzle/schema";
 import { decryptPrivateCredential, encryptModelApiKey, encryptPrivateCredential } from "./modelSecrets";
 import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, getDailyCreditPolicyForRole, getCreditDay, type CreditRole, type InferenceTokenUsage } from "./credits";
@@ -297,7 +300,7 @@ export async function listCustomModelsForUser(ownerId: number) {
   return (await db.select().from(customModels).where(eq(customModels.workspaceId, workspace.id)).orderBy(asc(customModels.createdAt))).map(toSafeCustomModel);
 }
 
-async function getCustomModelForUser(ownerId: number, customModelId: number) {
+export async function getCustomModelForUser(ownerId: number, customModelId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(customModels).where(and(eq(customModels.id, customModelId), eq(customModels.workspaceId, workspace.id))).limit(1))[0];
@@ -1594,4 +1597,156 @@ export async function updateSiteDeploymentStatusForUser(
     .where(and(eq(siteDeployments.id, deploymentId), eq(siteDeployments.workspaceId, workspace.id)))
     .returning();
   return row ?? null;
+}
+
+/**
+ * How many times one deferred request may be claimed before it is dead-lettered.
+ * A row that always exceeds its run budget must not monopolize the queue head
+ * forever; after this many stale sweeps it is closed as failed.
+ */
+export const MAX_INFERENCE_QUEUE_ATTEMPTS = 3;
+
+/** How a deferred queue item's result is delivered once it reaches the front. */
+export type InferenceQueueChannel = "web" | "telegram" | "api";
+
+export type EnqueueInferenceQueueInput = {
+  ownerId: number;
+  channel: InferenceQueueChannel;
+  chatId?: string | null;
+  content: string;
+  payload?: InferenceQueuePayload;
+};
+
+/**
+ * Admits one message to the peak-hours queue. The insert is the whole
+ * admission decision: everything already running or waiting keeps its place,
+ * and the new row is served strictly after it.
+ */
+export async function enqueueInferenceQueueItem(input: EnqueueInferenceQueueInput): Promise<InferenceQueueItem> {
+  const db = await requireDb();
+  const [item] = await db.insert(inferenceQueue).values({
+    ownerId: input.ownerId,
+    channel: input.channel,
+    chatId: input.chatId ?? null,
+    content: input.content,
+    payload: input.payload ?? {},
+  }).returning();
+  return item;
+}
+
+/**
+ * How many requests are ahead of this one: every running or waiting item with
+ * a lower id, plus one. A running item is position 1 only when nothing else
+ * precedes it.
+ */
+export async function getInferenceQueuePosition(queueId: number): Promise<number> {
+  const db = await requireDb();
+  const [result] = await db
+    .select({ ahead: count() })
+    .from(inferenceQueue)
+    .where(and(inArray(inferenceQueue.status, ["waiting", "running"]), lt(inferenceQueue.id, queueId)));
+  return Number(result?.ahead ?? 0) + 1;
+}
+
+/**
+ * Atomically claims the head of the queue, but only while no other request is
+ * running. Both guards matter: the status flip makes exactly one concurrent
+ * claimer win the head row, and the NOT EXISTS keeps the pool serialized so a
+ * second worker invocation cannot start a parallel request.
+ */
+export async function claimNextInferenceQueueItem(): Promise<InferenceQueueItem | undefined> {
+  const db = await requireDb();
+  const result = (await db.execute(sql`
+    UPDATE "inference_queue" AS q
+    SET "status" = 'running', "startedAt" = now(), "attempts" = q."attempts" + 1, "updatedAt" = now()
+    WHERE q."id" = (SELECT "id" FROM "inference_queue" WHERE "status" = 'waiting' ORDER BY "id" LIMIT 1)
+      AND q."status" = 'waiting'
+      AND NOT EXISTS (SELECT 1 FROM "inference_queue" WHERE "status" = 'running')
+    RETURNING q."id"
+  `)) as unknown as { rows?: Array<{ id?: unknown }> } | Array<{ id?: unknown }>;
+  const rows = Array.isArray(result) ? result : (result.rows ?? []);
+  const id = Number(rows[0]?.id);
+  if (!Number.isInteger(id) || id <= 0) return undefined;
+  const [item] = await db.select().from(inferenceQueue).where(eq(inferenceQueue.id, id)).limit(1);
+  return item;
+}
+
+/**
+ * Returns items whose worker invocation died mid-run (the platform killed it
+ * before it could close the row) to the front of the queue, and dead-letters
+ * the ones that have already used every attempt so a single budget-busting row
+ * cannot hold the head of the line forever.
+ */
+export async function requeueStaleInferenceQueueItems(staleBefore: Date): Promise<number> {
+  const db = await requireDb();
+  const stale = and(eq(inferenceQueue.status, "running"), lt(inferenceQueue.startedAt, staleBefore));
+  await db
+    .update(inferenceQueue)
+    .set({ status: "failed", errorMessage: "the deferred request exceeded its run budget on every attempt", completedAt: new Date(), updatedAt: new Date() })
+    .where(and(stale, gte(inferenceQueue.attempts, MAX_INFERENCE_QUEUE_ATTEMPTS)));
+  const requeued = await db
+    .update(inferenceQueue)
+    .set({ status: "waiting", startedAt: null, updatedAt: new Date() })
+    .where(and(stale, lt(inferenceQueue.attempts, MAX_INFERENCE_QUEUE_ATTEMPTS)))
+    .returning({ id: inferenceQueue.id });
+  return requeued.length;
+}
+
+/** The oldest request currently running, so the worker can watch for a killed invocation. */
+export async function getRunningInferenceQueueItem() {
+  const db = await requireDb();
+  return (await db
+    .select()
+    .from(inferenceQueue)
+    .where(eq(inferenceQueue.status, "running"))
+    .orderBy(asc(inferenceQueue.id))
+    .limit(1))[0];
+}
+
+/** Closes a queue item with its delivered result (the inference API stores its payload here). */
+export async function completeInferenceQueueItem(queueId: number, result?: Record<string, unknown> | null) {
+  const db = await requireDb();
+  const [item] = await db
+    .update(inferenceQueue)
+    .set({ status: "completed", result: result ?? null, completedAt: new Date(), updatedAt: new Date() })
+    .where(eq(inferenceQueue.id, queueId))
+    .returning();
+  return item;
+}
+
+/** Closes a queue item that could not be served. */
+export async function failInferenceQueueItem(queueId: number, errorMessage: string) {
+  const db = await requireDb();
+  const [item] = await db
+    .update(inferenceQueue)
+    .set({ status: "failed", errorMessage: errorMessage.slice(0, 1200), completedAt: new Date(), updatedAt: new Date() })
+    .where(eq(inferenceQueue.id, queueId))
+    .returning();
+  return item;
+}
+
+/**
+ * Cancels this owner's still-waiting items - scoped to one chat when `chatId`
+ * is given, the whole queue otherwise - so a stop request never silently runs
+ * a message the user already abandoned. Running items are left alone; the
+ * agent's own stop signal ends those.
+ */
+export async function cancelWaitingInferenceQueueItemsForUser(ownerId: number, chatId?: string): Promise<number> {
+  const db = await requireDb();
+  const cancelled = await db
+    .update(inferenceQueue)
+    .set({ status: "cancelled", completedAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(inferenceQueue.ownerId, ownerId),
+      eq(inferenceQueue.status, "waiting"),
+      ...(chatId === undefined ? [] : [eq(inferenceQueue.chatId, chatId)]),
+    ))
+    .returning({ id: inferenceQueue.id });
+  return cancelled.length;
+}
+
+/** One queue item, scoped to its owner so a queue id can never leak across accounts. */
+export async function getInferenceQueueItemForOwner(ownerId: number, queueId: number) {
+  const db = await requireDb();
+  return (await db.select().from(inferenceQueue).where(and(eq(inferenceQueue.id, queueId), eq(inferenceQueue.ownerId, ownerId))).limit(1))[0];
 }

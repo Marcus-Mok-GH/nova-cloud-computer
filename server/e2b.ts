@@ -211,6 +211,30 @@ export async function getE2BSandboxStatus(
   }
 }
 
+/**
+ * Pauses a live sandbox so it stops being billed while idle. E2B keeps the
+ * disk across a pause, so the next wake resumes the same machine instead of
+ * cold-booting a fresh one. Never throws: a sandbox with no pause primitive
+ * and one already paused both report false and are left alone. Callers that
+ * hold a workspace lifecycle lock must use this directly (the lock is not
+ * reentrant); everyone else goes through pauseAgentSandbox.
+ */
+export async function pauseE2BSandbox(
+  sandbox: E2BSandboxLike | undefined
+): Promise<boolean> {
+  if (!sandbox?.pause) return false;
+  try {
+    const paused = await sandbox.pause({ keepMemory: true });
+    return paused !== false;
+  } catch (error) {
+    console.error(
+      "[E2B] sandbox pause failed",
+      error instanceof Error ? error.message : error
+    );
+    return false;
+  }
+}
+
 function safePathSegment(value: string, fallback: string) {
   const normalized = value
     .replace(/[\\/]+/g, "_")

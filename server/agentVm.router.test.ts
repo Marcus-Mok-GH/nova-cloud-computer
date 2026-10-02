@@ -40,7 +40,9 @@ describe("E2B protected router", () => {
     const owner = appRouter.createCaller(context(1));
     const stranger = appRouter.createCaller(context(2));
     await expect(owner.agentVm.start({ task: "Inspect notes" })).resolves.toMatchObject({ configured: true, run: { id: 9 } });
-    expect(start).toHaveBeenCalledWith(1, { task: "Inspect notes" });
+    // A run started from the VM panel is standalone: it pauses the sandbox
+    // when it finishes rather than leaving the machine billed while idle.
+    expect(start).toHaveBeenCalledWith(1, { task: "Inspect notes" }, { pauseWhenDone: true });
     await expect(stranger.agentVm.cancel({ id: 9 })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(owner.agentVm.cancel({ id: 9 })).resolves.toMatchObject({ status: "cancelled" });
   });

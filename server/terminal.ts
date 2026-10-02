@@ -6,6 +6,7 @@ import {
 } from "./e2b";
 import { getWorkspaceComputer } from "./db";
 import { persistE2BWorkspace } from "./workspaceSync";
+import { pauseAgentSandbox } from "./sandboxWorkspace";
 
 /**
  * Direct terminal access to the workspace's persistent agent VM (E2B). A
@@ -96,13 +97,26 @@ function describeTerminalError(error: unknown) {
   );
 }
 
-/** Best-effort import of sandbox-created files into Neon so they show in Files. */
-async function persistTerminalWorkspace(ownerId: number, sandboxId: string) {
+/**
+ * Best-effort import of sandbox-created files into Neon so they show in Files.
+ * With `pause`, the persistent machine is paused afterwards: a terminal that
+ * has just ended should not leave the sandbox running (and billed) until its
+ * inactivity timer lapses. The next terminal or agent run resumes it.
+ */
+async function persistTerminalWorkspace(
+  ownerId: number,
+  sandboxId: string,
+  options: { pause?: boolean } = {}
+) {
   try {
     const client = getE2BClient();
     if (!client) return;
     const sandbox = await client.connect(sandboxId);
     await persistE2BWorkspace(ownerId, sandbox);
+    if (options.pause) {
+      const computer = await getWorkspaceComputer(ownerId);
+      await pauseAgentSandbox(ownerId, computer.workspace.id, sandbox);
+    }
   } catch (error) {
     console.warn(
       `[terminal] could not import terminal-created files into Neon: ${describeTerminalError(error)}`
@@ -190,7 +204,9 @@ async function createTerminalSession(
         const current = sessions.get(ownerId);
         if (!current || current.ptyId !== handle.pid) return;
         sessions.delete(ownerId);
-        void persistTerminalWorkspace(ownerId, current.sandboxId);
+        void persistTerminalWorkspace(ownerId, current.sandboxId, {
+          pause: true,
+        });
       })
       .catch(() => {});
   }
@@ -295,7 +311,7 @@ export async function stopTerminalForUser(ownerId: number) {
     throw new TerminalError("Nova could not close the terminal. Please retry.");
   }
   sessions.delete(ownerId);
-  await persistTerminalWorkspace(ownerId, session.sandboxId);
+  await persistTerminalWorkspace(ownerId, session.sandboxId, { pause: true });
   return { success: true as const };
 }
 

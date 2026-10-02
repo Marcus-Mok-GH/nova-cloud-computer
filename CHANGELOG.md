@@ -1,3 +1,24 @@
+2026-10-02 - Pause the workspace sandbox the moment a task finishes
+
+A persistent workspace sandbox only fell asleep on its one-hour inactivity
+timer, so a machine that finished a task sat running - and billed - until the
+timer lapsed. `runWorkspaceAgent` now pauses the sandbox immediately after its
+end-of-run file sync, on every exit path (completed, stopped, deadline, error).
+E2B keeps the disk across a pause, so the next run reconnects to the same
+machine instead of cold-booting a fresh one. A run chaining into its next
+segment (`continuationPlanned`) is left warm, since pausing between segments
+would add a cold resume to every continuation. The pause runs under the same
+per-workspace lifecycle lock as the sync, so it can never land mid-execute for
+another run.
+
+The other paths that own the persistent machine get the same treatment: a
+standalone agent VM run started from the VM panel pauses when it finishes
+(success or failure), and a terminal pauses once its shell is closed or exits
+on its own - but a VM run invoked as a tool call inside an agent run is left
+warm, since pausing mid-run would interrupt the rest of that run. Files:
+server/e2b.ts, server/sandboxWorkspace.ts, server/workspaceAgent.ts,
+server/agentVm.ts, server/terminal.ts, server/routers.ts, plus tests.
+
 2026-10-02 - New thinker sub-agent: a smart model that reasons for the main agent
 
 The main model is a fast supervisor that routes and verifies, so hard problems

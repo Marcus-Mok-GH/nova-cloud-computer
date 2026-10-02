@@ -189,6 +189,14 @@ vi.mock("./e2b", () => ({
   ensurePersistentSandbox: vi.fn(),
   getE2BSandboxStatus: vi.fn(),
   withE2BWorkspaceLock: vi.fn((_owner, _workspace, operation) => operation()),
+  // Mirrors the real primitive: a sandbox with no pause method is left alone.
+  pauseE2BSandbox: vi.fn(
+    async (sandbox: { pause?: (options?: { keepMemory?: boolean }) => Promise<boolean> } | undefined) => {
+      if (!sandbox?.pause) return false;
+      const paused = await sandbox.pause({ keepMemory: true });
+      return paused !== false;
+    }
+  ),
   E2B_WORKSPACE_DIR: "/home/user/workspace",
 }));
 
@@ -341,6 +349,7 @@ const fakeSandbox = () => {
   return {
     sandboxId: "sbx-vm",
     writes,
+    pause: vi.fn(async () => true),
     files: {
       write: vi.fn(async (path: string, data: unknown) =>
         writes.push({ path, content: String(data) })
@@ -365,6 +374,9 @@ describe("Nova tool-calling workspace agent", () => {
     setGatewayRateLimitRetryDelayForTests(null);
     // Streaming runs now poll the stop flag mid-response: keep the default.
     hasAgentStopAfter.mockImplementation(async () => false);
+    // clearAllMocks keeps mock *implementations*, so a sandbox test that
+    // turned E2B on would leak it into every later test: restore the default.
+    vi.mocked(isE2BConfigured).mockReturnValue(false);
   });
 
   it("runs every message through the model with workspace tools exposed", async () => {
@@ -1652,6 +1664,32 @@ describe("Nova tool-calling workspace agent", () => {
       expect(ensurePersistentSandbox).not.toHaveBeenCalled();
       expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
       expect(persistE2BWorkspace).not.toHaveBeenCalled();
+    });
+
+    it("pauses the persistent sandbox when the run finishes", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "All done." }));
+      await runWorkspaceAgent(1, 3, "finish this up");
+      expect(sandbox.pause).toHaveBeenCalledWith({ keepMemory: true });
+    });
+
+    it("keeps the sandbox warm when the run chains into an automatic continuation", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "Continuing." }));
+      await runWorkspaceAgent(1, 3, "keep going", {
+        continuationPlanned: true,
+      });
+      // The next segment resumes within seconds: pausing would add a cold
+      // resume to every continuation, so the machine is left running.
+      expect(sandbox.pause).not.toHaveBeenCalled();
     });
   });
 

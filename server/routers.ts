@@ -44,7 +44,9 @@ import {
   updateAutomationForUser, factoryResetWorkspaceForUser,
   enqueueInferenceQueueItem,
   getInferenceQueuePosition,
-  cancelWaitingInferenceQueueItemsForUser } from "./db";
+  cancelWaitingInferenceQueueItemsForUser,
+  getBillingStatusForUser,
+  setBillingPlanForUser } from "./db";
 import { queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
@@ -167,6 +169,17 @@ export const appRouter = router({
       }),
   }),
   credits: router({ status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)) }),
+  billing: router({
+    status: protectedProcedure.query(({ ctx }) => getBillingStatusForUser(ctx.user.id)),
+    /**
+     * Test mode: no payment step. Clicking the upgrade button flips the account
+     * to the priority plan directly, which makes its queued requests jump ahead
+     * of standard ones during peak hours.
+     */
+    setPriority: protectedProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => setBillingPlanForUser(ctx.user.id, input.enabled ? "priority" : "standard")),
+  }),
   apiKeys: router({
     list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),
     /** Returns the full key value exactly once; Nova stores only its hash. */

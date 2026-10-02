@@ -252,6 +252,11 @@ vi.mock("./coder", () => ({
   runAutonomousCoderTask: runAutonomousCoderTaskMock,
 }));
 
+const runThinkerTaskMock = vi.hoisted(() => vi.fn());
+vi.mock("./thinker", () => ({
+  runThinkerTask: runThinkerTaskMock,
+}));
+
 const runBrowserCommandMock = vi.hoisted(() => vi.fn());
 vi.mock("./agentBrowser", () => ({
   runBrowserCommand: runBrowserCommandMock,
@@ -2982,6 +2987,44 @@ describe("Nova tool-calling workspace agent", () => {
     const result = await runWorkspaceAgent(1, 3, "show me the payload", {});
     expect(result.message.content).toContain("unknown_thing");
     expect(presentTelegramFile).not.toHaveBeenCalled();
+  });
+
+  it("exposes the thinker tool and feeds its analysis back to the model", async () => {
+    runThinkerTaskMock.mockResolvedValueOnce({
+      analysis: "Long detailed analysis of caching trade-offs.",
+      model: "moonshotai/kimi-k3",
+    });
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-think",
+              name: "thinker",
+              arguments: JSON.stringify({
+                question: "Should we cache?",
+                context: "The service does 500 rps.",
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Yes - add a short TTL cache." }));
+    const result = await runWorkspaceAgent(1, 3, "think about caching", {});
+    const tools = chatWithAiGateway.mock.calls[0][2].tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(tools).toContain("thinker");
+    expect(runThinkerTaskMock).toHaveBeenCalledWith(
+      "Should we cache?",
+      "The service does 500 rps."
+    );
+    expect(lastToolResult(chatWithAiGateway.mock.calls[1][1])).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-think",
+      content: "Long detailed analysis of caching trade-offs.",
+    });
+    expect(result.message.content).toBe("Yes - add a short TTL cache.");
   });
 
   it("exposes send_progress_update only to the Telegram bot, never to the web app", async () => {

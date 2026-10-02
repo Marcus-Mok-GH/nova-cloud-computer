@@ -178,6 +178,18 @@ function retryAfterMs(response: Response): number | undefined {
   return Math.min(seconds * 1_000, 60_000);
 }
 
+/**
+ * The timeout for one attempt: the caller's cap, clamped to the time left
+ * before the deadline, so an attempt can never outlive it. The cap is a hard
+ * limit - a deadline with more room never raises it.
+ */
+export function resolveNimAttemptTimeoutMs(
+  timeoutMs: number,
+  remainingBeforeDeadlineMs: number
+): number {
+  return Math.min(timeoutMs, remainingBeforeDeadlineMs);
+}
+
 async function postNimChat(
   body: Record<string, unknown>,
   timeoutMs: number,
@@ -214,11 +226,10 @@ async function postNimChat(
       );
     }
     // Clamp each attempt to the remaining deadline so a request never runs
-    // past it even when the caller's timeout budget is larger.
-    const attemptTimeoutMs = Math.max(
-      MIN_ATTEMPT_BUDGET_MS,
-      Math.min(timeoutMs, remaining)
-    );
+    // past it even when the caller's timeout budget is larger. The gate above
+    // already guarantees `remaining` clears the floor, so the caller's
+    // timeout stays a hard cap and is never raised.
+    const attemptTimeoutMs = resolveNimAttemptTimeoutMs(timeoutMs, remaining);
     attempt += 1;
     let response: Response;
     try {

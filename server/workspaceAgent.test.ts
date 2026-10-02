@@ -287,6 +287,7 @@ const runCoderTaskMock = vi.hoisted(() => vi.fn());
 const runAutonomousCoderTaskMock = vi.hoisted(() => vi.fn());
 const { NimConfigError } = await import("./nim");
 vi.mock("./coder", () => ({
+  MIN_CALL_RESERVE_MS: 30_000,
   runCoderTask: runCoderTaskMock,
   runAutonomousCoderTask: runAutonomousCoderTaskMock,
 }));
@@ -757,6 +758,38 @@ describe("Nova tool-calling workspace agent", () => {
         name: "editor: build a todo app",
         operation: "completed",
       },
+    ]);
+  });
+
+  it("skips the automatic specialist retry when the budget cannot cover it", async () => {
+    runCoderTaskMock.mockReset();
+    runCoderTaskMock.mockRejectedValue(
+      new Error("NVIDIA NIM responded with status 503.")
+    );
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-code-budget",
+              name: "editor",
+              arguments: JSON.stringify({ task: "build a todo app" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "The specialist is down; nothing was written." })
+      );
+    // 30s left cannot fit the 1.5s wait plus the reserve the specialist needs
+    // just to start, so the retry is skipped instead of beginning work the run
+    // deadline would discard.
+    const result = await runWorkspaceAgent(1, 3, "build me a todo app", {
+      deadlineAtMs: Date.now() + 30_000,
+    });
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(1);
+    expect(result.actions).toEqual([
+      { kind: "tool", name: "editor: build a todo app", operation: "failed" },
     ]);
   });
 

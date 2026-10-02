@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isNimConfigured, NimToolsUnsupportedError, runNimChat, runNimAgentChat } from "./nim";
+import { isNimConfigured, NimToolsUnsupportedError, resolveNimAttemptTimeoutMs, runNimChat, runNimAgentChat } from "./nim";
 
 const state = vi.hoisted(() => ({
   nimKey: "test-nim-key",
@@ -182,6 +182,13 @@ describe("NIM transient-failure retries", () => {
 });
 
 describe("NIM deadline awareness", () => {
+  it("keeps the caller's timeout as a hard cap when the deadline has more room", () => {
+    // A small caller timeout must never be raised to the attempt floor.
+    expect(resolveNimAttemptTimeoutMs(100, 60_000)).toBe(100);
+    // A tighter deadline still clamps the attempt.
+    expect(resolveNimAttemptTimeoutMs(240_000, 1_500)).toBe(1_500);
+  });
+
   it("never starts a request once the caller's deadline has passed", async () => {
     await expect(
       runNimChat({

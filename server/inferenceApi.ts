@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { API_KEY_PREFIX, findOwnerByApiKey } from "./apiKeys";
 import { chatWithCustomModel, getActiveCustomModel } from "./byokGateway";
-import { enqueueInferenceQueueItem, getDailyCreditStatusForUser, getInferenceQueueItemForOwner, getInferenceQueuePosition } from "./db";
-import { queuePositionMessage, shouldQueue } from "./peakQueue";
+import { activatePriorityWindowForUser, enqueueInferenceQueueItem, getDailyCreditStatusForUser, getInferenceQueueItemForOwner, getInferenceQueuePosition } from "./db";
+import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { chatWithAiGateway, type GatewayChatMessage, type GatewayChatResult, AiGatewayClientError } from "./aiGateway";
 import type { CustomModel } from "../drizzle/schema";
@@ -303,6 +303,10 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     // The API is BYOK-aware: an active workspace custom model is a callable
     // choice alongside `nova-pro`, and each choice routes to its own backend.
     const choice = resolveInferenceModel(await getActiveCustomModel(ownerId), model);
+    // A purchased priority window starts on this request, settled before the
+    // request is admitted or run.
+    const activation = await activatePriorityWindowForUser(ownerId).catch(() => ({ priority: false, justActivated: false, expiresAt: null as Date | null }));
+    const priorityNotice = activation.justActivated ? priorityActiveMessage() : undefined;
     // Peak hours defer admission instead of rejecting it: the caller gets a
     // queue id and a poll URL, and the worker serves the request when it
     // reaches the front of a strictly serialized queue.
@@ -321,6 +325,7 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
         status: "queued",
         message: queuePositionMessage(position),
         poll_url: `/api/v1/queue/${item.id}`,
+        ...(priorityNotice ? { nova_priority: priorityNotice } : {}),
       });
     }
     const runChat = (options: { onChunk?: (chunk: string) => void; signal?: AbortSignal }) =>

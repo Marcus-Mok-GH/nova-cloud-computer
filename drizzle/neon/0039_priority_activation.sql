@@ -1,0 +1,1 @@
+ALTER TABLE "priority_purchases" ADD COLUMN "activatedAt" timestamp with time zone;

@@ -86,3 +86,11 @@ export function queuePositionMessage(position: number): string {
   const safe = Number.isFinite(position) ? Math.max(1, Math.floor(position)) : 1;
   return `You are ${safe} in the queue.`;
 }
+
+/**
+ * The confirmation shown on the message that starts a purchased priority
+ * window, so the sender knows the one-hour countdown has begun.
+ */
+export function priorityActiveMessage(): string {
+  return "Priority active for 1 hour. Your requests now jump ahead during peak hours.";
+}

@@ -98,6 +98,7 @@ export default function Workspace() {
   // Peak hours defer the turn: the server answers with a queue position and
   // this notice stays up until the deferred run actually starts.
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
+  const [priorityNotice, setPriorityNotice] = useState<string | null>(null);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
   const chatId =
     typeof window === "undefined"
@@ -357,6 +358,7 @@ export default function Workspace() {
     setPendingUserContent(content);
     setLiveEvents([]);
     setQueueNotice(null);
+    setPriorityNotice(null);
     setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -410,6 +412,12 @@ export default function Workspace() {
               };
               if (parsed.type === "queued") {
                 setQueueNotice(
+                  typeof parsed.message === "string" ? parsed.message : null
+                );
+                continue;
+              }
+              if (parsed.type === "priority") {
+                setPriorityNotice(
                   typeof parsed.message === "string" ? parsed.message : null
                 );
                 continue;
@@ -833,6 +841,15 @@ export default function Workspace() {
                     className="mx-2.5 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
                   >
                     {queueNotice}
+                  </div>
+                )}
+                {priorityNotice && (
+                  <div
+                    data-testid="priority-notice"
+                    role="status"
+                    className="mx-2.5 mb-1.5 border-l-2 border-emerald-500 bg-emerald-500/[0.08] px-3 py-2 text-xs font-semibold text-foreground"
+                  >
+                    {priorityNotice}
                   </div>
                 )}
                 <div className="flex items-center justify-end px-2.5 pb-1.5">

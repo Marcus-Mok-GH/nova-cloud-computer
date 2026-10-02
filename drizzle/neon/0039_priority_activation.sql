@@ -1,1 +1,1 @@
-ALTER TABLE "priority_purchases" ADD COLUMN "activatedAt" timestamp with time zone;
+ALTER TABLE "priority_purchases" ADD COLUMN IF NOT EXISTS "activatedAt" timestamp with time zone;

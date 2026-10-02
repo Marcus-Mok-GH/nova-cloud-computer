@@ -1,3 +1,24 @@
+2026-10-02 - Personalisation mode: a settings tab that learns how you like to work
+
+Nova had standing workspace rules and a communication style, but no first-class
+way to say who the user is and how they want the agent to behave. Settings gains
+a Personalisation tab with three ways to tune the agent: a mode toggle that lets
+Nova notice and save lasting preferences, structured controls for tone, reply
+length, collaboration style and expertise, and a guided-setup button that opens
+a real chat where Nova interviews the user one question at a time and writes the
+profile itself.
+
+The saved preferences are composed into a personalisation block injected into
+every agent system prompt, alongside the existing communication style, so they
+apply across all chats and channels. A new `set_personalisation` tool lets the
+model save or clear any field mid-conversation, and the guided-setup kickoff is
+a one-shot intent (`?personalise=1`) that the chat view turns into the opening
+message and then strips from the URL. Files: drizzle/schema.ts (+ migration
+0033), server/db.ts, server/routers.ts, server/workspaceAgent.ts,
+client/src/components/PersonalisationCard.tsx (new),
+client/src/pages/WorkspaceSettings.tsx, client/src/pages/Workspace.tsx, plus
+tests.
+
 2026-10-02 - Pause the workspace sandbox the moment a task finishes
 
 A persistent workspace sandbox only fell asleep on its one-hour inactivity

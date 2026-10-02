@@ -80,6 +80,10 @@ function ImageAttachmentTray({
   );
 }
 
+/** Opening message for the guided personalisation session launched from Settings. */
+const PERSONALISATION_KICKOFF =
+  "Let's set up my personalisation. Ask me one question at a time about how I work and how I want you to work with me, wait for each answer, then save what you learn with set_personalisation and turn personalisation mode on.";
+
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, {
     retry: false,
@@ -96,6 +100,14 @@ export default function Workspace() {
     typeof window === "undefined"
       ? undefined
       : new URLSearchParams(window.location.search).get("chatId") || undefined;
+  // One-shot flag set by Settings' "Start guided setup" button; the effect
+  // below turns it into the opening message of a personalisation session.
+  const personaliseIntent =
+    typeof window === "undefined"
+      ? false
+      : new URLSearchParams(window.location.search).get("personalise") ===
+        "1";
+  const personaliseStartedRef = useRef(false);
   const [composerAttachments, setComposerAttachments] = useState<
     ChatImageAttachment[]
   >([]);
@@ -443,6 +455,23 @@ export default function Workspace() {
       );
     }
   };
+  // A chat opened from Settings' "Start guided setup" link begins with the
+  // personalisation kickoff, once. The intent is stripped from the URL so a
+  // refresh or share does not send it again.
+  useEffect(() => {
+    if (!chatId || !personaliseIntent || personaliseStartedRef.current) return;
+    if (savedMessages.isLoading || agentIsWorking) return;
+    if ((savedMessages.data ?? []).length > 0) return;
+    personaliseStartedRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("personalise");
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`
+    );
+    void sendMessage(chatId, PERSONALISATION_KICKOFF);
+  }, [chatId, personaliseIntent, savedMessages.isLoading, savedMessages.data, agentIsWorking]);
 
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;

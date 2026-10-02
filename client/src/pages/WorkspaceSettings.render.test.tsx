@@ -8,7 +8,8 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 1, email
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
+    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
+    chats: { create: { useMutation: () => mutation } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
     ai: { status: { useQuery: () => ({ data: { model: "chat-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
     telegram: { status: { useQuery: () => ({ data: { configured: true, chatId: "42", botUsername: "nova_test_bot", webhook: { linked: true } } }) }, modelSettings: { useQuery: () => ({ data: { modelId: "test", options: [] } }) }, updateModel: { useMutation: () => mutation }, configure: { useMutation: () => mutation }, discoverChat: { useMutation: () => mutation }, sendTest: { useMutation: () => mutation }, remove: { useMutation: () => mutation } },
@@ -47,6 +48,11 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("API keys");
     expect(markup).toContain("Account</button>");
     expect(markup).toContain("Workspace rules");
+    expect(markup).toContain("Personalisation");
+    expect(markup).toContain("Tune Nova to how you work");
+    expect(markup).toContain("Personalisation mode");
+    expect(markup).toContain("What Nova knows about you");
+    expect(markup).toContain("Start guided setup");
     expect(markup).toContain("Appearance");
     expect(markup).toContain("Daylight");
     expect(markup).toContain("Deep sea");

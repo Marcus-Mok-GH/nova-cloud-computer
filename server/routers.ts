@@ -74,7 +74,10 @@ const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "mistra
 const modelCompatibility = z.enum(["openai", "anthropic"]);
 const projectUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullable().optional(), status: projectStatus.optional() }).refine(input => input.name !== undefined || input.description !== undefined || input.status !== undefined, { message: "Provide at least one project change." });
 const customModelInput = z.object({ name: z.string().trim().min(1, "Give the model a name.").max(120), modelId: z.string().trim().min(1, "A model ID is required.").max(240), baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), compatibility: modelCompatibility, apiKey: z.string().trim().min(1, "An API key is required.").max(4096), supportsImageInput: z.boolean() });
-const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional() }).refine(input => input.activeProvider !== undefined || input.activeModelId !== undefined || input.activeCustomModelId !== undefined || input.workspaceRules !== undefined, { message: "Provide at least one setting change." });
+const personalisationDetail = z.enum(["brief", "balanced", "detailed"]);
+const personalisationProactiveness = z.enum(["ask_first", "act_and_tell", "autonomous"]);
+const personalisationExpertise = z.enum(["new", "some", "expert"]);
+const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional(), personalisationEnabled: z.boolean().optional(), personalisationProfile: z.string().trim().max(2000).nullable().optional(), personalisationTone: z.string().trim().max(60).nullable().optional(), personalisationDetail: personalisationDetail.nullable().optional(), personalisationProactiveness: personalisationProactiveness.nullable().optional(), personalisationExpertise: personalisationExpertise.nullable().optional() }).refine(input => input.activeProvider !== undefined || input.activeModelId !== undefined || input.activeCustomModelId !== undefined || input.workspaceRules !== undefined || input.personalisationEnabled !== undefined || input.personalisationProfile !== undefined || input.personalisationTone !== undefined || input.personalisationDetail !== undefined || input.personalisationProactiveness !== undefined || input.personalisationExpertise !== undefined, { message: "Provide at least one setting change." });
 const folderInput = z.object({ name: z.string().trim().min(1, "A folder needs a name.").max(160), parentId: z.number().int().positive().nullable().optional() });
 const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(input => input.name !== undefined || input.parentId !== undefined, { message: "Provide a folder change." });
 const fileInput = z.object({ name: z.string().trim().min(1, "A file needs a name.").max(240), content: z.string().max(200000).optional(), mimeType: z.string().trim().min(1).max(120).optional(), folderId: z.number().int().positive().nullable().optional() });
@@ -202,7 +205,18 @@ export const appRouter = router({
           throw error;
         }
       }
-      const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, input);
+      const settings = await updateWorkspaceModelSettingsForUser(ctx.user.id, {
+        activeProvider: input.activeProvider,
+        activeModelId: input.activeModelId,
+        activeCustomModelId: input.activeCustomModelId,
+        workspaceRules: input.workspaceRules,
+        enabled: input.personalisationEnabled,
+        profile: input.personalisationProfile,
+        tone: input.personalisationTone,
+        detail: input.personalisationDetail,
+        proactiveness: input.personalisationProactiveness,
+        expertise: input.personalisationExpertise,
+      });
       if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
     }),

@@ -7,6 +7,7 @@ import {
   generateApiKeyRecord,
   hashApiKey,
   MAX_API_KEYS_PER_OWNER,
+  renameApiKeyForUser,
 } from "./apiKeys";
 
 describe("API key generation", () => {
@@ -58,6 +59,31 @@ describe("createApiKeyForUser", () => {
       createApiKeyForUser(1, "too many", { create, countFor: vi.fn(async () => MAX_API_KEYS_PER_OWNER) })
     ).rejects.toBeInstanceOf(ApiKeyLimitError);
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("renameApiKeyForUser", () => {
+  it("renames an owned key and returns the safe record", async () => {
+    const row = {
+      id: 3,
+      ownerId: 1,
+      name: "renamed",
+      keyHash: "hash",
+      keyPreview: "preview",
+      lastUsedAt: null,
+      createdAt: new Date("2026-09-27T00:00:00Z"),
+      updatedAt: new Date("2026-09-27T00:00:00Z"),
+    };
+    const rename = vi.fn(async (_ownerId: number, _keyId: number, name: string) => ({ ...row, name }));
+    const renamed = await renameApiKeyForUser(1, 3, "  renamed  ", { rename });
+    expect(rename).toHaveBeenCalledWith(1, 3, "renamed");
+    expect(renamed).toEqual({ id: 3, name: "renamed", keyPreview: "preview", createdAt: row.createdAt, lastUsedAt: null });
+    expect(JSON.stringify(renamed)).not.toContain("hash");
+  });
+
+  it("returns null when the key does not belong to the owner", async () => {
+    const renamed = await renameApiKeyForUser(1, 99, "someone else's", { rename: vi.fn(async () => null) });
+    expect(renamed).toBeNull();
   });
 });
 

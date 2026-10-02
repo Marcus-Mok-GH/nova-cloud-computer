@@ -44,7 +44,7 @@ import {
   updateAutomationForUser, factoryResetWorkspaceForUser } from "./db";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
-import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, revokeApiKeyForUser } from "./apiKeys";
+import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, renameApiKeyForUser, revokeApiKeyForUser } from "./apiKeys";
 import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
@@ -175,6 +175,13 @@ export const appRouter = router({
           if (error instanceof ApiKeyStorageError) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: error.message });
           throw error;
         }
+      }),
+    rename: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1, "Give the key a name.").max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        const renamed = await renameApiKeyForUser(ctx.user.id, input.id, input.name);
+        if (!renamed) throw new TRPCError({ code: "NOT_FOUND", message: "That API key does not exist." });
+        return renamed;
       }),
     revoke: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))

@@ -174,4 +174,43 @@ describe("OpenAI response shapes", () => {
     const finalChunk = buildOpenAiSseChunk("chatcmpl-1", "chat-small-latest", {}, "stop");
     expect(JSON.parse(finalChunk.slice("data: ".length).trim()).choices[0].finish_reason).toBe("stop");
   });
+
+  it("surfaces the priority activation on a direct completion", () => {
+    const payload = buildOpenAiChatCompletion(
+      {
+        text: "Hello!",
+        toolCalls: [],
+        model: "chat-small-latest",
+        usage: null,
+        allowance: { usedRequests: 1, maxRequests: 500, remainingRequests: 499, exhausted: false },
+      },
+      NOVA_PRO_MODEL_ID,
+      "Priority active for 1 hour."
+    );
+    expect(payload["x-nova-priority"]).toBe("Priority active for 1 hour.");
+  });
+
+  it("omits the priority field when no window started", () => {
+    const payload = buildOpenAiChatCompletion({
+      text: "Hello!",
+      toolCalls: [],
+      model: "chat-small-latest",
+      usage: null,
+      allowance: { usedRequests: 1, maxRequests: 500, remainingRequests: 499, exhausted: false },
+    });
+    expect("x-nova-priority" in payload).toBe(false);
+  });
+
+  it("attaches the priority field to an SSE chunk only when given", () => {
+    const withExtra = buildOpenAiSseChunk("chatcmpl-1", "chat-small-latest", { role: "assistant" }, null, {
+      "x-nova-priority": "Priority active for 1 hour.",
+    });
+    const withPayload = JSON.parse(withExtra.slice("data: ".length).trim());
+    expect(withPayload["x-nova-priority"]).toBe("Priority active for 1 hour.");
+    // Extra fields sit beside `choices`, so the OpenAI chunk shape is intact.
+    expect(withPayload.choices[0].delta).toEqual({ role: "assistant" });
+
+    const without = buildOpenAiSseChunk("chatcmpl-1", "chat-small-latest", { role: "assistant" }, null);
+    expect("x-nova-priority" in JSON.parse(without.slice("data: ".length).trim())).toBe(false);
+  });
 });

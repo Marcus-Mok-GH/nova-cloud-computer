@@ -30,6 +30,7 @@ vi.mock("./db", () => ({
   })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getDb: vi.fn(),
+  activatePriorityWindowForUser: vi.fn(async () => ({ priority: false, justActivated: false, expiresAt: null })),
   createWorkspaceFileForUser: spies.createWorkspaceFileForUser,
   startAgentRunForUser: spies.startAgentRunForUser,
   finishAgentRunForUser: spies.finishAgentRunForUser,

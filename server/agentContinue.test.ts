@@ -62,6 +62,7 @@ vi.mock("./db", () => ({
   isUserBanned: spies.isUserBanned,
   cancelActiveAgentVmRunsForUser: vi.fn(async () => 0),
   cancelWaitingInferenceQueueItemsForUser: vi.fn(async () => 0),
+  activatePriorityWindowForUser: vi.fn(async () => ({ priority: false, justActivated: false, expiresAt: null })),
   requestAgentStopForUser: vi.fn(async () => true),
   claimTelegramUpdate: spies.claimTelegramUpdate,
   startAgentRunForUser: spies.startAgentRunForUser,

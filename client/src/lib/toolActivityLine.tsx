@@ -258,8 +258,8 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
 
 /**
  * Whether an activity renders as an expandable panel rather than a one-line
- * chip: the sub-agent specialists, the model's thinking blocks, and the
- * equation solver.
+ * chip: the sub-agent specialists, the model's thinking blocks, the equation
+ * solver, and edit_file (whose dropdown holds the diff).
  */
 export function isPanelToolActivity(name: string): boolean {
   return (
@@ -268,7 +268,8 @@ export function isPanelToolActivity(name: string): boolean {
     name === "research_web" ||
     name === "thinker" ||
     name === "thinking" ||
-    name === "solve_equation"
+    name === "solve_equation" ||
+    name === "edit_file"
   );
 }
 
@@ -282,6 +283,8 @@ export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
     return <ThinkerToolActivity activity={activity} />;
   if (activity.name === "solve_equation")
     return <SolveEquationToolActivity activity={activity} />;
+  if (activity.name === "edit_file")
+    return <EditFileToolActivity activity={activity} />;
   return <ThinkingToolActivity activity={activity} />;
 }
 
@@ -682,6 +685,104 @@ export function SolveEquationDetail({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * A unified diff rendered as tinted rows: added lines green, removed lines
+ * red, hunk headers quiet. A long unbroken line scrolls horizontally inside
+ * the panel rather than stretching the chat bubble.
+ */
+export function DiffText({ diff }: { diff: string }) {
+  return (
+    <pre
+      data-testid="edit-file-diff"
+      className="max-w-full overflow-x-auto whitespace-pre font-mono text-xs leading-5"
+    >
+      {diff.split("\n").map((line, index) => {
+        const tone = line.startsWith("+")
+          ? "text-emerald-600 dark:text-emerald-400"
+          : line.startsWith("-")
+            ? "text-red-600 dark:text-red-400"
+            : "text-muted-foreground";
+        return (
+          <div key={index} className={tone}>
+            {line || " "}
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
+/**
+ * edit_file calls get a dropdown showing the actual change: the unified diff
+ * the server computed for the edit (before -> after), with additions and
+ * removals tinted. It starts open while the edit runs so the live note is
+ * visible, then collapses to the diff on demand. An edit whose content was
+ * unchanged (or whose diff was not recorded) says so rather than opening an
+ * empty panel.
+ */
+/** The settled (completed/failed) body of an edit_file panel: the diff. */
+export function EditFileDetail({ activity }: { activity: ToolActivity }) {
+  if (activity.diff) return <DiffText diff={activity.diff} />;
+  if (activity.state === "failed")
+    return (
+      <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
+        {activity.detail || activity.summary || "The edit failed."}
+      </p>
+    );
+  return (
+    <p className="text-xs text-muted-foreground">
+      {activity.summary ||
+        "No changes - the file already had that content."}
+    </p>
+  );
+}
+
+/**
+ * edit_file calls get a dropdown showing the actual change: the unified diff
+ * the server computed for the edit (before -> after), with additions and
+ * removals tinted. It starts open while the edit runs so the live note is
+ * visible, then collapses to the diff on demand.
+ */
+export function EditFileToolActivity({ activity }: { activity: ToolActivity }) {
+  const [open, setOpen] = useState(activity.state === "running");
+  const running = activity.state === "running";
+  return (
+    <div
+      data-testid="edit-file-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          data-testid="edit-file-detail-panel"
+          className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
+        >
+          <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+            {running ? (
+              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+                {activity.detail || "The edit is being applied…"}
+              </p>
+            ) : (
+              <EditFileDetail activity={activity} />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

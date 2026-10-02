@@ -6,12 +6,13 @@ const spies = {
   completeInferenceQueueItem: vi.fn(async () => undefined),
   failInferenceQueueItem: vi.fn(async () => undefined),
   requeueStaleInferenceQueueItems: vi.fn(async () => 0),
+  getRunningInferenceQueueItem: vi.fn(async () => undefined),
   getTelegramCredentialsForUser: vi.fn(async () => undefined),
+  getCustomModelForUser: vi.fn(async () => undefined),
   executeWebAgentRun: vi.fn(async () => ({ message: null, actions: [] })),
   executeTelegramAgentRun: vi.fn(async () => ({ delivered: true, reply: "ok" })),
   chatWithAiGateway: vi.fn(),
   chatWithCustomModel: vi.fn(),
-  getActiveCustomModel: vi.fn(async () => null),
   kickPeakQueue: vi.fn(),
 };
 
@@ -20,7 +21,9 @@ vi.mock("./db", () => ({
   completeInferenceQueueItem: spies.completeInferenceQueueItem,
   failInferenceQueueItem: spies.failInferenceQueueItem,
   requeueStaleInferenceQueueItems: spies.requeueStaleInferenceQueueItems,
+  getRunningInferenceQueueItem: spies.getRunningInferenceQueueItem,
   getTelegramCredentialsForUser: spies.getTelegramCredentialsForUser,
+  getCustomModelForUser: spies.getCustomModelForUser,
 }));
 
 vi.mock("./agentRuns", () => ({
@@ -35,7 +38,6 @@ vi.mock("./aiGateway", async importOriginal => {
 
 vi.mock("./byokGateway", () => ({
   chatWithCustomModel: spies.chatWithCustomModel,
-  getActiveCustomModel: spies.getActiveCustomModel,
 }));
 
 vi.mock("./peakQueueScheduler", () => ({
@@ -56,6 +58,7 @@ function queueItem(overrides: Partial<InferenceQueueItem> = {}): InferenceQueueI
     payload: {},
     result: null,
     errorMessage: null,
+    attempts: 1,
     startedAt: new Date(),
     completedAt: null,
     createdAt: new Date(),
@@ -72,20 +75,45 @@ const gatewayResult = {
   allowance: { usedRequests: 1, maxRequests: 500, remainingRequests: 499, exhausted: false },
 };
 
+const customModel = {
+  id: 9,
+  workspaceId: 1,
+  name: "My provider",
+  modelId: "gpt-4o",
+  baseUrl: "https://api.example.com/v1",
+  compatibility: "openai" as const,
+  encryptedApiKey: "encrypted",
+  supportsImageInput: false,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   spies.requeueStaleInferenceQueueItems.mockResolvedValue(0);
-  spies.getActiveCustomModel.mockResolvedValue(null);
+  spies.getRunningInferenceQueueItem.mockResolvedValue(undefined);
   spies.getTelegramCredentialsForUser.mockResolvedValue(undefined);
+  spies.getCustomModelForUser.mockResolvedValue(undefined);
   spies.chatWithAiGateway.mockResolvedValue(gatewayResult);
+  spies.chatWithCustomModel.mockResolvedValue(gatewayResult);
 });
 
 describe("advancePeakQueue", () => {
-  it("does nothing when the queue is empty", async () => {
+  it("does nothing when the queue is empty and nothing is running", async () => {
     spies.claimNextInferenceQueueItem.mockResolvedValue(undefined);
     await expect(advancePeakQueue()).resolves.toEqual({ processed: 0 });
     expect(spies.completeInferenceQueueItem).not.toHaveBeenCalled();
     expect(spies.kickPeakQueue).not.toHaveBeenCalled();
+  });
+
+  it("sweeps and re-kicks when a killed worker left a stale running row", async () => {
+    spies.claimNextInferenceQueueItem.mockResolvedValue(undefined);
+    spies.getRunningInferenceQueueItem.mockResolvedValue(
+      queueItem({ startedAt: new Date(Date.now() - 10 * 60_000) })
+    );
+    await expect(advancePeakQueue()).resolves.toEqual({ processed: 0 });
+    expect(spies.requeueStaleInferenceQueueItems).toHaveBeenCalled();
+    expect(spies.kickPeakQueue).toHaveBeenCalled();
   });
 
   it("runs a deferred API call and stores the completion for polling", async () => {
@@ -99,6 +127,36 @@ describe("advancePeakQueue", () => {
     expect((result as { object?: string }).object).toBe("chat.completion");
     expect((result as { model?: string }).model).toBe("nova-pro");
     expect(spies.kickPeakQueue).toHaveBeenCalled();
+  });
+
+  it("routes a queued BYOK call through the model selected at admission", async () => {
+    spies.getCustomModelForUser.mockResolvedValue(customModel);
+    spies.claimNextInferenceQueueItem.mockResolvedValue(
+      queueItem({ payload: { modelId: "gpt-4o", customModelId: 9, messages: [{ role: "user", content: "Hi" }] } })
+    );
+    await advancePeakQueue();
+    expect(spies.getCustomModelForUser).toHaveBeenCalledWith(7, 9);
+    expect(spies.chatWithCustomModel).toHaveBeenCalled();
+    expect(spies.chatWithAiGateway).not.toHaveBeenCalled();
+    const [, result] = spies.completeInferenceQueueItem.mock.calls[0];
+    expect((result as { model?: string }).model).toBe("gpt-4o");
+  });
+
+  it("fails a queued BYOK call whose model disappeared while it waited", async () => {
+    spies.getCustomModelForUser.mockResolvedValue(undefined);
+    spies.claimNextInferenceQueueItem.mockResolvedValue(
+      queueItem({ payload: { modelId: "gpt-4o", customModelId: 9, messages: [] } })
+    );
+    await advancePeakQueue();
+    expect(spies.chatWithCustomModel).not.toHaveBeenCalled();
+    expect(spies.failInferenceQueueItem).toHaveBeenCalledWith(1, "the model selected when this request was queued is no longer available");
+  });
+
+  it("does not leak raw internal errors to the poll response", async () => {
+    spies.chatWithAiGateway.mockRejectedValue(new Error("ECONNRESET 10.0.0.1:5432 at postgres"));
+    spies.claimNextInferenceQueueItem.mockResolvedValue(queueItem({ payload: { messages: [] } }));
+    await advancePeakQueue();
+    expect(spies.failInferenceQueueItem).toHaveBeenCalledWith(1, "the deferred request hit an unexpected error");
   });
 
   it("records a failed API call instead of leaving it running", async () => {
@@ -126,7 +184,7 @@ describe("advancePeakQueue", () => {
     spies.executeWebAgentRun.mockRejectedValueOnce(new Error("agent exploded"));
     spies.claimNextInferenceQueueItem.mockResolvedValue(queueItem({ channel: "web", chatId: "chat-1" }));
     await advancePeakQueue();
-    expect(spies.failInferenceQueueItem).toHaveBeenCalledWith(1, "agent exploded");
+    expect(spies.failInferenceQueueItem).toHaveBeenCalledWith(1, "the deferred request hit an unexpected error");
     expect(spies.kickPeakQueue).toHaveBeenCalled();
   });
 

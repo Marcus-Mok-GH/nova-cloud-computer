@@ -93,6 +93,8 @@ export type InferenceQueuePayload = {
   notifyChatId?: string;
   /** Inference API: the requested model id. */
   modelId?: string;
+  /** Inference API: the BYOK row selected at admission, so a later active-model change cannot reroute the request. */
+  customModelId?: number | null;
   /** Inference API: the normalized OpenAI-style messages to complete. */
   messages?: unknown[];
   /** Inference API: whether the caller asked for a streamed response. */
@@ -115,6 +117,8 @@ export const inferenceQueue = pgTable("inference_queue", {
   payload: jsonb("payload").$type<InferenceQueuePayload>().default({}).notNull(),
   result: jsonb("result").$type<Record<string, unknown>>(),
   errorMessage: varchar("errorMessage", { length: 1200 }),
+  /** Claims so far; a stale sweep stops retrying a row once it hits the cap. */
+  attempts: integer("attempts").default(0).notNull(),
   startedAt: timestamp("startedAt", { withTimezone: true }),
   completedAt: timestamp("completedAt", { withTimezone: true }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),

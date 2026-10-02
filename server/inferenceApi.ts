@@ -311,7 +311,7 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
         ownerId,
         channel: "api",
         content: "",
-        payload: { modelId: model, messages, stream },
+        payload: { modelId: model, customModelId: choice.customModel?.id ?? null, messages, stream },
       });
       const position = await getInferenceQueuePosition(item.id);
       kickPeakQueue();

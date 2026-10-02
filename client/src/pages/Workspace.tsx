@@ -214,10 +214,20 @@ export default function Workspace() {
   useEffect(() => {
     if (runStatus.data?.active) setQueueNotice(null);
   }, [runStatus.data?.active]);
+  // A queued turn has no agent-run row yet, so it would otherwise look idle;
+  // treat it as busy so the composer offers Stop, which cancels the queued item.
+  const composerBusy = agentIsWorking || Boolean(queueNotice);
+  // A notice belongs to the conversation it was raised in.
+  useEffect(() => {
+    setQueueNotice(null);
+  }, [chatId]);
   // Stops the chat's in-flight agent run and its queued/running VM workflows
   // (the composer's send button turns into this stop button while Nova works).
   const stopRun = trpc.chats.stop.useMutation({
-    onSuccess: () => runStatus.refetch(),
+    onSuccess: () => {
+      setQueueNotice(null);
+      void runStatus.refetch();
+    },
     onError: error =>
       toast.error(
         error instanceof Error
@@ -432,8 +442,9 @@ export default function Workspace() {
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
-    // While Nova works, both the Enter key and the composer button stop the run.
-    if (agentIsWorking) {
+    // While Nova works - or while this turn waits in the peak-hours queue -
+    // both the Enter key and the composer button stop the run.
+    if (composerBusy) {
       handleStopRun();
       return;
     }
@@ -880,7 +891,7 @@ export default function Workspace() {
                     rows={1}
                     className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
                   />
-                  {!agentIsWorking && (
+                  {!composerBusy && (
                     <button
                       type="button"
                       onClick={() => composerImageInputRef.current?.click()}
@@ -891,7 +902,7 @@ export default function Workspace() {
                       <ImagePlus className="size-4" />
                     </button>
                   )}
-                  {agentIsWorking ? (
+                  {composerBusy ? (
                     <button
                       type="submit"
                       aria-label="Stop Nova"

@@ -57,13 +57,19 @@ async function scheduleQueueAdvanceOnce(baseUrl: string, signature: string, body
  * responses - out of this module's own graph, so there is no import cycle.
  */
 export function kickPeakQueue(): void {
-  void (async () => {
-    if (await scheduleQueueAdvance()) return;
-    try {
-      const worker = await import("./peakQueueWorker");
-      trackBackgroundWork(worker.advancePeakQueue().catch(() => {}));
-    } catch (error) {
-      console.warn("[Peak queue] Could not start the queue worker:", error instanceof Error ? error.message : error);
-    }
-  })();
+  // The whole hand-off is registered with the runtime: the self-invocation
+  // fetch and the inline fallback both outlive the HTTP response that triggered
+  // them, so the platform cannot freeze the invocation before the next item is
+  // handed off.
+  trackBackgroundWork(
+    (async () => {
+      if (await scheduleQueueAdvance()) return;
+      try {
+        const worker = await import("./peakQueueWorker");
+        await worker.advancePeakQueue().catch(() => {});
+      } catch (error) {
+        console.warn("[Peak queue] Could not start the queue worker:", error instanceof Error ? error.message : error);
+      }
+    })()
+  );
 }

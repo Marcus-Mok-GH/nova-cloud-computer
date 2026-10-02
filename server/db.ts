@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import {
@@ -300,7 +300,7 @@ export async function listCustomModelsForUser(ownerId: number) {
   return (await db.select().from(customModels).where(eq(customModels.workspaceId, workspace.id)).orderBy(asc(customModels.createdAt))).map(toSafeCustomModel);
 }
 
-async function getCustomModelForUser(ownerId: number, customModelId: number) {
+export async function getCustomModelForUser(ownerId: number, customModelId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return (await db.select().from(customModels).where(and(eq(customModels.id, customModelId), eq(customModels.workspaceId, workspace.id))).limit(1))[0];
@@ -1599,6 +1599,13 @@ export async function updateSiteDeploymentStatusForUser(
   return row ?? null;
 }
 
+/**
+ * How many times one deferred request may be claimed before it is dead-lettered.
+ * A row that always exceeds its run budget must not monopolize the queue head
+ * forever; after this many stale sweeps it is closed as failed.
+ */
+export const MAX_INFERENCE_QUEUE_ATTEMPTS = 3;
+
 /** How a deferred queue item's result is delivered once it reaches the front. */
 export type InferenceQueueChannel = "web" | "telegram" | "api";
 
@@ -1651,7 +1658,7 @@ export async function claimNextInferenceQueueItem(): Promise<InferenceQueueItem 
   const db = await requireDb();
   const result = (await db.execute(sql`
     UPDATE "inference_queue" AS q
-    SET "status" = 'running', "startedAt" = now(), "updatedAt" = now()
+    SET "status" = 'running', "startedAt" = now(), "attempts" = q."attempts" + 1, "updatedAt" = now()
     WHERE q."id" = (SELECT "id" FROM "inference_queue" WHERE "status" = 'waiting' ORDER BY "id" LIMIT 1)
       AND q."status" = 'waiting'
       AND NOT EXISTS (SELECT 1 FROM "inference_queue" WHERE "status" = 'running')
@@ -1666,16 +1673,34 @@ export async function claimNextInferenceQueueItem(): Promise<InferenceQueueItem 
 
 /**
  * Returns items whose worker invocation died mid-run (the platform killed it
- * before it could close the row) to the front of the queue.
+ * before it could close the row) to the front of the queue, and dead-letters
+ * the ones that have already used every attempt so a single budget-busting row
+ * cannot hold the head of the line forever.
  */
 export async function requeueStaleInferenceQueueItems(staleBefore: Date): Promise<number> {
   const db = await requireDb();
+  const stale = and(eq(inferenceQueue.status, "running"), lt(inferenceQueue.startedAt, staleBefore));
+  await db
+    .update(inferenceQueue)
+    .set({ status: "failed", errorMessage: "the deferred request exceeded its run budget on every attempt", completedAt: new Date(), updatedAt: new Date() })
+    .where(and(stale, gte(inferenceQueue.attempts, MAX_INFERENCE_QUEUE_ATTEMPTS)));
   const requeued = await db
     .update(inferenceQueue)
     .set({ status: "waiting", startedAt: null, updatedAt: new Date() })
-    .where(and(eq(inferenceQueue.status, "running"), lt(inferenceQueue.startedAt, staleBefore)))
+    .where(and(stale, lt(inferenceQueue.attempts, MAX_INFERENCE_QUEUE_ATTEMPTS)))
     .returning({ id: inferenceQueue.id });
   return requeued.length;
+}
+
+/** The oldest request currently running, so the worker can watch for a killed invocation. */
+export async function getRunningInferenceQueueItem() {
+  const db = await requireDb();
+  return (await db
+    .select()
+    .from(inferenceQueue)
+    .where(eq(inferenceQueue.status, "running"))
+    .orderBy(asc(inferenceQueue.id))
+    .limit(1))[0];
 }
 
 /** Closes a queue item with its delivered result (the inference API stores its payload here). */

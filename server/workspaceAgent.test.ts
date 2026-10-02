@@ -447,30 +447,37 @@ describe("Nova tool-calling workspace agent", () => {
     expect(computer).toHaveBeenCalled();
   });
 
-  it("frames the agent as a thin reasoner with SLM-optimized tool triggers", async () => {
+  it("frames the agent as a capable operator with tool routing", async () => {
     chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Sure - what should it contain?" })
     );
     await runWorkspaceAgent(1, 3, "hi");
     const [, messages, options] = chatWithAiGateway.mock.calls[0];
     const system = messages[0].content;
-    // Hybrid-supervisor framing: classify first, tools carry the heavy load.
-    expect(system).toContain("hybrid supervisor");
-    expect(system).toContain("Classify first");
-    expect(system).toContain("zero added latency");
-    expect(system).toContain("thin reasoner");
-    expect(system).toContain("traffic cop");
-    // State-machine execution: one action at a time, not a 5-step leap.
-    expect(system).toContain("Decide one action at a time");
-    expect(system).toContain("state machine");
-    // Weakness offload: math AND data manipulation, plus the memory rule.
+    // Capable-operator framing: finish the goal, use tools when they help.
+    expect(system).toContain("get the user's work done end-to-end");
+    expect(system).toContain("capable operator");
+    expect(system).toContain("Finish the goal");
+    expect(system).toContain("Bias to action");
+    expect(system).toContain("Work in tight loops");
+    // A high quality bar is set explicitly, not just tool routing.
+    expect(system).toContain("the user's problem actually being solved");
+    expect(system).toContain("never settle for a partial, generic or hedged result");
+    // Self-limiting framing is gone.
+    expect(system).not.toContain("thin reasoner");
+    expect(system).not.toContain("traffic cop");
+    expect(system).not.toContain("hybrid supervisor");
+    // Overlapping principles are consolidated into the ones above.
+    expect(system).not.toContain("Choose your collaboration level");
+    expect(system).not.toContain("Chain tools freely.");
+    // Keep routing rules that prevent confidently wrong answers.
     expect(system).toContain("Never do math or data work in your head");
     expect(system).toContain("Your memory is tool-backed, not file-backed");
     expect(system).toContain("search_memories");
     // Memories replace the inline workspace file listing.
     expect(system).toContain("Recent memories");
     expect(system).not.toContain("Current files");
-    // Explicit triggers on the SLM-facing tool descriptions.
+    // Explicit triggers on the tool descriptions.
     const tool = (name: string) =>
       options.tools.find(
         (t: { function: { name: string } }) => t.function.name === name

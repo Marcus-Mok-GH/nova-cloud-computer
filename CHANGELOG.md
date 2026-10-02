@@ -1,3 +1,25 @@
+2026-10-02 - Agent prompt reframes Nova as a capable operator instead of a thin router
+
+The workspace agent's system prompt no longer frames the model as a *hybrid
+supervisor* - a router that only classifies requests and hands everything to a
+specialist, with spotty knowledge, unreliable arithmetic and degrading recall.
+That framing was tuned for a small model and made the agent talk itself out of
+answers it could give and work it could finish. It now opens by defining the
+job as getting the user's work done end-to-end and to a high standard, with an
+explicit quality bar: the measure of a good turn is the user's problem actually
+being solved, so a partial, generic or hedged result is not acceptable while
+the tools to do better are available. The operating principles were rebalanced
+and de-duplicated: "Finish the goal" now states that a refusal is only
+acceptable once the tools are genuinely exhausted, "Bias to action" absorbs the
+former "Choose your collaboration level deliberately" rule, and "Work in tight
+loops" absorbs the former "Chain tools freely" rule. The routing rules that
+keep answers correct - dedicated tools over the VM, solve_equation for all
+arithmetic, the editor for substantial code, research for current facts,
+thinker for hard reasoning, tool-backed memory - are all kept. Files:
+server/workspaceAgent.ts, server/workspaceAgent.test.ts.
+
+---
+
 2026-10-02 - Personal agents: Cue-style identity, wallets, teams, and approval gates
 
 Nova gained a personal-agent layer modeled on Manus's Cue app. Each agent

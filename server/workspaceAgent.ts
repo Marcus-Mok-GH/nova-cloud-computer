@@ -421,6 +421,7 @@ export function isSubstantialCode(content: string): boolean {
 }
 
 const DIFF_MAX_LINES = 400;
+const DIFF_MAX_CHARS = 16000;
 
 /**
  * A compact unified diff ("@@ -1,3 +1,4 @@" hunks with -/+ lines) between a
@@ -432,8 +433,10 @@ const DIFF_MAX_LINES = 400;
  */
 export function unifiedDiff(before: string, after: string): string {
   if (before === after) return "";
-  const oldLines = before.split("\n");
-  const newLines = after.split("\n");
+  // An empty file has no lines to anchor a range to, not one blank line -
+  // otherwise creating a file reports a removal of line 1.
+  const oldLines = before === "" ? [] : before.split("\n");
+  const newLines = after === "" ? [] : after.split("\n");
   let prefix = 0;
   while (
     prefix < oldLines.length &&
@@ -445,23 +448,42 @@ export function unifiedDiff(before: string, after: string): string {
   while (
     suffix < oldLines.length - prefix &&
     suffix < newLines.length - prefix &&
-    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+    oldLines[oldLines.length - 1 - suffix] ===
+      newLines[newLines.length - 1 - suffix]
   )
     suffix++;
   const removed = oldLines.slice(prefix, oldLines.length - suffix);
   const added = newLines.slice(prefix, newLines.length - suffix);
   // Cap the middle so a whole-file rewrite does not balloon the persisted
   // activity row (and the chat payload) with hundreds of changed lines.
-  const truncated = removed.length > DIFF_MAX_LINES || added.length > DIFF_MAX_LINES;
   const shownRemoved = removed.slice(0, DIFF_MAX_LINES);
   const shownAdded = added.slice(0, DIFF_MAX_LINES);
-  const lines = [
-    `@@ -${prefix + 1},${removed.length} +${prefix + 1},${added.length} @@`,
-    ...shownRemoved.map(line => `-${line}`),
-    ...shownAdded.map(line => `+${line}`),
-  ];
+  // A zero-count range points at the line the change follows rather than the
+  // first changed line, so an insertion after line N reads -N,0 (and 0,0 for a
+  // file created from nothing).
+  const oldStart = removed.length ? prefix + 1 : prefix;
+  const newStart = added.length ? prefix + 1 : prefix;
+  const header = `@@ -${oldStart},${removed.length} +${newStart},${added.length} @@`;
+  const truncated =
+    shownRemoved.length < removed.length || shownAdded.length < added.length;
+  const lines = [header];
+  for (const line of shownRemoved) lines.push(`-${line}`);
+  for (const line of shownAdded) lines.push(`+${line}`);
   if (truncated) lines.push("… diff truncated …");
-  return lines.join("\n");
+  const text = lines.join("\n");
+  if (text.length <= DIFF_MAX_CHARS) return text;
+  // Line count is not the only way a diff blows up: a minified bundle or a
+  // single-line JSON puts hundreds of thousands of characters in one line, so
+  // keep whole lines up to the character budget instead.
+  const note = "\n… diff truncated …";
+  const kept = [header];
+  let keptChars = header.length;
+  for (const line of lines.slice(1)) {
+    if (keptChars + 1 + line.length + note.length > DIFF_MAX_CHARS) break;
+    kept.push(line);
+    keptChars += 1 + line.length;
+  }
+  return `${kept.join("\n")}${note}`;
 }
 
 /**

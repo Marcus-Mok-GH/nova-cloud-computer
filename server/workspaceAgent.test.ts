@@ -1313,10 +1313,12 @@ describe("Nova tool-calling workspace agent", () => {
     ).toBe("@@ -2,1 +2,1 @@\n-b\n+B");
     // An insertion near the top must not mark every following line changed.
     expect(unifiedDiff("a\nb", "a\nnew\nb")).toBe(
-      "@@ -2,0 +2,1 @@\n+new"
+      "@@ -1,0 +2,1 @@\n+new"
     );
     // A pure deletion of the middle line.
-    expect(unifiedDiff("a\nb\nc", "a\nc")).toBe("@@ -2,1 +2,0 @@\n-b");
+    expect(unifiedDiff("a\nb\nc", "a\nc")).toBe("@@ -2,1 +1,0 @@\n-b");
+    // Creating a file from an empty one anchors the range at 0,0.
+    expect(unifiedDiff("", "hello")).toBe("@@ -0,0 +1,1 @@\n+hello");
   });
 
   it("truncates a whole-file rewrite's diff so it cannot balloon the activity row", () => {
@@ -1325,6 +1327,19 @@ describe("Nova tool-calling workspace agent", () => {
     const diff = unifiedDiff(before, after);
     expect(diff).toContain("… diff truncated …");
     expect(diff.split("\n").length).toBeLessThan(900);
+  });
+
+  it("caps a diff of very long lines so the persisted chat row stays bounded", () => {
+    const before = Array.from({ length: 400 }, () => "x".repeat(500)).join(
+      "\n"
+    );
+    const after = Array.from({ length: 400 }, () => "y".repeat(500)).join(
+      "\n"
+    );
+    const diff = unifiedDiff(before, after);
+    expect(diff.length).toBeLessThanOrEqual(16000);
+    expect(diff.endsWith("… diff truncated …")).toBe(true);
+    expect(diff).toContain("@@ -1,400 +1,400 @@");
   });
 
   it("reports a failed solve_equation call back to the model instead of breaking the run", async () => {

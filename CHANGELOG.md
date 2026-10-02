@@ -9,15 +9,16 @@ added lines tinted green and removed lines red.
 server/workspaceAgent.ts computes that diff at edit time: a new exported
 `unifiedDiff(before, after)` trims the common prefix and suffix before diffing
 the middle, so an insertion near the top does not mark every following line as
-changed, and the middle is capped at 400 lines so a whole-file rewrite cannot
-balloon the persisted activity row. The result rides on the activity as a new
+changed, and the middle is capped at 400 lines (or 16000 characters, whichever
+comes first) so a whole-file rewrite or a minified bundle cannot balloon the
+persisted activity row. The result rides on the activity as a new
 `diff` field (and on `ToolExecution`) and is omitted when the content is
 unchanged. client/src/lib/toolActivityLine.tsx adds `DiffText`/`EditFileDetail`
 and the `EditFileToolActivity` panel, and registers edit_file in
 isPanelToolActivity / ToolActivityPanel so persisted rows render as panels too.
 Files: server/workspaceAgent.ts, server/workspaceAgent.test.ts,
 client/src/lib/toolActivityLine.tsx, client/src/lib/toolActivityLine.test.tsx,
-client/src/lib/chatMessages.ts. 929 tests passing, typecheck clean.
+client/src/lib/chatMessages.ts. 930 tests passing, typecheck clean.
 
 ---
 

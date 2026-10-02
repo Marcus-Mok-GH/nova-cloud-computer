@@ -1,3 +1,25 @@
+2026-10-02 - New thinker sub-agent: a smart model that reasons for the main agent
+
+The main model is a fast supervisor that routes and verifies, so hard problems
+had nowhere to go but its own spotty reasoning. A new `thinker` tool delegates
+them to a frontier reasoning model served through NVIDIA NIM: the agent hands
+it the complete question plus any relevant context, and the thinker returns a
+long, detailed analysis of its findings - the reasoning, the trade-offs, the
+risks, and what is verified versus inferred. It reasons only; it has no tools
+and never touches the workspace.
+
+The model is configurable with NVIDIA_NIM_THINKER_MODEL (defaulting to the
+strongest frontier reasoning model the hosted NIM endpoint serves), so a
+deployment can point it at a smarter or cheaper reasoning model without a code
+change. The system prompt gains a "think deeper when the answer is hard" rule
+that names when to call it, and the web chat gives the call a "Thinker:" tool
+row that opens into a dropdown panel - live progress notes while it reasons,
+then the full analysis rendered as Markdown once it settles, with the question
+and context it was handed in a header above (a long context collapses behind a
+Show more toggle). Files:
+server/thinker.ts (new), server/_core/env.ts, server/workspaceAgent.ts,
+client/src/lib/toolActivityLine.tsx, plus tests.
+
 2026-10-02 - Upload images from the web chat composer
 
 Images could already be sent to the agent over Telegram, but the Nova web

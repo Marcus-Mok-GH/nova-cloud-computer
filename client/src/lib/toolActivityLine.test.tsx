@@ -7,8 +7,13 @@ import {
   ResearchToolActivity,
   SolveEquationDetail,
   SolveEquationToolActivity,
+  ThinkerDetail,
+  ThinkerPromptHeader,
+  ThinkerToolActivity,
   ToolActivityLine,
+  ToolActivityPanel,
   ToolRunGroup,
+  isPanelToolActivity,
   toolChipContainerClass,
   toolLineText,
 } from "./toolActivityLine";
@@ -131,6 +136,23 @@ describe("toolLineText", () => {
     ).toBe(`Deep Research: ${"x".repeat(59)}…`);
   });
 
+  it("formats thinker one-liners with the question", () => {
+    expect(
+      toolLineText(
+        activity(
+          "thinker",
+          '{"question":"should we add a cache?","context":"500 rps"}'
+        )
+      )
+    ).toBe("Thinker: should we add a cache?");
+    expect(toolLineText(activity("thinker", "{}"))).toBe("Thinker");
+    expect(
+      toolLineText(
+        activity("thinker", '{"question":"' + "x".repeat(200) + '"}')
+      )
+    ).toBe(`Thinker: ${"x".repeat(59)}…`);
+  });
+
   it("truncates long telegram/vm text", () => {
     const long = "x".repeat(200);
     const line = toolLineText(
@@ -202,6 +224,149 @@ describe("ResearchToolActivity", () => {
       })
     );
     expect(html).toContain("Exa deep research is starting its web searches…");
+  });
+});
+
+describe("ThinkerToolActivity", () => {
+  const thinker = (
+    state: ToolActivity["state"],
+    detail?: string,
+    progressLog?: string[]
+  ): ToolActivity => ({
+    id: "th1",
+    name: "thinker",
+    state,
+    args: {
+      arguments:
+        '{"question":"Should we add a cache?","context":"500 rps"}',
+    },
+    detail,
+    ...(progressLog ? { progressLog } : {}),
+  });
+
+  it("starts open while running and streams the live progress notes", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerToolActivity, {
+        activity: thinker("running", undefined, [
+          "The thinker sub-agent is reasoning through the question…",
+          "The thinker sub-agent is still reasoning - 30s elapsed…",
+        ]),
+      })
+    );
+    expect(html).toContain("thinker-detail-panel");
+    expect(html).toContain("30s elapsed");
+    expect(html).toContain("Thinker: Should we add a cache?");
+  });
+
+  it("falls back to the starting note while running without progress yet", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerToolActivity, {
+        activity: thinker("running"),
+      })
+    );
+    expect(html).toContain("reasoning through the question");
+  });
+
+  it("shows the full question and context in the panel header", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerToolActivity, {
+        activity: thinker("running"),
+      })
+    );
+    expect(html).toContain("Question");
+    expect(html).toContain("Should we add a cache?");
+    expect(html).toContain("Context");
+    expect(html).toContain("500 rps");
+    // A short context needs no expand toggle.
+    expect(html).not.toContain("Show more");
+  });
+
+  it("clamps a long context behind a Show more toggle", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerPromptHeader, {
+        question: "Should we add a cache?",
+        context: "x".repeat(400),
+      })
+    );
+    expect(html).toContain("line-clamp-3");
+    expect(html).toContain("Show more");
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("omits the context block when only the question was provided", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerPromptHeader, {
+        question: "Is this plan sound?",
+        context: "",
+      })
+    );
+    expect(html).toContain("Is this plan sound?");
+    expect(html).not.toContain("Context");
+  });
+
+  it("renders no header at all when neither the question nor the context survived", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerToolActivity, {
+        activity: {
+          id: "th-empty",
+          name: "thinker",
+          state: "running",
+          args: {},
+        },
+      })
+    );
+    expect(html).not.toContain("Question");
+    expect(html).not.toContain("Context");
+  });
+
+  it("renders collapsed with a chevron once completed, ready to reveal the analysis", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerToolActivity, {
+        activity: thinker(
+          "completed",
+          "## Findings\n\nYes - add a short TTL cache."
+        ),
+      })
+    );
+    expect(html).not.toContain("thinker-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("Thinker: Should we add a cache?");
+    expect(html).toContain('aria-expanded="false"');
+  });
+
+  it("shows the full analysis rendered as markdown when expanded", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerDetail, {
+        activity: thinker(
+          "completed",
+          "## Findings\n\nYes - add a short TTL cache."
+        ),
+      })
+    );
+    expect(html).toContain("Findings");
+    expect(html).toContain("Yes - add a short TTL cache.");
+  });
+
+  it("shows the real failure reason when the thinker went down", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerDetail, {
+        activity: thinker(
+          "failed",
+          "The thinker sub-agent is not configured on this workspace."
+        ),
+      })
+    );
+    expect(html).toContain("not configured on this workspace");
+    expect(html).toContain("text-red-600");
+  });
+
+  it("renders through the shared panel dispatch so persisted rows stay panels", () => {
+    expect(isPanelToolActivity("thinker")).toBe(true);
+    const html = renderToStaticMarkup(
+      React.createElement(ToolActivityPanel, {
+        activity: thinker("running"),
+      })
+    );
+    expect(html).toContain('data-testid="thinker-tool-activity"');
   });
 });
 

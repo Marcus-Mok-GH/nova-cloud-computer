@@ -116,6 +116,10 @@ export function toolLineText(activity: ToolActivity): string {
       return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
     case "research_web":
       return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
+    case "thinker": {
+      const question = s(args.question);
+      return question ? `Thinker: ${brief(question)}` : "Thinker";
+    }
     case "editor":
     case "code_task": // legacy rows from before the rename
       return task ? `Editor: ${brief(task)}` : "Editor";
@@ -262,6 +266,7 @@ export function isPanelToolActivity(name: string): boolean {
     name === "editor" ||
     name === "code_task" ||
     name === "research_web" ||
+    name === "thinker" ||
     name === "thinking" ||
     name === "solve_equation"
   );
@@ -273,6 +278,8 @@ export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
     return <CodeTaskToolActivity activity={activity} />;
   if (activity.name === "research_web")
     return <ResearchToolActivity activity={activity} />;
+  if (activity.name === "thinker")
+    return <ThinkerToolActivity activity={activity} />;
   if (activity.name === "solve_equation")
     return <SolveEquationToolActivity activity={activity} />;
   return <ThinkingToolActivity activity={activity} />;
@@ -335,6 +342,155 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
     </div>
   );
 }
+/**
+ * The settled body of a thinker panel: the full analysis the sub-agent
+ * returned (rendered as Markdown), the real failure reason when it went
+ * down, or a note when the analysis is no longer persisted.
+ */
+export function ThinkerDetail({ activity }: { activity: ToolActivity }) {
+  if (activity.state === "failed")
+    return (
+      <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
+        {activity.detail || activity.summary || "The thinker task failed."}
+      </p>
+    );
+  if (activity.detail)
+    return (
+      <div className="break-words text-sm leading-6 text-foreground">
+        <MarkdownText text={activity.detail} />
+      </div>
+    );
+  return (
+    <p className="text-xs text-muted-foreground">
+      {activity.summary || "The thinker's analysis is no longer available."}
+    </p>
+  );
+}
+
+/**
+ * The question the main agent handed the thinker, plus the context it
+ * supplied, as a header inside the panel. The question is always shown in
+ * full (the one-liner header truncates it); a long context is clamped to a
+ * few lines with a Show more/less toggle so it never buries the analysis.
+ */
+export function ThinkerPromptHeader({
+  question,
+  context,
+}: {
+  question: string;
+  context: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!question && !context) return null;
+  const longContext = context.length > 160;
+  return (
+    <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
+      {question ? (
+        <div>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            Question
+          </p>
+          <p className="break-words whitespace-pre-wrap text-sm leading-6 text-foreground">
+            {question}
+          </p>
+        </div>
+      ) : null}
+      {context ? (
+        <div className={question ? "mt-2.5" : ""}>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            Context
+          </p>
+          <p
+            className={`break-words whitespace-pre-wrap text-xs leading-5 text-muted-foreground ${
+              longContext && !expanded ? "line-clamp-3" : ""
+            }`}
+          >
+            {context}
+          </p>
+          {longContext ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(previous => !previous)}
+              aria-expanded={expanded}
+              className="mt-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground transition-opacity hover:opacity-80"
+            >
+              {expanded ? "Show less" : "Show more"}
+              <ChevronDown
+                className={`size-3 transition-transform ${expanded ? "rotate-180" : ""}`}
+              />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * thinker calls get the same dropdown treatment as the other specialists:
+ * while the thinker reasons, the panel streams the live progress notes; once
+ * it finishes, the panel holds the complete analysis it returned - the
+ * reasoning, the trade-offs and the conclusions - rendered as Markdown. The
+ * question and context it was handed sit in a header above that body. It
+ * starts open while running so the process is visible.
+ */
+export function ThinkerToolActivity({ activity }: { activity: ToolActivity }) {
+  const [open, setOpen] = useState(activity.state === "running");
+  const running = activity.state === "running";
+  let question = "";
+  let context = "";
+  try {
+    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (typeof parsed.question === "string") question = parsed.question.trim();
+      if (typeof parsed.context === "string") context = parsed.context.trim();
+    }
+  } catch {
+    /* truncated or malformed - the header one-liner still applies */
+  }
+  return (
+    <div
+      data-testid="thinker-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          data-testid="thinker-detail-panel"
+          className="mt-2 flex max-h-96 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
+        >
+          <ThinkerPromptHeader question={question} context={context} />
+          <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+            {running ? (
+              (activity.progressLog?.length ?? 0) > 0 ? (
+                <ProgressLog log={activity.progressLog!} />
+              ) : (
+                <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+                  {activity.detail ||
+                    "The thinker sub-agent is reasoning through the question…"}
+                </p>
+              )
+            ) : (
+              <ThinkerDetail activity={activity} />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * editor calls (persisted as code_task before the rename) get the same
  * dropdown treatment as research_web: while the editor sub-agent works, the

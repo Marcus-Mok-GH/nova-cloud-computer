@@ -78,6 +78,8 @@ type AgentChatRow = {
 type AgentEmailRow = {
   id: number;
   direction: "outbound" | "inbound";
+  /** True when the agent answered this inbound email automatically. */
+  autoReplied: boolean;
   fromAgentName: string;
   fromAddress: string | null;
   toAgentId: number | null;
@@ -771,8 +773,18 @@ export default function Agents() {
                     <p className="truncate text-sm font-semibold text-foreground">
                       {email.subject}
                     </p>
-                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
-                      {email.direction === "inbound" ? "Received" : "Sent"}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {email.autoReplied && (
+                        <span
+                          className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-primary"
+                          title="Your agent answered this email automatically"
+                        >
+                          Auto-replied
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                        {email.direction === "inbound" ? "Received" : "Sent"}
+                      </span>
                     </span>
                   </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">

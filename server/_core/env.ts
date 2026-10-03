@@ -141,6 +141,12 @@ export const ENV = {
   exaApiKey: process.env.EXA_API_KEY ?? "",
   /** AgentMail API key powering real agent inboxes and email delivery. Empty string falls back to Nova-internal mail. */
   agentmailApiKey: process.env.AGENTMAIL_API_KEY ?? "",
+  /**
+   * Svix signing secret (`whsec_...`) of the AgentMail webhook that delivers
+   * `message.received`. Empty disables the inbound webhook entirely - agents
+   * then only see mail through the periodic inbox sync.
+   */
+  agentmailWebhookSecret: process.env.AGENTMAIL_WEBHOOK_SECRET ?? "",
   /** Resolved by resolveNimApiKey: the dedicated name, then the legacy gateway names. */
   nimApiKey: resolveNimApiKey(),
   /** NVIDIA NIM OpenAI-compatible base URL: the hosted NIM endpoint by default, a self-hosted NIM container works too. */

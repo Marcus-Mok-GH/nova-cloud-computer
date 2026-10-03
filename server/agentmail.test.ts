@@ -1,13 +1,18 @@
+import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentMailError,
   agentMailApiKey,
   createAgentMailInbox,
+  createAgentMailWebhook,
   getAgentMailMessage,
   isAgentMailConfigured,
   listAgentMailMessages,
   normalizeEmailAddress,
+  parseAgentMailInboundEvent,
+  replyToAgentMailMessage,
   sendAgentMailMessage,
+  verifyAgentMailWebhookSignature,
 } from "./agentmail";
 
 /** A fetch stub that records calls and returns scripted JSON responses. */
@@ -180,5 +185,165 @@ describe("address normalization", () => {
   it("strips display names and lower-cases", () => {
     expect(normalizeEmailAddress("Mira <Mira-4F2A@AgentMail.To>")).toBe("mira-4f2a@agentmail.to");
     expect(normalizeEmailAddress("  a@b.com ")).toBe("a@b.com");
+  });
+});
+
+describe("replying to mail", () => {
+  it("posts to the message's reply endpoint in the same thread", async () => {
+    const calls = stubFetch(() => ({ body: { message_id: "msg-2", thread_id: "thr-1" } }));
+    const sent = await replyToAgentMailMessage({
+      inboxId: "inbox 1",
+      messageId: "msg 1",
+      to: "owner@example.com",
+      text: "Thanks for the note.",
+    });
+    expect(sent).toEqual({ messageId: "msg-2", threadId: "thr-1" });
+    expect(calls[0].url).toContain("/inboxes/inbox%201/messages/msg%201/reply");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      to: ["owner@example.com"],
+      text: "Thanks for the note.",
+    });
+  });
+
+  it("omits the recipient when none is given so the provider derives it", async () => {
+    const calls = stubFetch(() => ({ body: { message_id: "m", thread_id: "t" } }));
+    await replyToAgentMailMessage({ inboxId: "i", messageId: "m", text: "hi" });
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ text: "hi" });
+  });
+});
+
+describe("webhook registration", () => {
+  it("registers a message.received webhook and returns its one-time secret", async () => {
+    const calls = stubFetch(() => ({ body: { webhook_id: "wh-1", secret: "whsec_abc" } }));
+    const webhook = await createAgentMailWebhook({
+      url: "https://nova.example/api/agentmail/webhook",
+      clientId: "nova-agent-email-replies",
+    });
+    expect(webhook).toEqual({ webhookId: "wh-1", secret: "whsec_abc" });
+    expect(calls[0].url).toBe("https://api.agentmail.to/v0/webhooks");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      url: "https://nova.example/api/agentmail/webhook",
+      event_types: ["message.received"],
+      client_id: "nova-agent-email-replies",
+    });
+  });
+
+  it("rejects a webhook response without a secret", async () => {
+    stubFetch(() => ({ body: { webhook_id: "wh-1", secret: "" } }));
+    await expect(
+      createAgentMailWebhook({ url: "https://nova.example/webhook" })
+    ).rejects.toBeInstanceOf(AgentMailError);
+  });
+});
+
+describe("webhook signature verification", () => {
+  const key = Buffer.from("super-secret-signing-key");
+  const secret = `whsec_${key.toString("base64")}`;
+  const sign = (id: string, timestamp: string, body: string) =>
+    `v1,${createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
+
+  it("accepts a signature that matches the raw body and a fresh timestamp", () => {
+    const now = 1_800_000_000_000;
+    const timestamp = String(Math.floor(now / 1000));
+    const body = JSON.stringify({ event_type: "message.received" });
+    expect(
+      verifyAgentMailWebhookSignature({
+        rawBody: body,
+        headers: {
+          "svix-id": "msg_1",
+          "svix-timestamp": timestamp,
+          "svix-signature": sign("msg_1", timestamp, body),
+        },
+        secret,
+        now,
+      })
+    ).toBe(true);
+  });
+
+  it("accepts any matching entry in a space-delimited signature header", () => {
+    const now = 1_800_000_000_000;
+    const timestamp = String(Math.floor(now / 1000));
+    const body = "{}";
+    expect(
+      verifyAgentMailWebhookSignature({
+        rawBody: body,
+        headers: {
+          "svix-id": "msg_1",
+          "svix-timestamp": timestamp,
+          "svix-signature": `v1,AAAA ${sign("msg_1", timestamp, body)}`,
+        },
+        secret,
+        now,
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a tampered body, a stale timestamp, and missing headers", () => {
+    const now = 1_800_000_000_000;
+    const timestamp = String(Math.floor(now / 1000));
+    const body = "{\"a\":1}";
+    expect(
+      verifyAgentMailWebhookSignature({
+        rawBody: "{\"a\":2}",
+        headers: {
+          "svix-id": "msg_1",
+          "svix-timestamp": timestamp,
+          "svix-signature": sign("msg_1", timestamp, body),
+        },
+        secret,
+        now,
+      })
+    ).toBe(false);
+    expect(
+      verifyAgentMailWebhookSignature({
+        rawBody: body,
+        headers: {
+          "svix-id": "msg_1",
+          "svix-timestamp": String(Math.floor(now / 1000) - 3600),
+          "svix-signature": sign("msg_1", timestamp, body),
+        },
+        secret,
+        now,
+      })
+    ).toBe(false);
+    expect(
+      verifyAgentMailWebhookSignature({ rawBody: body, headers: {}, secret, now })
+    ).toBe(false);
+  });
+});
+
+describe("inbound event parsing", () => {
+  it("flattens a message.received payload into replyable fields", () => {
+    const event = parseAgentMailInboundEvent({
+      type: "event",
+      event_type: "message.received",
+      event_id: "evt_1",
+      message: {
+        inbox_id: "inbox-1",
+        message_id: "msg-1",
+        thread_id: "thr-1",
+        from_: ["Owner <Owner@Example.com>"],
+        to: ["mira-4f2a@agentmail.to"],
+        subject: "Re: hello",
+        text: "the body",
+        timestamp: "2026-10-03T10:00:00Z",
+      },
+    });
+    expect(event).toMatchObject({
+      eventId: "evt_1",
+      inboxId: "inbox-1",
+      messageId: "msg-1",
+      threadId: "thr-1",
+      from: "owner@example.com",
+      to: ["mira-4f2a@agentmail.to"],
+      subject: "Re: hello",
+      text: "the body",
+    });
+  });
+
+  it("ignores other event types and payloads missing the ids", () => {
+    expect(parseAgentMailInboundEvent({ event_type: "message.sent" })).toBeNull();
+    expect(parseAgentMailInboundEvent({ event_type: "message.received", message: {} })).toBeNull();
+    expect(parseAgentMailInboundEvent(null)).toBeNull();
   });
 });

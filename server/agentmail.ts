@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { ENV } from "./_core/env";
 
 /**
@@ -228,4 +229,174 @@ export function normalizeEmailAddress(value: string): string {
   const trimmed = value.trim();
   const angled = trimmed.match(/<([^>]+)>/);
   return (angled ? angled[1] : trimmed).trim().toLowerCase();
+}
+
+/**
+ * Replies to a received message, staying in its thread. Passing the original
+ * message id (rather than sending a fresh message) is what keeps the reply's
+ * subject, threading and recipients correct on the provider side.
+ */
+export async function replyToAgentMailMessage(input: {
+  inboxId: string;
+  messageId: string;
+  /** Recipient; omit to let AgentMail derive it from the original message. */
+  to?: string;
+  text: string;
+}): Promise<{ messageId: string; threadId: string }> {
+  const body: Record<string, unknown> = { text: input.text };
+  if (input.to) body.to = [input.to];
+  const sent = await callAgentMail<{ message_id?: unknown; thread_id?: unknown }>(
+    `/inboxes/${encodeURIComponent(input.inboxId)}/messages/${encodeURIComponent(
+      input.messageId
+    )}/reply`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  return {
+    messageId: typeof sent.message_id === "string" ? sent.message_id : "",
+    threadId: typeof sent.thread_id === "string" ? sent.thread_id : "",
+  };
+}
+
+/**
+ * Registers (or re-registers) an AgentMail webhook. `secret` is returned only
+ * by the create call, so the caller must persist it as
+ * AGENTMAIL_WEBHOOK_SECRET - the signature on every delivery is verified with
+ * it.
+ */
+export async function createAgentMailWebhook(input: {
+  url: string;
+  eventTypes?: string[];
+  clientId?: string;
+}): Promise<{ webhookId: string; secret: string }> {
+  const body: Record<string, unknown> = {
+    url: input.url,
+    event_types: input.eventTypes ?? ["message.received"],
+  };
+  if (input.clientId) body.client_id = input.clientId;
+  const created = await callAgentMail<{ webhook_id?: unknown; secret?: unknown }>(
+    "/webhooks",
+    { method: "POST", body: JSON.stringify(body) }
+  );
+  const webhookId = typeof created.webhook_id === "string" ? created.webhook_id : "";
+  const secret = typeof created.secret === "string" ? created.secret : "";
+  if (!webhookId || !secret) {
+    throw new AgentMailError(0, "AgentMail created a webhook without an id or secret.");
+  }
+  return { webhookId, secret };
+}
+
+/**
+ * The inbound-message fields `message.received` handlers need, flattened off
+ * the webhook payload. Returns null when the payload is not a received-message
+ * event or is missing the ids needed to reply.
+ */
+export type AgentMailInboundEvent = {
+  eventId: string;
+  inboxId: string;
+  messageId: string;
+  threadId: string;
+  /** Bare sender address, e.g. `owner@example.com`. */
+  from: string;
+  to: string[];
+  subject: string;
+  text: string;
+  timestamp: Date;
+};
+
+export function parseAgentMailInboundEvent(
+  payload: unknown
+): AgentMailInboundEvent | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const eventType = typeof record.event_type === "string" ? record.event_type : "";
+  if (!eventType.startsWith("message.received")) return null;
+  const message =
+    record.message && typeof record.message === "object"
+      ? (record.message as Record<string, unknown>)
+      : null;
+  if (!message) return null;
+  const asString = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
+  const inboxId = asString(message.inbox_id) || asString(record.inbox_id);
+  const messageId = asString(message.message_id) || asString(record.message_id);
+  if (!inboxId || !messageId) return null;
+  // The SDK exposes the sender as `from` and the address list as `from_`;
+  // normalize either into one bare address.
+  const fromRaw =
+    asString(message.from) ||
+    (Array.isArray(message.from_)
+      ? asString(message.from_[0])
+      : asString(message.from_));
+  const toRaw = Array.isArray(message.to)
+    ? message.to.filter((item): item is string => typeof item === "string")
+    : asString(message.to)
+      ? [asString(message.to)]
+      : [];
+  const body =
+    asString(message.text) || asString(message.extracted_text) || asString(message.preview);
+  return {
+    eventId: asString(record.event_id),
+    inboxId,
+    messageId,
+    threadId: asString(message.thread_id) || asString(record.thread_id),
+    from: fromRaw ? normalizeEmailAddress(fromRaw) : "",
+    to: toRaw.map(value => normalizeEmailAddress(value)).filter(Boolean),
+    subject: asString(message.subject) || "(no subject)",
+    text: body,
+    timestamp: new Date(asString(message.timestamp) || Date.now()),
+  };
+}
+
+/** Svix rejects signatures older than this (default tolerance). */
+const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
+
+/**
+ * Verifies an AgentMail (Svix-signed) webhook without pulling in the Svix SDK,
+ * matching this module's fetch-only style. The signature is HMAC-SHA256 over
+ * `${svix-id}.${svix-timestamp}.${rawBody}` with the `whsec_`-prefixed secret
+ * base64-decoded, compared constant-time against every `v1,<sig>` entry in the
+ * space-delimited header. Stale timestamps are rejected so a captured request
+ * cannot be replayed later.
+ */
+export function verifyAgentMailWebhookSignature(input: {
+  rawBody: string;
+  headers: Record<string, string | string[] | undefined>;
+  secret: string;
+  now?: number;
+}): boolean {
+  const secret = input.secret.trim();
+  if (!secret) return false;
+  const header = (name: string): string => {
+    const value = input.headers[name] ?? input.headers[name.toLowerCase()];
+    return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  };
+  const id = header("svix-id");
+  const timestamp = header("svix-timestamp");
+  const signatureHeader = header("svix-signature");
+  if (!id || !timestamp || !signatureHeader) return false;
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds)) return false;
+  const nowSeconds = Math.floor((input.now ?? Date.now()) / 1000);
+  if (Math.abs(nowSeconds - timestampSeconds) > WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS) {
+    return false;
+  }
+  const keyBase64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+  let key: Buffer;
+  try {
+    key = Buffer.from(keyBase64, "base64");
+  } catch {
+    return false;
+  }
+  const expected = createHmac("sha256", key)
+    .update(`${id}.${timestamp}.${input.rawBody}`)
+    .digest("base64");
+  const expectedBuffer = Buffer.from(expected);
+  return signatureHeader.split(" ").some(part => {
+    const candidate = part.includes(",") ? part.slice(part.indexOf(",") + 1) : part;
+    const received = Buffer.from(candidate);
+    return (
+      received.length === expectedBuffer.length &&
+      timingSafeEqual(received, expectedBuffer)
+    );
+  });
 }

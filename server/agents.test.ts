@@ -46,6 +46,9 @@ const script = vi.hoisted(() => {
         const rows = take(state.inserts, [{}]);
         return {
           returning: async () => rows,
+          onConflictDoNothing: () => ({
+            then: (onF: any, onR: any) => Promise.resolve(rows).then(onF, onR),
+          }),
           then: (onF: any, onR: any) => Promise.resolve(rows).then(onF, onR),
         };
       },
@@ -66,10 +69,52 @@ const script = vi.hoisted(() => {
   return { state, fakeDb };
 });
 
+/** Controllable AgentMail stand-in: no network, records what was provisioned/sent. */
+const mail = vi.hoisted(() => ({
+  configured: false,
+  created: [] as Array<Record<string, unknown>>,
+  sent: [] as Array<Record<string, unknown>>,
+  listResult: [] as Array<Record<string, unknown>>,
+  getResult: { messageId: "", threadId: "", from: "", to: [] as string[], subject: "", text: "", timestamp: new Date() },
+  reset() {
+    this.configured = false;
+    this.created = [];
+    this.sent = [];
+    this.listResult = [];
+    this.getResult = { messageId: "", threadId: "", from: "", to: [], subject: "", text: "", timestamp: new Date() };
+  },
+}));
+
+vi.mock("./agentmail", () => ({
+  isAgentMailConfigured: () => mail.configured,
+  createAgentMailInbox: vi.fn(async (input: Record<string, unknown>) => {
+    mail.created.push(input);
+    return { inboxId: "inbox-1", address: "mira-4f2a@agentmail.to", displayName: null };
+  }),
+  sendAgentMailMessage: vi.fn(async (input: Record<string, unknown>) => {
+    mail.sent.push(input);
+    return { messageId: "msg-1", threadId: "thr-1" };
+  }),
+  listAgentMailMessages: vi.fn(async () => mail.listResult),
+  getAgentMailMessage: vi.fn(async () => mail.getResult),
+  normalizeEmailAddress: (value: string) => {
+    const angled = value.trim().match(/<([^>]+)>/);
+    return (angled ? angled[1] : value.trim()).trim().toLowerCase();
+  },
+  AgentMailError: class AgentMailError extends Error {
+    readonly status = 0;
+  },
+}));
+
 vi.mock("./db", () => ({
   getDb: vi.fn(async () => script.fakeDb),
   getOrCreateWorkspace: vi.fn(async () => ({ id: 5, ownerId: 1 })),
   getChatForUser: vi.fn(async () => undefined),
+  getUserIdentityForUser: vi.fn(async () => ({
+    username: null,
+    name: "Test User",
+    email: "owner@example.com",
+  })),
 }));
 
 const {
@@ -82,6 +127,7 @@ const {
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
   slugifyAgentName,
+  syncAgentMailInboxForUser,
   updateAgentForUser,
   walletRemainingCredits,
 } = await import("./agents");
@@ -132,7 +178,10 @@ const approvalRow = (overrides: Row = {}) => ({
   ...overrides,
 });
 
-beforeEach(() => script.state.reset());
+beforeEach(() => {
+  script.state.reset();
+  mail.reset();
+});
 
 describe("agent identity helpers", () => {
   it("slugifies names for the Nova-internal email alias", () => {
@@ -466,5 +515,136 @@ describe("approval prompt line", () => {
     script.state.selects = [[], []];
     const line = await describeApprovalsForPrompt(1, 11);
     expect(line).toContain("no approvals are waiting");
+  });
+});
+
+describe("AgentMail-backed agent email", () => {
+  it("provisions a real inbox on agent creation when configured", async () => {
+    mail.configured = true;
+    script.state.inserts = [[agentRow({ agentmailInboxId: "inbox-1", agentmailAddress: "mira-4f2a@agentmail.to" })]];
+    const created = await createAgentForUser(1, { name: "Mira" });
+    expect(created).toBeDefined();
+    expect(mail.created).toHaveLength(1);
+    expect(mail.created[0]).toMatchObject({ displayName: "Mira" });
+    expect(script.state.insertCalls[0].values).toMatchObject({
+      agentmailInboxId: "inbox-1",
+      agentmailAddress: "mira-4f2a@agentmail.to",
+    });
+  });
+
+  it("keeps the Nova-internal alias when AgentMail is not configured", async () => {
+    mail.configured = false;
+    script.state.inserts = [[agentRow()]];
+    await createAgentForUser(1, { name: "Mira" });
+    expect(mail.created).toHaveLength(0);
+    expect(script.state.insertCalls[0].values).toMatchObject({
+      agentmailInboxId: null,
+      agentmailAddress: null,
+    });
+  });
+
+  it("refuses an external recipient until AgentMail is configured", async () => {
+    mail.configured = false;
+    script.state.selects = [[agentRow()], [agentRow()]];
+    const outcome = await requestAgentEmailApproval(1, {
+      agentId: 11,
+      to: "someone@example.com",
+      subject: "Hi",
+      body: "Hello",
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error).toContain("AgentMail is not configured");
+  });
+
+  it("accepts an external recipient when AgentMail is configured", async () => {
+    mail.configured = true;
+    script.state.selects = [[agentRow()], [agentRow()]];
+    script.state.inserts = [[approvalRow({ id: 20, action: "send_email" })]];
+    const outcome = await requestAgentEmailApproval(1, {
+      agentId: 11,
+      to: "Someone@Example.com",
+      subject: "Hi",
+      body: "Hello",
+    });
+    expect(outcome.ok).toBe(true);
+    expect(script.state.insertCalls[0].values.params).toMatchObject({
+      to: "someone@example.com",
+      toAgentId: null,
+      toAddress: "someone@example.com",
+    });
+  });
+
+  it("delivers an approved email through the agent's AgentMail inbox", async () => {
+    mail.configured = true;
+    const params = {
+      to: "someone@example.com",
+      toAgentId: null,
+      toAddress: "someone@example.com",
+      subject: "Hi",
+      body: "Hello",
+    };
+    script.state.updates = [
+      [approvalRow({ id: 30, action: "send_email", status: "executed", params })],
+      [approvalRow({ id: 30, action: "send_email", status: "executed", params })],
+    ];
+    script.state.selects = [
+      [agentRow({ agentmailInboxId: "inbox-1", agentmailAddress: "mira-4f2a@agentmail.to" })],
+      [agentRow()],
+    ];
+    script.state.inserts = [[{ id: 1 }]];
+    const result = await decideApprovalForUser(1, 30, "approve");
+    expect(result?.executed).toBe(true);
+    expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0]).toMatchObject({
+      inboxId: "inbox-1",
+      to: "someone@example.com",
+      subject: "Hi",
+      text: "Hello",
+    });
+  });
+
+  it("backfills a real inbox for an agent that predates AgentMail", async () => {
+    mail.configured = true;
+    script.state.selects = [[agentRow()]];
+    script.state.updates = [
+      [agentRow({ agentmailInboxId: "inbox-1", agentmailAddress: "mira-4f2a@agentmail.to" })],
+    ];
+    await syncAgentMailInboxForUser(1);
+    expect(mail.created).toHaveLength(1);
+    expect(script.state.updateCalls[0].values).toMatchObject({
+      agentmailInboxId: "inbox-1",
+      agentmailAddress: "mira-4f2a@agentmail.to",
+    });
+  });
+
+  it("syncs inbound mail into the workspace mailbox, deduped by message id", async () => {
+    mail.configured = true;
+    mail.listResult = [
+      {
+        messageId: "m-in",
+        from: "Owner <owner@example.com>",
+        to: ["mira-4f2a@agentmail.to"],
+        subject: "Re: hello",
+        text: "the reply",
+        timestamp: new Date(),
+      },
+    ];
+    script.state.selects = [
+      [agentRow({ agentmailInboxId: "inbox-1", agentmailAddress: "mira-4f2a@agentmail.to" })],
+      [],
+    ];
+    script.state.inserts = [[{ id: 9 }]];
+    await syncAgentMailInboxForUser(1);
+    const insert = script.state.insertCalls.find(call => call.table === agentEmails);
+    expect(insert?.values).toMatchObject({
+      direction: "inbound",
+      fromAgentId: null,
+      toAgentId: 11,
+      fromAddress: "owner@example.com",
+      toAddress: "mira-4f2a@agentmail.to",
+      messageId: "m-in",
+      subject: "Re: hello",
+      body: "the reply",
+    });
   });
 });

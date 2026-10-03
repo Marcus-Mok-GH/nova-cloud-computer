@@ -180,6 +180,14 @@ export const agentProfiles = pgTable("agent_profiles", {
   instructions: text("instructions"),
   /** Nova-internal mail address, e.g. `mira-4f2a@nova.local`. */
   emailAlias: varchar("emailAlias", { length: 160 }).notNull(),
+  /** AgentMail inbox id once the agent has a real inbox; null until provisioned. */
+  agentmailInboxId: varchar("agentmailInboxId", { length: 120 }),
+  /**
+   * The agent's real, routable AgentMail address, e.g. `mira-4f2a@agentmail.to`.
+   * Null falls back to the Nova-internal alias (AgentMail not configured, or
+   * provisioning failed), so agent identity never depends on the mail provider.
+   */
+  agentmailAddress: varchar("agentmailAddress", { length: 200 }),
   /** Virtual phone handle, e.g. `+1-555-0142` (a handle, not real telephony). */
   phoneHandle: varchar("phoneHandle", { length: 40 }).notNull(),
   /**
@@ -236,15 +244,33 @@ export const agentApprovals = pgTable("agent_approvals", {
 ]);
 export type AgentApprovalRow = typeof agentApprovals.$inferSelect;
 
-/** Nova-internal mail between agents (or from an agent to the workspace owner). */
+/**
+ * Agent mail, both outbound (delivered through AgentMail, or to the
+ * workspace's internal mailbox when AgentMail is not configured) and inbound
+ * (pulled from each agent's AgentMail inbox). `fromAgentId` is null for an
+ * inbound message from an external address; `toAgentId` is null for outbound
+ * mail addressed to the workspace owner or an external recipient.
+ */
 export const agentEmails = pgTable("agent_emails", {
   id: serial("id").primaryKey(),
   workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  fromAgentId: integer("fromAgentId").notNull().references(() => agentProfiles.id, { onDelete: "cascade" }),
-  /** Receiving agent; null = the workspace owner (the user's own inbox). */
+  /** Sending agent; null for inbound mail from an external address. */
+  fromAgentId: integer("fromAgentId").references(() => agentProfiles.id, { onDelete: "cascade" }),
+  /** Receiving agent; null = the workspace owner or an external recipient. */
   toAgentId: integer("toAgentId").references((): any => agentProfiles.id, { onDelete: "set null" }),
+  /** "outbound" when an agent sent it, "inbound" when it arrived in an inbox. */
+  direction: varchar("direction", { length: 16 }).default("outbound").notNull(),
+  /** Envelope sender address (agent address or external sender). */
+  fromAddress: varchar("fromAddress", { length: 200 }),
+  /** Envelope recipient address (agent address, owner email, or external). */
+  toAddress: varchar("toAddress", { length: 200 }),
+  /** AgentMail message id, used to dedupe inbound syncs. Null for internal mail. */
+  messageId: varchar("messageId", { length: 200 }),
   subject: varchar("subject", { length: 240 }).notNull(),
   body: text("body").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-}, table => [index("agent_emails_workspace_created_idx").on(table.workspaceId, table.createdAt)]);
+}, table => [
+  index("agent_emails_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  uniqueIndex("agent_emails_message_id_unique").on(table.messageId),
+]);
 export type AgentEmailRow = typeof agentEmails.$inferSelect;

@@ -104,9 +104,13 @@ async function applyMigrations(query: MigrationQuery, migrations: MigrationFile[
 
 let schemaBootstrap: Promise<boolean> | undefined;
 
-/** Runs once per process. Every failure is logged and swallowed: a transient
- * database outage must not stop the server from starting, and the deploy build
- * remains the authoritative migration path. */
+/** Runs once per process on success. Every failure is logged and swallowed: a
+ * transient database outage must not stop the server from starting, and the
+ * deploy build remains the authoritative migration path. A *failed* attempt is
+ * deliberately not cached - a warm serverless instance that hit a momentary
+ * outage would otherwise keep serving requests against a missing schema until
+ * it recycled, so the next request retries instead. Concurrent callers still
+ * share one in-flight run. */
 export function ensureDatabaseSchema(): Promise<boolean> {
   if (!schemaBootstrap) {
     schemaBootstrap = runMigrations().catch(error => {
@@ -114,6 +118,7 @@ export function ensureDatabaseSchema(): Promise<boolean> {
         "[Database] Automatic migration failed:",
         error instanceof Error ? error.message : error
       );
+      schemaBootstrap = undefined;
       return false;
     });
   }

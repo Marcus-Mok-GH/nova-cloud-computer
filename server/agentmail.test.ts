@@ -346,4 +346,25 @@ describe("inbound event parsing", () => {
     expect(parseAgentMailInboundEvent({ event_type: "message.received", message: {} })).toBeNull();
     expect(parseAgentMailInboundEvent(null)).toBeNull();
   });
+
+  it("flags machine-generated mail from its headers", () => {
+    const withHeaders = (headers: Record<string, string>) =>
+      parseAgentMailInboundEvent({
+        event_type: "message.received",
+        message: { inbox_id: "i", message_id: "m", headers },
+      })?.automated;
+    expect(withHeaders({ "Auto-Submitted": "auto-replied" })).toBe(true);
+    expect(withHeaders({ "Auto-Submitted": "auto-generated" })).toBe(true);
+    expect(withHeaders({ Precedence: "bulk" })).toBe(true);
+    expect(withHeaders({ "X-Autoreply": "yes" })).toBe(true);
+    expect(withHeaders({ "X-Auto-Response-Suppress": "All" })).toBe(true);
+    // A normal reply is not automated, and "Auto-Submitted: no" is explicit.
+    expect(withHeaders({ "Auto-Submitted": "no", Subject: "Hi" })).toBe(false);
+    expect(
+      parseAgentMailInboundEvent({
+        event_type: "message.received",
+        message: { inbox_id: "i", message_id: "m" },
+      })?.automated
+    ).toBe(false);
+  });
 });

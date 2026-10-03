@@ -301,7 +301,43 @@ export type AgentMailInboundEvent = {
   subject: string;
   text: string;
   timestamp: Date;
+  /**
+   * True when the message headers identify it as machine-generated (an
+   * out-of-office, list, or auto-responder). Auto-replying to one of those
+   * starts a reply loop, so callers skip them.
+   */
+  automated: boolean;
 };
+
+/**
+ * Reads the common auto-responder markers off the message headers. Tolerant on
+ * purpose: the payload may omit headers entirely, so an unknown shape simply
+ * reports "not automated" rather than throwing.
+ */
+function hasAutomatedMailHeaders(message: Record<string, unknown>): boolean {
+  const raw = message.headers;
+  if (!raw || typeof raw !== "object") return false;
+  const headers = raw as Record<string, unknown>;
+  const value = (name: string): string => {
+    for (const [key, entry] of Object.entries(headers)) {
+      if (key.toLowerCase() !== name) continue;
+      if (Array.isArray(entry)) return String(entry[0] ?? "");
+      return typeof entry === "string" ? entry : String(entry ?? "");
+    }
+    return "";
+  };
+  const autoSubmitted = value("auto-submitted").trim().toLowerCase();
+  if (autoSubmitted && autoSubmitted !== "no") return true;
+  const precedence = value("precedence").trim().toLowerCase();
+  if (precedence === "bulk" || precedence === "auto_reply" || precedence === "junk") {
+    return true;
+  }
+  return Boolean(
+    value("x-autoreply") ||
+      value("x-autorespond") ||
+      value("x-auto-response-suppress")
+  );
+}
 
 export function parseAgentMailInboundEvent(
   payload: unknown
@@ -344,6 +380,7 @@ export function parseAgentMailInboundEvent(
     subject: asString(message.subject) || "(no subject)",
     text: body,
     timestamp: new Date(asString(message.timestamp) || Date.now()),
+    automated: hasAutomatedMailHeaders(message),
   };
 }
 

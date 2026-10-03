@@ -36,35 +36,47 @@ server/agents.ts maps an inbox id back to its agent and workspace owner
 inbound message (`claimInboundAgentEmailForAutoReply`): the inbound row is
 inserted deduped by message id, then a guarded UPDATE marks `autoRepliedAt`,
 so a webhook retry or a race with the periodic inbox sync can never send the
-reply twice. Self-sent mail is ignored (the loop guard).
-server/agentEmailReplies.ts runs the agent on the email in its personal
-chat with `emailReply: true` - a new workspaceAgent.ts option that withholds
-`send_agent_email` because the end_turn reply IS the email body - then sends
-it back in the same thread with AgentMail's message reply endpoint
-(`replyToAgentMailMessage`) and records the outbound row. Unlike the
-gated `send_agent_email` tool, this send is automatic: answering mail
-addressed to the agent is the point of a real inbox. The email is framed to
-the model as untrusted input.
+reply twice. Auto-answering is deliberately narrow - anyone who knows the
+inbox address can email it, and the webhook signature authenticates the
+provider, not the sender - so the agent's own address is skipped, along with
+machine-generated mail (out-of-office/auto-responder headers: Auto-Submitted,
+bulk/auto_reply Precedence, X-Autoreply), any other agent's address (the
+AgentMail domain or a known `agentProfiles.agentmailAddress`), and a sender
+already auto-answered ten times in an hour. `emailReply` runs also get a
+strict tool allowlist (workspaceAgent.ts: end_turn, research_web, thinker,
+solve_equation, base44) - an email-triggered run can reason, research and
+compute, but cannot read or change the owner's workspace, memory, connectors,
+wallet or deployments.
 
-drizzle/schema.ts adds nullable `agent_emails.autoRepliedAt` (migration
-drizzle/neon/0043_stiff_cassandra_nova.sql, hand-guarded with IF NOT EXISTS
-to match the idempotent migration style). `listAgentEmailsForUser` exposes
-it as `autoReplied` on each row, and the Agents inbox (client/src/pages/
-Agents.tsx) marks those received emails with an "Auto-replied" chip so the
-workspace owner can see which mail the agent handled on its own. Tests cover
-signature verification and event parsing, the claim (including retry and
-self-send), the orchestration, and the inbox marker. Files:
-server/agentmail.ts, server/agentmail.test.ts, server/agents.ts,
-server/agents.test.ts, server/agentEmailReplies.ts,
-server/agentEmailReplies.test.ts, server/workspaceAgent.ts, server/app.ts,
-server/_core/env.ts, drizzle/schema.ts,
-drizzle/neon/0043_stiff_cassandra_nova.sql,
-drizzle/neon/meta/_journal.json,
-drizzle/neon/meta/0043_snapshot.json, api/[...path].ts,
-api/neonAuthCatchall.test.ts, scripts/registerAgentmailWebhook.ts,
-client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx,
-server/agentmailWebhook.test.ts. Typecheck and the production build are
-clean, and the built bundle carries the route.
+server/agentEmailReplies.ts runs the agent on the email in its personal
+chat with `emailReply: true` and sends it back in the same thread with
+AgentMail's message reply endpoint (`replyToAgentMailMessage`), recording the
+outbound row and only then stamping the inbound row with `autoReplySentAt`.
+Unlike the gated `send_agent_email` tool, this send is automatic: answering
+mail addressed to the agent is the point of a real inbox. The email is framed
+to the model as untrusted input.
+
+drizzle/schema.ts adds nullable `agent_emails.autoRepliedAt` (the claim) and
+`autoReplySentAt` (set only after delivery succeeds), migrations
+drizzle/neon/0043_stiff_cassandra_nova.sql and 0044_perfect_sandman.sql,
+both hand-guarded with IF NOT EXISTS to match the idempotent style.
+`listAgentEmailsForUser` derives `autoReplied` from `autoReplySentAt`, and
+the Agents inbox (client/src/pages/Agents.tsx) marks those received emails
+with an "Auto-replied" chip, so failed or unanswered outcomes never show a
+badge. Tests cover signature verification and event parsing (including
+automated headers), the loop/abuse guards, the claim, the orchestration, and
+the inbox marker. Files: server/agentmail.ts, server/agentmail.test.ts,
+server/agents.ts, server/agents.test.ts, server/agentEmailReplies.ts,
+server/agentEmailReplies.test.ts, server/workspaceAgent.ts,
+server/workspaceAgent.test.ts, server/app.ts, server/_core/env.ts,
+drizzle/schema.ts, drizzle/neon/0043_stiff_cassandra_nova.sql,
+drizzle/neon/0044_perfect_sandman.sql, drizzle/neon/meta/_journal.json,
+drizzle/neon/meta/0043_snapshot.json, drizzle/neon/meta/0044_snapshot.json,
+api/[...path].ts, api/neonAuthCatchall.test.ts,
+scripts/registerAgentmailWebhook.ts, client/src/pages/Agents.tsx,
+client/src/pages/Agents.render.test.tsx, server/agentmailWebhook.test.ts.
+Typecheck and the production build are clean, and the built bundle carries
+the route.
 
 ---
 

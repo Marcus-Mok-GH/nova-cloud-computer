@@ -315,13 +315,18 @@ function TeamDialog({
 
   const createTeam = trpc.agents.createTeam.useMutation({
     onSuccess: result => {
-      toast.success(`${result.chat.title} created.`);
+      toast.success(
+        `${result.chat.title} created - it will open with a plan for its goal.`
+      );
       void utils.agents.chats.invalidate();
       setName("");
       setGoal("");
       setSelected([]);
       onClose();
-      setLocation(`/app?chatId=${result.chat.id}`);
+      // `teamstart=1` makes the chat open with a plan-mode kickoff that hands
+      // the team its shared goal; the flag is stripped from the URL there so a
+      // refresh never re-sends it.
+      setLocation(`/app?chatId=${result.chat.id}&teamstart=1`);
     },
     onError: error => toast.error(error.message),
   });

@@ -1,3 +1,24 @@
+2026-10-03 - Team chats open with a plan-mode kickoff
+
+Creating an agent team from the Agents page now starts the conversation
+automatically. The team builder navigates to the new chat with a one-shot
+`teamstart=1` intent (client/src/pages/Agents.tsx); Workspace.tsx consumes it
+with the same pattern Settings already uses for the personalisation kickoff:
+the flag fires once on an empty chat after the chat history and workspace
+data have loaded *successfully*, and sends the team's opening message - the
+shared goal the user typed, plus instruction to work in plan mode: break the
+goal into concrete tasks, assign each to the teammate best placed to do it,
+and present the plan for approval before executing. The intent is consumed
+only after a confirmed send (or when history already exists), so a failed
+send stays retryable while a success can never re-send on refresh or share.
+The goal is read from the chat's `teamGoal` and falls back to a generic
+kickoff only when it is blank. `sendMessage` now reports whether the turn
+completed so callers can react to failures. The
+message builder (`teamPlanKickoff`) is exported and unit-tested in
+client/src/pages/Workspace.kickoff.test.ts. Typecheck clean.
+
+---
+
 2026-10-03 - Automatic schema bootstrap retries after a transient failure
 
 Every table is created automatically: the deploy build runs

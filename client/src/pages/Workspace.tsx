@@ -84,6 +84,21 @@ function ImageAttachmentTray({
 const PERSONALISATION_KICKOFF =
   "Let's set up my personalisation. Ask me one question at a time about how I work and how I want you to work with me, wait for each answer, then save what you learn with set_personalisation and turn personalisation mode on.";
 
+/**
+ * Opening message for a freshly created team chat (launched from the Agents
+ * page's team builder): the roster starts in plan mode - split the shared
+ * goal into assigned tasks and wait for approval before executing.
+ */
+export const teamPlanKickoff = (goal: string): string => {
+  const trimmed = goal.trim();
+  return [
+    trimmed
+      ? `The team's shared goal: ${trimmed}.`
+      : "Begin the team's shared goal.",
+    "Start in plan mode: review the goal and the roster's roles, break the goal into concrete tasks, and assign each task to the teammate best placed to do it. Present the plan for my approval before executing any task - once I approve, execute the assigned tasks in turn order until the goal is done.",
+  ].join(" ");
+};
+
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, {
     retry: false,
@@ -112,6 +127,13 @@ export default function Workspace() {
       : new URLSearchParams(window.location.search).get("personalise") ===
         "1";
   const personaliseStartedRef = useRef(false);
+  // One-shot flag set by the Agents page's team builder; the effect below
+  // turns it into the team's plan-mode kickoff message.
+  const teamStartIntent =
+    typeof window === "undefined"
+      ? false
+      : new URLSearchParams(window.location.search).get("teamstart") === "1";
+  const teamKickoffSentRef = useRef(false);
   const [composerAttachments, setComposerAttachments] = useState<
     ChatImageAttachment[]
   >([]);
@@ -507,6 +529,34 @@ export default function Workspace() {
     );
     void sendMessage(chatId, PERSONALISATION_KICKOFF);
   }, [chatId, personaliseIntent, savedMessages.isLoading, savedMessages.data, agentIsWorking]);
+
+  // A chat opened from the Agents page's team builder begins with the team's
+  // plan-mode kickoff, once. The intent is stripped from the URL so a refresh
+  // or share does not send it again.
+  useEffect(() => {
+    if (!chatId || !teamStartIntent || teamKickoffSentRef.current) return;
+    if (savedMessages.isLoading || computer.isLoading || agentIsWorking) return;
+    if ((savedMessages.data ?? []).length > 0) return;
+    teamKickoffSentRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("teamstart");
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`
+    );
+    const goal =
+      (computer.data?.chats ?? []).find(chat => chat.id === chatId)?.teamGoal ?? "";
+    void sendMessage(chatId, teamPlanKickoff(goal));
+  }, [
+    chatId,
+    teamStartIntent,
+    savedMessages.isLoading,
+    savedMessages.data,
+    agentIsWorking,
+    computer.isLoading,
+    computer.data,
+  ]);
 
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;

@@ -1,3 +1,43 @@
+2026-10-03 - Agent email is powered by AgentMail
+
+Personal agents now get real AgentMail inboxes instead of only a
+non-routable `@nova.local` alias, so their mail actually goes somewhere and
+replies come back. server/agentmail.ts is a small fetch client (no SDK) for
+AgentMail's `/v0` API - create inbox, send message, list/get messages - gated
+on `AGENTMAIL_API_KEY` (registered as ENV.agentmailApiKey). When the key is
+unset the whole feature degrades to the old Nova-internal mailbox, so
+nothing depends on the provider being configured.
+
+server/agents.ts provisions an inbox when an agent is created (best-effort:
+a provider failure just keeps the alias), and `ensureAgentMailInbox`
+backfills one for agents that predate AgentMail the first time they send or
+the Agents inbox is opened. `send_agent_email` recipients now resolve three
+ways: a teammate by Nova alias or real AgentMail address, `user` for the
+workspace owner's account email, or any external address (external needs
+AgentMail configured). Approval still gates every send; on approval the mail
+is sent from the agent's own inbox and recorded, with internal-only
+teammates still delivered to the workspace mailbox. Approving now fails
+loudly with the provider's error if delivery fails, instead of silently
+storing the message.
+
+Inbound is new: `syncAgentMailInboxForUser` pulls each agent's recent inbox
+messages (following pagination, fetching the full body only for genuinely new
+ones, and skipping the agent's own sent mail) into the workspace mailbox,
+deduped by AgentMail message id, and runs behind the `agents.inbox` query
+within a short time budget. drizzle/schema.ts adds agent_profiles.agentmailInboxId /
+agentmailAddress and agent_emails.direction / fromAddress / toAddress /
+messageId (migration drizzle/neon/0042_agentmail_agent_email.sql, plus
+`fromAgentId` becoming nullable for external inbound mail). client/src/pages/
+Agents.tsx shows the real address on the identity chip and marks inbox rows
+Sent/Received with their envelope addresses. Files: server/agentmail.ts,
+server/agentmail.test.ts, server/agents.ts, server/agents.test.ts,
+server/workspaceAgent.ts, server/_core/env.ts, drizzle/schema.ts,
+drizzle/neon/0042_agentmail_agent_email.sql,
+drizzle/neon/meta/_journal.json, drizzle/neon/meta/0042_snapshot.json,
+client/src/pages/Agents.tsx. Typecheck clean.
+
+---
+
 2026-10-02 - An empty agent budget means an unlimited wallet
 
 The Agents dialog refused a blank wallet budget ("must be 0 or more

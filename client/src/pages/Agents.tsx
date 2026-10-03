@@ -44,6 +44,8 @@ type AgentRow = {
   role: string | null;
   instructions: string | null;
   emailAlias: string;
+  /** Real AgentMail address; null falls back to the Nova-internal alias. */
+  agentmailAddress: string | null;
   phoneHandle: string;
   /** Granted budget in credits; null means the wallet is unlimited. */
   walletBudgetCredits: number | null;
@@ -75,9 +77,12 @@ type AgentChatRow = {
 
 type AgentEmailRow = {
   id: number;
+  direction: "outbound" | "inbound";
   fromAgentName: string;
+  fromAddress: string | null;
   toAgentId: number | null;
   toAgentName: string | null;
+  toAddress: string | null;
   subject: string;
   body: string;
   createdAt: Date;
@@ -603,9 +608,18 @@ export default function Agents() {
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                <span className={chipClass} title="Nova-internal email alias">
+                <span
+                  className={chipClass}
+                  title={
+                    agent.agentmailAddress
+                      ? "AgentMail inbox - sends and receives real email"
+                      : "Nova-internal email alias"
+                  }
+                >
                   <Mail className="size-3 shrink-0" />
-                  <span className="truncate">{agent.emailAlias}</span>
+                  <span className="truncate">
+                    {agent.agentmailAddress ?? agent.emailAlias}
+                  </span>
                 </span>
                 <span className={chipClass} title="Virtual phone handle">
                   <Phone className="size-3 shrink-0" />
@@ -746,19 +760,24 @@ export default function Agents() {
           </>
         )}
 
-        {/* Nova-internal agent mail */}
+        {/* Agent mail - sent and received */}
         {emailRows.length > 0 && (
           <>
             <h2 className={`${sectionHeading} mt-8`}>Agent inbox</h2>
             <div className="mt-3 space-y-2">
               {emailRows.map(email => (
                 <div key={email.id} className={cardClass}>
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {email.subject}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {email.subject}
+                    </p>
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                      {email.direction === "inbound" ? "Received" : "Sent"}
+                    </span>
+                  </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    From {email.fromAgentName} to{" "}
-                    {email.toAgentName ?? "you"} ·{" "}
+                    From {email.fromAddress ?? email.fromAgentName} to{" "}
+                    {email.toAddress ?? email.toAgentName ?? "you"} ·{" "}
                     {new Date(email.createdAt).toLocaleDateString()}
                   </p>
                   <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">

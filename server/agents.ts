@@ -1,5 +1,14 @@
 import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
-import { getDb, getOrCreateWorkspace, getChatForUser } from "./db";
+import { getDb, getOrCreateWorkspace, getChatForUser, getUserIdentityForUser } from "./db";
+import {
+  AgentMailError,
+  createAgentMailInbox,
+  getAgentMailMessage,
+  isAgentMailConfigured,
+  listAgentMailMessages,
+  normalizeEmailAddress,
+  sendAgentMailMessage,
+} from "./agentmail";
 import {
   agentApprovals,
   agentEmails,
@@ -41,6 +50,8 @@ export type AgentProfileContext = {
   role: string | null;
   instructions: string | null;
   emailAlias: string;
+  /** Real AgentMail address once provisioned; null falls back to the alias. */
+  agentmailAddress?: string | null;
   phoneHandle: string;
   /** Granted budget in credits; null means the wallet has no cap at all. */
   walletBudgetCredits: number | null;
@@ -79,6 +90,91 @@ export function slugifyAgentName(name: string): string {
  */
 export function agentEmailAliasFor(name: string, suffix: string): string {
   return `${slugifyAgentName(name)}-${suffix}@nova.local`;
+}
+
+/**
+ * The address an agent sends mail from: its real AgentMail inbox once
+ * provisioned, otherwise the Nova-internal alias. Centralized so the prompt,
+ * the approval UI and delivery all agree on the same address.
+ */
+export function agentAddressFor(agent: {
+  emailAlias: string;
+  agentmailAddress?: string | null;
+}): string {
+  return agent.agentmailAddress?.trim() || agent.emailAlias;
+}
+
+/** Minimal shape check for a routable email address (deliberately permissive). */
+export function isEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/**
+ * Provisions a real AgentMail inbox for a new agent. Best-effort: when
+ * AgentMail is not configured, or the provider call fails, the agent keeps
+ * its Nova-internal alias and mail falls back to the internal mailbox - agent
+ * creation must never fail on a third-party outage.
+ */
+async function provisionAgentMailInbox(
+  name: string,
+  suffix: string,
+  workspaceId: number
+): Promise<{ inboxId: string; address: string } | null> {
+  if (!isAgentMailConfigured()) return null;
+  const username = `${slugifyAgentName(name)}-${suffix}`.slice(0, 60);
+  try {
+    const inbox = await createAgentMailInbox({
+      username,
+      displayName: name,
+      // The workspace id makes the idempotency key globally unique, so a retry
+      // (or a name clash across workspaces) can never resolve to another
+      // workspace's inbox.
+      clientId: `nova-${workspaceId}-${username}`,
+    });
+    return { inboxId: inbox.inboxId, address: inbox.address };
+  } catch (error) {
+    console.warn(
+      "[AgentMail] Could not provision an inbox:",
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+/**
+ * Makes sure an agent has a real AgentMail inbox, provisioning and persisting
+ * one for agents that predate AgentMail. Best-effort: on any failure the
+ * agent is returned unchanged with its Nova-internal alias.
+ */
+async function ensureAgentMailInbox(
+  agent: AgentProfileRow
+): Promise<AgentProfileRow> {
+  if (!isAgentMailConfigured() || agent.agentmailInboxId) return agent;
+  const db = await getDb();
+  if (!db) return agent;
+  // Reuse the alias's random suffix as the mailbox username, so the AgentMail
+  // address mirrors the Nova-internal handle (`mira-4f2a@...`).
+  const suffix =
+    agent.emailAlias.split("@")[0]?.split("-").pop() ||
+    Math.random().toString(16).slice(2, 6);
+  const inbox = await provisionAgentMailInbox(agent.name, suffix, agent.workspaceId);
+  if (!inbox) return agent;
+  const [updated] = await db
+    .update(agentProfiles)
+    .set({
+      agentmailInboxId: inbox.inboxId,
+      agentmailAddress: inbox.address,
+      updatedAt: new Date(),
+    })
+    .where(eq(agentProfiles.id, agent.id))
+    .returning();
+  return updated?.id
+    ? updated
+    : {
+        ...agent,
+        agentmailInboxId: inbox.inboxId,
+        agentmailAddress: inbox.address,
+      };
 }
 
 /**
@@ -129,6 +225,7 @@ function toProfileContext(row: AgentProfileRow): AgentProfileContext {
     role: row.role,
     instructions: row.instructions,
     emailAlias: row.emailAlias,
+    agentmailAddress: row.agentmailAddress,
     phoneHandle: row.phoneHandle,
     walletBudgetCredits: row.walletBudgetCredits,
     walletSpentCredits: row.walletSpentCredits,
@@ -192,7 +289,10 @@ export async function createAgentForUser(
             Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits))
           );
   // The alias carries a random suffix, so a collision is astronomically
-  // unlikely - retry a few times anyway to ride out a lost race.
+  // unlikely - retry a few times anyway to ride out a lost race. The inbox is
+  // provisioned once, before the insert, so a retry never creates a second one.
+  const suffix = Math.random().toString(16).slice(2, 6);
+  const inbox = await provisionAgentMailInbox(name, suffix, workspace.id);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const [created] = await db
@@ -202,10 +302,9 @@ export async function createAgentForUser(
           name,
           role: input.role?.trim().slice(0, 120) || null,
           instructions: input.instructions?.trim().slice(0, 4000) || null,
-          emailAlias: agentEmailAliasFor(
-            name,
-            Math.random().toString(16).slice(2, 6)
-          ),
+          emailAlias: agentEmailAliasFor(name, suffix),
+          agentmailInboxId: inbox?.inboxId ?? null,
+          agentmailAddress: inbox?.address ?? null,
           phoneHandle: agentPhoneHandleFor(),
           walletBudgetCredits: budget,
           walletSpentCredits: 0,
@@ -585,30 +684,55 @@ export async function requestAgentEmailApproval(
     body: string;
   }
 ): Promise<GatedActionResult> {
-  const agent = await getAgentForUser(ownerId, input.agentId);
-  if (!agent) return { ok: false, error: "That agent no longer exists." };
+  const existingAgent = await getAgentForUser(ownerId, input.agentId);
+  if (!existingAgent) return { ok: false, error: "That agent no longer exists." };
+  // Give a pre-AgentMail agent its real inbox before it sends for the first time.
+  const agent = await ensureAgentMailInbox(existingAgent);
   const to = input.to.trim().toLowerCase();
   const subject = input.subject.trim().slice(0, 240);
   const body = input.body.trim();
-  if (!to) return { ok: false, error: 'A recipient is required - an agent alias, or "user" for the workspace owner.' };
+  if (!to) return { ok: false, error: 'A recipient is required - an agent alias, an email address, or "user" for the workspace owner.' };
   if (!subject) return { ok: false, error: "The email needs a subject." };
   if (!body) return { ok: false, error: "The email needs a body." };
+  // Resolution order: the workspace owner ("user"), a teammate by its Nova
+  // alias or its real AgentMail address, then any external address. Teammates
+  // are delivered to their real inbox when they have one; external addresses
+  // need AgentMail, since the internal mailbox cannot reach the internet.
   let toAgentId: number | null = null;
-  if (to !== "user") {
+  let toAddress: string | null = null;
+  if (to === "user") {
+    const identity = await getUserIdentityForUser(ownerId);
+    toAddress = identity.email ? normalizeEmailAddress(identity.email) : null;
+  } else {
     const peers = await listAgentsForUser(ownerId);
-    const target = peers.find(peer => peer.emailAlias.toLowerCase() === to);
-    if (!target) {
+    const target = peers.find(
+      peer =>
+        peer.emailAlias.toLowerCase() === to ||
+        peer.agentmailAddress?.toLowerCase() === to
+    );
+    if (target) {
+      if (target.id === agent.id) {
+        return { ok: false, error: "An agent cannot mail itself." };
+      }
+      toAgentId = target.id;
+      toAddress = agentAddressFor(target);
+    } else if (isEmailAddress(to) && !to.endsWith(".local")) {
+      if (!isAgentMailConfigured()) {
+        return {
+          ok: false,
+          error:
+            "That is an external email address, and AgentMail is not configured on this workspace yet - agents can only mail each other or the user until it is.",
+        };
+      }
+      toAddress = to;
+    } else {
       return {
         ok: false,
-        error: `No agent in this workspace uses the alias "${to}". Known aliases: ${peers
-          .map(peer => peer.emailAlias)
-          .join(", ")}, or "user".`,
+        error: `"${to}" is not a recipient. Use a teammate's address (${peers
+          .map(peer => agentAddressFor(peer))
+          .join(", ")}), any email address, or "user" for the workspace owner.`,
       };
     }
-    if (target.id === agent.id) {
-      return { ok: false, error: "An agent cannot mail itself." };
-    }
-    toAgentId = target.id;
   }
   const db = await getDb();
   if (!db) return { ok: false, error: "Nova could not reach your workspace data." };
@@ -620,7 +744,7 @@ export async function requestAgentEmailApproval(
       agentId: agent.id,
       chatId: input.chatId ?? null,
       action: "send_email",
-      params: { to, toAgentId, subject, body: body.slice(0, 8000) },
+      params: { to, toAgentId, toAddress, subject, body: body.slice(0, 8000) },
       status: "pending",
     })
     .returning();
@@ -827,26 +951,86 @@ export async function decideApprovalForUser(
   }
 
   if (claimed.action === "send_email") {
+    // Retry provisioning here too: if the agent still has no inbox, a routable
+    // recipient cannot receive the mail and the approval must fail rather than
+    // being recorded as a delivered internal message.
+    const senderRecord = await getAgentForUser(ownerId, claimed.agentId);
+    const sender = senderRecord ? await ensureAgentMailInbox(senderRecord) : null;
+    const toAgentId = (params.toAgentId as number | null) ?? null;
+    const to = String(params.to ?? "");
+    const subject = String(params.subject ?? "(no subject)");
+    const body = String(params.body ?? "");
+    // Where this mail should actually reach: a teammate's real AgentMail
+    // address when it has one, otherwise the address resolved when the
+    // request was made (the owner's account email for "user", or an external
+    // address). Internal-only recipients keep the workspace mailbox.
+    const recipientAgent = toAgentId
+      ? await getAgentForUser(ownerId, toAgentId)
+      : undefined;
+    const providerTarget = toAgentId
+      ? recipientAgent?.agentmailAddress?.trim() || null
+      : typeof params.toAddress === "string"
+        ? params.toAddress
+        : null;
+    const senderAddress = sender ? agentAddressFor(sender) : "";
+    let providerDelivered = false;
+    let messageId: string | null = null;
+    if (
+      isAgentMailConfigured() &&
+      sender?.agentmailInboxId &&
+      providerTarget &&
+      isEmailAddress(providerTarget)
+    ) {
+      try {
+        const sent = await sendAgentMailMessage({
+          inboxId: sender.agentmailInboxId,
+          to: providerTarget,
+          subject,
+          text: body,
+        });
+        messageId = sent.messageId || null;
+        providerDelivered = true;
+      } catch (error) {
+        const message =
+          error instanceof AgentMailError
+            ? error.message
+            : "the mail provider could not be reached";
+        return finish("failed", `Approved, but delivery failed - ${message}`, false);
+      }
+    }
+    if (providerTarget && isEmailAddress(providerTarget) && !providerDelivered) {
+      return finish(
+        "failed",
+        "Approved, but delivery failed - the sending agent has no AgentMail inbox, so the mail could not be sent.",
+        false
+      );
+    }
     const [delivered] = await db
       .insert(agentEmails)
       .values({
         workspaceId: claimed.workspaceId,
         fromAgentId: claimed.agentId,
-        toAgentId: (params.toAgentId as number | null) ?? null,
-        subject: String(params.subject ?? "(no subject)"),
-        body: String(params.body ?? ""),
+        toAgentId,
+        direction: "outbound",
+        fromAddress: senderAddress || null,
+        toAddress: providerTarget,
+        messageId,
+        subject,
+        body,
       })
       .returning();
     if (!delivered) {
       return finish(
         "failed",
         "Approved, but delivery failed - Nova could not store the email.",
-        false
+        providerDelivered
       );
     }
     return finish(
       "executed",
-      `Approved - email delivered to ${String(params.to ?? "the user")}.`,
+      providerDelivered
+        ? `Approved - email sent from ${senderAddress} to ${providerTarget}.`
+        : `Approved - email delivered to ${to || "the user"}.`,
       true
     );
   }
@@ -904,24 +1088,146 @@ export async function describeApprovalsForPrompt(
 }
 
 /* ------------------------------------------------------------------ */
-/* Nova-internal agent email                                           */
+/* Agent mail: outbound delivery and the workspace mailbox             */
 /* ------------------------------------------------------------------ */
+
+/** How many recent messages per inbox an inbound sync considers. */
+const INBOUND_SYNC_LIMIT = 20;
+/** Largest stored message body (external mail can be arbitrarily large). */
+const INBOUND_BODY_LIMIT = 20_000;
 
 export type AgentEmailView = {
   id: number;
-  fromAgentId: number;
+  direction: "outbound" | "inbound";
+  fromAgentId: number | null;
   fromAgentName: string;
+  fromAddress: string | null;
   toAgentId: number | null;
   toAgentName: string | null;
+  toAddress: string | null;
   subject: string;
   body: string;
   createdAt: Date;
 };
 
-/** The workspace's internal mailbox: every agent email, newest first. */
+/**
+ * Pulls new mail from each agent's AgentMail inbox into the workspace mailbox.
+ * Best-effort by design: it runs behind the inbox query, and any provider or
+ * network failure leaves stored mail untouched rather than breaking the page.
+ * Messages are deduped by their AgentMail message id.
+ */
+export async function syncAgentMailInboxForUser(ownerId: number): Promise<void> {
+  if (!isAgentMailConfigured()) return;
+  const db = await getDb();
+  if (!db) return;
+  const agents = await listAgentsForUser(ownerId);
+  await Promise.all(
+    agents.map(async listedAgent => {
+      // Backfill a real inbox for agents that predate AgentMail, then sync it.
+      const agent = await ensureAgentMailInbox(listedAgent);
+      const inboxId = agent.agentmailInboxId;
+      if (!inboxId || !agent.agentmailAddress) return;
+      try {
+        const messages = await listAgentMailMessages({
+          inboxId,
+          limit: INBOUND_SYNC_LIMIT,
+        });
+        if (!messages.length) return;
+        const known = await db
+          .select({ messageId: agentEmails.messageId })
+          .from(agentEmails)
+          .where(
+            and(
+              eq(agentEmails.workspaceId, agent.workspaceId),
+              inArray(
+                agentEmails.messageId,
+                messages.map(message => message.messageId)
+              )
+            )
+          );
+        const knownIds = new Set(known.map(row => row.messageId));
+        for (const message of messages) {
+          if (knownIds.has(message.messageId)) continue;
+          // Never store the agent's own outbound mail as an inbound message.
+          if (
+            normalizeEmailAddress(message.from) ===
+            normalizeEmailAddress(agent.agentmailAddress)
+          )
+            continue;
+          // The list response carries only a preview, so always fetch the full
+          // body for new messages; fall back to the listed text if it fails.
+          const full = await getAgentMailMessage({
+            inboxId,
+            messageId: message.messageId,
+          }).catch(() => null);
+          const body = full?.text || message.text;
+          await db
+            .insert(agentEmails)
+            .values({
+              workspaceId: agent.workspaceId,
+              fromAgentId: null,
+              toAgentId: agent.id,
+              direction: "inbound",
+              fromAddress: normalizeEmailAddress(message.from) || null,
+              toAddress: agent.agentmailAddress,
+              messageId: message.messageId,
+              subject: message.subject.slice(0, 240),
+              body: body.slice(0, INBOUND_BODY_LIMIT),
+            })
+            .onConflictDoNothing();
+        }
+      } catch (error) {
+        console.warn(
+          "[AgentMail] Inbound sync failed for",
+          agent.name,
+          error instanceof Error ? error.message : error
+        );
+      }
+    })
+  );
+}
+
+/** Don't re-sync the same owner's inbox more often than this. */
+const INBOUND_SYNC_MIN_INTERVAL_MS = 15_000;
+/** How long the inbox query waits for a sync before returning stored mail. */
+const INBOUND_SYNC_BUDGET_MS = 5_000;
+
+/** Last sync attempt per owner, so a busy page does not hammer the provider. */
+const lastInboxSyncAt = new Map<number, number>();
+
+/**
+ * Runs the inbound sync behind the inbox query without letting a slow
+ * provider hold the page open: the work is throttled per owner and raced
+ * against a short budget. The sync keeps running in the loose case (its
+ * rejection is handled either way); stored mail is always returned, and the
+ * next read resumes from where the last sync stopped thanks to message-id
+ * dedupe.
+ */
+async function syncInboxWithinBudget(ownerId: number): Promise<void> {
+  const last = lastInboxSyncAt.get(ownerId) ?? 0;
+  if (Date.now() - last < INBOUND_SYNC_MIN_INTERVAL_MS) return;
+  lastInboxSyncAt.set(ownerId, Date.now());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      syncAgentMailInboxForUser(ownerId),
+      new Promise<void>(resolve => {
+        timer = setTimeout(resolve, INBOUND_SYNC_BUDGET_MS);
+      }),
+    ]);
+  } catch {
+    // Best-effort: stored mail is returned below regardless.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** The workspace mailbox: every agent email (sent and received), newest first. */
 export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmailView[]> {
   const db = await getDb();
   if (!db) return [];
+  // Surface replies that arrived since the page last loaded.
+  await syncInboxWithinBudget(ownerId);
   const workspace = await getOrCreateWorkspace(ownerId);
   const [emails, agents] = await Promise.all([
     db
@@ -935,10 +1241,15 @@ export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmai
   const nameById = new Map(agents.map(agent => [agent.id, agent.name]));
   return emails.map(email => ({
     id: email.id,
+    direction: email.direction === "inbound" ? "inbound" : "outbound",
     fromAgentId: email.fromAgentId,
-    fromAgentName: nameById.get(email.fromAgentId) ?? "Deleted agent",
+    fromAgentName: email.fromAgentId
+      ? nameById.get(email.fromAgentId) ?? "Deleted agent"
+      : email.fromAddress ?? "External sender",
+    fromAddress: email.fromAddress,
     toAgentId: email.toAgentId,
     toAgentName: email.toAgentId ? nameById.get(email.toAgentId) ?? null : null,
+    toAddress: email.toAddress,
     subject: email.subject,
     body: email.body,
     createdAt: email.createdAt,

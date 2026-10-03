@@ -34,6 +34,7 @@ import {
   searchMemoriesForUser,
 } from "./memories";
 import {
+  agentAddressFor,
   describeApprovalsForPrompt,
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
@@ -563,13 +564,14 @@ const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "send_agent_email",
       description:
-        "Send an email from your agent identity (personal agents only). Recipients are other agents' Nova email aliases, or 'user' for the workspace owner. The mail is NOT sent by this call: it records a request that only the user can confirm, in Nova's Agents page. After calling it, tell the user the email is waiting for their approval, then end your turn.",
+        "Send an email from your own address (personal agents only). Recipients are a teammate's address, any email address, or 'user' for the workspace owner. The mail is NOT sent by this call: it records a request that only the user can confirm, in Nova's Agents page. After calling it, tell the user the email is waiting for their approval, then end your turn.",
       parameters: {
         type: "object",
         properties: {
           to: {
             type: "string",
-            description: "Recipient: an agent's Nova email alias, or 'user'.",
+            description:
+              "Recipient: a teammate's email address, any email address, or 'user' for the workspace owner.",
           },
           subject: { type: "string", description: "Email subject." },
           body: { type: "string", description: "Email body text." },
@@ -1792,7 +1794,11 @@ export function agentIdentityPromptBlock(
     profile.instructions
       ? `\nYour standing instructions: ${profile.instructions}`
       : "",
-    `\nYour Nova-native identity - email: ${profile.emailAlias} (Nova-internal mail; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${wallet}.`,
+    `\nYour agent identity - email: ${agentAddressFor(profile)} (${
+      profile.agentmailAddress
+        ? "a real inbox that can send to and receive from outside addresses"
+        : "Nova-internal mail"
+    }; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${wallet}.`,
     `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
     "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
     team

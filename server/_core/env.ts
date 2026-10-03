@@ -139,6 +139,8 @@ export const ENV = {
   composioApiKey: process.env.COMPOSIO_API_KEY ?? "",
   /** Exa AI API key powering the researcher sub-agent's deep web search. Empty string when unset. */
   exaApiKey: process.env.EXA_API_KEY ?? "",
+  /** AgentMail API key powering real agent inboxes and email delivery. Empty string falls back to Nova-internal mail. */
+  agentmailApiKey: process.env.AGENTMAIL_API_KEY ?? "",
   /** Resolved by resolveNimApiKey: the dedicated name, then the legacy gateway names. */
   nimApiKey: resolveNimApiKey(),
   /** NVIDIA NIM OpenAI-compatible base URL: the hosted NIM endpoint by default, a self-hosted NIM container works too. */

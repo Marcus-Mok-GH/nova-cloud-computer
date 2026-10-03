@@ -246,14 +246,16 @@ export async function updateAgentForUser(
   if (input.walletBudgetCredits !== undefined) {
     // null means "no cap": the wallet becomes unlimited. A concrete budget may
     // never drop below what the agent has already spent - that would silently
-    // overdraw the wallet.
+    // overdraw the wallet. The floor is applied inside the UPDATE against the
+    // row's *current* spending, so an approval debiting concurrently can't
+    // leave a cap below what was spent (a stale read here would).
     updateSet.walletBudgetCredits =
       input.walletBudgetCredits === null
         ? null
-        : Math.max(
-            existing.walletSpentCredits,
+        : (sql`GREATEST(${agentProfiles.walletSpentCredits}, ${Math.max(
+            0,
             Math.min(MAX_PURCHASE_CREDITS, Math.trunc(input.walletBudgetCredits))
-          );
+          )})` as unknown as number);
   }
   try {
     const rows = await db

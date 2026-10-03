@@ -264,11 +264,16 @@ describe("agent budget storage", () => {
     expect(script.state.updateCalls[0].values.walletBudgetCredits).toBeNull();
   });
 
-  it("still refuses to set a budget below what was already spent", async () => {
+  it("still floors a budget below what was already spent, inside the update", async () => {
     script.state.selects = [[agentRow({ walletBudgetCredits: 500, walletSpentCredits: 480 })]];
     script.state.updates = [[agentRow({ walletBudgetCredits: 480 })]];
     await updateAgentForUser(1, 11, { walletBudgetCredits: 10 });
-    expect(script.state.updateCalls[0].values.walletBudgetCredits).toBe(480);
+    // The floor is computed in SQL against the row's *current* spending, so a
+    // concurrent approval debiting the wallet can't leave the cap below what
+    // was spent (a stale JS-side read could).
+    const applied = sqlText(script.state.updateCalls[0].values.walletBudgetCredits);
+    expect(applied).toContain("GREATEST");
+    expect(applied).not.toContain("480");
   });
 });
 

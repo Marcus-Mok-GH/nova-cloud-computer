@@ -17,7 +17,10 @@ uncapped wallet now reports "The wallet has no budget cap - N credits spent so
 far" instead of a credits-left figure, and the identity prompt tells the agent
 "wallet: unlimited, no budget cap (N credits spent)". server/routers.ts
 accepts null on agents.create / agents.update; a typed number is still capped
-at 100000, and a budget can still never drop below what was already spent.
+at 100000, and a budget can still never drop below what was already spent -
+the floor is now applied inside the UPDATE against the row's current spending
+(`GREATEST(walletSpentCredits, requested)`), so an approval debiting the wallet
+concurrently can no longer leave the cap below what was spent.
 
 client/src/pages/Agents.tsx parses the field with a new exported
 walletBudgetFromField(): "" is null (unlimited), anything else must be a

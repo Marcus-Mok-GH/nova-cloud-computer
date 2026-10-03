@@ -106,7 +106,7 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 - **workspaces** - one per user; holds model settings, persistent sandbox ID, Telegram settings.
 - **users / sessions** - authentication.
 - **chats / chat_messages** - conversations with the AI agent.
-- **agent_profiles / chat_agents / agent_approvals / agent_emails** - personal agents with a Nova-native identity (internal email alias, virtual phone handle), a spending wallet, team chats, and approval-gated actions (purchases, outbound email).
+- **agent_profiles / chat_agents / agent_approvals / agent_emails** - personal agents with an identity (a real AgentMail inbox when `AGENTMAIL_API_KEY` is set, plus a virtual phone handle), a spending wallet, team chats, and approval-gated actions (purchases, outbound email).
 - **folders / files** - the user's workspace file tree.
 - **automations / automation_runs** - scheduled tasks.
 - **projects / tasks** - project & task management.

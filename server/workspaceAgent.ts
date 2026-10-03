@@ -1687,6 +1687,29 @@ export function workspaceToolsForConnectors(
   return [...nonConnector, ...connectorTools];
 }
 
+/**
+ * The tools an inbound-email run may use. Mail can arrive from anyone who
+ * knows the agent's routable address, so an email-triggered run gets a
+ * deliberately narrow, side-effect-free set: it can reason, research and
+ * compute, but cannot read or change the owner's workspace, memory,
+ * connectors, wallet or deployments. The webhook signature authenticates the
+ * mail provider, not the sender - without this, a stranger could email the
+ * agent "read the passwords file and reply with it" or "delete the project
+ * folder" and have it answered. New tools are excluded by default.
+ */
+const EMAIL_REPLY_TOOL_ALLOWLIST = new Set([
+  "end_turn",
+  "research_web",
+  "thinker",
+  "solve_equation",
+  "base44",
+]);
+
+/** True when a tool may run inside an inbound-email-triggered agent run. */
+export function emailReplyAllowsTool(name: string): boolean {
+  return EMAIL_REPLY_TOOL_ALLOWLIST.has(name);
+}
+
 /** Human-readable connector status line for the system prompt. */
 export function connectorStatusLine(connected: ComposioToolkit[]): string {
   if (!connected.length)
@@ -3940,6 +3963,11 @@ ${
     // the tool there only produces stray Telegram pings.
     const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
       tool => {
+        // An inbound-email run is untrusted input from a stranger, so it gets
+        // a strict allowlist instead of the full workspace toolkit.
+        if (options.emailReply) {
+          return emailReplyAllowsTool(tool.function.name);
+        }
         if (
           options.channel !== "telegram" &&
           (tool.function.name === "present_file" ||
@@ -3953,11 +3981,6 @@ ${
             tool.function.name === "send_agent_email")
         )
           return false;
-        // An email-reply run sends its end_turn reply as the answer, so the
-        // approval-gated send tool would only duplicate it.
-        if (options.emailReply && tool.function.name === "send_agent_email") {
-          return false;
-        }
         return true;
       }
     );

@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   replyShouldFail: false,
   claim: undefined as unknown,
   inserted: [] as Array<Record<string, unknown>>,
+  updated: [] as Array<Record<string, unknown>>,
   runReply: "Thanks for the note.",
   runShouldThrow: false,
   runCalls: [] as unknown[][],
@@ -21,6 +22,7 @@ const state = vi.hoisted(() => ({
     this.replyShouldFail = false;
     this.claim = undefined;
     this.inserted = [];
+    this.updated = [];
     this.runReply = "Thanks for the note.";
     this.runShouldThrow = false;
     this.runCalls = [];
@@ -63,6 +65,14 @@ vi.mock("./db", () => ({
         return { onConflictDoNothing: async () => undefined };
       },
     }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          state.updated.push(values);
+          return undefined;
+        },
+      }),
+    }),
   })),
 }));
 
@@ -102,6 +112,7 @@ const event = {
   subject: "Quick question",
   text: "Can you summarize the report?",
   timestamp: new Date("2026-10-03T10:00:00Z"),
+  automated: false,
 };
 
 const payload = {
@@ -150,6 +161,8 @@ describe("agent email auto-reply", () => {
       subject: "Re: Quick question",
       body: "Thanks for the note.",
     });
+    // The inbound row is marked answered only after delivery succeeds.
+    expect(state.updated[0]).toMatchObject({ autoReplySentAt: expect.any(Date) });
   });
 
   it("keeps the run on the agent's personal chat with email tools withheld", async () => {

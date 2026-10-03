@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, getOrCreateWorkspace, getChatForUser, getUserIdentityForUser } from "./db";
 import {
   AgentMailError,
@@ -175,6 +175,41 @@ async function ensureAgentMailInbox(
         agentmailInboxId: inbox.inboxId,
         agentmailAddress: inbox.address,
       };
+}
+
+/** Outcome of an AgentMail mailbox backfill run. */
+export type AgentMailBackfillSummary = {
+  examined: number;
+  provisioned: number;
+  failed: number;
+};
+
+/**
+ * Gives every agent that does not have one yet a real AgentMail inbox, across
+ * all workspaces - swapping the non-routable `@nova.local` alias of agents
+ * created before AgentMail was wired up. Safe to rerun: only rows without an
+ * inbox id are selected.
+ */
+export async function backfillAgentMailInboxes(): Promise<AgentMailBackfillSummary> {
+  const db = await getDb();
+  if (!db) return { examined: 0, provisioned: 0, failed: 0 };
+  if (!isAgentMailConfigured()) {
+    throw new Error(
+      "AGENTMAIL_API_KEY is not configured, so AgentMail inboxes cannot be provisioned."
+    );
+  }
+  const rows = await db
+    .select()
+    .from(agentProfiles)
+    .where(isNull(agentProfiles.agentmailInboxId));
+  let provisioned = 0;
+  let failed = 0;
+  for (const row of rows) {
+    const updated = await ensureAgentMailInbox(row);
+    if (updated.agentmailInboxId) provisioned += 1;
+    else failed += 1;
+  }
+  return { examined: rows.length, provisioned, failed };
 }
 
 /**

@@ -123,6 +123,7 @@ vi.mock("./db", () => ({
 const {
   AgentNameTakenError,
   agentEmailAliasFor,
+  backfillAgentMailInboxes,
   agentPhoneHandleFor,
   createAgentForUser,
   describeApprovalsForPrompt,
@@ -627,6 +628,26 @@ describe("AgentMail-backed agent email", () => {
     expect(result?.executed).toBe(false);
     expect(mail.sent).toHaveLength(0);
     expect(script.state.insertCalls.find(call => call.table === agentEmails)).toBeUndefined();
+  });
+
+  it("swaps fake aliases for real inboxes across all agents", async () => {
+    mail.configured = true;
+    script.state.selects = [
+      [agentRow(), agentRow({ id: 12, name: "Pip", emailAlias: "pip-9c1d@nova.local" })],
+    ];
+    script.state.updates = [
+      [agentRow({ agentmailInboxId: "inbox-1", agentmailAddress: "mira-4f2a@agentmail.to" })],
+      [agentRow({ id: 12, agentmailInboxId: "inbox-1", agentmailAddress: "pip-9c1d@agentmail.to" })],
+    ];
+    const summary = await backfillAgentMailInboxes();
+    expect(summary).toEqual({ examined: 2, provisioned: 2, failed: 0 });
+    expect(mail.created).toHaveLength(2);
+    expect(script.state.updateCalls).toHaveLength(2);
+  });
+
+  it("refuses to run the backfill without AgentMail configured", async () => {
+    mail.configured = false;
+    await expect(backfillAgentMailInboxes()).rejects.toThrow(/not configured/);
   });
 
   it("backfills a real inbox for an agent that predates AgentMail", async () => {

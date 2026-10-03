@@ -125,9 +125,11 @@ const {
   agentEmailAliasFor,
   backfillAgentMailInboxes,
   agentPhoneHandleFor,
+  claimInboundAgentEmailForAutoReply,
   createAgentForUser,
   describeApprovalsForPrompt,
   decideApprovalForUser,
+  findAgentByAgentMailInboxId,
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
   slugifyAgentName,
@@ -693,5 +695,131 @@ describe("AgentMail-backed agent email", () => {
       subject: "Re: hello",
       body: "the reply",
     });
+  });
+});
+
+const inboundEvent = (overrides: Row = {}) => ({
+  eventId: "evt-1",
+  inboxId: "inbox-1",
+  messageId: "msg-1",
+  threadId: "thr-1",
+  from: "owner@example.com",
+  to: ["mira-4f2a@agentmail.to"],
+  subject: "Quick question",
+  text: "Can you summarize the report?",
+  timestamp: new Date(),
+  automated: false,
+  ...overrides,
+});
+
+const mira = agentRow({
+  agentmailInboxId: "inbox-1",
+  agentmailAddress: "mira-4f2a@agentmail.to",
+});
+/** The select queue a claim walks for a sender that passes every guard. */
+const passingClaimSelects = () => [
+  [mira],
+  [{ id: 5, ownerId: 1 }],
+  [],
+  [],
+  [mira],
+  [{ id: "chat000000000000000001" }],
+];
+
+describe("inbound auto-reply claims", () => {
+  it("maps a webhook inbox back to its agent and workspace owner", async () => {
+    script.state.selects = [
+      [agentRow({ agentmailInboxId: "inbox-1" })],
+      [{ id: 5, ownerId: 1 }],
+    ];
+    const found = await findAgentByAgentMailInboxId("inbox-1");
+    expect(found?.agent.id).toBe(11);
+    expect(found?.ownerId).toBe(1);
+  });
+
+  it("returns undefined for an inbox with no agent", async () => {
+    script.state.selects = [[]];
+    expect(await findAgentByAgentMailInboxId("inbox-unknown")).toBeUndefined();
+  });
+
+  it("records the inbound mail, claims it once, and returns the personal chat", async () => {
+    script.state.selects = passingClaimSelects();
+    script.state.updates = [[{ id: 9 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim.claimed).toBe(true);
+    if (claim.claimed) {
+      expect(claim.ownerId).toBe(1);
+      expect(claim.chatId).toBe("chat000000000000000001");
+    }
+    const insert = script.state.insertCalls.find(call => call.table === agentEmails);
+    expect(insert?.values).toMatchObject({
+      direction: "inbound",
+      fromAgentId: null,
+      toAgentId: 11,
+      fromAddress: "owner@example.com",
+      toAddress: "mira-4f2a@agentmail.to",
+      messageId: "msg-1",
+      subject: "Quick question",
+    });
+    // The claim marks the row, guarded so a retry cannot claim it twice.
+    expect(script.state.updateCalls[0].values).toMatchObject({
+      autoRepliedAt: expect.any(Date),
+    });
+    expect(script.state.updateCalls[0].condition).toBeDefined();
+  });
+
+  it("stops a webhook retry once the email is already claimed", async () => {
+    script.state.selects = passingClaimSelects();
+    script.state.updates = [[]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim).toEqual({ claimed: false, reason: "already-replied" });
+  });
+
+  it("never auto-replies to the agent's own address, and does not store it", async () => {
+    script.state.selects = [[mira], [{ id: 5, ownerId: 1 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(
+      inboundEvent({ from: "mira-4f2a@agentmail.to" })
+    );
+    expect(claim).toEqual({ claimed: false, reason: "self-sent" });
+    expect(script.state.insertCalls).toHaveLength(0);
+  });
+
+  it("records machine-generated mail but never answers it", async () => {
+    script.state.selects = [[mira], [{ id: 5, ownerId: 1 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(
+      inboundEvent({ automated: true })
+    );
+    expect(claim).toEqual({ claimed: false, reason: "automated-sender" });
+    expect(
+      script.state.insertCalls.find(call => call.table === agentEmails)
+    ).toBeDefined();
+  });
+
+  it("never auto-answers another agent's address, by domain or by lookup", async () => {
+    script.state.selects = [[mira], [{ id: 5, ownerId: 1 }]];
+    expect(
+      await claimInboundAgentEmailForAutoReply(
+        inboundEvent({ from: "pip-9c1d@agentmail.to" })
+      )
+    ).toEqual({ claimed: false, reason: "agent-sender" });
+    script.state.selects = [[mira], [{ id: 5, ownerId: 1 }], [{ id: 12 }]];
+    expect(
+      await claimInboundAgentEmailForAutoReply(
+        inboundEvent({ from: "pip@custom.example" })
+      )
+    ).toEqual({ claimed: false, reason: "agent-sender" });
+  });
+
+  it("caps auto-replies to one sender per window", async () => {
+    script.state.selects = [
+      [mira],
+      [{ id: 5, ownerId: 1 }],
+      [],
+      Array.from({ length: 10 }, (_, index) => ({ id: index + 1 })),
+    ];
+    const claim = await claimInboundAgentEmailForAutoReply(
+      inboundEvent({ from: "spammer@example.com" })
+    );
+    expect(claim).toEqual({ claimed: false, reason: "rate-limited" });
   });
 });

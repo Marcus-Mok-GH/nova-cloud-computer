@@ -328,6 +328,7 @@ const {
   CODER_NUDGE_PREFIX,
   isCodeFileName,
   isSubstantialCode,
+  emailReplyAllowsTool,
   unifiedDiff,
 } = await import("./workspaceAgent");
 
@@ -1305,6 +1306,39 @@ describe("Nova tool-calling workspace agent", () => {
       )
     ).toBe(true);
     expect(isSubstantialCode("x".repeat(801))).toBe(true);
+  });
+
+  it("gives an inbound-email run only side-effect-free tools", () => {
+    // Anything that can read or change the owner's workspace, memory,
+    // connectors, wallet or deployments must stay out: the sender is a
+    // stranger, not the workspace owner.
+    expect(emailReplyAllowsTool("end_turn")).toBe(true);
+    expect(emailReplyAllowsTool("research_web")).toBe(true);
+    expect(emailReplyAllowsTool("thinker")).toBe(true);
+    expect(emailReplyAllowsTool("solve_equation")).toBe(true);
+    expect(emailReplyAllowsTool("base44")).toBe(true);
+    for (const denied of [
+      "read_file",
+      "list_workspace",
+      "edit_file",
+      "delete_file",
+      "delete_folder",
+      "run_bash",
+      "run_vm_task",
+      "browse",
+      "github",
+      "use_connector_tool",
+      "send_agent_email",
+      "send_telegram_message",
+      "request_purchase",
+      "search_memories",
+      "save_memory",
+      "deploy_website",
+      "set_personalisation",
+      "wake_sandbox",
+    ]) {
+      expect(emailReplyAllowsTool(denied)).toBe(false);
+    }
   });
 
   it("diffs an edit as a hunk of the changed middle, not the whole file", () => {

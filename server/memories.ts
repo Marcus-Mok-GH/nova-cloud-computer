@@ -279,6 +279,35 @@ export async function deleteMemoryForUser(
   return deleted.length > 0;
 }
 
+/**
+ * Clears every memory the owner has stored. With no scope this removes the
+ * shared (default Nova) memories *and* every personal agent's private ones;
+ * passing a scope narrows the wipe to just that agent. Returns the number of
+ * records removed.
+ */
+export async function clearMemoriesForUser(
+  ownerId: number,
+  scope?: MemoryScope
+): Promise<number> {
+  const db = await getDb();
+  // Unlike the read helpers, a clear must never report a false success: an
+  // unreachable database means the memories are still there, so surface it.
+  if (!db)
+    throw new Error(
+      "Nova can't reach your workspace data right now. Please try again shortly."
+    );
+  const deleted = await db
+    .delete(conversationMemories)
+    .where(
+      and(
+        eq(conversationMemories.ownerId, ownerId),
+        scope ? writeScopeCondition(scope) : undefined
+      )
+    )
+    .returning({ id: conversationMemories.id });
+  return deleted.length;
+}
+
 /** Compact recall lines for the system prompt. */
 export async function listRecentMemoriesForPrompt(
   ownerId: number,

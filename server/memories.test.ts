@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendConversationTurn,
   buildS3PutRequest,
+  clearMemoriesForUser,
   deleteMemoryForUser,
   listRecentMemoriesForPrompt,
   readMemoryForUser,
@@ -25,6 +26,7 @@ const makeFakeDb = (store: {
   onInsert?: (values: Row) => Row;
   onUpdate?: (values: Row) => Row[];
   onDelete?: () => number[];
+  onDeleteWhere?: (condition: unknown) => void;
 }) => {
   const rows = store.rows ?? [];
   const query = {
@@ -48,13 +50,35 @@ const makeFakeDb = (store: {
       }),
     }),
     delete: () => ({
-      where: () => ({
-        returning: async () =>
-          store.onDelete!().map(id => ({ id: id as never })),
-      }),
+      where: (condition: unknown) => {
+        store.onDeleteWhere?.(condition);
+        return {
+          returning: async () =>
+            store.onDelete!().map(id => ({ id: id as never })),
+        };
+      },
     }),
   };
 };
+
+/**
+ * Recursively pulls drizzle Param values out of a where-condition tree, so a
+ * test can inspect what a delete was scoped to even though the fake database
+ * (like the real one) is the component that evaluates the predicate.
+ */
+function paramValues(condition: unknown, depth = 0): unknown[] {
+  if (!condition || typeof condition !== "object" || depth > 6) return [];
+  if (Array.isArray(condition))
+    return condition.flatMap(item => paramValues(item, depth + 1));
+  if (Array.isArray((condition as { queryChunks?: unknown[] }).queryChunks)) {
+    return ((condition as { queryChunks: unknown[] }).queryChunks).flatMap(
+      chunk => paramValues(chunk, depth + 1)
+    );
+  }
+  const maybe = condition as { value?: unknown; brand?: unknown; encoder?: unknown };
+  if ("brand" in maybe && "encoder" in maybe) return [maybe.value];
+  return Object.values(condition).flatMap(value => paramValues(value, depth + 1));
+}
 
 const memoryRow = (overrides: Row = {}) => ({
   id: 7,
@@ -88,6 +112,13 @@ describe("conversation memory store", () => {
     await expect(readMemoryForUser(1, 7)).resolves.toBeNull();
     await expect(deleteMemoryForUser(1, 7)).resolves.toBe(false);
     await expect(listRecentMemoriesForPrompt(1)).resolves.toBe("none yet");
+  });
+
+  it("fails a clear when the database is unavailable rather than reporting success", async () => {
+    vi.mocked(getDb).mockResolvedValue(null);
+    await expect(clearMemoriesForUser(1)).rejects.toThrow(
+      "Nova can't reach your workspace data right now."
+    );
   });
 
   it("never throws on a database failure while capturing a turn", async () => {
@@ -196,6 +227,36 @@ describe("conversation memory store", () => {
   it("strips backslashes from search terms before the ILIKE query", async () => {
     vi.mocked(getDb).mockResolvedValue(makeFakeDb({ rows: [] }) as never);
     await expect(searchMemoriesForUser(1, "foo\\")).resolves.toEqual([]);
+  });
+
+  it("clears every stored memory for the owner and reports how many were removed", async () => {
+    let whereCondition: unknown;
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({
+        onDelete: () => [7, 8, 9],
+        onDeleteWhere: condition => {
+          whereCondition = condition;
+        },
+      }) as never
+    );
+    await expect(clearMemoriesForUser(1)).resolves.toBe(3);
+    expect(paramValues(whereCondition)).toContain(1);
+  });
+
+  it("narrows the clear to a single agent when a scope is given", async () => {
+    let whereCondition: unknown;
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({
+        onDelete: () => [7],
+        onDeleteWhere: condition => {
+          whereCondition = condition;
+        },
+      }) as never
+    );
+    await expect(clearMemoriesForUser(1, { agentId: 5 })).resolves.toBe(1);
+    const params = paramValues(whereCondition);
+    expect(params).toContain(1);
+    expect(params).toContain(5);
   });
 
   it("reads and deletes only for the owning user", async () => {

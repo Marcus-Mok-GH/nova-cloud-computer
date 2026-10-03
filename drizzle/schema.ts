@@ -266,6 +266,15 @@ export const agentEmails = pgTable("agent_emails", {
   toAddress: varchar("toAddress", { length: 200 }),
   /** AgentMail message id, used to dedupe inbound syncs. Null for internal mail. */
   messageId: varchar("messageId", { length: 200 }),
+  /**
+   * When the receiving agent claimed the one auto-reply for this inbound email.
+   * The claim is a conditional UPDATE, so a webhook retry can never send the
+   * same reply twice. It is set before the run, so it means "claimed", not
+   * "answered".
+   */
+  autoRepliedAt: timestamp("autoRepliedAt", { withTimezone: true }),
+  /** When the auto-reply was actually delivered. Null until a reply is sent. */
+  autoReplySentAt: timestamp("autoReplySentAt", { withTimezone: true }),
   subject: varchar("subject", { length: 240 }).notNull(),
   body: text("body").notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),

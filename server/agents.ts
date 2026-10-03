@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, getOrCreateWorkspace, getChatForUser, getUserIdentityForUser } from "./db";
 import {
   AgentMailError,
@@ -8,6 +8,7 @@ import {
   listAgentMailMessages,
   normalizeEmailAddress,
   sendAgentMailMessage,
+  type AgentMailInboundEvent,
 } from "./agentmail";
 import {
   agentApprovals,
@@ -15,6 +16,7 @@ import {
   agentProfiles,
   chatAgents,
   chats,
+  workspaces,
   type AgentApprovalRow,
   type AgentProfileRow,
 } from "../drizzle/schema";
@@ -253,7 +255,7 @@ export class AgentNameTakenError extends Error {
   }
 }
 
-function toProfileContext(row: AgentProfileRow): AgentProfileContext {
+export function toProfileContext(row: AgentProfileRow): AgentProfileContext {
   return {
     id: row.id,
     name: row.name,
@@ -1134,6 +1136,8 @@ const INBOUND_BODY_LIMIT = 20_000;
 export type AgentEmailView = {
   id: number;
   direction: "outbound" | "inbound";
+  /** True when an inbound email was answered automatically by the agent. */
+  autoReplied: boolean;
   fromAgentId: number | null;
   fromAgentName: string;
   fromAddress: string | null;
@@ -1277,6 +1281,9 @@ export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmai
   return emails.map(email => ({
     id: email.id,
     direction: email.direction === "inbound" ? "inbound" : "outbound",
+    // Only a delivered reply counts as answered - the claim alone would badge
+    // mail whose run or delivery failed.
+    autoReplied: email.autoReplySentAt !== null,
     fromAgentId: email.fromAgentId,
     fromAgentName: email.fromAgentId
       ? nameById.get(email.fromAgentId) ?? "Deleted agent"
@@ -1289,4 +1296,177 @@ export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmai
     body: email.body,
     createdAt: email.createdAt,
   }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Inbound auto-reply: webhook delivery -> agent run -> email reply    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Finds the agent (and the owner of its workspace) behind one AgentMail
+ * inbox. Inbound deliveries identify the inbox, not the tenancy, so this is
+ * how a webhook maps back to a workspace owner. Unknown inboxes - another
+ * deployment's agent, or one deleted since - resolve to undefined.
+ */
+export async function findAgentByAgentMailInboxId(
+  inboxId: string
+): Promise<{ agent: AgentProfileRow; ownerId: number } | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [agent] = await db
+    .select()
+    .from(agentProfiles)
+    .where(eq(agentProfiles.agentmailInboxId, inboxId))
+    .limit(1);
+  if (!agent) return undefined;
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, agent.workspaceId))
+    .limit(1);
+  if (!workspace) return undefined;
+  return { agent, ownerId: workspace.ownerId };
+}
+
+/** Outcome of claiming one inbound email for an automatic reply. */
+/** Runaway guard: the most auto-replies one sender can receive per window. */
+const AUTO_REPLY_SENDER_LIMIT = 10;
+const AUTO_REPLY_WINDOW_MS = 60 * 60 * 1000;
+
+/** True for any address on AgentMail's shared inbox domain. */
+function isAgentMailDomainAddress(address: string): boolean {
+  return address.toLowerCase().endsWith("@agentmail.to");
+}
+
+/** True when the address belongs to an agent of any workspace. */
+async function isKnownAgentAddress(address: string): Promise<boolean> {
+  if (!address) return false;
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db
+    .select({ id: agentProfiles.id })
+    .from(agentProfiles)
+    .where(eq(agentProfiles.agentmailAddress, address))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** True when this agent has already auto-replied to `from` too often lately. */
+async function hasReachedAutoReplyRateLimit(
+  agent: AgentProfileRow,
+  from: string
+): Promise<boolean> {
+  if (!from) return false;
+  const db = await getDb();
+  if (!db) return false;
+  const recent = await db
+    .select({ id: agentEmails.id })
+    .from(agentEmails)
+    .where(
+      and(
+        eq(agentEmails.workspaceId, agent.workspaceId),
+        eq(agentEmails.direction, "outbound"),
+        eq(agentEmails.toAddress, from),
+        gte(agentEmails.createdAt, new Date(Date.now() - AUTO_REPLY_WINDOW_MS))
+      )
+    );
+  return recent.length >= AUTO_REPLY_SENDER_LIMIT;
+}
+
+export type InboundAgentEmailClaim =
+  | {
+      claimed: true;
+      agent: AgentProfileRow;
+      ownerId: number;
+      event: AgentMailInboundEvent;
+      /** The workspace chat the run belongs to (the agent's personal chat). */
+      chatId: string;
+    }
+  | {
+      claimed: false;
+      reason:
+        | "unknown-inbox"
+        | "self-sent"
+        | "automated-sender"
+        | "agent-sender"
+        | "rate-limited"
+        | "already-replied"
+        | "no-chat";
+    };
+
+/**
+ * Records an inbound email and, when it is safe to answer, atomically claims
+ * the one auto-reply it earns.
+ *
+ * The row is inserted first (deduped by provider message id, so the sync and
+ * the webhook can race harmlessly) and the claim is a guarded UPDATE on
+ * `autoRepliedAt` - the first delivery wins and a webhook retry sees a
+ * non-null mark and stops, which is what makes the reply exactly-once even
+ * when Svix redelivers.
+ *
+ * It is only claimed when answering cannot start a mail loop or let a stranger
+ * drive endless runs: the agent's own address, machine-generated mail
+ * (out-of-office and auto-responders), any other agent's address, and a sender
+ * already answered up to the per-window cap are all recorded but never
+ * auto-answered.
+ */
+export async function claimInboundAgentEmailForAutoReply(
+  event: AgentMailInboundEvent
+): Promise<InboundAgentEmailClaim> {
+  const found = await findAgentByAgentMailInboxId(event.inboxId);
+  if (!found) return { claimed: false, reason: "unknown-inbox" };
+  const { agent, ownerId } = found;
+  const db = await getDb();
+  if (!db) return { claimed: false, reason: "unknown-inbox" };
+  // The agent's own address is outbound mail, not something to record or
+  // answer - the periodic sync skips it the same way.
+  if (
+    agent.agentmailAddress &&
+    normalizeEmailAddress(agent.agentmailAddress) === event.from
+  ) {
+    return { claimed: false, reason: "self-sent" };
+  }
+  // Record the mail whether or not it is answered, so the inbox stays complete.
+  await db
+    .insert(agentEmails)
+    .values({
+      workspaceId: agent.workspaceId,
+      fromAgentId: null,
+      toAgentId: agent.id,
+      direction: "inbound",
+      fromAddress: event.from || null,
+      toAddress: agent.agentmailAddress,
+      messageId: event.messageId,
+      subject: event.subject.slice(0, 240),
+      body: event.text.slice(0, INBOUND_BODY_LIMIT),
+    })
+    .onConflictDoNothing();
+  // Loop and abuse guards, all decided before the claim.
+  if (event.automated) return { claimed: false, reason: "automated-sender" };
+  if (
+    isAgentMailDomainAddress(event.from) ||
+    (await isKnownAgentAddress(event.from))
+  ) {
+    return { claimed: false, reason: "agent-sender" };
+  }
+  if (await hasReachedAutoReplyRateLimit(agent, event.from)) {
+    return { claimed: false, reason: "rate-limited" };
+  }
+  // Resolve the run's chat before claiming, so a missing chat never consumes
+  // the one claim and leaves the mail permanently unanswerable.
+  const chat = await startAgentChatForUser(ownerId, agent.id);
+  if (!chat) return { claimed: false, reason: "no-chat" };
+  const claimed = await db
+    .update(agentEmails)
+    .set({ autoRepliedAt: new Date() })
+    .where(
+      and(
+        eq(agentEmails.messageId, event.messageId),
+        eq(agentEmails.direction, "inbound"),
+        isNull(agentEmails.autoRepliedAt)
+      )
+    )
+    .returning({ id: agentEmails.id });
+  if (!claimed.length) return { claimed: false, reason: "already-replied" };
+  return { claimed: true, agent, ownerId, event, chatId: chat.id };
 }

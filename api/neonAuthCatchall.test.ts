@@ -64,6 +64,12 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPathFromRequestUrl("/api/agent/continue")).toBe(true);
   });
 
+  it("keeps the AgentMail inbound webhook co-deployed so it reaches the app", () => {
+    expect(isCoDeployedApiPath(["agentmail", "webhook"])).toBe(true);
+    expect(isCoDeployedApiPath("agentmail/webhook")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/agentmail/webhook")).toBe(true);
+  });
+
   it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
     expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(
       "session=value; Path=/; HttpOnly; Secure; SameSite=None",

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_emails" ADD COLUMN IF NOT EXISTS "autoReplySentAt" timestamp with time zone;

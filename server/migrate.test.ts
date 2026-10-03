@@ -124,4 +124,13 @@ describe("automatic database schema bootstrap", () => {
     querySpy.mockRejectedValueOnce(new Error("database unreachable"));
     await expect(ensureDatabaseSchema()).resolves.toBe(false);
   });
+
+  it("retries after a transient failure instead of caching it for the process", async () => {
+    // A warm serverless instance must not keep serving against a missing
+    // schema because its very first migration attempt hit a momentary outage.
+    process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
+    querySpy.mockRejectedValueOnce(new Error("database unreachable"));
+    await expect(ensureDatabaseSchema()).resolves.toBe(false);
+    await expect(ensureDatabaseSchema()).resolves.toBe(true);
+  });
 });

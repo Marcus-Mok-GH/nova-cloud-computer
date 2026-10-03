@@ -17,6 +17,8 @@ import { ENV } from "./_core/env";
 const AGENTMAIL_BASE_URL = "https://api.agentmail.to/v0";
 /** Per-request timeout; a hung provider must never stall an agent run. */
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Cap on pages followed per list call, so a large inbox cannot stall a sync. */
+const MAX_LIST_PAGES = 5;
 
 /** The configured AgentMail API key, or "" when the provider is not set up. */
 export function agentMailApiKey(): string {
@@ -171,27 +173,39 @@ export async function sendAgentMailMessage(input: {
 }
 
 /**
- * Lists the most recent messages in an inbox, newest first. The list response
- * carries only a preview, so callers that need the body fetch each message
- * with `getAgentMailMessage` - only for ids they have not stored yet.
+ * Lists messages in an inbox, newest first, following pagination up to
+ * `MAX_LIST_PAGES` pages so a burst of mail larger than one page is not
+ * silently dropped. The list response carries only a preview, so callers that
+ * need the body fetch each message with `getAgentMailMessage`.
  */
 export async function listAgentMailMessages(input: {
   inboxId: string;
   limit?: number;
 }): Promise<AgentMailMessage[]> {
-  const query = new URLSearchParams({
-    limit: String(Math.max(1, Math.min(100, input.limit ?? 20))),
-    ascending: "false",
-  });
-  const listed = await callAgentMail<{ messages?: unknown }>(
-    `/inboxes/${encodeURIComponent(input.inboxId)}/messages?${query.toString()}`,
-    { method: "GET" }
-  );
-  const messages = Array.isArray(listed.messages) ? listed.messages : [];
-  return messages
-    .filter((message): message is RawMessage => Boolean(message) && typeof message === "object")
-    .map(toAgentMailMessage)
-    .filter(message => message.messageId !== "");
+  const perPage = Math.max(1, Math.min(100, input.limit ?? 20));
+  const collected: AgentMailMessage[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const query = new URLSearchParams({ limit: String(perPage), ascending: "false" });
+    if (pageToken) query.set("page_token", pageToken);
+    const listed = await callAgentMail<{ messages?: unknown; next_page_token?: unknown }>(
+      `/inboxes/${encodeURIComponent(input.inboxId)}/messages?${query.toString()}`,
+      { method: "GET" }
+    );
+    const messages = Array.isArray(listed.messages) ? listed.messages : [];
+    collected.push(
+      ...messages
+        .filter((message): message is RawMessage => Boolean(message) && typeof message === "object")
+        .map(toAgentMailMessage)
+        .filter(message => message.messageId !== "")
+    );
+    pageToken =
+      typeof listed.next_page_token === "string" && listed.next_page_token
+        ? listed.next_page_token
+        : undefined;
+    if (!pageToken) break;
+  }
+  return collected;
 }
 
 /** Fetches one message, including its full text body. */

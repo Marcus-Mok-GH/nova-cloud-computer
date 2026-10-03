@@ -72,12 +72,14 @@ const script = vi.hoisted(() => {
 /** Controllable AgentMail stand-in: no network, records what was provisioned/sent. */
 const mail = vi.hoisted(() => ({
   configured: false,
+  failCreate: false,
   created: [] as Array<Record<string, unknown>>,
   sent: [] as Array<Record<string, unknown>>,
   listResult: [] as Array<Record<string, unknown>>,
   getResult: { messageId: "", threadId: "", from: "", to: [] as string[], subject: "", text: "", timestamp: new Date() },
   reset() {
     this.configured = false;
+    this.failCreate = false;
     this.created = [];
     this.sent = [];
     this.listResult = [];
@@ -88,6 +90,7 @@ const mail = vi.hoisted(() => ({
 vi.mock("./agentmail", () => ({
   isAgentMailConfigured: () => mail.configured,
   createAgentMailInbox: vi.fn(async (input: Record<string, unknown>) => {
+    if (mail.failCreate) throw new Error("provider down");
     mail.created.push(input);
     return { inboxId: "inbox-1", address: "mira-4f2a@agentmail.to", displayName: null };
   }),
@@ -526,6 +529,8 @@ describe("AgentMail-backed agent email", () => {
     expect(created).toBeDefined();
     expect(mail.created).toHaveLength(1);
     expect(mail.created[0]).toMatchObject({ displayName: "Mira" });
+    // The idempotency key carries the workspace id, so it is globally unique.
+    expect(mail.created[0].clientId).toContain("nova-5-");
     expect(script.state.insertCalls[0].values).toMatchObject({
       agentmailInboxId: "inbox-1",
       agentmailAddress: "mira-4f2a@agentmail.to",
@@ -601,6 +606,27 @@ describe("AgentMail-backed agent email", () => {
       subject: "Hi",
       text: "Hello",
     });
+  });
+
+  it("fails an approved external email when no sender inbox can be provisioned", async () => {
+    mail.configured = true;
+    mail.failCreate = true;
+    const params = {
+      to: "someone@example.com",
+      toAgentId: null,
+      toAddress: "someone@example.com",
+      subject: "Hi",
+      body: "Hello",
+    };
+    script.state.updates = [
+      [approvalRow({ id: 31, action: "send_email", status: "executed", params })],
+      [approvalRow({ id: 31, action: "send_email", status: "failed", params })],
+    ];
+    script.state.selects = [[agentRow()], [agentRow()]];
+    const result = await decideApprovalForUser(1, 31, "approve");
+    expect(result?.executed).toBe(false);
+    expect(mail.sent).toHaveLength(0);
+    expect(script.state.insertCalls.find(call => call.table === agentEmails)).toBeUndefined();
   });
 
   it("backfills a real inbox for an agent that predates AgentMail", async () => {

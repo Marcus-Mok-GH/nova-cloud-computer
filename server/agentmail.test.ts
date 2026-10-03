@@ -157,6 +157,18 @@ describe("reading mail", () => {
     expect(calls[0].url).toContain("/inboxes/inbox-1/messages?");
   });
 
+  it("follows pagination so mail beyond the first page is not dropped", async () => {
+    let call = 0;
+    stubFetch(() => {
+      call += 1;
+      return call === 1
+        ? { body: { messages: [{ message_id: "m1", subject: "one" }], next_page_token: "tok" } }
+        : { body: { messages: [{ message_id: "m2", subject: "two" }] } };
+    });
+    const messages = await listAgentMailMessages({ inboxId: "inbox-1", limit: 1 });
+    expect(messages.map(message => message.messageId)).toEqual(["m1", "m2"]);
+  });
+
   it("fetches one message with its full body", async () => {
     stubFetch(() => ({ body: { message_id: "m2", text: "full body", subject: "s" } }));
     const message = await getAgentMailMessage({ inboxId: "inbox-1", messageId: "m2" });

@@ -21,9 +21,10 @@ loudly with the provider's error if delivery fails, instead of silently
 storing the message.
 
 Inbound is new: `syncAgentMailInboxForUser` pulls each agent's recent inbox
-messages (fetching the full body only for genuinely new ones) into the
-workspace mailbox, deduped by AgentMail message id, and runs behind the
-`agents.inbox` query. drizzle/schema.ts adds agent_profiles.agentmailInboxId /
+messages (following pagination, fetching the full body only for genuinely new
+ones, and skipping the agent's own sent mail) into the workspace mailbox,
+deduped by AgentMail message id, and runs behind the `agents.inbox` query
+within a short time budget. drizzle/schema.ts adds agent_profiles.agentmailInboxId /
 agentmailAddress and agent_emails.direction / fromAddress / toAddress /
 messageId (migration drizzle/neon/0042_agentmail_agent_email.sql, plus
 `fromAgentId` becoming nullable for external inbound mail). client/src/pages/

@@ -117,7 +117,8 @@ export function isEmailAddress(value: string): boolean {
  */
 async function provisionAgentMailInbox(
   name: string,
-  suffix: string
+  suffix: string,
+  workspaceId: number
 ): Promise<{ inboxId: string; address: string } | null> {
   if (!isAgentMailConfigured()) return null;
   const username = `${slugifyAgentName(name)}-${suffix}`.slice(0, 60);
@@ -125,7 +126,10 @@ async function provisionAgentMailInbox(
     const inbox = await createAgentMailInbox({
       username,
       displayName: name,
-      clientId: `nova-${username}`,
+      // The workspace id makes the idempotency key globally unique, so a retry
+      // (or a name clash across workspaces) can never resolve to another
+      // workspace's inbox.
+      clientId: `nova-${workspaceId}-${username}`,
     });
     return { inboxId: inbox.inboxId, address: inbox.address };
   } catch (error) {
@@ -153,7 +157,7 @@ async function ensureAgentMailInbox(
   const suffix =
     agent.emailAlias.split("@")[0]?.split("-").pop() ||
     Math.random().toString(16).slice(2, 6);
-  const inbox = await provisionAgentMailInbox(agent.name, suffix);
+  const inbox = await provisionAgentMailInbox(agent.name, suffix, agent.workspaceId);
   if (!inbox) return agent;
   const [updated] = await db
     .update(agentProfiles)
@@ -288,7 +292,7 @@ export async function createAgentForUser(
   // unlikely - retry a few times anyway to ride out a lost race. The inbox is
   // provisioned once, before the insert, so a retry never creates a second one.
   const suffix = Math.random().toString(16).slice(2, 6);
-  const inbox = await provisionAgentMailInbox(name, suffix);
+  const inbox = await provisionAgentMailInbox(name, suffix, workspace.id);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const [created] = await db
@@ -947,7 +951,11 @@ export async function decideApprovalForUser(
   }
 
   if (claimed.action === "send_email") {
-    const sender = await getAgentForUser(ownerId, claimed.agentId);
+    // Retry provisioning here too: if the agent still has no inbox, a routable
+    // recipient cannot receive the mail and the approval must fail rather than
+    // being recorded as a delivered internal message.
+    const senderRecord = await getAgentForUser(ownerId, claimed.agentId);
+    const sender = senderRecord ? await ensureAgentMailInbox(senderRecord) : null;
     const toAgentId = (params.toAgentId as number | null) ?? null;
     const to = String(params.to ?? "");
     const subject = String(params.subject ?? "(no subject)");
@@ -989,6 +997,13 @@ export async function decideApprovalForUser(
             : "the mail provider could not be reached";
         return finish("failed", `Approved, but delivery failed - ${message}`, false);
       }
+    }
+    if (providerTarget && isEmailAddress(providerTarget) && !providerDelivered) {
+      return finish(
+        "failed",
+        "Approved, but delivery failed - the sending agent has no AgentMail inbox, so the mail could not be sent.",
+        false
+      );
     }
     const [delivered] = await db
       .insert(agentEmails)
@@ -1133,16 +1148,19 @@ export async function syncAgentMailInboxForUser(ownerId: number): Promise<void> 
         const knownIds = new Set(known.map(row => row.messageId));
         for (const message of messages) {
           if (knownIds.has(message.messageId)) continue;
-          // The list response carries only a preview, so fetch the body for
-          // genuinely new messages (never for ones already stored).
-          let body = message.text;
-          if (!body) {
-            const full = await getAgentMailMessage({
-              inboxId,
-              messageId: message.messageId,
-            }).catch(() => null);
-            body = full?.text ?? "";
-          }
+          // Never store the agent's own outbound mail as an inbound message.
+          if (
+            normalizeEmailAddress(message.from) ===
+            normalizeEmailAddress(agent.agentmailAddress)
+          )
+            continue;
+          // The list response carries only a preview, so always fetch the full
+          // body for new messages; fall back to the listed text if it fails.
+          const full = await getAgentMailMessage({
+            inboxId,
+            messageId: message.messageId,
+          }).catch(() => null);
+          const body = full?.text || message.text;
           await db
             .insert(agentEmails)
             .values({
@@ -1169,12 +1187,47 @@ export async function syncAgentMailInboxForUser(ownerId: number): Promise<void> 
   );
 }
 
+/** Don't re-sync the same owner's inbox more often than this. */
+const INBOUND_SYNC_MIN_INTERVAL_MS = 15_000;
+/** How long the inbox query waits for a sync before returning stored mail. */
+const INBOUND_SYNC_BUDGET_MS = 5_000;
+
+/** Last sync attempt per owner, so a busy page does not hammer the provider. */
+const lastInboxSyncAt = new Map<number, number>();
+
+/**
+ * Runs the inbound sync behind the inbox query without letting a slow
+ * provider hold the page open: the work is throttled per owner and raced
+ * against a short budget. The sync keeps running in the loose case (its
+ * rejection is handled either way); stored mail is always returned, and the
+ * next read resumes from where the last sync stopped thanks to message-id
+ * dedupe.
+ */
+async function syncInboxWithinBudget(ownerId: number): Promise<void> {
+  const last = lastInboxSyncAt.get(ownerId) ?? 0;
+  if (Date.now() - last < INBOUND_SYNC_MIN_INTERVAL_MS) return;
+  lastInboxSyncAt.set(ownerId, Date.now());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      syncAgentMailInboxForUser(ownerId),
+      new Promise<void>(resolve => {
+        timer = setTimeout(resolve, INBOUND_SYNC_BUDGET_MS);
+      }),
+    ]);
+  } catch {
+    // Best-effort: stored mail is returned below regardless.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /** The workspace mailbox: every agent email (sent and received), newest first. */
 export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmailView[]> {
   const db = await getDb();
   if (!db) return [];
   // Surface replies that arrived since the page last loaded.
-  await syncAgentMailInboxForUser(ownerId).catch(() => undefined);
+  await syncInboxWithinBudget(ownerId);
   const workspace = await getOrCreateWorkspace(ownerId);
   const [emails, agents] = await Promise.all([
     db

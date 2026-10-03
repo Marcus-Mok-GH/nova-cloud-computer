@@ -49,6 +49,8 @@ const state = vi.hoisted(() => ({
   }>,
   inbox: [] as Array<{
     id: number;
+    direction?: "outbound" | "inbound";
+    autoReplied: boolean;
     fromAgentName: string;
     toAgentId: number | null;
     toAgentName: string | null;
@@ -259,6 +261,7 @@ describe("Agents page rendered states", () => {
     state.inbox = [
       {
         id: 3,
+        autoReplied: false,
         fromAgentName: "Mira",
         toAgentId: 12,
         toAgentName: "Pip",
@@ -272,6 +275,25 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("Shortlist ready");
     expect(markup).toContain("Three venues look promising.");
     expect(markup).toContain("From Mira to Pip");
+  });
+
+  it("marks an inbound email the agent answered automatically", () => {
+    state.inbox = [
+      {
+        id: 4,
+        direction: "inbound",
+        autoReplied: true,
+        fromAgentName: "Mira",
+        toAgentId: 11,
+        toAgentName: "Mira",
+        subject: "Can you summarize the report?",
+        body: "Here is the summary.",
+        createdAt: new Date("2026-10-03T10:00:00Z"),
+      },
+    ];
+    const markup = renderAgents();
+    expect(markup).toContain("Auto-replied");
+    expect(markup).toContain("Received");
   });
 });
 

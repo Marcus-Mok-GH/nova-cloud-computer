@@ -18,6 +18,8 @@ import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peak
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { advancePeakQueue } from "./peakQueueWorker";
 import { autoTitleChatForUser } from "./workspaceAgent";
+import { handleAgentMailInboundEvent } from "./agentEmailReplies";
+import { verifyAgentMailWebhookSignature } from "./agentmail";
 import { executeTelegramAgentRun, executeWebAgentRun, CONTINUATION_PROMPT, NOVA_WEB_APP_URL } from "./agentRuns";
 import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
@@ -37,6 +39,48 @@ async function pruneChatsIfNeeded(ownerId: number): Promise<void> { const chats 
 async function getOrCreateLatestTelegramChat(ownerId: number): Promise<string> { const existing = (await listChatsForUser(ownerId))[0]; if (existing) return existing.id; const created = await createChatForUser(ownerId, "Telegram Chat"); if (!created) throw new Error("Nova could not create a Telegram conversation."); return created.id; }
 export const app = express(); app.disable("x-powered-by");
 app.use((_req, res, next) => { res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("X-Frame-Options", "DENY"); res.setHeader("Referrer-Policy", "no-referrer"); res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); res.setHeader("Cross-Origin-Opener-Policy", "same-origin"); res.setHeader("Cross-Origin-Resource-Policy", "same-origin"); res.setHeader("Cache-Control", "private, no-store, max-age=0"); if (process.env.NODE_ENV === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains"); next(); });
+/**
+ * AgentMail (Svix) inbound webhook. Registered before the JSON body parser so
+ * the raw bytes survive for signature verification, and it acks as soon as the
+ * signature and payload are valid - the agent run happens in the background
+ * because it can far outlast the provider's delivery timeout. Svix redelivers
+ * anything not acknowledged, and the inbound claim is exactly-once, so an ack
+ * is always safe.
+ */
+app.post(
+  "/api/agentmail/webhook",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  (req: express.Request, res: express.Response) => {
+    const secret = ENV.agentmailWebhookSecret;
+    if (!secret) return res.status(404).json({ error: "webhooks-disabled" });
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body.toString("utf8")
+      : typeof req.body === "string"
+        ? req.body
+        : "";
+    if (
+      !verifyAgentMailWebhookSignature({
+        rawBody,
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        secret,
+      })
+    ) {
+      return res.status(401).json({ error: "bad-signature" });
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return res.status(400).json({ error: "bad-payload" });
+    }
+    res.status(200).json({ ok: true });
+    trackBackgroundWork(
+      handleAgentMailInboundEvent(payload).catch(error =>
+        console.error("[AgentMail] webhook processing failed", error)
+      )
+    );
+  }
+);
 // Base64 chat image attachments make the default 1mb JSON limit too small;
 // 4mb stays under Vercel's 4.5mb serverless request-body cap.
 app.use(express.json({ limit: "4mb" })); app.use(express.urlencoded({ limit: "1mb", extended: true })); app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));

@@ -8,6 +8,7 @@ import {
   listAgentMailMessages,
   normalizeEmailAddress,
   sendAgentMailMessage,
+  type AgentMailInboundEvent,
 } from "./agentmail";
 import {
   agentApprovals,
@@ -15,6 +16,7 @@ import {
   agentProfiles,
   chatAgents,
   chats,
+  workspaces,
   type AgentApprovalRow,
   type AgentProfileRow,
 } from "../drizzle/schema";
@@ -253,7 +255,7 @@ export class AgentNameTakenError extends Error {
   }
 }
 
-function toProfileContext(row: AgentProfileRow): AgentProfileContext {
+export function toProfileContext(row: AgentProfileRow): AgentProfileContext {
   return {
     id: row.id,
     name: row.name,
@@ -1134,6 +1136,8 @@ const INBOUND_BODY_LIMIT = 20_000;
 export type AgentEmailView = {
   id: number;
   direction: "outbound" | "inbound";
+  /** True when an inbound email was answered automatically by the agent. */
+  autoReplied: boolean;
   fromAgentId: number | null;
   fromAgentName: string;
   fromAddress: string | null;
@@ -1277,6 +1281,7 @@ export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmai
   return emails.map(email => ({
     id: email.id,
     direction: email.direction === "inbound" ? "inbound" : "outbound",
+    autoReplied: email.autoRepliedAt !== null,
     fromAgentId: email.fromAgentId,
     fromAgentName: email.fromAgentId
       ? nameById.get(email.fromAgentId) ?? "Deleted agent"
@@ -1289,4 +1294,103 @@ export async function listAgentEmailsForUser(ownerId: number): Promise<AgentEmai
     body: email.body,
     createdAt: email.createdAt,
   }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Inbound auto-reply: webhook delivery -> agent run -> email reply    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Finds the agent (and the owner of its workspace) behind one AgentMail
+ * inbox. Inbound deliveries identify the inbox, not the tenancy, so this is
+ * how a webhook maps back to a workspace owner. Unknown inboxes - another
+ * deployment's agent, or one deleted since - resolve to undefined.
+ */
+export async function findAgentByAgentMailInboxId(
+  inboxId: string
+): Promise<{ agent: AgentProfileRow; ownerId: number } | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [agent] = await db
+    .select()
+    .from(agentProfiles)
+    .where(eq(agentProfiles.agentmailInboxId, inboxId))
+    .limit(1);
+  if (!agent) return undefined;
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, agent.workspaceId))
+    .limit(1);
+  if (!workspace) return undefined;
+  return { agent, ownerId: workspace.ownerId };
+}
+
+/** Outcome of claiming one inbound email for an automatic reply. */
+export type InboundAgentEmailClaim =
+  | {
+      claimed: true;
+      agent: AgentProfileRow;
+      ownerId: number;
+      event: AgentMailInboundEvent;
+      /** The workspace chat the run belongs to (the agent's personal chat). */
+      chatId: string;
+    }
+  | {
+      claimed: false;
+      reason: "unknown-inbox" | "self-sent" | "already-replied" | "no-chat";
+    };
+
+/**
+ * Records an inbound email and atomically claims the one auto-reply it earns.
+ * The row is inserted first (deduped by provider message id, so the sync and
+ * the webhook can race harmlessly) and the claim is a guarded UPDATE on
+ * `autoRepliedAt` - the first delivery wins and a webhook retry sees a
+ * non-null mark and stops, which is what makes the reply exactly-once even
+ * when Svix redelivers.
+ */
+export async function claimInboundAgentEmailForAutoReply(
+  event: AgentMailInboundEvent
+): Promise<InboundAgentEmailClaim> {
+  const found = await findAgentByAgentMailInboxId(event.inboxId);
+  if (!found) return { claimed: false, reason: "unknown-inbox" };
+  const { agent, ownerId } = found;
+  // Never auto-reply to the agent's own mail - the loop guard.
+  if (
+    agent.agentmailAddress &&
+    normalizeEmailAddress(agent.agentmailAddress) === event.from
+  ) {
+    return { claimed: false, reason: "self-sent" };
+  }
+  const db = await getDb();
+  if (!db) return { claimed: false, reason: "unknown-inbox" };
+  await db
+    .insert(agentEmails)
+    .values({
+      workspaceId: agent.workspaceId,
+      fromAgentId: null,
+      toAgentId: agent.id,
+      direction: "inbound",
+      fromAddress: event.from || null,
+      toAddress: agent.agentmailAddress,
+      messageId: event.messageId,
+      subject: event.subject.slice(0, 240),
+      body: event.text.slice(0, INBOUND_BODY_LIMIT),
+    })
+    .onConflictDoNothing();
+  const claimed = await db
+    .update(agentEmails)
+    .set({ autoRepliedAt: new Date() })
+    .where(
+      and(
+        eq(agentEmails.messageId, event.messageId),
+        eq(agentEmails.direction, "inbound"),
+        isNull(agentEmails.autoRepliedAt)
+      )
+    )
+    .returning({ id: agentEmails.id });
+  if (!claimed.length) return { claimed: false, reason: "already-replied" };
+  const chat = await startAgentChatForUser(ownerId, agent.id);
+  if (!chat) return { claimed: false, reason: "no-chat" };
+  return { claimed: true, agent, ownerId, event, chatId: chat.id };
 }

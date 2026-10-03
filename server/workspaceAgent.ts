@@ -179,6 +179,13 @@ export type WorkspaceAgentOptions = {
    * into the model's context only.
    */
   persistUserMessage?: boolean;
+  /**
+   * True when an inbound email triggered this run. The caller delivers the
+   * final end_turn reply as the email reply, so send_agent_email is withheld
+   * - otherwise the agent could queue a second, approval-gated copy of a mail
+   * that is already being answered.
+   */
+  emailReply?: boolean;
 };
 
 /** Identity + team context for one personal-agent run. */
@@ -3946,6 +3953,11 @@ ${
             tool.function.name === "send_agent_email")
         )
           return false;
+        // An email-reply run sends its end_turn reply as the answer, so the
+        // approval-gated send tool would only duplicate it.
+        if (options.emailReply && tool.function.name === "send_agent_email") {
+          return false;
+        }
         return true;
       }
     );

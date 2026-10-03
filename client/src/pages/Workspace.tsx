@@ -574,6 +574,7 @@ export default function Workspace() {
         liveEvents,
         pendingUserContent,
         userCommitted,
+        streaming: agentIsWorking,
       })
     );
     // "Nova" labels the first thing it says in a turn, exactly once.

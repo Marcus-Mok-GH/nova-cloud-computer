@@ -16,7 +16,7 @@ const script = vi.hoisted(() => {
     inserts: [] as Row[][],
     updates: [] as Row[][],
     insertCalls: [] as Array<{ table: unknown; values: Row }>,
-    updateCalls: [] as Array<{ table: unknown; values: Row }>,
+    updateCalls: [] as Array<{ table: unknown; values: Row; condition: unknown }>,
     reset() {
       this.selects = [];
       this.inserts = [];
@@ -52,8 +52,8 @@ const script = vi.hoisted(() => {
     }),
     update: (table: unknown) => ({
       set: (values: Row) => ({
-        where: () => {
-          state.updateCalls.push({ table, values });
+        where: (condition: unknown) => {
+          state.updateCalls.push({ table, values, condition });
           const rows = take(state.updates, [{}]);
           return { returning: async () => rows };
         },
@@ -76,13 +76,30 @@ const {
   AgentNameTakenError,
   agentEmailAliasFor,
   agentPhoneHandleFor,
+  createAgentForUser,
   describeApprovalsForPrompt,
   decideApprovalForUser,
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
   slugifyAgentName,
+  updateAgentForUser,
   walletRemainingCredits,
 } = await import("./agents");
+
+/**
+ * Flattens a drizzle condition (or SQL wrapper) back into readable text, so a
+ * test can assert on the clause Postgres would actually evaluate. Params are
+ * skipped - the SQL keywords are what matters here.
+ */
+const sqlText = (node: unknown, depth = 0): string => {
+  if (depth > 8 || node === null || node === undefined) return "";
+  if (typeof node === "string") return node;
+  if (typeof node === "number" || typeof node === "boolean") return String(node);
+  if (Array.isArray(node)) return node.map(item => sqlText(item, depth + 1)).join("");
+  const chunk = node as { queryChunks?: unknown; value?: unknown };
+  const inner = chunk.queryChunks ?? chunk.value;
+  return inner === undefined ? "" : sqlText(inner, depth + 1);
+};
 
 const agentRow = (overrides: Row = {}) => ({
   id: 11,
@@ -138,6 +155,12 @@ describe("agent identity helpers", () => {
   it("computes wallet remaining credits and never goes negative", () => {
     expect(walletRemainingCredits({ walletBudgetCredits: 500, walletSpentCredits: 120 })).toBe(380);
     expect(walletRemainingCredits({ walletBudgetCredits: 100, walletSpentCredits: 400 })).toBe(0);
+  });
+
+  it("treats a null budget as an unlimited wallet", () => {
+    expect(walletRemainingCredits({ walletBudgetCredits: null, walletSpentCredits: 120 })).toBe(
+      Number.POSITIVE_INFINITY
+    );
   });
 
   it("keeps the typed name-collision error recognisable", () => {
@@ -196,11 +219,61 @@ describe("wallet purchase gating", () => {
     });
   });
 
+  it("records a purchase no capped wallet could cover when the budget is unlimited", async () => {
+    // 90,000 already spent: any capped wallet under the 100,000 max would
+    // reject this. A null budget has no cap, so it must go through.
+    script.state.selects = [[agentRow({ walletBudgetCredits: null, walletSpentCredits: 90000 })]];
+    script.state.inserts = [[approvalRow()]];
+    const outcome = await requestWalletPurchaseApproval(1, {
+      agentId: 11,
+      chatId: "chat000000000000000001",
+      item: "compute cluster",
+      amountCredits: 100000,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(script.state.insertCalls).toHaveLength(1);
+  });
+
   it("fails closed when the agent no longer exists", async () => {
     script.state.selects = [[]];
     const outcome = await requestWalletPurchaseApproval(1, { agentId: 99, item: "x", amountCredits: 5 });
     expect(outcome).toMatchObject({ ok: false });
     if (!outcome.ok) expect(outcome.error).toContain("no longer exists");
+  });
+});
+
+describe("agent budget storage", () => {
+  it("stores a cleared budget as an unlimited wallet on create", async () => {
+    script.state.inserts = [[agentRow({ walletBudgetCredits: null, walletSpentCredits: 0 })]];
+    const created = await createAgentForUser(1, { name: "Nova", walletBudgetCredits: null });
+    expect(created).toBeDefined();
+    expect(script.state.insertCalls[0].values.walletBudgetCredits).toBeNull();
+  });
+
+  it("keeps the default budget when the field is never sent", async () => {
+    script.state.inserts = [[agentRow()]];
+    await createAgentForUser(1, { name: "Nova" });
+    expect(script.state.insertCalls[0].values.walletBudgetCredits).toBe(500);
+  });
+
+  it("lifts the cap when the budget is cleared on update", async () => {
+    script.state.selects = [[agentRow({ walletBudgetCredits: 500, walletSpentCredits: 120 })]];
+    script.state.updates = [[agentRow({ walletBudgetCredits: null })]];
+    const updated = await updateAgentForUser(1, 11, { walletBudgetCredits: null });
+    expect(updated).toBeDefined();
+    expect(script.state.updateCalls[0].values.walletBudgetCredits).toBeNull();
+  });
+
+  it("still floors a budget below what was already spent, inside the update", async () => {
+    script.state.selects = [[agentRow({ walletBudgetCredits: 500, walletSpentCredits: 480 })]];
+    script.state.updates = [[agentRow({ walletBudgetCredits: 480 })]];
+    await updateAgentForUser(1, 11, { walletBudgetCredits: 10 });
+    // The floor is computed in SQL against the row's *current* spending, so a
+    // concurrent approval debiting the wallet can't leave the cap below what
+    // was spent (a stale JS-side read could).
+    const applied = sqlText(script.state.updateCalls[0].values.walletBudgetCredits);
+    expect(applied).toContain("GREATEST");
+    expect(applied).not.toContain("480");
   });
 });
 
@@ -305,6 +378,23 @@ describe("approval decisions", () => {
     expect(result?.executed).toBe(false);
     expect(result?.approval.status).toBe("failed");
     expect(result?.approval.resultSummary).toContain("budget is exhausted");
+  });
+
+  it("debits an unlimited wallet without the budget guard rejecting it", async () => {
+    // Claim, debit, finalize - the same three updates as a capped approval.
+    script.state.updates = [
+      [approvalRow({ status: "executed", resultSummary: "Approval claimed - completing the action." })],
+      [{ id: 99 }],
+      [approvalRow({ status: "executed", resultSummary: "Approved - paid 40 credits." })],
+    ];
+    script.state.selects = [[agentRow({ walletBudgetCredits: null, walletSpentCredits: 160 })]];
+    const result = await decideApprovalForUser(1, 12, "approve");
+    expect(result?.executed).toBe(true);
+    const debit = script.state.updateCalls.find(call => call.table === agentProfiles);
+    expect(debit).toBeDefined();
+    // `spent + amount <= NULL` matches no row in Postgres, so the guard has
+    // to short-circuit on a null budget instead of comparing it.
+    expect(sqlText(debit!.condition)).toContain("IS NULL");
   });
 
   it("denying never touches the wallet", async () => {

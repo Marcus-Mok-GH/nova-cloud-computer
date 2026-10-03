@@ -1,3 +1,15 @@
+2026-10-03 - Backfill real AgentMail inboxes for existing agents
+
+Agents created before the AgentMail change still carry their fake
+`@nova.local` alias. `backfillAgentMailInboxes()` in server/agents.ts
+provisions a real inbox for every agent that does not have one across all
+workspaces, and scripts/backfillAgentmailInboxes.ts runs it as a one-off
+repair - safe to rerun, since only rows without an inbox id are selected.
+Requires DATABASE_URL and AGENTMAIL_API_KEY. Files: server/agents.ts,
+server/agents.test.ts, scripts/backfillAgentmailInboxes.ts.
+
+---
+
 2026-10-03 - Agent email is powered by AgentMail
 
 Personal agents now get real AgentMail inboxes instead of only a

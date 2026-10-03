@@ -73,6 +73,7 @@ const deleteCustomModelSpy = vi.fn(async (ownerId: number, modelId: number) => {
   return true;
 });
 const factoryResetSpy = vi.fn(async (ownerId: number) => ({ success: true, cancelledRuns: 1, deletedFiles: 3, deletedFolders: 2, previousSandboxId: "sbx-old", sandboxId: "sbx-new" }));
+const clearMemoriesSpy = vi.fn(async (_ownerId: number) => 4);
 const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsRecord>) => {
   const previous = modelSettings.get(ownerId) ?? { activeProvider: "anthropic" as const, activeModelId: "claude-sonnet", activeCustomModelId: null, workspaceRules: null };
   if (input.activeCustomModelId && customModels.get(input.activeCustomModelId)?.workspaceId !== ownerId) return undefined;
@@ -101,6 +102,8 @@ vi.mock("./db", () => ({
   updateWorkspaceModelSettingsForUser: updateSettingsSpy,
   factoryResetWorkspaceForUser: factoryResetSpy,
 }));
+
+vi.mock("./memories", () => ({ clearMemoriesForUser: clearMemoriesSpy }));
 
 const { appRouter } = await import("./routers");
 
@@ -163,6 +166,16 @@ describe("Nova workspace authenticated API", () => {
     await intruder.workspace.factoryReset({ confirm: "RESET" });
     expect(factoryResetSpy).toHaveBeenCalledWith(41);
     expect(factoryResetSpy).toHaveBeenCalledWith(42);
+  });
+
+  it("clears every memory only after the typed confirmation", async () => {
+    const caller = appRouter.createCaller(contextFor(41));
+    await expect(caller.workspace.clearMemories({ confirm: "clear" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(clearMemoriesSpy).not.toHaveBeenCalled();
+    const result = await caller.workspace.clearMemories({ confirm: " CLEAR " });
+    expect(result).toEqual({ success: true, deletedMemories: 4 });
+    expect(clearMemoriesSpy).toHaveBeenCalledTimes(1);
+    expect(clearMemoriesSpy).toHaveBeenCalledWith(41);
   });
 
   it("keeps custom model credentials and selections inside the owning workspace", async () => {

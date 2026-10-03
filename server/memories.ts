@@ -279,6 +279,30 @@ export async function deleteMemoryForUser(
   return deleted.length > 0;
 }
 
+/**
+ * Clears every memory the owner has stored. With no scope this removes the
+ * shared (default Nova) memories *and* every personal agent's private ones;
+ * passing a scope narrows the wipe to just that agent. Returns the number of
+ * records removed.
+ */
+export async function clearMemoriesForUser(
+  ownerId: number,
+  scope?: MemoryScope
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const deleted = await db
+    .delete(conversationMemories)
+    .where(
+      and(
+        eq(conversationMemories.ownerId, ownerId),
+        scope ? writeScopeCondition(scope) : undefined
+      )
+    )
+    .returning({ id: conversationMemories.id });
+  return deleted.length;
+}
+
 /** Compact recall lines for the system prompt. */
 export async function listRecentMemoriesForPrompt(
   ownerId: number,

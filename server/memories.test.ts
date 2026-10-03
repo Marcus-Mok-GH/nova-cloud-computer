@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendConversationTurn,
   buildS3PutRequest,
+  clearMemoriesForUser,
   deleteMemoryForUser,
   listRecentMemoriesForPrompt,
   readMemoryForUser,
@@ -87,6 +88,7 @@ describe("conversation memory store", () => {
     await expect(searchMemoriesForUser(1, "deploy")).resolves.toEqual([]);
     await expect(readMemoryForUser(1, 7)).resolves.toBeNull();
     await expect(deleteMemoryForUser(1, 7)).resolves.toBe(false);
+    await expect(clearMemoriesForUser(1)).resolves.toBe(0);
     await expect(listRecentMemoriesForPrompt(1)).resolves.toBe("none yet");
   });
 
@@ -196,6 +198,13 @@ describe("conversation memory store", () => {
   it("strips backslashes from search terms before the ILIKE query", async () => {
     vi.mocked(getDb).mockResolvedValue(makeFakeDb({ rows: [] }) as never);
     await expect(searchMemoriesForUser(1, "foo\\")).resolves.toEqual([]);
+  });
+
+  it("clears every stored memory and reports how many were removed", async () => {
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({ onDelete: () => [7, 8, 9] }) as never
+    );
+    await expect(clearMemoriesForUser(1)).resolves.toBe(3);
   });
 
   it("reads and deletes only for the owning user", async () => {

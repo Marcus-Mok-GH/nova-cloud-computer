@@ -76,6 +76,7 @@ import {
   updateAgentForUser,
 } from "./agents";
 import { executeWebAgentRun } from "./agentRuns";
+import { clearMemoriesForUser } from "./memories";
 import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { ENV } from "./_core/env";
@@ -274,6 +275,14 @@ export const appRouter = router({
     factoryReset: protectedProcedure.input(z.object({ confirm: z.string().trim().min(1, "Type RESET to confirm.") })).mutation(async ({ ctx, input }) => {
       if (input.confirm !== "RESET") throw new TRPCError({ code: "BAD_REQUEST", message: "Type RESET to confirm the factory reset." });
       return factoryResetWorkspaceForUser(ctx.user.id);
+    }),
+    /** Clears every memory Nova has stored for the workspace - the shared
+     *  (default Nova) scope and each personal agent's private scope. Guarded
+     *  by a typed confirm because it cannot be undone. */
+    clearMemories: protectedProcedure.input(z.object({ confirm: z.string().trim().min(1, "Type CLEAR to confirm.") })).mutation(async ({ ctx, input }) => {
+      if (input.confirm !== "CLEAR") throw new TRPCError({ code: "BAD_REQUEST", message: "Type CLEAR to confirm clearing all memory." });
+      const deletedMemories = await clearMemoriesForUser(ctx.user.id);
+      return { success: true as const, deletedMemories };
     }),
   }),
   composio: router({

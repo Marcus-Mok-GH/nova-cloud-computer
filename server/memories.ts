@@ -290,7 +290,12 @@ export async function clearMemoriesForUser(
   scope?: MemoryScope
 ): Promise<number> {
   const db = await getDb();
-  if (!db) return 0;
+  // Unlike the read helpers, a clear must never report a false success: an
+  // unreachable database means the memories are still there, so surface it.
+  if (!db)
+    throw new Error(
+      "Nova can't reach your workspace data right now. Please try again shortly."
+    );
   const deleted = await db
     .delete(conversationMemories)
     .where(

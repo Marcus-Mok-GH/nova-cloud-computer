@@ -45,7 +45,7 @@ export default function MemoryCard() {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
         <div>
           <p className="text-sm font-bold text-red-600">Clear all memory</p>
-          <p className="text-xs text-muted-foreground">This cannot be undone. Nova forgets every conversation it has stored.</p>
+          <p className="text-xs text-muted-foreground">This cannot be undone. Nova forgets every memory it has stored; your chats are kept.</p>
         </div>
         <AlertDialog
           open={open}

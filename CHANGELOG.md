@@ -1,3 +1,37 @@
+2026-10-02 - An empty agent budget means an unlimited wallet
+
+The Agents dialog refused a blank wallet budget ("must be 0 or more
+credits"), so an agent wallet always had a ceiling and every wallet ran out
+eventually: once spent caught up, request_purchase started failing with "Over
+budget". Leaving the budget field empty now means no cap at all.
+
+drizzle/schema.ts drops NOT NULL from agent_profiles.walletBudgetCredits
+(migration drizzle/neon/0041_round_franklin_richards.sql): null stores an
+unlimited budget. server/agents.ts keeps the default budget when the field is
+absent, stores null on create and update, reports the remaining balance as
+Infinity so requestWalletPurchaseApproval never rejects an amount for budget
+reasons, and the atomic debit guard became `budget IS NULL OR spent + amount
+<= budget` - without the null branch, `<= NULL` matches no row in Postgres and
+every purchase on an unlimited wallet would fail. Approving a purchase on an
+uncapped wallet now reports "The wallet has no budget cap - N credits spent so
+far" instead of a credits-left figure, and the identity prompt tells the agent
+"wallet: unlimited, no budget cap (N credits spent)". server/routers.ts
+accepts null on agents.create / agents.update; a typed number is still capped
+at 100000, and a budget can still never drop below what was already spent -
+the floor is now applied inside the UPDATE against the row's current spending
+(`GREATEST(walletSpentCredits, requested)`), so an approval debiting the wallet
+concurrently can no longer leave the cap below what was spent.
+
+client/src/pages/Agents.tsx parses the field with a new exported
+walletBudgetFromField(): "" is null (unlimited), anything else must be a
+non-negative whole number or the dialog refuses it. The dialog pre-fills the
+current budget (an uncapped wallet opens blank, with an "Unlimited"
+placeholder and the hint "Leave it empty for an unlimited wallet"), and
+WalletBar reads "Unlimited - N spent" with a full bar rather than "N of M
+credits left". Files: drizzle/schema.ts, drizzle/neon/0041_round_franklin_richards.sql, drizzle/neon/meta/_journal.json, server/agents.ts, server/agents.test.ts, server/routers.ts, server/workspaceAgent.ts, server/workspaceAgent.test.ts, client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx. 943 tests passing, typecheck clean.
+
+---
+
 2026-10-02 - edit_file rows open into the file's diff
 
 The web chat's "Edit File" tool row was a dead one-liner: it named the file

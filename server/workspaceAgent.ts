@@ -1779,16 +1779,20 @@ export function agentIdentityPromptBlock(
   approvalsLine: string
 ): string {
   const { profile, team } = agentChat;
-  const remaining = Math.max(
-    0,
-    profile.walletBudgetCredits - profile.walletSpentCredits
-  );
+  // A wallet with no cap (budget null) has no "of N" figure to report.
+  const wallet =
+    profile.walletBudgetCredits === null
+      ? `unlimited, no budget cap (${profile.walletSpentCredits} credits spent)`
+      : `${Math.max(
+          0,
+          profile.walletBudgetCredits - profile.walletSpentCredits
+        )} of ${profile.walletBudgetCredits} credits remaining`;
   const lines = [
     ` In this conversation you are not the default workspace assistant - you are ${profile.name}${profile.role ? `, the ${profile.role}` : ""}, a personal agent of this workspace: stay in character, act and sign your replies as ${profile.name}.`,
     profile.instructions
       ? `\nYour standing instructions: ${profile.instructions}`
       : "",
-    `\nYour Nova-native identity - email: ${profile.emailAlias} (Nova-internal mail; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${remaining} of ${profile.walletBudgetCredits} credits remaining.`,
+    `\nYour Nova-native identity - email: ${profile.emailAlias} (Nova-internal mail; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${wallet}.`,
     `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
     "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
     team

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_profiles" ALTER COLUMN "walletBudgetCredits" DROP NOT NULL;

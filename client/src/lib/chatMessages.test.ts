@@ -572,6 +572,104 @@ describe("buildTurnItems", () => {
       },
     ]);
   });
+
+  it("hands a live segment to its attributed team-chat row", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        { id: 2, role: "assistant", content: "[Mira] Found two files." },
+      ],
+      liveEvents: appendLiveTextDelta([], "Found two files."),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    // The live stream carries no [Mira] prefix; it still hands over instead
+    // of duplicating below the persisted copy.
+    expect(items.map(item => item.kind)).toEqual(["user", "reply"]);
+    expect(items[1]).toEqual({
+      kind: "reply",
+      key: "reply-2",
+      content: "[Mira] Found two files.",
+      live: false,
+    });
+  });
+
+  it("hands each teammate's segment to its attributed row in order", () => {
+    let events = appendLiveTextDelta([], "Drafting the shortlist.");
+    events = upsertLiveToolEvent(events, {
+      id: "t-mira",
+      name: "read_file",
+      state: "completed",
+      args: {},
+    });
+    events = appendLiveTextDelta(events, "Here is the final shortlist.");
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        { id: 2, role: "assistant", content: "[Mira] Drafting the shortlist." },
+        toolRow("t-mira", "completed", 3),
+        {
+          id: 4,
+          role: "assistant",
+          content: "[Pip] Here is the final shortlist.",
+        },
+      ],
+      liveEvents: events,
+      pendingUserContent: "Find venues",
+      userCommitted: true,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "toolRun",
+      "reply",
+    ]);
+    expect(items[1]).toMatchObject({
+      kind: "reply",
+      live: false,
+      content: "[Mira] Drafting the shortlist.",
+    });
+    expect(items[3]).toMatchObject({
+      kind: "reply",
+      live: false,
+      content: "[Pip] Here is the final shortlist.",
+    });
+  });
+
+  it("keeps the streaming reply visible while the run is live", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        { id: 2, role: "assistant", content: "Let me check that." },
+      ],
+      liveEvents: appendLiveTextDelta([], "Here is the answer"),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+      streaming: true,
+    });
+    // The interim narration is the last ledger row, but the segment still
+    // arriving is not a superseded draft - it must not blink out.
+    expect(items.map(item => item.kind)).toEqual(["user", "reply", "reply"]);
+    expect(items[2]).toEqual({
+      kind: "reply",
+      key: "live-reply-0",
+      content: "Here is the answer",
+      live: true,
+    });
+  });
+
+  it("drops an unmatched segment once the run has settled", () => {
+    const items = buildTurnItems({
+      messages: [
+        userRow,
+        { id: 2, role: "assistant", content: "Let me check that." },
+      ],
+      liveEvents: appendLiveTextDelta([], "Here is the answer"),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    expect(items.filter(item => item.live)).toEqual([]);
+  });
 });
 
 describe("groupPersistedChatItems", () => {

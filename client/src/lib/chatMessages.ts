@@ -275,6 +275,19 @@ export type ChatListItem =
   | { kind: "toolRun"; activities: ToolActivity[] };
 
 /**
+ * The server prefixes every agent-team reply with `[Name] ` so the reader can
+ * tell which teammate spoke; live streamed text carries no such prefix. Any
+ * content comparison between a live segment and its ledger row has to ignore
+ * the attribution, or the streamed copy never hands over to its persisted row
+ * and the turn shows both - out of order - until a reload settles it.
+ */
+const TEAM_REPLY_ATTRIBUTION = /^\[[^\]\n]{1,80}\]\s+/;
+
+export function stripReplyAttribution(content: string): string {
+  return content.replace(TEAM_REPLY_ATTRIBUTION, "").trim();
+}
+
+/**
  * Folds the persisted transcript into render items: consecutive tool-activity
  * rows merge into a single `toolRun` item so the chat can render them as one
  * collapsible "Used N tools" group instead of a stack of standalone chips.
@@ -342,6 +355,7 @@ export function buildTurnItems({
   liveEvents,
   pendingUserContent,
   userCommitted,
+  streaming = false,
 }: {
   /** Persisted rows belonging to this turn (ids above the submission baseline). */
   messages: PersistedChatMessage[];
@@ -349,6 +363,13 @@ export function buildTurnItems({
   liveEvents: LiveChatEvent[];
   pendingUserContent: string;
   userCommitted: boolean;
+  /**
+   * True while the run is still in flight. A live segment no ledger row has
+   * matched yet is the text currently streaming, not a superseded draft, so
+   * the closing-reply rule must not hide it mid-run (that made the reply
+   * blink out whenever an interim narration row became the last ledger row).
+   */
+  streaming?: boolean;
 }): TurnRenderItem[] {
   const items: TurnRenderItem[] = [];
   const ledgerActivities = new Map<string, ToolActivity>();
@@ -391,8 +412,10 @@ export function buildTurnItems({
     if (item.kind !== "text") return false;
     const ledgerCopy = ledgerReplies[ledgerReplyIndex];
     if (ledgerCopy === undefined) return false;
-    const ledger = ledgerCopy.trim();
-    const live = item.content.trim();
+    // Attribution is stripped on both sides: a team-chat ledger row reads
+    // `[Mira] the reply` while the streamed segment is just `the reply`.
+    const ledger = stripReplyAttribution(ledgerCopy);
+    const live = stripReplyAttribution(item.content);
     if (ledger.length === 0 || !(live === ledger || live.endsWith(ledger)))
       return false;
     ledgerReplyIndex += 1;
@@ -436,7 +459,10 @@ export function buildTurnItems({
   for (let index = 0; index < liveItems.length; index += 1) {
     const item = liveItems[index];
     if (item.kind === "text") {
-      if (!liveTextCommitted[index] && !closingReplyPersisted)
+      // While the run is live, an unmatched segment is the reply still
+      // arriving: show it. Only a settled turn treats unmatched text as a
+      // superseded draft the persisted ledger has already replaced.
+      if (!liveTextCommitted[index] && (streaming || !closingReplyPersisted))
         items.push({
           kind: "reply",
           key: `live-reply-${index}`,

@@ -133,6 +133,28 @@ describe("team turn orchestration", () => {
     expect(calls[3][2]).toContain("synthesize");
   });
 
+  it("keeps the synthesis in round one when too little budget remains for a refinement round", async () => {
+    // The deadline is closer than EXTRA_ROUND_MIN_REMAINING_MS, so no second
+    // round can fit; the opening round's last member must synthesis for the
+    // user rather than hand off into a round that cannot finish.
+    const options = { channel: "web" as const, deadlineAtMs: Date.now() + 10_000 };
+    await runTeamChatTurns({
+      ownerId: 1,
+      chatId: "chat000000000000000001",
+      content: "plan our launch event",
+      route: teamRoute([mira, pip]),
+      options,
+    });
+
+    expect(runWorkspaceAgent).toHaveBeenCalledTimes(2);
+    const calls = runWorkspaceAgent.mock.calls;
+    expect(calls[1][2]).toContain("round 1 of 1");
+    expect(calls[1][2]).toContain("synthesize");
+    expect(calls[1][3]).toMatchObject({
+      agentChat: { profile: pip, team: { finalMember: true } },
+    });
+  });
+
   it("stops the roster when a teammate runs out of budget", async () => {
     runWorkspaceAgent.mockResolvedValueOnce(fakeRunResult({ outOfBudget: true }));
     const result = await runTeamChatTurns({

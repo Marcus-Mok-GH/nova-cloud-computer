@@ -200,6 +200,18 @@ describe("NIM transient-failure retries", () => {
     );
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
+
+  it("does not misclassify an output-cap rejection as context overflow", async () => {
+    // Same 400 status, but this is about the requested output length, not the
+    // input - compacting the conversation would not help, so it must stay a
+    // non-retryable tools rejection instead of being read as context overflow.
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({ error: { message: "Requested 16384 tokens exceeds the maximum output tokens" } }, { status: 400 })
+    );
+    await expect(
+      runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })
+    ).rejects.toBeInstanceOf(NimToolsUnsupportedError);
+  });
 });
 
 describe("NIM deadline awareness", () => {

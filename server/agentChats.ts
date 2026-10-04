@@ -85,23 +85,34 @@ export async function runTeamChatTurns(input: {
   // this, but the roster can shrink between resolution and execution).
   if (!roster.length) return runWorkspaceAgent(ownerId, chatId, content, options);
   const teammateNames = roster.map(member => member.name);
-  // A lone agent has nobody to discuss with; an extra round also needs enough
-  // of the shared budget left to actually complete another full pass.
   const deadlineAtMs = options.deadlineAtMs;
-  const rounds =
+  // A refinement round needs enough of the shared budget left to complete
+  // another full pass; a lone agent has nobody to discuss with.
+  const hasBudgetForExtraRound = () =>
     roster.length > 1 &&
     (deadlineAtMs === undefined ||
-      deadlineAtMs - Date.now() > EXTRA_ROUND_MIN_REMAINING_MS)
-      ? TEAM_DISCUSSION_ROUNDS
-      : 1;
+      deadlineAtMs - Date.now() > EXTRA_ROUND_MIN_REMAINING_MS);
   let last: TeamRunResult | undefined;
-  for (let round = 1; round <= rounds; round += 1) {
+  for (let round = 1; round <= TEAM_DISCUSSION_ROUNDS; round += 1) {
+    // Re-check at the start of every round after the first: the opening pass
+    // may have consumed enough of the budget that a refinement pass no longer
+    // fits, and starting one anyway would only end in a member that cannot
+    // finish.
+    if (round > 1 && !hasBudgetForExtraRound()) break;
+    // Whether this is the discussion's last round decides who synthesizes.
+    // Deciding it here (not upfront) keeps the synthesis with the round that
+    // actually ends the discussion: if the budget shrank during the opening
+    // pass, its last member takes the synthesis prompt instead of leaving the
+    // user with a mid-discussion reply and a round-2 member that runs out.
+    const lastRound =
+      round === TEAM_DISCUSSION_ROUNDS || !hasBudgetForExtraRound();
+    const roundsLabel = lastRound ? round : TEAM_DISCUSSION_ROUNDS;
     for (let index = 0; index < roster.length; index += 1) {
       const member = roster[index];
       // Only the opening turn writes the user's message; every later turn is
       // an internal note that stays out of the ledger.
       const isFirstTurn = round === 1 && index === 0;
-      const isFinal = round === rounds && index === roster.length - 1;
+      const isFinal = lastRound && index === roster.length - 1;
       last = await runWorkspaceAgent(
         ownerId,
         chatId,
@@ -113,7 +124,7 @@ export async function runTeamChatTurns(input: {
               teammateNames,
               isFinal,
               round,
-              rounds,
+              rounds: roundsLabel,
             }),
         {
           ...options,

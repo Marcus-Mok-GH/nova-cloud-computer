@@ -24,6 +24,25 @@ export class NimConfigError extends Error {}
  */
 export class NimToolsUnsupportedError extends Error {}
 
+/**
+ * The endpoint refused the request because the conversation outgrew the
+ * model's context window. This is NOT a tools-unsupported rejection even
+ * though it usually shares the same 400 status, so callers with an agentic
+ * loop (the autonomous editor) can compact their history and continue instead
+ * of degrading to a single-shot reply that throws the specialist's progress
+ * away. Non-retryable as sent: the payload itself must shrink first.
+ */
+export class NimContextLengthError extends Error {}
+
+/**
+ * Provider wording for an input that exceeded the model's context window.
+ * Deliberately specific: a bare "max_tokens" would also match requests that
+ * merely set an output cap, and misclassifying those as context overflow
+ * would compact a healthy conversation for no reason.
+ */
+const CONTEXT_LENGTH_PATTERN =
+  /context (?:length|window|limit)|maximum context|context[_\s-]?length[_\s-]?exceeded|too many input tokens|prompt is too long|input is too long|reduce the length of (?:the )?messages|exceeds the (?:model'?s )?maximum (?:context|input|prompt)/i;
+
 export function isNimConfigured() {
   return ENV.nimApiKey.trim().length > 0;
 }
@@ -273,6 +292,20 @@ async function postNimChat(
     const failure = new Error(
       `The coding service responded with status ${response.status}${hint ? `: ${hint}` : "."}`
     );
+    // An input that outgrew the model's context window usually arrives as a
+    // 400 too - check it BEFORE the tools-rejection branch, or a long
+    // autonomous task would be misread as "model cannot call tools" and
+    // silently downgraded to a single-shot reply. 413 (payload too large) is
+    // treated the same way: the fix is to send less, not to retry.
+    if (
+      (response.status === 400 || response.status === 413) &&
+      CONTEXT_LENGTH_PATTERN.test(detail)
+    ) {
+      throw new NimContextLengthError(failure.message);
+    }
+    if (response.status === 413) {
+      throw new NimContextLengthError(failure.message);
+    }
     // Client-side rejections of the tools payload mean the served model
     // does not implement function calling - a distinct, recoverable case.
     if (response.status === 400 || response.status === 404 || response.status === 422) {

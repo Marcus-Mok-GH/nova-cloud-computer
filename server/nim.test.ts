@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isNimConfigured, NimToolsUnsupportedError, resolveNimAttemptTimeoutMs, runNimChat, runNimAgentChat } from "./nim";
+import { isNimConfigured, NimContextLengthError, NimToolsUnsupportedError, resolveNimAttemptTimeoutMs, runNimChat, runNimAgentChat } from "./nim";
 
 const state = vi.hoisted(() => ({
   nimKey: "test-nim-key",
@@ -177,6 +177,27 @@ describe("NIM transient-failure retries", () => {
   it("does not retry tools-rejection statuses so the single-shot fallback still triggers", async () => {
     fetchStub.mockResolvedValueOnce(jsonResponse({ error: "no tools" }, { status: 400 }));
     await expect(runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })).rejects.toBeInstanceOf(NimToolsUnsupportedError);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies an over-long context as a context error, not a tools rejection", async () => {
+    // Same 400 status as a tools rejection, so it must be told apart by the
+    // provider's wording - otherwise a long autonomous task would be misread
+    // as "model cannot call tools" and lose its progress to a single-shot.
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({ error: { message: "This model's maximum context length is 262144 tokens" } }, { status: 400 })
+    );
+    await expect(
+      runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })
+    ).rejects.toBeInstanceOf(NimContextLengthError);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a 413 payload-too-large response as a context error", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "Payload too large" }, { status: 413 }));
+    await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toBeInstanceOf(
+      NimContextLengthError
+    );
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });

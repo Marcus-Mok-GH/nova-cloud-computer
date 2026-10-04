@@ -14,16 +14,20 @@ const runNimChatMock = vi.hoisted(() => vi.fn());
 const runNimAgentChatMock = vi.hoisted(() => vi.fn());
 vi.mock("./nim", () => {
   class NimToolsUnsupportedError extends Error {}
+  class NimContextLengthError extends Error {}
   class NimConfigError extends Error {}
   return {
     runNimChat: runNimChatMock,
     runNimAgentChat: runNimAgentChatMock,
     NimToolsUnsupportedError,
+    NimContextLengthError,
     NimConfigError,
   };
 });
 
-const { NimToolsUnsupportedError } = await import("./nim");
+const { NimToolsUnsupportedError, NimContextLengthError } = await import(
+  "./nim"
+);
 
 beforeEach(() => {
   runNimChatMock.mockReset();
@@ -489,5 +493,66 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.summary).toContain("failure mid-task");
     expect(outcome.summary).toContain("status 502");
     expect(outcome.writtenPaths).toEqual(["half.py"]);
+  });
+
+  it("compacts the conversation and continues when the model rejects an over-long context", async () => {
+    const sandbox = fakeSandbox();
+    const progress: string[] = [];
+    // A long assistant turn is what compaction can free; the context-length
+    // rejection must not abort the task NOR fall back to a single-shot reply.
+    runNimAgentChatMock
+      .mockResolvedValueOnce({
+        kind: "tool_calls" as const,
+        text: "x".repeat(3_000),
+        toolCalls: [{ id: "c1", name: "list_files", arguments: "{}" }],
+      })
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      )
+      .mockResolvedValueOnce(textReply("Done."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+      onProgress: note => progress.push(note),
+    });
+
+    expect(outcome.kind).toBe("autonomous");
+    expect(outcome.summary).toBe("Done.");
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(3);
+    // The retry after compaction no longer carries the long assistant text.
+    const retryMessages = runNimAgentChatMock.mock.calls[2][0].messages;
+    const longAssistant = retryMessages.find(
+      (m: { role: string }) => m.role === "assistant"
+    );
+    expect(String(longAssistant.content).length).toBeLessThan(3_000);
+    expect(progress.join(" ")).toContain("context window");
+  });
+
+  it("stops honestly when the context overflows and cannot be compacted further", async () => {
+    const sandbox = fakeSandbox();
+    // Only short exchange so far: aggressive compaction frees nothing, so the
+    // specialist reports exactly what it did instead of retrying forever.
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "list_files", {}))
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      );
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+    });
+
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("context window");
+    expect(outcome.summary).toContain("fresh, smaller task");
+    expect(outcome.writtenPaths).toEqual([]);
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -1832,7 +1832,7 @@ export function agentIdentityPromptBlock(
     `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
     "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
     team
-      ? `\nThis is an AGENT TEAM chat. Shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. Do your part of the goal, keep your reply focused on your own contribution, and end your turn with end_turn so the next teammate can go - when you are the last teammate, synthesize the team's work into the final reply for the user. Your reply is shown to the user with a [${profile.name}] attribution.`
+      ? `\nThis is an AGENT TEAM chat - you and your teammates are collaborating on one shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. This runs as a bounded discussion: read your teammates' turns above, build on them, and contribute your own part without repeating their work. End every turn with end_turn so the discussion continues${team.finalMember ? " - you are the last teammate of the final round, so synthesize the whole team's combined work into the final reply for the user" : ""}. Your reply is shown to the user with a [${profile.name}] attribution.`
       : "",
   ];
   return lines.filter(Boolean).join("");

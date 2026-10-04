@@ -41,7 +41,7 @@ export class NimContextLengthError extends Error {}
  * would compact a healthy conversation for no reason.
  */
 const CONTEXT_LENGTH_PATTERN =
-  /context (?:length|window)|maximum context|maximum number of tokens|too many tokens|prompt is too long|input is too long|reduce the length of (?:the )?messages|exceeds the (?:model'?s )?maximum|requested .* tokens/i;
+  /context (?:length|window|limit)|maximum context|context[_\s-]?length[_\s-]?exceeded|too many input tokens|prompt is too long|input is too long|reduce the length of (?:the )?messages|exceeds the (?:model'?s )?maximum (?:context|input|prompt)/i;
 
 export function isNimConfigured() {
   return ENV.nimApiKey.trim().length > 0;

@@ -292,16 +292,35 @@ function compactCoderContext(
           changed = true;
         }
       }
-    } else if (
-      message.role === "assistant" &&
-      message.content &&
-      message.content.length > assistantCap
-    ) {
-      const capped = truncate(message.content, assistantCap);
-      if (capped !== message.content) {
-        messages[index] = { ...message, content: capped };
-        changed = true;
+    } else if (message.role === "assistant") {
+      let next = message;
+      if (message.content && message.content.length > assistantCap) {
+        const capped = truncate(message.content, assistantCap);
+        if (capped !== message.content) {
+          next = { ...next, content: capped };
+          changed = true;
+        }
       }
+      // An old exchange keeps the file payloads of its write_file calls in the
+      // tool-call arguments, and those can dwarf the results themselves. Once
+      // the exchange is old its arguments are no longer needed, so replace
+      // them with an empty object - still valid JSON, matched by the stubbed
+      // tool result - or a task that repeatedly writes large files would keep
+      // the window pinned open no matter how its text is trimmed. The recent
+      // calls keep their arguments intact.
+      if (index < recentStart && next.tool_calls?.length) {
+        let shrank = false;
+        const toolCalls = next.tool_calls.map(call => {
+          if (call.function.arguments === "{}") return call;
+          shrank = true;
+          return { ...call, function: { ...call.function, arguments: "{}" } };
+        });
+        if (shrank) {
+          next = { ...next, tool_calls: toolCalls };
+          changed = true;
+        }
+      }
+      if (next !== message) messages[index] = next;
     }
   }
   return changed;

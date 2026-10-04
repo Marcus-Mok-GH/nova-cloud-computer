@@ -555,4 +555,38 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.writtenPaths).toEqual([]);
     expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
   });
+
+  it("drops the file payloads of old tool calls so repeated large writes cannot pin the context open", async () => {
+    const sandbox = fakeSandbox();
+    const big = "A".repeat(3_000);
+    runNimAgentChatMock
+      .mockResolvedValueOnce(
+        toolCall("w1", "write_file", { path: "big.txt", content: big })
+      )
+      .mockResolvedValueOnce(toolCall("l2", "list_files", {}))
+      .mockResolvedValueOnce(toolCall("l3", "list_files", {}))
+      .mockResolvedValueOnce(toolCall("l4", "list_files", {}))
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      )
+      .mockResolvedValueOnce(textReply("Done."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "write a big file",
+      sandbox: sandbox as never,
+    });
+
+    expect(outcome.kind).toBe("autonomous");
+    expect(outcome.summary).toBe("Done.");
+    // The retry after compaction keeps the old call (paired result intact) but
+    // no longer carries its file payload.
+    const retryMessages = runNimAgentChatMock.mock.calls[5][0].messages;
+    const firstAssistant = retryMessages.find(
+      (m: { role: string }) => m.role === "assistant"
+    );
+    expect(firstAssistant.tool_calls[0].function.arguments).toBe("{}");
+    expect(JSON.stringify(retryMessages)).not.toContain(big);
+  });
 });

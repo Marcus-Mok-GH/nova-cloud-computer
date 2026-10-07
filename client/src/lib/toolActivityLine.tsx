@@ -61,6 +61,9 @@ function MarkdownDetail({
         <MarkdownText text={detail} />
       </div>
     );
+  // An element fallback renders as-is: LiveNote already returns a <p>, and
+  // wrapping it in another one nests paragraphs the HTML parser will not keep.
+  if (React.isValidElement(fallback)) return <>{fallback}</>;
   return <p className="text-xs text-muted-foreground">{fallback}</p>;
 }
 

@@ -47,6 +47,33 @@ export function resolveThemeId(value: string | null | undefined): string {
   return DEFAULT_LIGHT_THEME;
 }
 
+/** The palette the visitor last chose, or null when they never chose one. */
+function readStoredThemeName(): string | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return resolveThemeId(stored);
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) return resolveThemeId(legacy);
+  } catch {
+    /* localStorage can be unavailable (SSR, privacy mode) */
+  }
+  return null;
+}
+
+/**
+ * Armed by main.tsx right before hydrateRoot. The render that adopts the
+ * server-rendered landing page has to reproduce the server's markup exactly,
+ * and the server cannot know the visitor's stored palette - so ThemeProvider
+ * defers its storage read until that render has committed, then adopts the
+ * stored palette (see the effect in ThemeProvider).
+ */
+let hydrationPass = false;
+
+/** Defers ThemeProvider's stored-palette read to just after hydration. */
+export function beginHydrationPass() {
+  hydrationPass = true;
+}
+
 interface ThemeContextType {
   /** Active mode, kept for backwards compatibility with existing consumers. */
   theme: ThemeMode;
@@ -74,16 +101,10 @@ export function ThemeProvider({
   switchable = false,
 }: ThemeProviderProps) {
   const [themeName, setThemeNameState] = useState<string>(() => {
-    if (!switchable) return resolveThemeId(defaultTheme);
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) return resolveThemeId(stored);
-      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (legacy) return resolveThemeId(legacy);
-    } catch {
-      /* localStorage can be unavailable (SSR, privacy mode) */
-    }
-    return resolveThemeId(defaultTheme);
+    // The hydration render skips the stored palette so its markup matches the
+    // server's; the effect below adopts it once that render has committed.
+    if (!switchable || hydrationPass) return resolveThemeId(defaultTheme);
+    return readStoredThemeName() ?? resolveThemeId(defaultTheme);
   });
 
   const mode: ThemeMode = getTheme(themeName).mode;
@@ -101,7 +122,22 @@ export function ThemeProvider({
     setThemeNameState(next.id);
   }, []);
 
+  // True for the render that adopts the server markup (armed by
+  // beginHydrationPass) until the stored palette has been applied.
+  const pendingHydrationAdoption = useRef(hydrationPass);
+
   useEffect(() => {
+    if (pendingHydrationAdoption.current) {
+      pendingHydrationAdoption.current = false;
+      const stored = switchable ? readStoredThemeName() : null;
+      if (stored && stored !== themeName) {
+        // The re-render applies the adopted palette and persists it, so the
+        // server's default is never written over the visitor's real choice.
+        setThemeName(stored);
+        return;
+      }
+    }
+
     const root = document.documentElement;
     root.dataset.theme = themeName;
     root.classList.toggle("dark", mode === "dark");
@@ -114,7 +150,7 @@ export function ThemeProvider({
         /* ignore write failures */
       }
     }
-  }, [themeName, mode, switchable]);
+  }, [themeName, mode, switchable, setThemeName]);
 
   const toggleTheme = switchable
     ? () => {

@@ -489,16 +489,17 @@ export function dedupeToolActivityMessages(
   messages: PersistedChatMessage[]
 ): PersistedChatMessage[] {
   // Parse each row once: the filter below would otherwise re-parse every
-  // tool row up to three times.
+  // tool row up to three times. The indexes live in a Map rather than a plain
+  // object so an id such as "__proto__" is stored like any other string.
   const activityIds = messages.map(
     message => parsePersistedToolActivity(message.content)?.id ?? null
   );
-  const lastIndexOf: Record<string, number> = {};
+  const lastIndexOf = new Map<string, number>();
   activityIds.forEach((id, index) => {
-    if (id !== null) lastIndexOf[id] = index;
+    if (id !== null) lastIndexOf.set(id, index);
   });
   return messages.filter((_, index) => {
     const id = activityIds[index];
-    return id === null || lastIndexOf[id] === index;
+    return id === null || lastIndexOf.get(id) === index;
   });
 }

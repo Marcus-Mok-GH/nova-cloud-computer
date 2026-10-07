@@ -12,6 +12,7 @@ Instructions for AI agents working in this repository.
 - Push directly only if you can describe the change in a single sentence and it is low-risk. Otherwise, open a PR.
 - Always use a PR if the change is destructive, touches CI/CD config, dependencies, auth, or production behavior.
 - When in doubt, open a PR.
+- Open the pull request with `main` as the base branch (the feature branch as the head).
 - Follow the existing commit message style (check `git log`).
 - Never push directly to `main` on someone else's behalf unless explicitly asked.
 - Remember, create a PR for complex changes, including for complicated backend changes, but if it's a simple frontend change, just push it directly.

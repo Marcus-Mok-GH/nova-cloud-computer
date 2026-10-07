@@ -31,11 +31,17 @@
           stored = localStorage.getItem("nova.theme") || localStorage.getItem("theme");
         } catch (e) {}
         var id = stored === "dark" ? "midnight" : stored === "light" ? "daylight" : stored;
-        if (id && (DARK[id] || LIGHT[id])) {
+        // Match on the value (1), never on truthiness: an inherited key such as
+        // "toString" would otherwise read as a known palette and force a theme
+        // the app never resolves to. Unknown ids leave the document untouched so
+        // the :root daylight defaults (and ThemeContext's fallback) agree.
+        var dark = DARK[id] === 1;
+        var light = LIGHT[id] === 1;
+        if (id && (dark || light)) {
           var el = document.documentElement;
           el.setAttribute("data-theme", id);
-          el.classList.toggle("dark", !!DARK[id]);
-          el.style.colorScheme = DARK[id] ? "dark" : "light";
+          el.classList.toggle("dark", dark);
+          el.style.colorScheme = dark ? "dark" : "light";
         }
 
         function recoveryAttempted() {

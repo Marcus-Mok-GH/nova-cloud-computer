@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MIN_CALL_RESERVE_MS, runAutonomousCoderTask, runCoderTask } from "./coder";
 
-const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
+const state = vi.hoisted(() => ({
+  nimModel: "deepseek/deepseek-v4.1-flash",
+  nimUrl: "https://gen.pollinations.ai/v1",
+  nimKey: "sk-poll",
+}));
 vi.mock("./_core/env", () => ({
   ENV: {
     get nimCoderModel() {
       return state.nimModel;
+    },
+    get nimCoderApiUrl() {
+      return state.nimUrl;
+    },
+    get nimCoderApiKey() {
+      return state.nimKey;
     },
   },
 }));
@@ -32,7 +42,9 @@ const { NimToolsUnsupportedError, NimContextLengthError } = await import(
 beforeEach(() => {
   runNimChatMock.mockReset();
   runNimAgentChatMock.mockReset();
-  state.nimModel = "moonshotai/kimi-k3";
+  state.nimModel = "deepseek/deepseek-v4.1-flash";
+  state.nimUrl = "https://gen.pollinations.ai/v1";
+  state.nimKey = "sk-poll";
 });
 
 describe("runCoderTask", () => {
@@ -46,7 +58,7 @@ describe("runCoderTask", () => {
     );
 
     expect(result.code).toBe("```python\nprint('hi')\n```");
-    expect(result.model).toBe("moonshotai/kimi-k3");
+    expect(result.model).toBe("deepseek/deepseek-v4.1-flash");
     const [options] = runNimChatMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Nova's coding specialist");
     expect(options.prompt).toBe(
@@ -56,6 +68,15 @@ describe("runCoderTask", () => {
         "Existing code, errors, and other context:\n\nthe file must be plain Python 3",
       ].join("\n\n")
     );
+  });
+
+  it("runs on the editor's own endpoint and key, not the shared NIM configuration", async () => {
+    runNimChatMock.mockResolvedValueOnce("code");
+    await runCoderTask("fix it");
+    const [options] = runNimChatMock.mock.calls[0];
+    expect(options.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
+    expect(options.apiKey).toBe("sk-poll");
   });
 
   it("reserves a margin before the run deadline on the model request", async () => {
@@ -174,7 +195,7 @@ describe("runAutonomousCoderTask", () => {
       writtenPaths: ["index.html"],
       commandsRun: 1,
       rounds: 4,
-      model: "moonshotai/kimi-k3",
+      model: "deepseek/deepseek-v4.1-flash",
     });
     // The write landed in the sandbox at the workspace path.
     expect(sandbox.writes).toEqual([
@@ -287,6 +308,18 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.kind).toBe("autonomous");
   });
 
+  it("runs the autonomous loop on the editor's own endpoint and key", async () => {
+    runNimAgentChatMock.mockResolvedValueOnce(textReply("Done."));
+    await runAutonomousCoderTask({
+      task: "do it",
+      sandbox: fakeSandbox() as never,
+    });
+    const [options] = runNimAgentChatMock.mock.calls[0];
+    expect(options.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
+    expect(options.apiKey).toBe("sk-poll");
+  });
+
   it("falls back to the single-shot reply when the model rejects tools", async () => {
     runNimAgentChatMock.mockRejectedValueOnce(
       new NimToolsUnsupportedError(
@@ -303,7 +336,7 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome).toEqual({
       kind: "single",
       code: "def solve(): pass",
-      model: "moonshotai/kimi-k3",
+      model: "deepseek/deepseek-v4.1-flash",
     });
   });
 

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveNeonAuthVerificationConfig, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCoderConfig, resolveNeonAuthVerificationConfig, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
 
 describe("resolveNeonAuthVerificationConfig", () => {
   const baseUrl = "https://ep-wispy-salad-au8m5tie.neonauth.c-10.us-east-1.aws.neon.tech/neondb/auth";
@@ -128,6 +128,62 @@ describe("resolveTranscriptionConfig", () => {
     process.env.TRANSCRIPTION_MODEL = "custom-model";
     expect(resolveTranscriptionConfig().transcriptionApiKey).toBe("sk-explicit");
     expect(resolveTranscriptionConfig().transcriptionModel).toBe("custom-model");
+  });
+});
+
+describe("resolveCoderConfig", () => {
+  const names = ["NVIDIA_NIM_CODER_API_URL", "NVIDIA_NIM_CODER_API_KEY", "NVIDIA_NIM_CODER_MODEL", "POLLINATIONS_API_KEY", "NVIDIA_NIM_API_KEY"] as const;
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]])) as Record<string, string | undefined>;
+
+  beforeEach(() => {
+    for (const name of names) delete process.env[name];
+  });
+
+  afterEach(() => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  it("defaults the editor to Pollinations serving deepseek/deepseek-v4.1-flash", () => {
+    process.env.POLLINATIONS_API_KEY = "sk-poll";
+    expect(resolveCoderConfig()).toEqual({
+      nimCoderApiUrl: "https://gen.pollinations.ai/v1",
+      nimCoderApiKey: "sk-poll",
+      nimCoderModel: "deepseek/deepseek-v4.1-flash",
+    });
+  });
+
+  it("never sends an NVIDIA NIM key to the Pollinations endpoint", () => {
+    process.env.NVIDIA_NIM_API_KEY = "nim-key";
+    expect(resolveCoderConfig().nimCoderApiKey).toBe("");
+  });
+
+  it("honors the dedicated coder endpoint, model and key overrides", () => {
+    process.env.NVIDIA_NIM_CODER_API_URL = "https://coder.example.com/v1/";
+    process.env.NVIDIA_NIM_CODER_MODEL = "custom-coder";
+    process.env.NVIDIA_NIM_CODER_API_KEY = "sk-coder";
+    expect(resolveCoderConfig()).toEqual({
+      nimCoderApiUrl: "https://coder.example.com/v1",
+      nimCoderApiKey: "sk-coder",
+      nimCoderModel: "custom-coder",
+    });
+  });
+
+  it("falls back to the NVIDIA NIM credentials and model when pointed back at hosted NIM", () => {
+    process.env.NVIDIA_NIM_CODER_API_URL = "https://integrate.api.nvidia.com/v1";
+    process.env.NVIDIA_NIM_API_KEY = "nim-key";
+    expect(resolveCoderConfig()).toEqual({
+      nimCoderApiUrl: "https://integrate.api.nvidia.com/v1",
+      nimCoderApiKey: "nim-key",
+      nimCoderModel: "moonshotai/kimi-k3",
+    });
+  });
+
+  it("leaves the model unset for a custom endpoint whose model must be named explicitly", () => {
+    process.env.NVIDIA_NIM_CODER_API_URL = "https://coder.example.com/v1";
+    expect(resolveCoderConfig().nimCoderModel).toBe("");
   });
 });
 

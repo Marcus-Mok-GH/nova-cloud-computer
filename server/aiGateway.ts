@@ -527,11 +527,46 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
   return params;
 }
 
+/**
+ * One model role's operator override and hardcoded fallback, per provider mode.
+ * Z.ai serves free flash models that its /models list omits, so the vision and
+ * last-resort roles exist only there; the default provider has the first two.
+ * Keeping the ids in one table means every role reads the active mode the same
+ * way, and adding a provider is a data change rather than four code changes.
+ */
+type ModelRole = "default" | "vision" | "fallback" | "lastResort";
+type ProviderModelTable = Partial<
+  Record<ModelRole, { env: string; fallback: string }>
+>;
+
+const PROVIDER_MODELS: { zai: ProviderModelTable; default: ProviderModelTable } = {
+  zai: {
+    default: { env: "ZAI_DEFAULT_MODEL", fallback: DEFAULT_CHAT_MODEL },
+    vision: { env: "ZAI_VISION_MODEL", fallback: ZAI_VISION_FALLBACK_MODEL },
+    fallback: { env: "ZAI_FALLBACK_MODEL", fallback: ZAI_TEXT_FALLBACK_MODEL },
+    lastResort: {
+      env: "ZAI_LAST_RESORT_MODEL",
+      fallback: ZAI_LAST_RESORT_MODEL_ID,
+    },
+  },
+  default: {
+    default: { env: "MISTRAL_DEFAULT_MODEL", fallback: DEFAULT_CHAT_MODEL },
+    fallback: { env: "MISTRAL_FALLBACK_MODEL", fallback: TEXT_FALLBACK_MODEL },
+  },
+};
+
+/**
+ * The model id configured for one role, or undefined when the active provider
+ * serves no model for it. The env override wins over the hardcoded fallback.
+ */
+function configuredProviderModel(role: ModelRole): string | undefined {
+  const entry = PROVIDER_MODELS[zaiGatewayToken() ? "zai" : "default"][role];
+  if (!entry) return undefined;
+  return process.env[entry.env]?.trim() || entry.fallback;
+}
+
 export function configuredDefaultChatModel(): string {
-  const override = zaiGatewayToken()
-    ? process.env.ZAI_DEFAULT_MODEL?.trim()
-    : process.env.MISTRAL_DEFAULT_MODEL?.trim();
-  return override || DEFAULT_CHAT_MODEL;
+  return configuredProviderModel("default") ?? DEFAULT_CHAT_MODEL;
 }
 
 /**
@@ -542,8 +577,7 @@ export function configuredDefaultChatModel(): string {
  * configured-default behaviour.
  */
 export function configuredVisionChatModel(): string | undefined {
-  if (!zaiGatewayToken()) return undefined;
-  return process.env.ZAI_VISION_MODEL?.trim() || ZAI_VISION_FALLBACK_MODEL;
+  return configuredProviderModel("vision");
 }
 
 /**
@@ -551,14 +585,7 @@ export function configuredVisionChatModel(): string | undefined {
  * configuredDefaultChatModel for deployments on a different provider.
  */
 export function configuredTextFallbackModel(): string {
-  const override = zaiGatewayToken()
-    ? process.env.ZAI_FALLBACK_MODEL?.trim()
-    : process.env.MISTRAL_FALLBACK_MODEL?.trim();
-  if (override) return override;
-  // Z.ai's /models endpoint omits the free flash models, so the hardcoded
-  // default-provider fallback id cannot resolve there; the other free flash model is
-  // the verified-served Z.ai default (used for pool-overload degradation).
-  return zaiGatewayToken() ? ZAI_TEXT_FALLBACK_MODEL : TEXT_FALLBACK_MODEL;
+  return configuredProviderModel("fallback") ?? TEXT_FALLBACK_MODEL;
 }
 
 /**
@@ -568,8 +595,7 @@ export function configuredTextFallbackModel(): string {
  * configured text fallback) keeps its existing behaviour there.
  */
 export function configuredLastResortModel(): string | undefined {
-  if (!zaiGatewayToken()) return undefined;
-  return process.env.ZAI_LAST_RESORT_MODEL?.trim() || ZAI_LAST_RESORT_MODEL_ID;
+  return configuredProviderModel("lastResort");
 }
 
 /**
@@ -935,17 +961,10 @@ export async function completeWithAiGateway(
       text,
       model: completion.model ?? model,
       usage: completion.usage ?? null,
-      allowance: {
-        usedRequests: claim.usedRequests,
-        maxRequests: status.allowance.maxRequests,
-        remainingRequests:
-          status.allowance.maxRequests === null
-            ? null
-            : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-        exhausted:
-          status.allowance.maxRequests !== null &&
-          claim.usedRequests >= status.allowance.maxRequests,
-      },
+      allowance: allowanceSummary(
+        status.allowance.maxRequests,
+        claim.usedRequests
+      ),
     };
   }
   const payload = (await response.json().catch(() => undefined)) as
@@ -985,17 +1004,10 @@ export async function completeWithAiGateway(
     text: bufferedText,
     model: completion?.model ?? model,
     usage: completion?.usage ?? null,
-    allowance: {
-      usedRequests: claim.usedRequests,
-      maxRequests: status.allowance.maxRequests,
-      remainingRequests:
-        status.allowance.maxRequests === null
-          ? null
-          : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-      exhausted:
-        status.allowance.maxRequests !== null &&
-        claim.usedRequests >= status.allowance.maxRequests,
-    },
+    allowance: allowanceSummary(
+      status.allowance.maxRequests,
+      claim.usedRequests
+    ),
   };
   };
   const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
@@ -1057,6 +1069,21 @@ export type GatewayChatResult = {
     exhausted: boolean;
   };
 };
+
+/**
+ * The allowance summary every gateway result carries. Derived in one place so
+ * the remaining-requests math and the exhausted flag cannot drift between the
+ * streaming and buffered return sites.
+ */
+function allowanceSummary(maxRequests: number | null, usedRequests: number) {
+  return {
+    usedRequests,
+    maxRequests,
+    remainingRequests:
+      maxRequests === null ? null : Math.max(0, maxRequests - usedRequests),
+    exhausted: maxRequests !== null && usedRequests >= maxRequests,
+  };
+}
 
 /**
  * Single OpenAI-compatible chat completion with optional function-calling
@@ -1591,20 +1618,10 @@ async function attemptGatewayChat(
       ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
       model: streamed.model ?? resolvedModel,
       usage: streamed.usage,
-      allowance: {
-        usedRequests: claim.usedRequests,
-        maxRequests: status.allowance.maxRequests,
-        remainingRequests:
-          status.allowance.maxRequests === null
-            ? null
-            : Math.max(
-                0,
-                status.allowance.maxRequests - claim.usedRequests
-              ),
-        exhausted:
-          status.allowance.maxRequests !== null &&
-          claim.usedRequests >= status.allowance.maxRequests,
-      },
+      allowance: allowanceSummary(
+        status.allowance.maxRequests,
+        claim.usedRequests
+      ),
     };
   }
   let buffered: {
@@ -1717,17 +1734,10 @@ async function attemptGatewayChat(
     usage:
       (buffered.payload as { usage?: GatewayCompletion["usage"] } | undefined)
         ?.usage ?? null,
-    allowance: {
-      usedRequests: claim.usedRequests,
-      maxRequests: status.allowance.maxRequests,
-      remainingRequests:
-        status.allowance.maxRequests === null
-          ? null
-          : Math.max(0, status.allowance.maxRequests - claim.usedRequests),
-      exhausted:
-        status.allowance.maxRequests !== null &&
-        claim.usedRequests >= status.allowance.maxRequests,
-    },
+    allowance: allowanceSummary(
+      status.allowance.maxRequests,
+      claim.usedRequests
+    ),
   };
 
 }

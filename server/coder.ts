@@ -1,10 +1,11 @@
 /** Nova's coding specialist delegate.
  *
- * The heavy lifting is done by the strongest coding model served through
- * NVIDIA NIM (https://build.nvidia.com) - Kimi K3 by default, a
- * frontier coding MoE with a 262K-token context. The calling agent
- * describes the coding task and supplies any existing code or errors as
- * context; the specialist either returns complete, working code the agent
+ * The heavy lifting is done by a frontier coding model served by the editor's
+ * own provider - Pollinations' unified API (https://gen.pollinations.ai),
+ * whose deepseek/deepseek-v4.1-flash is the default: a coding model with tool
+ * calling and a 1M-token context (see ENV.nimCoderApiUrl / nimCoderModel). The
+ * calling agent describes the coding task and supplies any existing code or
+ * errors as context; the specialist either returns complete, working code the agent
  * then places into the workspace with its file tools (single-shot), or -
  * when a live sandbox is available and the model supports function
  * calling - works autonomously: it lists, reads and writes workspace
@@ -621,6 +622,9 @@ export async function runAutonomousCoderTask(
       reply = await runNimAgentChat({
         messages,
         tools: CODER_TOOLS,
+        model: ENV.nimCoderModel,
+        apiUrl: ENV.nimCoderApiUrl,
+        apiKey: ENV.nimCoderApiKey,
         maxTokens: SPECIALIST_MAX_TOKENS,
         timeoutMs: Math.min(240_000, Math.max(30_000, remainingMs - 15_000)),
         // Hard-stop attempts and retries at the specialist's own budget end,
@@ -805,8 +809,9 @@ export async function runAutonomousCoderTask(
  * reply. @param task The coding job, described completely: goal, language,
  * constraints, what "done" means. @param context Optional supporting
  * material - existing code, the exact error output, file or API layouts. @param language Optional explicit target language or framework. Rejects when
- * the task is empty or NVIDIA NIM is not configured (the operator must set
- * NVIDIA_NIM_API_KEY).
+ * the task is empty or the editor's model endpoint is not configured (the
+ * operator must set POLLINATIONS_API_KEY, or the NVIDIA_NIM_CODER_API_KEY
+ * override).
  */
 export async function runCoderTask(
   task: string,
@@ -836,6 +841,9 @@ export async function runCoderTask(
   const code = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: CODER_SYSTEM_PROMPT,
+    model: ENV.nimCoderModel,
+    apiUrl: ENV.nimCoderApiUrl,
+    apiKey: ENV.nimCoderApiKey,
     maxTokens: SPECIALIST_MAX_TOKENS,
     ...(modelDeadlineAtMs !== undefined
       ? { deadlineAtMs: modelDeadlineAtMs }

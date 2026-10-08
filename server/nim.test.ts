@@ -72,6 +72,30 @@ describe("runNimChat", () => {
     expect(JSON.parse(fetchStub.mock.calls[0][1].body).model).toBe("moonshotai/kimi-k3");
   });
 
+  it("runs against an explicit endpoint and key when the caller passes them", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await runNimChat({
+      prompt: "p",
+      systemPrompt: "s",
+      model: "deepseek/deepseek-v4.1-flash",
+      apiUrl: "https://gen.pollinations.ai/v1",
+      apiKey: "sk-poll",
+    });
+    const [url, init] = fetchStub.mock.calls[0];
+    expect(url.href).toBe("https://gen.pollinations.ai/v1/chat/completions");
+    expect(init.headers.authorization).toBe("Bearer sk-poll");
+    expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4.1-flash");
+  });
+
+  it("counts a request with its own key as configured even without the shared NIM key", async () => {
+    state.nimKey = "";
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await expect(
+      runNimChat({ prompt: "p", systemPrompt: "s", apiUrl: "https://gen.pollinations.ai/v1", apiKey: "sk-poll" })
+    ).resolves.toBe("ok");
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
   it("works against a self-hosted NIM base URL with or without a trailing slash", async () => {
     state.nimUrl = "http://localhost:8000/v1/";
     fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));

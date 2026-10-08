@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MIN_CALL_RESERVE_MS, runAutonomousCoderTask, runCoderTask } from "./coder";
+import { runAutonomousCoderTask, runCoderTask } from "./coder";
 
 const state = vi.hoisted(() => ({
   nimModel: "deepseek/deepseek-v4.1-flash",
@@ -79,13 +79,11 @@ describe("runCoderTask", () => {
     expect(options.apiKey).toBe("sk-poll");
   });
 
-  it("reserves a margin before the run deadline on the model request", async () => {
+  it("hands the model request the caller's full deadline", async () => {
     runNimChatMock.mockResolvedValueOnce("code");
     const deadline = Date.now() + 200_000;
     await runCoderTask("fix it", undefined, undefined, deadline);
-    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(
-      deadline - MIN_CALL_RESERVE_MS
-    );
+    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(deadline);
   });
 
   it("omits the model deadline when the caller gives none", async () => {
@@ -362,8 +360,9 @@ describe("runAutonomousCoderTask", () => {
 
   it("stops only when the segment budget runs out, reporting exactly what was done", async () => {
     // Fake wall clock: each model call appears to consume 20s of a 100s
-    // budget, so the loop breaks on the reserve check (deterministically)
-    // after 4 calls instead of spinning forever on instant mocks.
+    // budget, so the loop runs the clock out (deterministically) instead of
+    // spinning forever on instant mocks. The specialist uses the full budget,
+    // so it keeps going until the deadline itself passes.
     const startedAt = Date.now();
     const realNow = Date.now;
     let calls = 0;
@@ -380,20 +379,19 @@ describe("runAutonomousCoderTask", () => {
         deadlineAtMs: startedAt + 100_000,
       });
 
-      // The reserve (30s) is already deducted from the budget, so the
-      // fourth round never starts: 3 calls, then the honest report.
-      expect(calls).toBe(3);
+      // No reserve is deducted, so the loop keeps starting rounds until the
+      // clock reaches the deadline: 5 calls, then the honest report.
+      expect(calls).toBe(5);
       if (outcome.kind !== "autonomous")
         throw new Error("expected autonomous outcome");
       expect(outcome.summary).toContain("full time budget");
-      expect(outcome.rounds).toBe(3);
+      expect(outcome.rounds).toBe(5);
       expect(outcome.writtenPaths).toEqual([]);
       expect(outcome.commandsRun).toBe(0);
-      // The specialist's own budget end (deadline minus the 30s reserve) is
-      // handed to the model call as its hard deadline, so a retry cannot
-      // overrun it and get the result discarded as an interruption.
+      // The caller's deadline is handed to the model call as its hard
+      // deadline, so a retry cannot overrun it and get the result discarded.
       expect(runNimAgentChatMock.mock.calls[0][0].deadlineAtMs).toBe(
-        startedAt + 70_000
+        startedAt + 100_000
       );
     } finally {
       Date.now = realNow;
@@ -587,6 +585,70 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.summary).toContain("fresh, smaller task");
     expect(outcome.writtenPaths).toEqual([]);
     expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a budget stop when compaction succeeds but the segment has no time left", async () => {
+    const sandbox = fakeSandbox();
+    // The first round's long assistant text is compactable, so hard compaction
+    // frees space - but the deadline is already too close to retry, so the
+    // specialist must report the budget, not a compaction failure.
+    runNimAgentChatMock
+      .mockResolvedValueOnce({
+        kind: "tool_calls" as const,
+        text: "x".repeat(3_000),
+        toolCalls: [{ id: "c1", name: "list_files", arguments: "{}" }],
+      })
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      );
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+      deadlineAtMs: Date.now() + 25_000,
+    });
+
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("ran out of time");
+    expect(outcome.summary).not.toContain("could no longer be compacted");
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not start a tool call once the segment deadline has passed", async () => {
+    const sandbox = fakeSandbox();
+    const startedAt = Date.now();
+    const realNow = Date.now;
+    let advanced = false;
+    // The model round itself outlasts the deadline, so the tool calls it
+    // returns must be skipped rather than executed after the segment closed.
+    Date.now = () => (advanced ? startedAt + 200 : startedAt);
+    try {
+      runNimAgentChatMock.mockImplementationOnce(async () => {
+        advanced = true;
+        return toolCall("c1", "run_command", {
+          command: "touch should-not-exist",
+        });
+      });
+
+      const outcome = await runAutonomousCoderTask({
+        task: "an impossible task",
+        sandbox: sandbox as never,
+        deadlineAtMs: startedAt + 100,
+      });
+
+      const ran = sandbox.commands.run.mock.calls.map(call => String(call[0]));
+      expect(
+        ran.some(command => command.includes("should-not-exist"))
+      ).toBe(false);
+      if (outcome.kind !== "autonomous")
+        throw new Error("expected autonomous outcome");
+      expect(outcome.commandsRun).toBe(0);
+    } finally {
+      Date.now = realNow;
+    }
   });
 
   it("drops the file payloads of old tool calls so repeated large writes cannot pin the context open", async () => {

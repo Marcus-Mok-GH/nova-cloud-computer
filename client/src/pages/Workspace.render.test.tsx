@@ -252,7 +252,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("<textarea");
     expect(markup).toContain("What do you want Nova to help with?");
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Open thread/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Create thread/);
   });
 
   it("renders workspace asset counts without folder browsing controls", () => {
@@ -444,7 +444,7 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Open thread");
+    expect(markup).toContain("Create thread");
     expect(markup).toContain("Tools on hand");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");

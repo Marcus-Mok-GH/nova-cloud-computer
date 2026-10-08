@@ -228,6 +228,10 @@ export function toolLineText(activity: ToolActivity): string {
       return `Read File ${file || path}`.trim();
     case "edit_file":
       return `Edit File ${file}`.trim();
+    case "create_plan":
+      return "Create Plan";
+    case "edit_plan":
+      return "Edit Plan";
     case "rename_file":
       return `Rename File ${file} → ${newName}`.trim();
     case "move_file":

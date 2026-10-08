@@ -36,14 +36,15 @@ export function parseUltraplanCommand(
 }
 
 /**
- * The read-only tools an ultraplan turn may use. Planning must not change
- * anything, so every tool that writes is withheld by name: files and folders
- * (create/edit/rename/move/delete), memory (save/delete), Telegram sends,
- * presenting files, deploys and site deletion, project scaffolding, the
- * editor, connector and GitHub actions, and both run_bash and run_vm_task -
- * the sandbox shares a filesystem with the workspace, so shell work could
- * still create files that sync back. New tools are excluded by default,
- * exactly like the email-reply allowlist.
+ * The tools an ultraplan turn may use: read-only exploration plus the two
+ * tools that write the plan document itself - creating it is the whole point
+ * of the turn, and nothing else may change. Every other writing tool is
+ * withheld by name: files and folders (create/edit/rename/move/delete),
+ * memory (save/delete), Telegram sends, presenting files, deploys and site
+ * deletion, project scaffolding, the editor, connector and GitHub actions,
+ * and both run_bash and run_vm_task - the sandbox shares a filesystem with
+ * the workspace, so shell work could still create files that sync back. New
+ * tools are excluded by default, exactly like the email-reply allowlist.
  */
 const ULTRAPLAN_TOOL_ALLOWLIST = new Set([
   "end_turn",

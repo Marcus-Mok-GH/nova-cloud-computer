@@ -1,3 +1,60 @@
+2026-10-08 - /ultraplan drafts a deep, planning-only pass before any change
+
+Nova gained the `/ultraplan` command, modeled on the ultraplan mode in
+opencode / Claude Code: instead of finishing the task in the same turn, the
+agent makes the plan the deliverable. It decomposes the task into research
+questions, explores the workspace for real and in parallel (list_workspace and
+read_file for the relevant files, `thinker` for the hard reasoning,
+`research_web` only for external facts), then synthesizes one plan -
+executive summary, a 2-3 option comparison with a recommendation, a phased
+execution plan showing what runs in parallel and what depends on what, a
+probability/impact risk matrix with mitigations, the files to be created or
+touched, and a before/after verification checklist. It closes by stating that
+nothing has changed yet and waits for the user to approve, adjust, or cancel
+before any work happens. Over Telegram the plan is written as plain text (no
+markdown tables, which the channel cannot render); in the web app it is clean
+Markdown.
+
+server/ultraplan.ts holds the command: `parseUltraplanCommand` recognizes
+`/ultraplan <task>` (and Telegram's `/ultraplan@Bot` addressing) at the start
+of a message and returns the task, `buildUltraplanInstruction` writes the
+turn directive, and `ULTRAPLAN_USAGE` answers a bare command. The hook lives
+once in `runWorkspaceAgent` (server/workspaceAgent.ts), so every entry point
+- the web chat stream and `chats.send`, the peak-hours queue, Telegram, and
+continuations - gets the mode for free. The typed command stays the persisted
+user bubble (the directive is added to the model's turn only), and a bare
+`/ultraplan` returns the usage line without waking the sandbox or spending an
+agent run. Inbound-email runs, which are untrusted input, never get the mode.
+
+The read-only rule is enforced by the runtime, not just stated in the prompt:
+`ultraplanAllowsTool` gates the run's tool set down to end_turn, list_workspace,
+read_file, search_memories, read_memory, solve_equation, research_web, thinker,
+and the plan document's own two tools - every other tool that could change
+state is withheld by name (files and folders, memory writes, Telegram sends,
+presenting files, deploy/delete website, project scaffolding, editor, GitHub
+and connectors, and both run_bash and run_vm_task, whose sandbox shares a
+filesystem with the workspace). New tools are excluded by default, exactly
+like the email-reply allowlist.
+
+The plan is a real workspace deliverable, not just a chat reply: `create_plan`
+writes the complete plan to `PLAN_<chat id>.md` at the workspace root and
+`edit_plan` replaces an existing one (read it back with read_file). They are
+the only write tools an ultraplan turn exposes, and they exist for it alone -
+outside ultraplan the run's tool set hides them. The finished plan is saved
+with create_plan before the turn ends and repeated in the end_turn reply.
+The command is discoverable from the web blank state's new "Ultraplan a task"
+starter and from the Telegram `/start` help.
+
+Tests: server/ultraplan.test.ts (parsing, instruction building with the
+Telegram/plain-text and web/Markdown split, the read-only allowlist, and the
+plan-file naming) plus five wiring tests in server/workspaceAgent.test.ts:
+the exposed tool set carries no general write tool, carries create_plan and
+edit_plan on an ultraplan turn only, writes PLAN_<chatId>.md through
+create_plan, and replaces it through edit_plan. Full suite: 1062 passed, 4
+skipped. Typecheck clean.
+
+---
+
 2026-10-08 - Nova's editor runs on Pollinations with DeepSeek V4.1 Flash
 
 Owner request: the editor sub-agent (the coding specialist behind the

@@ -47,6 +47,15 @@ describe("toolLineText", () => {
     );
   });
 
+  it("labels the ultraplan plan tools", () => {
+    expect(toolLineText(activity("create_plan", '{"content":"# Plan"}'))).toBe(
+      "Create Plan"
+    );
+    expect(toolLineText(activity("edit_plan", '{"content":"# Plan"}'))).toBe(
+      "Edit Plan"
+    );
+  });
+
   it("formats folder and rename/move one-liners", () => {
     expect(toolLineText(activity("create_folder", '{"name":"Projects"}'))).toBe(
       "Create Folder Projects"

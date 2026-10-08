@@ -87,6 +87,13 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNullable<T> {
   if (!result) throw new TRPCError({ code: "NOT_FOUND", message: `That ${entity} is not available in your Nova space.` });
 }
+/**
+ * Refinement for an update payload that has to change something: at least one
+ * of `keys` must be present (an explicit null counts), so an empty body cannot
+ * be mistaken for a no-op. The message stays at each call site.
+ */
+const atLeastOneOf = (keys: readonly string[]) => (input: object) =>
+  keys.some(key => (input as Record<string, unknown>)[key] !== undefined);
 const projectInput = z.object({ name: z.string().trim().min(1, "A project needs a name.").max(160), description: z.string().trim().max(2000).nullable().optional() });
 const taskStatus = z.enum(["todo", "in_progress", "done"]);
 const projectStatus = z.enum(["active", "archived"]);
@@ -94,16 +101,16 @@ const projectStatus = z.enum(["active", "archived"]);
 // must match the `model_provider` enum value persisted in the database.
 const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "mistral"]);
 const modelCompatibility = z.enum(["openai", "anthropic"]);
-const projectUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullable().optional(), status: projectStatus.optional() }).refine(input => input.name !== undefined || input.description !== undefined || input.status !== undefined, { message: "Provide at least one project change." });
+const projectUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullable().optional(), status: projectStatus.optional() }).refine(atLeastOneOf(["name", "description", "status"]), { message: "Provide at least one project change." });
 const customModelInput = z.object({ name: z.string().trim().min(1, "Give the model a name.").max(120), modelId: z.string().trim().min(1, "A model ID is required.").max(240), baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), compatibility: modelCompatibility, apiKey: z.string().trim().min(1, "An API key is required.").max(4096), supportsImageInput: z.boolean() });
 const personalisationDetail = z.enum(["brief", "balanced", "detailed"]);
 const personalisationProactiveness = z.enum(["ask_first", "act_and_tell", "autonomous"]);
 const personalisationExpertise = z.enum(["new", "some", "expert"]);
-const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional(), personalisationEnabled: z.boolean().optional(), personalisationProfile: z.string().trim().max(2000).nullable().optional(), personalisationTone: z.string().trim().max(60).nullable().optional(), personalisationDetail: personalisationDetail.nullable().optional(), personalisationProactiveness: personalisationProactiveness.nullable().optional(), personalisationExpertise: personalisationExpertise.nullable().optional() }).refine(input => input.activeProvider !== undefined || input.activeModelId !== undefined || input.activeCustomModelId !== undefined || input.workspaceRules !== undefined || input.personalisationEnabled !== undefined || input.personalisationProfile !== undefined || input.personalisationTone !== undefined || input.personalisationDetail !== undefined || input.personalisationProactiveness !== undefined || input.personalisationExpertise !== undefined, { message: "Provide at least one setting change." });
+const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional(), personalisationEnabled: z.boolean().optional(), personalisationProfile: z.string().trim().max(2000).nullable().optional(), personalisationTone: z.string().trim().max(60).nullable().optional(), personalisationDetail: personalisationDetail.nullable().optional(), personalisationProactiveness: personalisationProactiveness.nullable().optional(), personalisationExpertise: personalisationExpertise.nullable().optional() }).refine(atLeastOneOf(["activeProvider", "activeModelId", "activeCustomModelId", "workspaceRules", "personalisationEnabled", "personalisationProfile", "personalisationTone", "personalisationDetail", "personalisationProactiveness", "personalisationExpertise"]), { message: "Provide at least one setting change." });
 const folderInput = z.object({ name: z.string().trim().min(1, "A folder needs a name.").max(160), parentId: z.number().int().positive().nullable().optional() });
-const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(input => input.name !== undefined || input.parentId !== undefined, { message: "Provide a folder change." });
+const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "parentId"]), { message: "Provide a folder change." });
 const fileInput = z.object({ name: z.string().trim().min(1, "A file needs a name.").max(240), content: z.string().max(200000).optional(), mimeType: z.string().trim().min(1).max(120).optional(), folderId: z.number().int().positive().nullable().optional() });
-const fileUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(240).optional(), content: z.string().max(200000).optional(), folderId: z.number().int().positive().nullable().optional() }).refine(input => input.name !== undefined || input.content !== undefined || input.folderId !== undefined, { message: "Provide at least one file change." });
+const fileUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(240).optional(), content: z.string().max(200000).optional(), folderId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "content", "folderId"]), { message: "Provide at least one file change." });
 const agentVmRunInput = z.object({ task: z.string().trim().min(3, "Describe the VM task.").max(1600), code: z.string().max(12000).optional() });
 const terminalSizeInput = z.object({ cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) });
 /** Only classified TerminalError messages reach the client; anything else is
@@ -119,7 +126,7 @@ const agentName = z.string().trim().min(1, "An agent needs a name.").max(80, "Na
 /** `walletBudgetCredits: null` grants an unlimited wallet (no cap). */
 const agentBudgetCredits = z.number().int().min(0).max(100000).nullable().optional();
 const agentCreateInput = z.object({ name: agentName, role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: agentBudgetCredits });
-const agentUpdateInput = z.object({ id: z.number().int().positive(), name: agentName.optional(), role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: agentBudgetCredits }).refine(input => input.name !== undefined || input.role !== undefined || input.instructions !== undefined || input.walletBudgetCredits !== undefined, { message: "Provide at least one agent change." });
+const agentUpdateInput = z.object({ id: z.number().int().positive(), name: agentName.optional(), role: z.string().trim().max(120).nullable().optional(), instructions: z.string().trim().max(4000).nullable().optional(), walletBudgetCredits: agentBudgetCredits }).refine(atLeastOneOf(["name", "role", "instructions", "walletBudgetCredits"]), { message: "Provide at least one agent change." });
 const teamCreateInput = z.object({ name: z.string().trim().min(1, "A team needs a name.").max(160), goal: z.string().trim().min(1, "A team needs a shared goal.").max(2000), agentIds: z.array(z.number().int().positive()).min(2, "A team needs at least two agents.").max(8) });
 /** Agent mutations surface their two typed failures as proper TRPC errors. */
 const agentRouteError = (error: unknown, fallback: string): never => {

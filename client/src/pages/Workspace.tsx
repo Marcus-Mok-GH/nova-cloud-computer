@@ -1190,7 +1190,7 @@ export default function Workspace() {
                       : "rounded-lg bg-muted px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"
                   }
                 >
-                  {startChat.isPending ? "Opening…" : "Open thread"}
+                  {startChat.isPending ? "Creating…" : "Create thread"}
                 </Button>
               </div>
             </div>

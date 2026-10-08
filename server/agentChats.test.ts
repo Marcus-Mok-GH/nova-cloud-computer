@@ -95,6 +95,66 @@ describe("team turn orchestration", () => {
     expect(result).toEqual(fakeRunResult());
   });
 
+  it("runs a multi-round discussion and lets only the final turn synthesize", async () => {
+    const options = { channel: "web" as const, deadlineAtMs: Date.now() + 200_000 };
+    await runTeamChatTurns({
+      ownerId: 1,
+      chatId: "chat000000000000000001",
+      content: "plan our launch event",
+      route: teamRoute([mira, pip]),
+      options,
+    });
+
+    expect(runWorkspaceAgent).toHaveBeenCalledTimes(4);
+    const calls = runWorkspaceAgent.mock.calls;
+
+    // Opening round: the first turn carries (and persists) the user message,
+    // nobody is "final" yet.
+    expect(calls[0][3]).toMatchObject({
+      persistUserMessage: true,
+      agentChat: { profile: mira, team: { finalMember: false } },
+    });
+    expect(calls[0][2]).toBe("plan our launch event");
+    expect(calls[1][3]).toMatchObject({
+      persistUserMessage: false,
+      agentChat: { profile: pip, team: { finalMember: false } },
+    });
+    expect(calls[1][2]).toContain("round 1 of 2");
+    expect(calls[1][2]).toContain("opening round");
+
+    // Refinement round: teammates react to each other, and only the last turn
+    // of the final round synthesizes for the user.
+    expect(calls[2][2]).toContain("round 2 of 2");
+    expect(calls[2][2]).toContain("React to your teammates");
+    expect(calls[3][3]).toMatchObject({
+      persistUserMessage: false,
+      agentChat: { profile: pip, team: { finalMember: true } },
+    });
+    expect(calls[3][2]).toContain("synthesize");
+  });
+
+  it("keeps the synthesis in round one when too little budget remains for a refinement round", async () => {
+    // The deadline is closer than EXTRA_ROUND_MIN_REMAINING_MS, so no second
+    // round can fit; the opening round's last member must synthesis for the
+    // user rather than hand off into a round that cannot finish.
+    const options = { channel: "web" as const, deadlineAtMs: Date.now() + 10_000 };
+    await runTeamChatTurns({
+      ownerId: 1,
+      chatId: "chat000000000000000001",
+      content: "plan our launch event",
+      route: teamRoute([mira, pip]),
+      options,
+    });
+
+    expect(runWorkspaceAgent).toHaveBeenCalledTimes(2);
+    const calls = runWorkspaceAgent.mock.calls;
+    expect(calls[1][2]).toContain("round 1 of 1");
+    expect(calls[1][2]).toContain("synthesize");
+    expect(calls[1][3]).toMatchObject({
+      agentChat: { profile: pip, team: { finalMember: true } },
+    });
+  });
+
   it("stops the roster when a teammate runs out of budget", async () => {
     runWorkspaceAgent.mockResolvedValueOnce(fakeRunResult({ outOfBudget: true }));
     const result = await runTeamChatTurns({
@@ -128,6 +188,8 @@ describe("teamTurnPrompt", () => {
       route: teamRoute([mira, pip]),
       teammateNames: ["Mira", "Pip"],
       isFinal: false,
+      round: 1,
+      rounds: 1,
     });
     expect(prompt).toContain("You are Pip");
     expect(prompt).toContain("research venues for the New York launch");
@@ -142,6 +204,8 @@ describe("teamTurnPrompt", () => {
       route: teamRoute([mira, pip]),
       teammateNames: ["Mira", "Pip"],
       isFinal: true,
+      round: 2,
+      rounds: 2,
     });
     expect(prompt).toContain("last teammate");
     expect(prompt).toContain("synthesize");

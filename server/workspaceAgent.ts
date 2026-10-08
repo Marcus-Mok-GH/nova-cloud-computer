@@ -245,7 +245,6 @@ export function coderNudgeFor(wroteName: string): string {
   return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the editor sub-agent. Nova's editor sub-agent should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the file work to the editor tool with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If the editor reports the sub-agent is not configured (the workspace owner must finish setting up the editor), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
 }
 
-
 const CONNECTOR_TOOL_NAMES = new Set([
   "github",
   "list_connector_tools",
@@ -449,7 +448,7 @@ export function agentIdentityPromptBlock(
     `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
     "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
     team
-      ? `\nThis is an AGENT TEAM chat. Shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. Do your part of the goal, keep your reply focused on your own contribution, and end your turn with end_turn so the next teammate can go - when you are the last teammate, synthesize the team's work into the final reply for the user. Your reply is shown to the user with a [${profile.name}] attribution.`
+      ? `\nThis is an AGENT TEAM chat - you and your teammates are collaborating on one shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. This runs as a bounded discussion: read your teammates' turns above, build on them, and contribute your own part without repeating their work. End every turn with end_turn so the discussion continues${team.finalMember ? " - you are the last teammate of the final round, so synthesize the whole team's combined work into the final reply for the user" : ""}. Your reply is shown to the user with a [${profile.name}] attribution.`
       : "",
   ];
   return lines.filter(Boolean).join("");

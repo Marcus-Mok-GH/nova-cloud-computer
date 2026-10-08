@@ -84,6 +84,21 @@ function ImageAttachmentTray({
 const PERSONALISATION_KICKOFF =
   "Let's set up my personalisation. Ask me one question at a time about how I work and how I want you to work with me, wait for each answer, then save what you learn with set_personalisation and turn personalisation mode on.";
 
+/**
+ * Opening message for a freshly created team chat (launched from the Agents
+ * page's team builder): the roster starts in plan mode - split the shared
+ * goal into assigned tasks and wait for approval before executing.
+ */
+export const teamPlanKickoff = (goal: string): string => {
+  const trimmed = goal.trim();
+  return [
+    trimmed
+      ? `The team's shared goal: ${trimmed}.`
+      : "Begin the team's shared goal.",
+    "Start in plan mode: review the goal and the roster's roles, break the goal into concrete tasks, and assign each task to the teammate best placed to do it. Present the plan for my approval before executing any task - once I approve, execute the assigned tasks in turn order until the goal is done.",
+  ].join(" ");
+};
+
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, {
     retry: false,
@@ -112,6 +127,13 @@ export default function Workspace() {
       : new URLSearchParams(window.location.search).get("personalise") ===
         "1";
   const personaliseStartedRef = useRef(false);
+  // One-shot flag set by the Agents page's team builder; the effect below
+  // turns it into the team's plan-mode kickoff message.
+  const teamStartIntent =
+    typeof window === "undefined"
+      ? false
+      : new URLSearchParams(window.location.search).get("teamstart") === "1";
+  const teamKickoffSentRef = useRef(false);
   const [composerAttachments, setComposerAttachments] = useState<
     ChatImageAttachment[]
   >([]);
@@ -344,12 +366,17 @@ export default function Workspace() {
     }
     return refreshed;
   };
-  /** Streams a message into `targetChatId`, reused by the active-chat composer and the "Start a chat" prompt box. */
+  /**
+   * Streams a message into `targetChatId`, reused by the active-chat composer
+   * and the "Start a chat" prompt box. Resolves true when the turn streamed
+   * to completion and false on any failure, so callers that need a confirmed
+   * send (e.g. the team kickoff's one-shot intent) can react to it.
+   */
   const sendMessage = async (
     targetChatId: string,
     content: string,
     images: string[] = []
-  ) => {
+  ): Promise<boolean> => {
     userScrolledUpRef.current = false;
     const toPersist = savedMessages.data ?? [];
     setBaselineMessageId(
@@ -401,7 +428,7 @@ export default function Workspace() {
             if (data === "[DONE]") {
               await finalizeStream();
               await utils.workspace.computer.invalidate();
-              return;
+              return true;
             }
             try {
               const parsed = JSON.parse(data) as {
@@ -440,12 +467,14 @@ export default function Workspace() {
           }
       }
       await finalizeStream();
+      return true;
     } catch (error) {
       console.error("Stream error:", error);
       toast.error(
         error instanceof Error ? error.message : "Failed to send message"
       );
       await finalizeStream();
+      return false;
     }
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
@@ -507,6 +536,64 @@ export default function Workspace() {
     );
     void sendMessage(chatId, PERSONALISATION_KICKOFF);
   }, [chatId, personaliseIntent, savedMessages.isLoading, savedMessages.data, agentIsWorking]);
+
+  // A chat opened from the Agents page's team builder begins with the team's
+  // plan-mode kickoff, once. It only fires after the chat history and the
+  // workspace data have loaded *successfully* (a failed query must neither
+  // read as an empty history nor drop the real goal), and the URL intent is
+  // consumed only after the send is confirmed - or when history already
+  // exists - so a failed send stays retryable while a success can never
+  // re-send on refresh or share.
+  useEffect(() => {
+    if (!chatId || !teamStartIntent || teamKickoffSentRef.current) return;
+    if (
+      savedMessages.isLoading ||
+      savedMessages.isError ||
+      computer.isLoading ||
+      computer.isError ||
+      agentIsWorking
+    )
+      return;
+    const stripIntent = () => {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("teamstart");
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`
+      );
+    };
+    // The chat already has history: the kickoff happened (or the user spoke
+    // first), so consume the stale intent without sending.
+    if ((savedMessages.data ?? []).length > 0) {
+      teamKickoffSentRef.current = true;
+      stripIntent();
+      return;
+    }
+    const goal =
+      (computer.data?.chats ?? []).find(chat => chat.id === chatId)?.teamGoal ?? "";
+    // Claim synchronously so overlapping effect runs cannot double-send; on
+    // a failed send release the claim and keep the URL flag so the kickoff
+    // retries (the message poll recovers first, then a refresh).
+    teamKickoffSentRef.current = true;
+    void sendMessage(chatId, teamPlanKickoff(goal)).then(sent => {
+      if (sent) {
+        stripIntent();
+        return;
+      }
+      teamKickoffSentRef.current = false;
+    });
+  }, [
+    chatId,
+    teamStartIntent,
+    savedMessages.isLoading,
+    savedMessages.isError,
+    savedMessages.data,
+    agentIsWorking,
+    computer.isLoading,
+    computer.isError,
+    computer.data,
+  ]);
 
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;
@@ -1103,7 +1190,7 @@ export default function Workspace() {
                       : "rounded-lg bg-muted px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"
                   }
                 >
-                  {startChat.isPending ? "Opening…" : "Open thread"}
+                  {startChat.isPending ? "Creating…" : "Create thread"}
                 </Button>
               </div>
             </div>

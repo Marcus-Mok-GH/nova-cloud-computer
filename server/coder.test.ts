@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runAutonomousCoderTask, runCoderTask } from "./coder";
 
-const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
+const state = vi.hoisted(() => ({
+  nimModel: "deepseek/deepseek-v4.1-flash",
+  nimUrl: "https://gen.pollinations.ai/v1",
+  nimKey: "sk-poll",
+}));
 vi.mock("./_core/env", () => ({
   ENV: {
     get nimCoderModel() {
       return state.nimModel;
+    },
+    get nimCoderApiUrl() {
+      return state.nimUrl;
+    },
+    get nimCoderApiKey() {
+      return state.nimKey;
     },
   },
 }));
@@ -14,21 +24,27 @@ const runNimChatMock = vi.hoisted(() => vi.fn());
 const runNimAgentChatMock = vi.hoisted(() => vi.fn());
 vi.mock("./nim", () => {
   class NimToolsUnsupportedError extends Error {}
+  class NimContextLengthError extends Error {}
   class NimConfigError extends Error {}
   return {
     runNimChat: runNimChatMock,
     runNimAgentChat: runNimAgentChatMock,
     NimToolsUnsupportedError,
+    NimContextLengthError,
     NimConfigError,
   };
 });
 
-const { NimToolsUnsupportedError } = await import("./nim");
+const { NimToolsUnsupportedError, NimContextLengthError } = await import(
+  "./nim"
+);
 
 beforeEach(() => {
   runNimChatMock.mockReset();
   runNimAgentChatMock.mockReset();
-  state.nimModel = "moonshotai/kimi-k3";
+  state.nimModel = "deepseek/deepseek-v4.1-flash";
+  state.nimUrl = "https://gen.pollinations.ai/v1";
+  state.nimKey = "sk-poll";
 });
 
 describe("runCoderTask", () => {
@@ -42,7 +58,7 @@ describe("runCoderTask", () => {
     );
 
     expect(result.code).toBe("```python\nprint('hi')\n```");
-    expect(result.model).toBe("moonshotai/kimi-k3");
+    expect(result.model).toBe("deepseek/deepseek-v4.1-flash");
     const [options] = runNimChatMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Nova's coding specialist");
     expect(options.prompt).toBe(
@@ -52,6 +68,15 @@ describe("runCoderTask", () => {
         "Existing code, errors, and other context:\n\nthe file must be plain Python 3",
       ].join("\n\n")
     );
+  });
+
+  it("runs on the editor's own endpoint and key, not the shared NIM configuration", async () => {
+    runNimChatMock.mockResolvedValueOnce("code");
+    await runCoderTask("fix it");
+    const [options] = runNimChatMock.mock.calls[0];
+    expect(options.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
+    expect(options.apiKey).toBe("sk-poll");
   });
 
   it("hands the model request the caller's full deadline", async () => {
@@ -168,7 +193,7 @@ describe("runAutonomousCoderTask", () => {
       writtenPaths: ["index.html"],
       commandsRun: 1,
       rounds: 4,
-      model: "moonshotai/kimi-k3",
+      model: "deepseek/deepseek-v4.1-flash",
     });
     // The write landed in the sandbox at the workspace path.
     expect(sandbox.writes).toEqual([
@@ -281,6 +306,18 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.kind).toBe("autonomous");
   });
 
+  it("runs the autonomous loop on the editor's own endpoint and key", async () => {
+    runNimAgentChatMock.mockResolvedValueOnce(textReply("Done."));
+    await runAutonomousCoderTask({
+      task: "do it",
+      sandbox: fakeSandbox() as never,
+    });
+    const [options] = runNimAgentChatMock.mock.calls[0];
+    expect(options.model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
+    expect(options.apiKey).toBe("sk-poll");
+  });
+
   it("falls back to the single-shot reply when the model rejects tools", async () => {
     runNimAgentChatMock.mockRejectedValueOnce(
       new NimToolsUnsupportedError(
@@ -297,7 +334,7 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome).toEqual({
       kind: "single",
       code: "def solve(): pass",
-      model: "moonshotai/kimi-k3",
+      model: "deepseek/deepseek-v4.1-flash",
     });
   });
 
@@ -487,5 +524,100 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.summary).toContain("failure mid-task");
     expect(outcome.summary).toContain("status 502");
     expect(outcome.writtenPaths).toEqual(["half.py"]);
+  });
+
+  it("compacts the conversation and continues when the model rejects an over-long context", async () => {
+    const sandbox = fakeSandbox();
+    const progress: string[] = [];
+    // A long assistant turn is what compaction can free; the context-length
+    // rejection must not abort the task NOR fall back to a single-shot reply.
+    runNimAgentChatMock
+      .mockResolvedValueOnce({
+        kind: "tool_calls" as const,
+        text: "x".repeat(3_000),
+        toolCalls: [{ id: "c1", name: "list_files", arguments: "{}" }],
+      })
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      )
+      .mockResolvedValueOnce(textReply("Done."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+      onProgress: note => progress.push(note),
+    });
+
+    expect(outcome.kind).toBe("autonomous");
+    expect(outcome.summary).toBe("Done.");
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(3);
+    // The retry after compaction no longer carries the long assistant text.
+    const retryMessages = runNimAgentChatMock.mock.calls[2][0].messages;
+    const longAssistant = retryMessages.find(
+      (m: { role: string }) => m.role === "assistant"
+    );
+    expect(String(longAssistant.content).length).toBeLessThan(3_000);
+    expect(progress.join(" ")).toContain("context window");
+  });
+
+  it("stops honestly when the context overflows and cannot be compacted further", async () => {
+    const sandbox = fakeSandbox();
+    // Only short exchange so far: aggressive compaction frees nothing, so the
+    // specialist reports exactly what it did instead of retrying forever.
+    runNimAgentChatMock
+      .mockResolvedValueOnce(toolCall("c1", "list_files", {}))
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      );
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+    });
+
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("context window");
+    expect(outcome.summary).toContain("fresh, smaller task");
+    expect(outcome.writtenPaths).toEqual([]);
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the file payloads of old tool calls so repeated large writes cannot pin the context open", async () => {
+    const sandbox = fakeSandbox();
+    const big = "A".repeat(3_000);
+    runNimAgentChatMock
+      .mockResolvedValueOnce(
+        toolCall("w1", "write_file", { path: "big.txt", content: big })
+      )
+      .mockResolvedValueOnce(toolCall("l2", "list_files", {}))
+      .mockResolvedValueOnce(toolCall("l3", "list_files", {}))
+      .mockResolvedValueOnce(toolCall("l4", "list_files", {}))
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      )
+      .mockResolvedValueOnce(textReply("Done."));
+
+    const outcome = await runAutonomousCoderTask({
+      task: "write a big file",
+      sandbox: sandbox as never,
+    });
+
+    expect(outcome.kind).toBe("autonomous");
+    expect(outcome.summary).toBe("Done.");
+    // The retry after compaction keeps the old call (paired result intact) but
+    // no longer carries its file payload.
+    const retryMessages = runNimAgentChatMock.mock.calls[5][0].messages;
+    const firstAssistant = retryMessages.find(
+      (m: { role: string }) => m.role === "assistant"
+    );
+    expect(firstAssistant.tool_calls[0].function.arguments).toBe("{}");
+    expect(JSON.stringify(retryMessages)).not.toContain(big);
   });
 });

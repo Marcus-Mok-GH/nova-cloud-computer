@@ -1,13 +1,15 @@
-/** NVIDIA NIM chat client for Nova's specialist sub-agents.
+/** OpenAI-compatible chat client for Nova's specialist sub-agents.
  *
  * NIM serves OpenAI-compatible chat completions from frontier open models
  * (https://build.nvidia.com): a personal key from build.nvidia.com unlocks
  * the hosted endpoint at https://integrate.api.nvidia.com/v1, and a
  * self-hosted NIM container speaks the same protocol, so the base URL is
- * overridable. Nova's own model is served by its built-in AI gateway;
- * specialist delegates with different strengths (the coder, the researcher)
- * live next to it and call their providers directly through this small
- * client. */
+ * overridable. The thinker runs on NIM, while the coder (Nova's editor)
+ * passes its own endpoint and key - Pollinations' unified API by default -
+ * so each specialist can sit on a different provider. Nova's own model is
+ * served by its built-in AI gateway; specialist delegates with different
+ * strengths live next to it and call their providers directly through this
+ * small client. */
 
 import { ENV } from "./_core/env";
 
@@ -24,13 +26,37 @@ export class NimConfigError extends Error {}
  */
 export class NimToolsUnsupportedError extends Error {}
 
-export function isNimConfigured() {
-  return ENV.nimApiKey.trim().length > 0;
+/**
+ * The endpoint refused the request because the conversation outgrew the
+ * model's context window. This is NOT a tools-unsupported rejection even
+ * though it usually shares the same 400 status, so callers with an agentic
+ * loop (the autonomous editor) can compact their history and continue instead
+ * of degrading to a single-shot reply that throws the specialist's progress
+ * away. Non-retryable as sent: the payload itself must shrink first.
+ */
+export class NimContextLengthError extends Error {}
+
+/**
+ * Provider wording for an input that exceeded the model's context window.
+ * Deliberately specific: a bare "max_tokens" would also match requests that
+ * merely set an output cap, and misclassifying those as context overflow
+ * would compact a healthy conversation for no reason.
+ */
+const CONTEXT_LENGTH_PATTERN =
+  /context (?:length|window|limit)|maximum context|context[_\s-]?length[_\s-]?exceeded|too many input tokens|prompt is too long|input is too long|reduce the length of (?:the )?messages|exceeds the (?:model'?s )?maximum (?:context|input|prompt)/i;
+
+/**
+ * Whether a request has an API credential. Defaults to the shared NIM key;
+ * callers that run against their own endpoint (the editor) pass their key so a
+ * deployment that only holds that credential still counts as configured.
+ */
+export function isNimConfigured(apiKey?: string) {
+  return (apiKey ?? ENV.nimApiKey).trim().length > 0;
 }
 
 /**
  * NIM-served models with a documented deep-reasoning parameter. Kimi K3 (the
- * default coder model) takes `reasoning_effort: "max"` in the OpenAI-style
+ * default thinker model) takes `reasoning_effort: "max"` in the OpenAI-style
  * payload (per NVIDIA's own kimi-k3 example); K2.5+ thinking models accept
  * the same field. Other NIM models (and self-hosted endpoints serving
  * anything else) get no extra fields, so a strict endpoint can never be
@@ -50,8 +76,12 @@ export type NimChatOptions = {
   prompt: string;
   /** The system prompt steering the specialist's behavior and output shape. */
   systemPrompt: string;
-  /** NIM model ID; defaults to the strongest coding model NIM serves. */
+  /** Model ID; defaults to the coder's configured model. */
   model?: string;
+  /** OpenAI-compatible base URL; defaults to the shared NIM endpoint. */
+  apiUrl?: string;
+  /** Bearer credential; defaults to the shared NIM key. */
+  apiKey?: string;
   /** Cap on the generated tokens (default 8192). */
   maxTokens?: number;
   /** Hard client-side cap on the request (default 240s, Vercel-bound). */
@@ -98,8 +128,12 @@ export type NimAgentChatOptions = {
   messages: NimAgentMessage[];
   /** The callable tools for this turn. */
   tools: NimAgentTool[];
-  /** NIM model ID; defaults to the strongest coding model NIM serves. */
+  /** Model ID; defaults to the coder's configured model. */
   model?: string;
+  /** OpenAI-compatible base URL; defaults to the shared NIM endpoint. */
+  apiUrl?: string;
+  /** Bearer credential; defaults to the shared NIM key. */
+  apiKey?: string;
   /** Cap on the generated tokens (default 8192). */
   maxTokens?: number;
   /** Hard client-side cap on the request (default 240s, Vercel-bound). */
@@ -130,17 +164,41 @@ function extractText(content: unknown): string {
   return "";
 }
 
-/** Shared endpoint/key/transport resolution for both chat variants. */
-function nimChatEndpoint(modelOverride?: string): URL {
-  if (!isNimConfigured()) {
+/** The model, base URL and credential one specialist request runs against. */
+type NimRequestTarget = {
+  model: string;
+  apiUrl: string;
+  apiKey: string;
+};
+
+/**
+ * Resolves a request's target. Explicit options win - the editor passes its own
+ * endpoint and key so it does not follow the thinker's NIM configuration -
+ * and everything else falls back to the shared NIM defaults.
+ */
+function resolveNimTarget(options: {
+  model?: string;
+  apiUrl?: string;
+  apiKey?: string;
+}): NimRequestTarget {
+  return {
+    model: options.model ?? ENV.nimCoderModel,
+    apiUrl: options.apiUrl ?? ENV.nimApiUrl,
+    apiKey: options.apiKey ?? ENV.nimApiKey,
+  };
+}
+
+/** Shared endpoint/transport resolution for both chat variants. */
+function nimChatEndpoint(target: NimRequestTarget): URL {
+  if (!isNimConfigured(target.apiKey)) {
     throw new NimConfigError("The coding specialist is not configured on this workspace - the workspace owner must finish setting it up.");
   }
-  if (!(modelOverride ?? ENV.nimCoderModel)) {
+  if (!target.model) {
     throw new NimConfigError(
-      "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one (e.g. 'moonshotai/kimi-k3')."
+      "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one (e.g. 'deepseek/deepseek-v4.1-flash')."
     );
   }
-  const endpoint = new URL(`${ENV.nimApiUrl.replace(/\/+$/, "")}/chat/completions`);
+  const endpoint = new URL(`${target.apiUrl.replace(/\/+$/, "")}/chat/completions`);
   const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(endpoint.hostname);
   if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
     // The key travels in the Authorization header: refuse to send it over
@@ -193,11 +251,16 @@ export function resolveNimAttemptTimeoutMs(
 async function postNimChat(
   body: Record<string, unknown>,
   timeoutMs: number,
-  modelOverride?: string,
-  deadlineAtMs?: number
+  options: {
+    model?: string;
+    apiUrl?: string;
+    apiKey?: string;
+    deadlineAtMs?: number;
+  } = {}
 ): Promise<{ message?: { content?: unknown; tool_calls?: unknown } }> {
-  const endpoint = nimChatEndpoint(modelOverride);
-  const model = modelOverride ?? ENV.nimCoderModel;
+  const target = resolveNimTarget(options);
+  const endpoint = nimChatEndpoint(target);
+  const { deadlineAtMs } = options;
   // Rate limits and pool overloads are routine on the shared NIM fleet;
   // a specialist that exits on the first 429 fails otherwise-completable
   // tasks. Retry transient failures with backoff, and give a request that
@@ -237,12 +300,12 @@ async function postNimChat(
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${ENV.nimApiKey}`,
+          authorization: `Bearer ${target.apiKey}`,
         },
         body: JSON.stringify({
-          model,
+          model: target.model,
           temperature: 0.2,
-          ...nimReasoningParamsForModel(model),
+          ...nimReasoningParamsForModel(target.model),
           ...body,
         }),
         signal: AbortSignal.timeout(attemptTimeoutMs),
@@ -273,6 +336,20 @@ async function postNimChat(
     const failure = new Error(
       `The coding service responded with status ${response.status}${hint ? `: ${hint}` : "."}`
     );
+    // An input that outgrew the model's context window usually arrives as a
+    // 400 too - check it BEFORE the tools-rejection branch, or a long
+    // autonomous task would be misread as "model cannot call tools" and
+    // silently downgraded to a single-shot reply. 413 (payload too large) is
+    // treated the same way: the fix is to send less, not to retry.
+    if (
+      (response.status === 400 || response.status === 413) &&
+      CONTEXT_LENGTH_PATTERN.test(detail)
+    ) {
+      throw new NimContextLengthError(failure.message);
+    }
+    if (response.status === 413) {
+      throw new NimContextLengthError(failure.message);
+    }
     // Client-side rejections of the tools payload mean the served model
     // does not implement function calling - a distinct, recoverable case.
     if (response.status === 400 || response.status === 404 || response.status === 422) {
@@ -315,8 +392,12 @@ export async function runNimChat(options: NimChatOptions): Promise<string> {
         max_tokens: options.maxTokens ?? 8192,
       },
       options.timeoutMs ?? 240_000,
-      options.model,
-      options.deadlineAtMs
+      {
+        model: options.model,
+        apiUrl: options.apiUrl,
+        apiKey: options.apiKey,
+        deadlineAtMs: options.deadlineAtMs,
+      }
     );
     const text = extractText(message.message?.content);
     if (!text) {
@@ -348,8 +429,12 @@ export async function runNimAgentChat(
       max_tokens: options.maxTokens ?? 8192,
     },
     options.timeoutMs ?? 240_000,
-    options.model,
-    options.deadlineAtMs
+    {
+      model: options.model,
+      apiUrl: options.apiUrl,
+      apiKey: options.apiKey,
+      deadlineAtMs: options.deadlineAtMs,
+    }
   );
   const rawToolCalls = Array.isArray(message.message?.tool_calls)
     ? (message.message?.tool_calls as unknown[])

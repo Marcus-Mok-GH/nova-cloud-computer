@@ -9,6 +9,150 @@ import {
 import type { ToolActivity } from "@/lib/chatMessages";
 import { MarkdownText } from "@/lib/markdown";
 
+/* ------------------------------------------------------------------ *
+ * Shared building blocks
+ * ------------------------------------------------------------------ */
+
+/**
+ * Parses a tool call's raw JSON arguments (activity.args.arguments). Args can
+ * still be truncated while a call streams, so anything that is not a plain
+ * object falls back to an empty record and callers render from the tool name.
+ */
+function parseToolArgs(activity: ToolActivity): Record<string, unknown> {
+  if (typeof activity.args?.arguments !== "string") return {};
+  try {
+    const parsed = JSON.parse(activity.args.arguments);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    /* truncated or malformed - fall back to the tool name */
+    return {};
+  }
+}
+
+/** Trimmed string value of one argument key, or "" when absent/not a string. */
+function trimmedArg(args: Record<string, unknown>, key: string): string {
+  const value = args[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** The amber spinner line shown while a tool - or the model - is working. */
+function LiveNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+      <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+      {children}
+    </p>
+  );
+}
+
+/** Settled body of a panel: the full response as Markdown, or the fallback. */
+function MarkdownDetail({
+  detail,
+  fallback,
+}: {
+  detail?: string;
+  fallback: React.ReactNode;
+}) {
+  if (detail)
+    return (
+      <div className="break-words text-sm leading-6 text-foreground">
+        <MarkdownText text={detail} />
+      </div>
+    );
+  // An element fallback renders as-is: LiveNote already returns a <p>, and
+  // wrapping it in another one nests paragraphs the HTML parser will not keep.
+  if (React.isValidElement(fallback)) return <>{fallback}</>;
+  return <p className="text-xs text-muted-foreground">{fallback}</p>;
+}
+
+/** Research-style panel: scrolls its own streamed report. */
+const RESEARCH_PANEL_CLASS =
+  "mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10";
+
+/** Solver panel: an input/output stack rather than a scroll region. */
+const SOLVE_EQUATION_PANEL_CLASS =
+  "mt-2 flex w-full min-w-0 flex-col gap-2.5 rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10";
+
+/** Frame shared by the headered panels (thinker / editor / edit_file). */
+const framedPanelClass = (maxHeight: string) =>
+  `mt-2 flex ${maxHeight} w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10`;
+
+/**
+ * The collapsible shell every panel-style activity renders through: a
+ * one-line header that toggles an optional detail panel beneath it. A running
+ * tool starts open so live progress is visible; a settled one starts closed.
+ */
+function CollapsibleToolPanel({
+  testId,
+  panelTestId,
+  activity,
+  panelClassName,
+  children,
+}: {
+  testId: string;
+  panelTestId: string;
+  activity: ToolActivity;
+  panelClassName: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(activity.state === "running");
+  return (
+    <div data-testid={testId} className="flex w-full min-w-0 flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div data-testid={panelTestId} className={panelClassName}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Live body while a sub-agent works: the append-only progress log once notes
+ * have streamed, otherwise the latest detail note (or the given fallback).
+ */
+function RunningProgress({
+  activity,
+  fallback,
+}: {
+  activity: ToolActivity;
+  fallback: string;
+}) {
+  const log = activity.progressLog;
+  if (log && log.length > 0) return <ProgressLog log={log} />;
+  return <LiveNote>{activity.detail || fallback}</LiveNote>;
+}
+
+/** One row of a tool run: a panel for the specialists, a one-liner otherwise. */
+function ActivityRow({ activity }: { activity: ToolActivity }) {
+  return isPanelToolActivity(activity.name) ? (
+    <ToolActivityPanel activity={activity} />
+  ) : (
+    <ToolActivityLine activity={activity} />
+  );
+}
+
+/** How many steps of a run failed, for the visible failure counters. */
+const failedCount = (activities: ToolActivity[]) =>
+  activities.filter(activity => activity.state === "failed").length;
+
+/* ------------------------------------------------------------------ *
+ * Components
+ * ------------------------------------------------------------------ */
+
 /**
  * The append-only live log of a running sub-agent's process: every progress
  * note the backend streamed while the specialist worked, oldest first, with
@@ -50,31 +194,21 @@ export function ProgressLog({ log }: { log: string[] }) {
  * Args arrive as a raw JSON string in activity.args.arguments.
  */
 export function toolLineText(activity: ToolActivity): string {
-  let args: Record<string, unknown> = {};
-  if (typeof activity.args?.arguments === "string") {
-    try {
-      const parsed = JSON.parse(activity.args.arguments);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-        args = parsed as Record<string, unknown>;
-    } catch {
-      /* truncated or malformed - fall back to the tool name */
-    }
-  }
-  const s = (value: unknown) =>
-    typeof value === "string" && value.trim() ? value.trim() : "";
-  const topic = s(args.topic);
-  const name = s(args.name),
-    file = s(args.file),
-    folder = s(args.folder);
-  const newName = s(args.new_name),
-    parent = s(args.parent),
-    task = s(args.task),
-    text = s(args.text);
+  const args = parseToolArgs(activity);
+  const s = (key: string) => trimmedArg(args, key);
+  const topic = s("topic");
+  const name = s("name"),
+    file = s("file"),
+    folder = s("folder");
+  const newName = s("new_name"),
+    parent = s("parent"),
+    task = s("task"),
+    text = s("text");
   // Specialist tool calls arrive structured (args.path / args.command) and
   // are namespaced under their editor call, so the raw-arguments fallback
   // still applies when only a truncated JSON survived.
-  const path = s(args.path),
-    command = s(args.command);
+  const path = s("path"),
+    command = s("command");
   const brief = (value: string, max = 60) =>
     value.length > max ? `${value.slice(0, max - 1)}…` : value;
   switch (activity.name) {
@@ -117,20 +251,20 @@ export function toolLineText(activity: ToolActivity): string {
     case "research_web":
       return topic ? `Deep Research: ${brief(topic)}` : "Deep Research";
     case "thinker": {
-      const question = s(args.question);
+      const question = s("question");
       return question ? `Thinker: ${brief(question)}` : "Thinker";
     }
     case "editor":
     case "code_task": // legacy rows from before the rename
       return task ? `Editor: ${brief(task)}` : "Editor";
     case "solve_equation": {
-      const expression = s(args.equation);
+      const expression = s("equation");
       return expression ? `Solve: ${brief(expression)}` : "Solve";
     }
     case "thinking":
       return "Thinking";
     case "browse": {
-      const cleaned = s(args.command).replace(/^agent-browser\s+/, "");
+      const cleaned = s("command").replace(/^agent-browser\s+/, "");
       return cleaned ? `Browse: ${brief(cleaned)}` : "Browse";
     }
     default:
@@ -240,16 +374,10 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           data-testid="thinking-detail-panel"
           className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
         >
-          {activity.detail ? (
-            <div className="break-words text-sm leading-6 text-foreground">
-              <MarkdownText text={activity.detail} />
-            </div>
-          ) : (
-            <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-              The model is thinking…
-            </p>
-          )}
+          <MarkdownDetail
+            detail={activity.detail}
+            fallback={<LiveNote>The model is thinking…</LiveNote>}
+          />
         </div>
       )}
     </div>
@@ -257,35 +385,37 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
 }
 
 /**
+ * Panel-style activities, mapped to the component that renders them. Keeping
+ * one table means the "is this a panel?" check and the "which panel?"
+ * dispatch below can never drift apart. `code_task` is the legacy name for
+ * `editor`; `thinking` uses the generic reasoning panel.
+ */
+const PANEL_COMPONENTS: Record<
+  string,
+  React.ComponentType<{ activity: ToolActivity }>
+> = {
+  editor: CodeTaskToolActivity,
+  code_task: CodeTaskToolActivity,
+  research_web: ResearchToolActivity,
+  thinker: ThinkerToolActivity,
+  thinking: ThinkingToolActivity,
+  solve_equation: SolveEquationToolActivity,
+  edit_file: EditFileToolActivity,
+};
+
+/**
  * Whether an activity renders as an expandable panel rather than a one-line
  * chip: the sub-agent specialists, the model's thinking blocks, the equation
  * solver, and edit_file (whose dropdown holds the diff).
  */
 export function isPanelToolActivity(name: string): boolean {
-  return (
-    name === "editor" ||
-    name === "code_task" ||
-    name === "research_web" ||
-    name === "thinker" ||
-    name === "thinking" ||
-    name === "solve_equation" ||
-    name === "edit_file"
-  );
+  return Object.hasOwn(PANEL_COMPONENTS, name);
 }
 
 /** Renders the matching panel component for a panel-style activity. */
 export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
-  if (activity.name === "editor" || activity.name === "code_task")
-    return <CodeTaskToolActivity activity={activity} />;
-  if (activity.name === "research_web")
-    return <ResearchToolActivity activity={activity} />;
-  if (activity.name === "thinker")
-    return <ThinkerToolActivity activity={activity} />;
-  if (activity.name === "solve_equation")
-    return <SolveEquationToolActivity activity={activity} />;
-  if (activity.name === "edit_file")
-    return <EditFileToolActivity activity={activity} />;
-  return <ThinkingToolActivity activity={activity} />;
+  const Panel = PANEL_COMPONENTS[activity.name] ?? ThinkingToolActivity;
+  return <Panel activity={activity} />;
 }
 
 /**
@@ -295,56 +425,34 @@ export function ToolActivityPanel({ activity }: { activity: ToolActivity }) {
  * researcher returned. It starts open while running so progress is visible.
  */
 export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
-  const [open, setOpen] = useState(activity.state === "running");
   const running = activity.state === "running";
   return (
-    <div
-      data-testid="research-tool-activity"
-      className="flex w-full min-w-0 flex-col"
+    <CollapsibleToolPanel
+      testId="research-tool-activity"
+      panelTestId="research-detail-panel"
+      activity={activity}
+      panelClassName={RESEARCH_PANEL_CLASS}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(previous => !previous)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
-      >
-        <ToolActivityLine activity={activity} />
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+      {running ? (
+        <RunningProgress
+          activity={activity}
+          fallback="Exa deep research is starting its web searches…"
         />
-      </button>
-      {open && (
-        <div
-          data-testid="research-detail-panel"
-          className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
-        >
-          {running ? (
-            (activity.progressLog?.length ?? 0) > 0 ? (
-              <ProgressLog log={activity.progressLog!} />
-            ) : (
-              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-                {activity.detail ||
-                  "Exa deep research is starting its web searches…"}
-              </p>
-            )
-          ) : activity.detail ? (
-            <div className="break-words text-sm leading-6 text-foreground">
-              <MarkdownText text={activity.detail} />
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {activity.summary ||
-                (activity.state === "failed"
-                  ? "The research failed."
-                  : "The research response is no longer available.")}
-            </p>
-          )}
-        </div>
+      ) : (
+        <MarkdownDetail
+          detail={activity.detail}
+          fallback={
+            activity.summary ||
+            (activity.state === "failed"
+              ? "The research failed."
+              : "The research response is no longer available.")
+          }
+        />
       )}
-    </div>
+    </CollapsibleToolPanel>
   );
 }
+
 /**
  * The settled body of a thinker panel: the full analysis the sub-agent
  * returned (rendered as Markdown), the real failure reason when it went
@@ -357,16 +465,13 @@ export function ThinkerDetail({ activity }: { activity: ToolActivity }) {
         {activity.detail || activity.summary || "The thinker task failed."}
       </p>
     );
-  if (activity.detail)
-    return (
-      <div className="break-words text-sm leading-6 text-foreground">
-        <MarkdownText text={activity.detail} />
-      </div>
-    );
   return (
-    <p className="text-xs text-muted-foreground">
-      {activity.summary || "The thinker's analysis is no longer available."}
-    </p>
+    <MarkdownDetail
+      detail={activity.detail}
+      fallback={
+        activity.summary || "The thinker's analysis is no longer available."
+      }
+    />
   );
 }
 
@@ -438,59 +543,29 @@ export function ThinkerPromptHeader({
  * starts open while running so the process is visible.
  */
 export function ThinkerToolActivity({ activity }: { activity: ToolActivity }) {
-  const [open, setOpen] = useState(activity.state === "running");
   const running = activity.state === "running";
-  let question = "";
-  let context = "";
-  try {
-    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      if (typeof parsed.question === "string") question = parsed.question.trim();
-      if (typeof parsed.context === "string") context = parsed.context.trim();
-    }
-  } catch {
-    /* truncated or malformed - the header one-liner still applies */
-  }
+  const args = parseToolArgs(activity);
+  const question = trimmedArg(args, "question");
+  const context = trimmedArg(args, "context");
   return (
-    <div
-      data-testid="thinker-tool-activity"
-      className="flex w-full min-w-0 flex-col"
+    <CollapsibleToolPanel
+      testId="thinker-tool-activity"
+      panelTestId="thinker-detail-panel"
+      activity={activity}
+      panelClassName={framedPanelClass("max-h-96")}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(previous => !previous)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
-      >
-        <ToolActivityLine activity={activity} />
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
-        <div
-          data-testid="thinker-detail-panel"
-          className="mt-2 flex max-h-96 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
-        >
-          <ThinkerPromptHeader question={question} context={context} />
-          <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
-            {running ? (
-              (activity.progressLog?.length ?? 0) > 0 ? (
-                <ProgressLog log={activity.progressLog!} />
-              ) : (
-                <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-                  {activity.detail ||
-                    "The thinker sub-agent is reasoning through the question…"}
-                </p>
-              )
-            ) : (
-              <ThinkerDetail activity={activity} />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      <ThinkerPromptHeader question={question} context={context} />
+      <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+        {running ? (
+          <RunningProgress
+            activity={activity}
+            fallback="The thinker sub-agent is reasoning through the question…"
+          />
+        ) : (
+          <ThinkerDetail activity={activity} />
+        )}
+      </div>
+    </CollapsibleToolPanel>
   );
 }
 
@@ -503,86 +578,54 @@ export function ThinkerToolActivity({ activity }: { activity: ToolActivity }) {
  * sees what the editor is doing.
  */
 export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
-  const [open, setOpen] = useState(activity.state === "running");
   const running = activity.state === "running";
-  let task = "";
-  let language = "";
-  try {
-    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      if (typeof parsed.task === "string") task = parsed.task.trim();
-      if (typeof parsed.language === "string")
-        language = parsed.language.trim();
-    }
-  } catch {
-    /* truncated or malformed - the header one-liner still applies */
-  }
+  const args = parseToolArgs(activity);
+  const task = trimmedArg(args, "task");
+  const language = trimmedArg(args, "language");
   return (
-    <div
-      data-testid="code-task-tool-activity"
-      className="flex w-full min-w-0 flex-col"
+    <CollapsibleToolPanel
+      testId="code-task-tool-activity"
+      panelTestId="code-task-detail-panel"
+      activity={activity}
+      panelClassName={framedPanelClass("max-h-80")}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(previous => !previous)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
-      >
-        <ToolActivityLine activity={activity} />
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
-        <div
-          data-testid="code-task-detail-panel"
-          className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
-        >
-          {task && (
-            <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                Task{language ? ` · ${language}` : ""}
-              </p>
-              <p className="break-words text-sm leading-6 text-foreground">
-                {task}
-              </p>
-            </div>
-          )}
-          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2.5">
-            {running ? (
-              (activity.progressLog?.length ?? 0) > 0 ? (
-                <ProgressLog log={activity.progressLog!} />
-              ) : (
-                <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-                  {activity.detail || "The editor is reading the task…"}
-                </p>
-              )
-            ) : activity.state === "failed" ? (
-              <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
-                {activity.detail ||
-                  activity.summary ||
-                  "The editor task failed."}
-              </p>
-            ) : activity.detail ? (
-              <div className="min-w-0">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                  Specialist's code
-                </p>
-                <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-                  {activity.detail}
-                </pre>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {activity.summary ||
-                  "The specialist's code is no longer available."}
-              </p>
-            )}
-          </div>
+      {task && (
+        <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            Task{language ? ` · ${language}` : ""}
+          </p>
+          <p className="break-words text-sm leading-6 text-foreground">
+            {task}
+          </p>
         </div>
       )}
-    </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-2.5">
+        {running ? (
+          <RunningProgress
+            activity={activity}
+            fallback="The editor is reading the task…"
+          />
+        ) : activity.state === "failed" ? (
+          <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
+            {activity.detail || activity.summary || "The editor task failed."}
+          </p>
+        ) : activity.detail ? (
+          <div className="min-w-0">
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              Specialist's code
+            </p>
+            <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+              {activity.detail}
+            </pre>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {activity.summary ||
+              "The specialist's code is no longer available."}
+          </p>
+        )}
+      </div>
+    </CollapsibleToolPanel>
   );
 }
 
@@ -597,50 +640,20 @@ export function SolveEquationToolActivity({
 }: {
   activity: ToolActivity;
 }) {
-  const [open, setOpen] = useState(activity.state === "running");
-  const running = activity.state === "running";
-  let equation = "";
-  try {
-    const parsed = JSON.parse(activity.args?.arguments ?? "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      if (typeof parsed.equation === "string")
-        equation = parsed.equation.trim();
-    }
-  } catch {
-    /* truncated or malformed - the header one-liner still applies */
-  }
+  const equation = trimmedArg(parseToolArgs(activity), "equation");
   return (
-    <div
-      data-testid="solve-equation-tool-activity"
-      className="flex w-full min-w-0 flex-col"
+    <CollapsibleToolPanel
+      testId="solve-equation-tool-activity"
+      panelTestId="solve-equation-detail-panel"
+      activity={activity}
+      panelClassName={SOLVE_EQUATION_PANEL_CLASS}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(previous => !previous)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
-      >
-        <ToolActivityLine activity={activity} />
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
-        <div
-          data-testid="solve-equation-detail-panel"
-          className="mt-2 flex w-full min-w-0 flex-col gap-2.5 rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
-        >
-          {running ? (
-            <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-              Evaluating…
-            </p>
-          ) : (
-            <SolveEquationDetail activity={activity} equation={equation} />
-          )}
-        </div>
+      {activity.state === "running" ? (
+        <LiveNote>Evaluating…</LiveNote>
+      ) : (
+        <SolveEquationDetail activity={activity} equation={equation} />
       )}
-    </div>
+    </CollapsibleToolPanel>
   );
 }
 
@@ -741,42 +754,22 @@ export function EditFileDetail({ activity }: { activity: ToolActivity }) {
  * empty panel.
  */
 export function EditFileToolActivity({ activity }: { activity: ToolActivity }) {
-  const [open, setOpen] = useState(activity.state === "running");
   const running = activity.state === "running";
   return (
-    <div
-      data-testid="edit-file-tool-activity"
-      className="flex w-full min-w-0 flex-col"
+    <CollapsibleToolPanel
+      testId="edit-file-tool-activity"
+      panelTestId="edit-file-detail-panel"
+      activity={activity}
+      panelClassName={framedPanelClass("max-h-80")}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(previous => !previous)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
-      >
-        <ToolActivityLine activity={activity} />
-        <ChevronDown
-          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
-        <div
-          data-testid="edit-file-detail-panel"
-          className="mt-2 flex max-h-80 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10"
-        >
-          <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
-            {running ? (
-              <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-                <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-                {activity.detail || "The edit is being applied…"}
-              </p>
-            ) : (
-              <EditFileDetail activity={activity} />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+        {running ? (
+          <LiveNote>{activity.detail || "The edit is being applied…"}</LiveNote>
+        ) : (
+          <EditFileDetail activity={activity} />
+        )}
+      </div>
+    </CollapsibleToolPanel>
   );
 }
 
@@ -792,9 +785,7 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
   const [open, setOpen] = useState(
     activities.some(activity => activity.state === "running")
   );
-  const failed = activities.filter(
-    activity => activity.state === "failed"
-  ).length;
+  const failed = failedCount(activities);
   const count = activities.length;
   return (
     <div data-testid="tool-run-group" className="flex w-full min-w-0 flex-col">
@@ -825,13 +816,9 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
           data-testid="tool-run-group-detail"
           className="mt-2 flex w-full min-w-0 flex-col gap-2 border-l border-foreground/[0.08] pl-3 dark:border-white/10"
         >
-          {activities.map(activity =>
-            isPanelToolActivity(activity.name) ? (
-              <ToolActivityPanel key={activity.id} activity={activity} />
-            ) : (
-              <ToolActivityLine key={activity.id} activity={activity} />
-            )
-          )}
+          {activities.map(activity => (
+            <ActivityRow key={activity.id} activity={activity} />
+          ))}
         </div>
       )}
     </div>
@@ -862,9 +849,7 @@ export function LiveActivityCard({
     showAll || hiddenCount === 0
       ? activities
       : activities.slice(-LIVE_RECENT_STEPS);
-  const failed = activities.filter(
-    activity => activity.state === "failed"
-  ).length;
+  const failed = failedCount(activities);
   return (
     <div
       data-testid="live-activity-card"
@@ -894,13 +879,9 @@ export function LiveActivityCard({
         </button>
       )}
       <div className="flex min-w-0 flex-col gap-2">
-        {visible.map(activity =>
-          isPanelToolActivity(activity.name) ? (
-            <ToolActivityPanel key={activity.id} activity={activity} />
-          ) : (
-            <ToolActivityLine key={activity.id} activity={activity} />
-          )
-        )}
+        {visible.map(activity => (
+          <ActivityRow key={activity.id} activity={activity} />
+        ))}
       </div>
     </div>
   );

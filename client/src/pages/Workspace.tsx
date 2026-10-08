@@ -16,12 +16,14 @@ import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import {
   appendLiveTextDelta,
   buildTurnItems,
+  chatWorkflowMode,
   dedupeToolActivityMessages,
   groupPersistedChatItems,
   isInternalChatMessage,
   parsePersistedToolActivity,
   reconcileChatMessages,
   upsertLiveToolEvent,
+  type ChatWorkflowMode,
   type LiveChatEvent,
   type ToolActivity,
   type TurnRenderItem,
@@ -678,6 +680,31 @@ export default function Workspace() {
     // before the workspace query (or the chat row) has loaded.
     const currentChatTitle =
       computer.data?.chats.find(chat => chat.id === chatId)?.title ?? "Nova";
+    // The workflow stage the conversation is in, shown as a header badge.
+    const workflowBadge: Record<
+      ChatWorkflowMode,
+      { label: string; className: string; title: string }
+    > = {
+      chat: {
+        label: "Chat",
+        className:
+          "border-foreground/[0.14] bg-muted/70 text-muted-foreground",
+        title:
+          "Chat mode - Nova answers and researches, then plans before it acts.",
+      },
+      plan: {
+        label: "Planning",
+        className: "border-primary/30 bg-primary/10 text-primary",
+        title: "Planning mode - Nova is drafting a plan for your approval.",
+      },
+      build: {
+        label: "Build",
+        className:
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+        title: "Build mode - Nova is carrying out the approved plan.",
+      },
+    };
+    const modeBadge = workflowBadge[chatWorkflowMode(persisted)];
     return (
       <DashboardLayout>
         <section className="chat-editorial-shell relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-foreground">
@@ -695,9 +722,18 @@ export default function Workspace() {
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
                 <NovaLogo size={18} className="shrink-0" />
                 <div className="min-w-0">
-                  <span className="block truncate text-[15px] font-bold tracking-[-0.02em] leading-tight">
-                    {currentChatTitle}
-                  </span>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="block truncate text-[15px] font-bold tracking-[-0.02em] leading-tight">
+                      {currentChatTitle}
+                    </span>
+                    <span
+                      title={modeBadge.title}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${modeBadge.className}`}
+                    >
+                      <span className="size-1.5 rounded-full bg-current opacity-70" />
+                      {modeBadge.label}
+                    </span>
+                  </div>
                   {agentIsWorking && (
                     <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                       <span className="size-1.5 rounded-full bg-primary animate-pulse" />

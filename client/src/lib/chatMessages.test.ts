@@ -7,6 +7,7 @@ import {
   parsePersistedToolActivity,
   upsertLiveToolEvent,
   reconcileChatMessages,
+  AGENT_MODE_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   type LiveChatEvent,
   type PersistedChatMessage,
@@ -111,6 +112,23 @@ describe("reconcileChatMessages", () => {
       reconcileChatMessages(after, 1, "hello", "Nova is here.", [])
         .replyCommitted
     ).toBe(true);
+  });
+
+  it("does not treat an internal bookkeeping row as the committed reply", () => {
+    const persisted: PersistedChatMessage[] = [
+      { id: 1, role: "user", content: "build a site" },
+      {
+        id: 2,
+        role: "assistant",
+        content: `${AGENT_MODE_MESSAGE_PREFIX}plan`,
+      },
+    ];
+    // The mode marker is an assistant row, but it is not a reply: the answer
+    // still streaming in must keep showing.
+    expect(
+      reconcileChatMessages(persisted, 1, "build a site", "Here is the plan", [])
+        .replyCommitted
+    ).toBe(false);
   });
 
   it("does not treat a repeated prompt as committed by an earlier message", () => {

@@ -1,3 +1,38 @@
+2026-10-08 - Nova's editor runs on Pollinations with DeepSeek V4.1 Flash
+
+Owner request: the editor sub-agent (the coding specialist behind the
+`editor` tool) no longer runs on NVIDIA NIM's Kimi K3. It now calls
+Pollinations' OpenAI-compatible unified API (https://gen.pollinations.ai)
+serving `deepseek/deepseek-v4.1-flash` - a coding model with tool calling and
+a 1M-token context, so the autonomous sandbox loop (list, read, write, run,
+verify) keeps working unchanged. The thinker sub-agent stays on NVIDIA NIM
+with Kimi K3, so the two specialists now read their own transport.
+
+server/_core/env.ts adds `resolveCoderConfig`, mirroring
+`resolveTranscriptionConfig`: it resolves the editor's base URL
+(`NVIDIA_NIM_CODER_API_URL`, default `https://gen.pollinations.ai/v1`), model
+(`NVIDIA_NIM_CODER_MODEL`, default `deepseek/deepseek-v4.1-flash`), and
+credential (`NVIDIA_NIM_CODER_API_KEY`, else `POLLINATIONS_API_KEY`). The key
+follows the endpoint, so a NIM key is never sent to Pollinations and a
+Pollinations key is never sent to NIM; pointing the endpoint back at the
+hosted NIM URL restores `moonshotai/kimi-k3` with the NIM credentials, and a
+custom endpoint still requires an explicit model id. server/nim.ts grows
+optional `apiUrl`/`apiKey` request overrides (its `ENV.nimApiUrl`/`nimApiKey`
+defaults are unchanged for the thinker) and now checks the credential the
+request actually uses, so a deployment holding only a Pollinations key has a
+configured editor. server/coder.ts passes its own endpoint, key and model on
+both the autonomous and single-shot paths; the editor-tool description and
+the coding nudge no longer name Kimi K3.
+
+Tests: five new `resolveCoderConfig` env tests (Pollinations default, the
+never-cross-the-streams key rule, the dedicated overrides, the NIM fallback,
+and the unset custom-endpoint model), two new `nim` override tests (explicit
+endpoint/key, and a request key satisfying the config check), and two `coder`
+tests pinning the editor's endpoint and key on both paths. Full suite: 1036
+passed, 4 skipped. Typecheck clean.
+
+---
+
 2026-10-03 - Team chats open with a plan-mode kickoff
 
 Creating an agent team from the Agents page now starts the conversation

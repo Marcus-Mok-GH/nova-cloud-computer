@@ -2,11 +2,14 @@ export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 /** Internal bookkeeping rows (specialist-acceptance state) - never rendered. */
 export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
   "__nova_specialist_acceptance__:";
+/** Internal bookkeeping rows (the conversation's workflow mode) - never rendered. */
+export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
 
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>
   content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) ||
-  content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX);
+  content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) ||
+  content.startsWith(AGENT_MODE_MESSAGE_PREFIX);
 
 export type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {
@@ -245,12 +248,16 @@ export function reconcileChatMessages(
   const userCommitted = Boolean(
     pendingUserContent && submitted.some(message => message.role === "user")
   );
+  // Internal bookkeeping rows (tool activity, specialist acceptance, the
+  // workflow-mode marker) are written with the assistant role but are not
+  // replies - counting one as the committed reply would hide the reply still
+  // streaming in.
   const replyCommitted = Boolean(
     streamingContent &&
     submitted.some(
       message =>
         message.role === "assistant" &&
-        !message.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
+        !isInternalChatMessage(message.content)
     )
   );
   const persistedToolIds = new Set<string>();

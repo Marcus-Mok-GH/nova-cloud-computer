@@ -323,6 +323,7 @@ const {
   setGatewayRateLimitRetryDelayForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
+  AGENT_MODE_MESSAGE_PREFIX,
   workspaceToolsForConnectors,
   getConnectedConnectorToolkits,
   CODER_NUDGE_PREFIX,
@@ -510,6 +511,145 @@ describe("Nova tool-calling workspace agent", () => {
     );
     expect(toolNames).not.toContain("create_plan");
     expect(toolNames).not.toContain("edit_plan");
+  });
+
+  it("starts a brand-new conversation in chat mode with research-only tools", async () => {
+    // No assistant turn yet: a brand-new chat begins in chat mode.
+    chatMessages.mockResolvedValueOnce([]);
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "It is a workspace agent." })
+    );
+    await runWorkspaceAgent(1, 3, "what does this repo do?");
+    const [, messages, options] = chatWithAiGateway.mock.calls[0];
+    const toolNames = options.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    // Research plus the transition tool only - nothing that changes anything.
+    expect(toolNames).toContain("research_web");
+    expect(toolNames).toContain("read_file");
+    expect(toolNames).toContain("start_planning");
+    expect(toolNames).not.toContain("create_file");
+    expect(toolNames).not.toContain("edit_file");
+    expect(toolNames).not.toContain("run_bash");
+    expect(toolNames).not.toContain("editor");
+    expect(toolNames).not.toContain("deploy_website");
+    // The system prompt carries the chat-mode block.
+    expect(messages[0].content).toContain("[CHAT MODE]");
+    // The new conversation's mode is recorded so it survives the turn.
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        content: `${AGENT_MODE_MESSAGE_PREFIX}chat`,
+      })
+    );
+  });
+
+  it("flips into planning mode when a chat-mode turn calls start_planning", async () => {
+    chatMessages.mockResolvedValueOnce([]);
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-plan-1",
+              name: "start_planning",
+              arguments: JSON.stringify({ task: "create a landing page" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-plan-2",
+              name: "create_plan",
+              arguments: JSON.stringify({ content: "# Plan" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(endTurnReply({ reply: "Plan drafted." }));
+    await runWorkspaceAgent(1, 3, "create a landing page");
+    // The second round advertises the planning toolkit, not chat's.
+    const planToolNames = chatWithAiGateway.mock.calls[1][2].tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(planToolNames).toContain("create_plan");
+    expect(planToolNames).toContain("edit_plan");
+    expect(planToolNames).not.toContain("start_planning");
+    expect(planToolNames).not.toContain("create_file");
+    // The auto-entered planning instruction reaches the model.
+    const planInstruction = chatWithAiGateway.mock.calls[1][1].find(
+      (message: { content?: unknown }) =>
+        typeof message.content === "string" &&
+        message.content.includes("[PLAN - deep planning mode]")
+    );
+    expect(planInstruction?.content).toContain("create a landing page");
+    // The conversation is marked plan so the user's reply enters build.
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${AGENT_MODE_MESSAGE_PREFIX}plan` })
+    );
+  });
+
+  it("enters build mode when the user replies after a plan was drafted", async () => {
+    chatMessages.mockResolvedValueOnce([
+      { id: 1, role: "user", content: "create a landing page" },
+      { id: 2, role: "assistant", content: "Here is the plan." },
+      { id: 3, role: "assistant", content: `${AGENT_MODE_MESSAGE_PREFIX}plan` },
+    ]);
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "Building it now." })
+    );
+    await runWorkspaceAgent(1, 3, "looks good, go ahead");
+    const [, messages, options] = chatWithAiGateway.mock.calls[0];
+    const toolNames = options.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toContain("create_file");
+    expect(toolNames).not.toContain("start_planning");
+    expect(messages[0].content).not.toContain("[CHAT MODE]");
+    const buildInstruction = messages.find(
+      (message: { content?: unknown }) =>
+        typeof message.content === "string" &&
+        message.content.includes("[BUILD mode]")
+    );
+    expect(buildInstruction?.role).toBe("user");
+    expect(buildInstruction?.content).toContain("PLAN_3.md");
+    // The persisted user bubble keeps the clean reply the user typed.
+    const userBubble = append.mock.calls.find(call => call[1].role === "user");
+    expect(userBubble?.[1].content).toBe("looks good, go ahead");
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${AGENT_MODE_MESSAGE_PREFIX}build` })
+    );
+  });
+
+  it("keeps a chat in chat mode once a marker is recorded", async () => {
+    chatMessages.mockResolvedValueOnce([
+      { id: 1, role: "user", content: "hello" },
+      { id: 2, role: "assistant", content: "Hi!" },
+      { id: 3, role: "assistant", content: `${AGENT_MODE_MESSAGE_PREFIX}chat` },
+    ]);
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "Still here." })
+    );
+    await runWorkspaceAgent(1, 3, "and what about X?");
+    const toolNames = chatWithAiGateway.mock.calls[0][2].tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toContain("start_planning");
+    expect(toolNames).not.toContain("create_file");
+    // The marker row never reaches the model as a real turn.
+    const messages = chatWithAiGateway.mock.calls[0][1];
+    expect(
+      messages.some(
+        (message: { content?: unknown }) =>
+          typeof message.content === "string" &&
+          message.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
+      )
+    ).toBe(false);
   });
 
   it("writes the ultraplan to PLAN_<chatId>.md with create_plan", async () => {

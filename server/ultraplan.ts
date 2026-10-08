@@ -98,7 +98,8 @@ export const ULTRAPLAN_USAGE =
  */
 export function buildUltraplanInstruction(
   task: string,
-  channel: WorkspaceAgentOptions["channel"] = "web"
+  channel: WorkspaceAgentOptions["channel"] = "web",
+  options: { auto?: boolean } = {}
 ): string {
   const trimmed = task.trim();
   const taskLine = trimmed
@@ -108,8 +109,12 @@ export function buildUltraplanInstruction(
     channel === "telegram"
       ? `This request arrived over Telegram, so write the plan as plain text: no markdown of any kind (no '#', '*', '_', backticks, code fences, tables, or [label](url) links). Use plain uppercase section labels and simple hyphen or numbered lists, paste raw URLs, and keep each line short. Send the complete plan in one end_turn reply - Telegram splits long messages for you.`
       : `This request arrived in the Nova web app, so render the plan as clean Markdown: '##' section headings, a table for the approach comparison and the risk matrix, a fenced code block for the dependency graph, and bullet lists for the files affected and the verification checklist.`;
-  return `[ULTRAPLAN - deep planning mode]
-The user invoked /ultraplan, so on this turn planning IS the deliverable. Override the usual "never reply with only a plan" rule: apart from saving this conversation's plan document with create_plan / edit_plan, do NOT create, edit, move, rename, or delete any files, do NOT deploy, publish, send messages, run automations, or make any other change, reversible or not, and do NOT start executing the task. Finish with the complete plan and wait for the user to approve it before any work happens.
+  const opening = options.auto
+    ? `[PLAN - deep planning mode]
+The user asked you to carry out an action, so this conversation switched from chat mode into planning mode: on this turn planning IS the deliverable. Override the usual "never reply with only a plan" rule: apart from saving this conversation's plan document with create_plan / edit_plan, do NOT create, edit, move, rename, or delete any files, do NOT deploy, publish, send messages, run automations, or make any other change, reversible or not, and do NOT start executing the task. Finish with the complete plan and wait for the user to approve it before any work happens.`
+    : `[ULTRAPLAN - deep planning mode]
+The user invoked /ultraplan, so on this turn planning IS the deliverable. Override the usual "never reply with only a plan" rule: apart from saving this conversation's plan document with create_plan / edit_plan, do NOT create, edit, move, rename, or delete any files, do NOT deploy, publish, send messages, run automations, or make any other change, reversible or not, and do NOT start executing the task. Finish with the complete plan and wait for the user to approve it before any work happens.`;
+  return `${opening}
 ${taskLine}
 Plan deeply before writing:
 - Decompose the task into the concrete questions you need answered: what must change, where in the workspace it lives, which files and existing patterns are involved, what could break, and how success will be verified.

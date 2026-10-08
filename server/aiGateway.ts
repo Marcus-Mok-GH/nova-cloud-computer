@@ -541,7 +541,9 @@ type ProviderModelTable = Partial<
 
 const PROVIDER_MODELS: { zai: ProviderModelTable; default: ProviderModelTable } = {
   zai: {
-    default: { env: "ZAI_DEFAULT_MODEL", fallback: DEFAULT_CHAT_MODEL },
+    // A Z.ai deployment with no ZAI_DEFAULT_MODEL must still fall back to a
+    // model Z.ai serves: the default provider's ministral id would be rejected.
+    default: { env: "ZAI_DEFAULT_MODEL", fallback: ZAI_TEXT_FALLBACK_MODEL },
     vision: { env: "ZAI_VISION_MODEL", fallback: ZAI_VISION_FALLBACK_MODEL },
     fallback: { env: "ZAI_FALLBACK_MODEL", fallback: ZAI_TEXT_FALLBACK_MODEL },
     lastResort: {

@@ -587,6 +587,70 @@ describe("runAutonomousCoderTask", () => {
     expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a budget stop when compaction succeeds but the segment has no time left", async () => {
+    const sandbox = fakeSandbox();
+    // The first round's long assistant text is compactable, so hard compaction
+    // frees space - but the deadline is already too close to retry, so the
+    // specialist must report the budget, not a compaction failure.
+    runNimAgentChatMock
+      .mockResolvedValueOnce({
+        kind: "tool_calls" as const,
+        text: "x".repeat(3_000),
+        toolCalls: [{ id: "c1", name: "list_files", arguments: "{}" }],
+      })
+      .mockRejectedValueOnce(
+        new NimContextLengthError(
+          "The coding service responded with status 400: maximum context length exceeded."
+        )
+      );
+
+    const outcome = await runAutonomousCoderTask({
+      task: "a long task",
+      sandbox: sandbox as never,
+      deadlineAtMs: Date.now() + 25_000,
+    });
+
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
+    expect(outcome.summary).toContain("ran out of time");
+    expect(outcome.summary).not.toContain("could no longer be compacted");
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not start a tool call once the segment deadline has passed", async () => {
+    const sandbox = fakeSandbox();
+    const startedAt = Date.now();
+    const realNow = Date.now;
+    let advanced = false;
+    // The model round itself outlasts the deadline, so the tool calls it
+    // returns must be skipped rather than executed after the segment closed.
+    Date.now = () => (advanced ? startedAt + 200 : startedAt);
+    try {
+      runNimAgentChatMock.mockImplementationOnce(async () => {
+        advanced = true;
+        return toolCall("c1", "run_command", {
+          command: "touch should-not-exist",
+        });
+      });
+
+      const outcome = await runAutonomousCoderTask({
+        task: "an impossible task",
+        sandbox: sandbox as never,
+        deadlineAtMs: startedAt + 100,
+      });
+
+      const ran = sandbox.commands.run.mock.calls.map(call => String(call[0]));
+      expect(
+        ran.some(command => command.includes("should-not-exist"))
+      ).toBe(false);
+      if (outcome.kind !== "autonomous")
+        throw new Error("expected autonomous outcome");
+      expect(outcome.commandsRun).toBe(0);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("drops the file payloads of old tool calls so repeated large writes cannot pin the context open", async () => {
     const sandbox = fakeSandbox();
     const big = "A".repeat(3_000);

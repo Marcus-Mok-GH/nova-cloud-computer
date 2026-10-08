@@ -338,7 +338,9 @@ async function runSandboxCommand(
   command: string,
   remainingMs: number
 ): Promise<{ ok: boolean; result: string }> {
-  const timeoutMs = Math.min(COMMAND_TIMEOUT_MS, Math.max(10_000, remainingMs));
+  // Never grant more time than the segment has left: the caller skips a call
+  // once the deadline passes, and a command must not outlive the segment.
+  const timeoutMs = Math.min(COMMAND_TIMEOUT_MS, Math.max(0, remainingMs));
   const result = await sandbox.commands.run(
     `cd ${E2B_WORKSPACE_DIR} && (${command})`,
     { timeoutMs }
@@ -654,12 +656,15 @@ export async function runAutonomousCoderTask(
           );
           continue;
         }
+        // Compaction worked but the segment has no time left to retry: that is
+        // a budget stop, not a compaction failure. Only a compaction that freed
+        // nothing is the unrecoverable case, so report each honestly.
+        const summary = freed
+          ? `The specialist's conversation outgrew the model's context window; it compacted the earlier steps but this segment ran out of time before it could retry. It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`
+          : `The specialist's conversation grew past the model's context window and could no longer be compacted. It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s) before stopping. Verify the changed files it wrote, then delegate the remaining work as a fresh, smaller task so the specialist can start with a clean context.`;
         return {
           kind: "autonomous",
-          summary:
-            `The specialist's conversation grew past the model's context window and could no longer be compacted. ` +
-            `It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s) before stopping. ` +
-            `Verify the changed files it wrote, then delegate the remaining work as a fresh, smaller task so the specialist can start with a clean context.`,
+          summary,
           writtenPaths: Array.from(writtenPaths).sort(),
           commandsRun,
           rounds: roundsRun,
@@ -750,6 +755,23 @@ export async function runAutonomousCoderTask(
           });
         } catch {}
       };
+      // The segment deadline can pass between the model round and the tool
+      // calls it returned. Do not start a call then: a command or file write
+      // would keep running after the caller has closed the segment, and its
+      // side effects would land outside the budget that produced them.
+      if (remainingForTool <= 0) {
+        await emitActivity(
+          "failed",
+          "Skipped - the segment ran out of time before this call could start."
+        );
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content:
+            "The segment ran out of time before this call could start, so it was not executed. Do not assume its result.",
+        });
+        continue;
+      }
       await emitActivity("running");
       let execution: { ok: boolean; result: string };
       try {

@@ -248,12 +248,16 @@ export function reconcileChatMessages(
   const userCommitted = Boolean(
     pendingUserContent && submitted.some(message => message.role === "user")
   );
+  // Internal bookkeeping rows (tool activity, specialist acceptance, the
+  // workflow-mode marker) are written with the assistant role but are not
+  // replies - counting one as the committed reply would hide the reply still
+  // streaming in.
   const replyCommitted = Boolean(
     streamingContent &&
     submitted.some(
       message =>
         message.role === "assistant" &&
-        !message.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)
+        !isInternalChatMessage(message.content)
     )
   );
   const persistedToolIds = new Set<string>();

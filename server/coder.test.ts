@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MIN_CALL_RESERVE_MS, runAutonomousCoderTask, runCoderTask } from "./coder";
+import { runAutonomousCoderTask, runCoderTask } from "./coder";
 
 const state = vi.hoisted(() => ({ nimModel: "moonshotai/kimi-k3" }));
 vi.mock("./_core/env", () => ({
@@ -54,13 +54,11 @@ describe("runCoderTask", () => {
     );
   });
 
-  it("reserves a margin before the run deadline on the model request", async () => {
+  it("hands the model request the caller's full deadline", async () => {
     runNimChatMock.mockResolvedValueOnce("code");
     const deadline = Date.now() + 200_000;
     await runCoderTask("fix it", undefined, undefined, deadline);
-    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(
-      deadline - MIN_CALL_RESERVE_MS
-    );
+    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(deadline);
   });
 
   it("omits the model deadline when the caller gives none", async () => {
@@ -325,8 +323,9 @@ describe("runAutonomousCoderTask", () => {
 
   it("stops only when the segment budget runs out, reporting exactly what was done", async () => {
     // Fake wall clock: each model call appears to consume 20s of a 100s
-    // budget, so the loop breaks on the reserve check (deterministically)
-    // after 4 calls instead of spinning forever on instant mocks.
+    // budget, so the loop runs the clock out (deterministically) instead of
+    // spinning forever on instant mocks. The specialist uses the full budget,
+    // so it keeps going until the deadline itself passes.
     const startedAt = Date.now();
     const realNow = Date.now;
     let calls = 0;
@@ -343,20 +342,19 @@ describe("runAutonomousCoderTask", () => {
         deadlineAtMs: startedAt + 100_000,
       });
 
-      // The reserve (30s) is already deducted from the budget, so the
-      // fourth round never starts: 3 calls, then the honest report.
-      expect(calls).toBe(3);
+      // No reserve is deducted, so the loop keeps starting rounds until the
+      // clock reaches the deadline: 5 calls, then the honest report.
+      expect(calls).toBe(5);
       if (outcome.kind !== "autonomous")
         throw new Error("expected autonomous outcome");
       expect(outcome.summary).toContain("full time budget");
-      expect(outcome.rounds).toBe(3);
+      expect(outcome.rounds).toBe(5);
       expect(outcome.writtenPaths).toEqual([]);
       expect(outcome.commandsRun).toBe(0);
-      // The specialist's own budget end (deadline minus the 30s reserve) is
-      // handed to the model call as its hard deadline, so a retry cannot
-      // overrun it and get the result discarded as an interruption.
+      // The caller's deadline is handed to the model call as its hard
+      // deadline, so a retry cannot overrun it and get the result discarded.
       expect(runNimAgentChatMock.mock.calls[0][0].deadlineAtMs).toBe(
-        startedAt + 70_000
+        startedAt + 100_000
       );
     } finally {
       Date.now = realNow;

@@ -2275,6 +2275,38 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
+  it("chains a continuation when the final round is skipped near the deadline", async () => {
+    // The run stops because a follow-up round would not fit before maxDuration,
+    // not because the task finished. The closing status promises an automatic
+    // continuation, so the run must report itself out of budget and let the
+    // runner chain the next segment - otherwise the unfinished work stops here.
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          {
+            id: "call-1",
+            name: "deploy_website",
+            arguments: JSON.stringify({ directory: "/" }),
+          },
+        ],
+      })
+    );
+    completeWithAiGateway.mockResolvedValueOnce({
+      text: "The site is live - I am finishing the last checks automatically.",
+    });
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      deadlineAtMs: Date.now() + 1_000,
+      continuationPlanned: true,
+    });
+    // No second model round was started; the runner gets the out-of-budget
+    // signal so it can chain the next segment instead of closing as completed.
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
+    expect(result.outOfBudget).toBe(true);
+    expect(completeWithAiGateway.mock.calls.at(-1)[1]).toContain(
+      "continues automatically"
+    );
+  });
+
   it("interrupts a tool that outlasts the run deadline and still persists a closing reply", async () => {
     // A single long call (a VM task, a deploy) used to blow straight past
     // the 285s budget between the round-level checks: Vercel killed the

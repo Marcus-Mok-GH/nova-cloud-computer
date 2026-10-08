@@ -154,7 +154,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "create_plan",
       description:
-        "Create this conversation's /ultraplan plan document (PLAN_<chat id>.md in the workspace root). Only available during a planning-only /ultraplan turn. Writes the complete plan once; use edit_plan to revise it later, and read_file to read it back.",
+        "Create this conversation's plan document (PLAN_<chat id>.md in the workspace root). Only available during a planning-only turn (an /ultraplan turn or an auto-entered planning turn after start_planning). Writes the complete plan once; use edit_plan to revise it later, and read_file to read it back.",
       parameters: {
         type: "object",
         properties: {
@@ -172,7 +172,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "edit_plan",
       description:
-        "Replace the entire content of this conversation's /ultraplan plan document (PLAN_<chat id>.md). Only available during a planning-only /ultraplan turn. Read it with read_file first when unsure about its current content.",
+        "Replace the entire content of this conversation's plan document (PLAN_<chat id>.md). Only available during a planning-only turn (an /ultraplan turn or an auto-entered planning turn after start_planning). Read it with read_file first when unsure about its current content.",
       parameters: {
         type: "object",
         properties: {
@@ -182,6 +182,25 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           },
         },
         required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "start_planning",
+      description:
+        "Chat mode only. Call this when the user asks you to DO something - create, edit, move, rename, or delete files or folders, build or scaffold a project or site, run code or commands, deploy or delete a website, send a message, or any other change to their workspace or outside services. It records the task to carry out and switches this conversation into planning mode, where the task is researched and a plan is drafted for the user's approval before anything changes. Do not attempt the action yourself and do not use this for a pure question or research request - answer those directly with end_turn.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description:
+              "The concrete action the user asked for, stated plainly and completely (include any names, paths, and details they gave).",
+          },
+        },
+        required: ["task"],
       },
     },
   },

@@ -451,6 +451,119 @@ describe("Nova tool-calling workspace agent", () => {
     expect(computer).toHaveBeenCalled();
   });
 
+  it("turns a /ultraplan message into a planning-only turn", async () => {
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "## Executive summary\n\nPlan." })
+    );
+    await runWorkspaceAgent(1, 3, "/ultraplan add a login page");
+    const messages = chatWithAiGateway.mock.calls[0][1];
+    const userTurn = messages.find(
+      (message: { content?: unknown }) =>
+        typeof message.content === "string" &&
+        message.content.includes("[ULTRAPLAN - deep planning mode]")
+    );
+    // The deep-planning directive reaches the model, replacing the ordinary
+    // turn (the system prompt's "never reply with only a plan" is overridden).
+    expect(userTurn?.role).toBe("user");
+    expect(userTurn?.content).toContain("add a login page");
+    expect(userTurn?.content).toContain("planning IS the deliverable");
+    // ...but the persisted chat bubble keeps the clean command the user typed.
+    const userBubble = append.mock.calls.find(
+      call => call[1].role === "user"
+    );
+    expect(userBubble?.[1].content).toBe("/ultraplan add a login page");
+    // The tool surface is read-only, so the plan cannot change anything even
+    // if the model tries.
+    const toolNames = chatWithAiGateway.mock.calls[0][2].tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toContain("read_file");
+    expect(toolNames).toContain("list_workspace");
+    // The plan document's own tools are the only writes exposed.
+    expect(toolNames).toContain("create_plan");
+    expect(toolNames).toContain("edit_plan");
+    expect(toolNames).not.toContain("create_file");
+    expect(toolNames).not.toContain("edit_file");
+    expect(toolNames).not.toContain("run_bash");
+    expect(toolNames).not.toContain("editor");
+    expect(toolNames).not.toContain("deploy_website");
+  });
+
+  it("answers /ultraplan with usage when no task is given", async () => {
+    await runWorkspaceAgent(1, 3, "/ultraplan");
+    // Nothing to plan: no agent run, just the usage reply.
+    expect(chatWithAiGateway).not.toHaveBeenCalled();
+    const reply = append.mock.calls.find(
+      call =>
+        call[1].role === "assistant" &&
+        typeof call[1].content === "string" &&
+        call[1].content.includes("/ultraplan")
+    );
+    expect(reply?.[1].content).toContain("send it with the task to plan");
+  });
+
+  it("hides the plan tools outside an ultraplan turn", async () => {
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Sure." }));
+    await runWorkspaceAgent(1, 3, "hi");
+    const toolNames = chatWithAiGateway.mock.calls[0][2].tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).not.toContain("create_plan");
+    expect(toolNames).not.toContain("edit_plan");
+  });
+
+  it("writes the ultraplan to PLAN_<chatId>.md with create_plan", async () => {
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "create_plan",
+              arguments: JSON.stringify({ content: "# Plan\n\nDo the thing." }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Plan written." }));
+    await runWorkspaceAgent(1, 3, "/ultraplan do the thing");
+    expect(createFile).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        name: "PLAN_3.md",
+        content: "# Plan\n\nDo the thing.",
+        folderId: null,
+      })
+    );
+  });
+
+  it("replaces an existing plan with edit_plan", async () => {
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    computer.mockResolvedValueOnce({
+      workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+      folders: [],
+      files: [
+        { id: 77, name: "PLAN_3.md", content: "old plan", folderId: null },
+      ],
+    });
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "edit_plan",
+              arguments: JSON.stringify({ content: "revised plan" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Revised." }));
+    await runWorkspaceAgent(1, 3, "/ultraplan revise it");
+    expect(updateFile).toHaveBeenCalledWith(1, 77, { content: "revised plan" });
+  });
+
   it("frames the agent as a capable operator with tool routing", async () => {
     chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "Sure - what should it contain?" })

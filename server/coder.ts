@@ -1,10 +1,11 @@
 /** Nova's coding specialist delegate.
  *
- * The heavy lifting is done by the strongest coding model served through
- * NVIDIA NIM (https://build.nvidia.com) - Kimi K3 by default, a
- * frontier coding MoE with a 262K-token context. The calling agent
- * describes the coding task and supplies any existing code or errors as
- * context; the specialist either returns complete, working code the agent
+ * The heavy lifting is done by a frontier coding model served by the editor's
+ * own provider - Pollinations' unified API (https://gen.pollinations.ai),
+ * whose deepseek/deepseek-v4.1-flash is the default: a coding model with tool
+ * calling and a 1M-token context (see ENV.nimCoderApiUrl / nimCoderModel). The
+ * calling agent describes the coding task and supplies any existing code or
+ * errors as context; the specialist either returns complete, working code the agent
  * then places into the workspace with its file tools (single-shot), or -
  * when a live sandbox is available and the model supports function
  * calling - works autonomously: it lists, reads and writes workspace
@@ -14,6 +15,7 @@ import { ENV } from "./_core/env";
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 import { mirrorWorkspaceOp } from "./sandboxWorkspace";
 import {
+  NimContextLengthError,
   NimToolsUnsupportedError,
   runNimAgentChat,
   runNimChat,
@@ -149,6 +151,31 @@ const NO_START_SUMMARY =
 const READ_LIMIT = 16_000;
 const COMMAND_OUTPUT_LIMIT = 4_000;
 const COMMAND_TIMEOUT_MS = 120_000;
+/**
+ * The specialist's conversation grows by a full tool result every round - a
+ * file read can be 16k characters and a command's output 4k - so a long
+ * autonomous task eventually pushes the request past the model's context
+ * window and the call is refused. The conversation is compacted before it
+ * gets there: what matters for the remaining work is the recent exchange and
+ * the files already written, not the byte payloads of every earlier read, so
+ * the oldest tool results collapse to a short stub. The assistant tool_call
+ * to tool-result pairing and every call's id are preserved, keeping the
+ * conversation valid for the model while the window stops filling up. This is
+ * what lets a long task finish instead of dying at the context limit.
+ */
+const CONTEXT_CHAR_BUDGET = 300_000;
+/**
+ * Output-token cap for one specialist round. The file content in a write_file
+ * call counts as output, so a small cap truncates a large file into malformed
+ * JSON and fails the write; 16384 comfortably covers the files this workspace
+ * handles while staying well inside what NIM-served coding models emit.
+ */
+const SPECIALIST_MAX_TOKENS = 16_384;
+const CONTEXT_KEEP_RECENT_MESSAGES = 8;
+const CONTEXT_RECENT_TOOL_CAP = 12_000;
+const CONTEXT_ASSISTANT_CAP = 4_000;
+const CONTEXT_OLD_TOOL_STUB =
+  "(earlier tool output omitted to stay within the model's context window)";
 
 export type CoderResult = {
   /** The specialist's complete reply: the working code plus its brief explanation. */
@@ -216,6 +243,94 @@ function safeWorkspacePath(value: string): string | null {
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}\n…(truncated)`;
+}
+
+/** Approximate size of the specialist's conversation, in characters. */
+function coderContextChars(messages: NimAgentMessage[]): number {
+  let total = 0;
+  for (const message of messages) {
+    if (message.role === "tool") total += message.content.length;
+    else if (message.role === "assistant") {
+      total += message.content?.length ?? 0;
+      for (const call of message.tool_calls ?? [])
+        total += call.function.arguments.length;
+    } else total += message.content.length;
+  }
+  return total;
+}
+
+/**
+ * Shrinks the specialist's conversation toward the context budget without
+ * breaking it. Messages up to and including the first user turn (the system
+ * prompt and the task intro) are never touched: they are the anchor the model
+ * needs to stay on task. Older tool results become a stub, the most recent
+ * ones are capped, and long interim assistant text is trimmed - the
+ * assistant's tool_calls are always kept intact, so every tool result still
+ * follows the call it answers. Returns true when anything changed, so callers
+ * can tell whether compaction can free more before giving up.
+ */
+function compactCoderContext(
+  messages: NimAgentMessage[],
+  options?: { aggressive?: boolean }
+): boolean {
+  const aggressive = options?.aggressive ?? false;
+  const firstUser = messages.findIndex(message => message.role === "user");
+  if (firstUser < 0) return false;
+  const keepRecent = aggressive ? 4 : CONTEXT_KEEP_RECENT_MESSAGES;
+  const recentStart = Math.max(firstUser + 1, messages.length - keepRecent);
+  const toolCap = aggressive ? 2_000 : CONTEXT_RECENT_TOOL_CAP;
+  const assistantCap = aggressive ? 500 : CONTEXT_ASSISTANT_CAP;
+  let changed = false;
+  for (let index = firstUser + 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.role === "tool") {
+      if (index < recentStart) {
+        if (message.content !== CONTEXT_OLD_TOOL_STUB) {
+          messages[index] = { ...message, content: CONTEXT_OLD_TOOL_STUB };
+          changed = true;
+        }
+      } else if (message.content.length > toolCap) {
+        const capped = truncate(message.content, toolCap);
+        // truncate appends a suffix, so compare the result: re-capping an
+        // already-shortened message must not read as progress, or the caller
+        // would retry the same over-long request forever.
+        if (capped !== message.content) {
+          messages[index] = { ...message, content: capped };
+          changed = true;
+        }
+      }
+    } else if (message.role === "assistant") {
+      let next = message;
+      if (message.content && message.content.length > assistantCap) {
+        const capped = truncate(message.content, assistantCap);
+        if (capped !== message.content) {
+          next = { ...next, content: capped };
+          changed = true;
+        }
+      }
+      // An old exchange keeps the file payloads of its write_file calls in the
+      // tool-call arguments, and those can dwarf the results themselves. Once
+      // the exchange is old its arguments are no longer needed, so replace
+      // them with an empty object - still valid JSON, matched by the stubbed
+      // tool result - or a task that repeatedly writes large files would keep
+      // the window pinned open no matter how its text is trimmed. The recent
+      // calls keep their arguments intact.
+      if (index < recentStart && next.tool_calls?.length) {
+        let shrank = false;
+        const toolCalls = next.tool_calls.map(call => {
+          if (call.function.arguments === "{}") return call;
+          shrank = true;
+          return { ...call, function: { ...call.function, arguments: "{}" } };
+        });
+        if (shrank) {
+          next = { ...next, tool_calls: toolCalls };
+          changed = true;
+        }
+      }
+      if (next !== message) messages[index] = next;
+    }
+  }
+  return changed;
 }
 
 async function runSandboxCommand(
@@ -502,12 +617,21 @@ export async function runAutonomousCoderTask(
     if (remainingMs <= 0) break;
     const round = roundsRun;
     roundsRun += 1;
+    // Keep the request inside the model's window before it is refused: once
+    // the history passes the budget, compact the older payloads now rather
+    // than waiting for the context-length rejection.
+    if (coderContextChars(messages) > CONTEXT_CHAR_BUDGET) {
+      compactCoderContext(messages);
+    }
     let reply;
     try {
       reply = await runNimAgentChat({
         messages,
         tools: CODER_TOOLS,
-        maxTokens: 8192,
+        model: ENV.nimCoderModel,
+        apiUrl: ENV.nimCoderApiUrl,
+        apiKey: ENV.nimCoderApiKey,
+        maxTokens: SPECIALIST_MAX_TOKENS,
         // The call may use whatever budget is left; the loop above stops it
         // once the segment deadline passes.
         timeoutMs: Math.min(240_000, remainingMs),
@@ -517,6 +641,31 @@ export async function runAutonomousCoderTask(
         deadlineAtMs: budgetEndMs,
       });
     } catch (error) {
+      // The history outgrew the model's context window. Compact it hard and
+      // retry the same round - the specialist keeps its place and the files
+      // it already wrote - instead of ending the task on a limit that is
+      // perfectly recoverable. Only when nothing more can be freed is the
+      // honest, actionable summary below returned.
+      if (error instanceof NimContextLengthError) {
+        const freed = compactCoderContext(messages, { aggressive: true });
+        if (freed && budgetEndMs - Date.now() >= MIN_CALL_RESERVE_MS) {
+          options.onProgress?.(
+            "The task outgrew the model's context window - compacting earlier steps and continuing…"
+          );
+          continue;
+        }
+        return {
+          kind: "autonomous",
+          summary:
+            `The specialist's conversation grew past the model's context window and could no longer be compacted. ` +
+            `It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s) before stopping. ` +
+            `Verify the changed files it wrote, then delegate the remaining work as a fresh, smaller task so the specialist can start with a clean context.`,
+          writtenPaths: Array.from(writtenPaths).sort(),
+          commandsRun,
+          rounds: roundsRun,
+          model: ENV.nimCoderModel,
+        };
+      }
       // Some NIM-served models do not implement function calling: the
       // first request is rejected, and the task degrades to the classic
       // single-shot reply instead of failing the whole run.
@@ -667,8 +816,9 @@ export async function runAutonomousCoderTask(
  * reply. @param task The coding job, described completely: goal, language,
  * constraints, what "done" means. @param context Optional supporting
  * material - existing code, the exact error output, file or API layouts. @param language Optional explicit target language or framework. Rejects when
- * the task is empty or NVIDIA NIM is not configured (the operator must set
- * NVIDIA_NIM_API_KEY).
+ * the task is empty or the editor's model endpoint is not configured (the
+ * operator must set POLLINATIONS_API_KEY, or the NVIDIA_NIM_CODER_API_KEY
+ * override).
  */
 export async function runCoderTask(
   task: string,
@@ -694,6 +844,10 @@ export async function runCoderTask(
   const code = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: CODER_SYSTEM_PROMPT,
+    model: ENV.nimCoderModel,
+    apiUrl: ENV.nimCoderApiUrl,
+    apiKey: ENV.nimCoderApiKey,
+    maxTokens: SPECIALIST_MAX_TOKENS,
     ...(deadlineAtMs !== undefined ? { deadlineAtMs } : {}),
   });
   return { code: code.trim(), model: ENV.nimCoderModel };

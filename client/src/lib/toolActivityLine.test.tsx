@@ -13,6 +13,7 @@ import {
   ThinkerDetail,
   ThinkerPromptHeader,
   ThinkerToolActivity,
+  ThinkingToolActivity,
   ToolActivityLine,
   ToolActivityPanel,
   ToolRunGroup,
@@ -867,5 +868,38 @@ describe("ToolRunGroup", () => {
     );
     expect(single).toContain("Used 1 tool");
     expect(single).toContain("1 failed");
+  });
+});
+
+describe("panel detail fallbacks", () => {
+  it("renders an element fallback without nesting a paragraph inside a paragraph", () => {
+    const thinking: ToolActivity = {
+      id: "th1",
+      name: "thinking",
+      state: "running",
+      args: {},
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkingToolActivity, { activity: thinking })
+    );
+    expect(html).toContain("The model is thinking…");
+    // No <p> directly inside another <p>; the lookahead keeps the svg's
+    // <path> elements from counting as one.
+    expect(html).not.toMatch(/<p(?![a-zA-Z])[^>]*>\s*<p(?![a-zA-Z])/);
+  });
+
+  it("keeps the muted paragraph wrapper for a text fallback", () => {
+    const expired: ToolActivity = {
+      id: "th2",
+      name: "thinker",
+      state: "completed",
+      args: {},
+      summary: "The analysis expired.",
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ThinkerDetail, { activity: expired })
+    );
+    expect(html).toContain("The analysis expired.");
+    expect(html).toContain("text-xs text-muted-foreground");
   });
 });

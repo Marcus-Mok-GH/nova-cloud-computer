@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isNimConfigured, NimToolsUnsupportedError, resolveNimAttemptTimeoutMs, runNimChat, runNimAgentChat } from "./nim";
+import { isNimConfigured, NimContextLengthError, NimToolsUnsupportedError, resolveNimAttemptTimeoutMs, runNimChat, runNimAgentChat } from "./nim";
 
 const state = vi.hoisted(() => ({
   nimKey: "test-nim-key",
@@ -70,6 +70,30 @@ describe("runNimChat", () => {
     fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
     await runNimChat({ prompt: "p", systemPrompt: "s" });
     expect(JSON.parse(fetchStub.mock.calls[0][1].body).model).toBe("moonshotai/kimi-k3");
+  });
+
+  it("runs against an explicit endpoint and key when the caller passes them", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await runNimChat({
+      prompt: "p",
+      systemPrompt: "s",
+      model: "deepseek/deepseek-v4.1-flash",
+      apiUrl: "https://gen.pollinations.ai/v1",
+      apiKey: "sk-poll",
+    });
+    const [url, init] = fetchStub.mock.calls[0];
+    expect(url.href).toBe("https://gen.pollinations.ai/v1/chat/completions");
+    expect(init.headers.authorization).toBe("Bearer sk-poll");
+    expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4.1-flash");
+  });
+
+  it("counts a request with its own key as configured even without the shared NIM key", async () => {
+    state.nimKey = "";
+    fetchStub.mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    await expect(
+      runNimChat({ prompt: "p", systemPrompt: "s", apiUrl: "https://gen.pollinations.ai/v1", apiKey: "sk-poll" })
+    ).resolves.toBe("ok");
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 
   it("works against a self-hosted NIM base URL with or without a trailing slash", async () => {
@@ -178,6 +202,39 @@ describe("NIM transient-failure retries", () => {
     fetchStub.mockResolvedValueOnce(jsonResponse({ error: "no tools" }, { status: 400 }));
     await expect(runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })).rejects.toBeInstanceOf(NimToolsUnsupportedError);
     expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies an over-long context as a context error, not a tools rejection", async () => {
+    // Same 400 status as a tools rejection, so it must be told apart by the
+    // provider's wording - otherwise a long autonomous task would be misread
+    // as "model cannot call tools" and lose its progress to a single-shot.
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({ error: { message: "This model's maximum context length is 262144 tokens" } }, { status: 400 })
+    );
+    await expect(
+      runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })
+    ).rejects.toBeInstanceOf(NimContextLengthError);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a 413 payload-too-large response as a context error", async () => {
+    fetchStub.mockResolvedValueOnce(jsonResponse({ error: "Payload too large" }, { status: 413 }));
+    await expect(runNimChat({ prompt: "p", systemPrompt: "s" })).rejects.toBeInstanceOf(
+      NimContextLengthError
+    );
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not misclassify an output-cap rejection as context overflow", async () => {
+    // Same 400 status, but this is about the requested output length, not the
+    // input - compacting the conversation would not help, so it must stay a
+    // non-retryable tools rejection instead of being read as context overflow.
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({ error: { message: "Requested 16384 tokens exceeds the maximum output tokens" } }, { status: 400 })
+    );
+    await expect(
+      runNimAgentChat({ messages: [{ role: "user", content: "p" }], tools: [] })
+    ).rejects.toBeInstanceOf(NimToolsUnsupportedError);
   });
 });
 

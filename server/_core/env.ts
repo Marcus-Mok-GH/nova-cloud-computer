@@ -90,8 +90,49 @@ export function resolveTranscriptionConfig() {
   };
 }
 
+/** Pollinations' OpenAI-compatible unified API base URL. */
+const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
+/** The hosted NVIDIA NIM coder endpoint whose served models the default below tracks. */
+const NIM_HOSTED_API_BASE_URL = "https://integrate.api.nvidia.com/v1";
+
 /**
- * Resolves the coder sub-agent's NVIDIA NIM API key. The dedicated
+ * The coder sub-agent's (Nova's editor) transport. The editor is the one
+ * specialist that does not run on NVIDIA NIM by default: it calls Pollinations'
+ * unified API (https://gen.pollinations.ai), whose
+ * deepseek/deepseek-v4.1-flash is a coding model with tool calling and a
+ * 1M-token context. NVIDIA_NIM_CODER_API_URL points the editor at any other
+ * OpenAI-compatible endpoint, NVIDIA_NIM_CODER_MODEL sets its model id, and
+ * NVIDIA_NIM_CODER_API_KEY sets its credential - so a self-hosted or NIM
+ * endpoint still works without a code change. The key follows the endpoint: a
+ * Pollinations endpoint uses POLLINATIONS_API_KEY, any other endpoint falls
+ * back to the NVIDIA NIM credentials, and pointing the endpoint back at the
+ * hosted NIM default restores the Kimi K3 model id. That keeps a key from ever
+ * being sent to a host it does not belong to.
+ */
+export function resolveCoderConfig() {
+  const explicitBaseUrl = (process.env.NVIDIA_NIM_CODER_API_URL ?? "").trim().replace(/\/+$/, "");
+  const explicitKey = (process.env.NVIDIA_NIM_CODER_API_KEY ?? "").trim();
+  const explicitModel = (process.env.NVIDIA_NIM_CODER_MODEL ?? "").trim();
+  const apiUrl = explicitBaseUrl || POLLINATIONS_API_BASE_URL;
+  const usePollinations = apiUrl.includes("gen.pollinations.ai");
+  const defaultModel = usePollinations
+    ? "deepseek/deepseek-v4.1-flash"
+    : apiUrl === NIM_HOSTED_API_BASE_URL
+      ? "moonshotai/kimi-k3"
+      : "";
+  return {
+    /** The editor sub-agent's OpenAI-compatible base URL. */
+    nimCoderApiUrl: apiUrl,
+    /** The editor sub-agent's credential: its dedicated name first, then the key matching the endpoint. */
+    nimCoderApiKey: explicitKey || (usePollinations ? (process.env.POLLINATIONS_API_KEY ?? "").trim() : resolveNimApiKey()),
+    /** The editor sub-agent's model id: an env override, else the endpoint's default (empty for a custom endpoint until one is set). */
+    nimCoderModel: explicitModel || defaultModel,
+  };
+}
+
+/**
+ * Resolves the NVIDIA NIM API key - the thinker sub-agent's credential and the
+ * coder's fallback when its endpoint is not Pollinations. The dedicated
  * NVIDIA_NIM_API_KEY wins; NVIDIA_NIM_GATEWAY_TOKEN, NVIDIA_API_KEY, or
  * NOVA_NVIDIA_GATEWAY_TOKEN work as fallbacks because they authenticate against
  * the same hosted NIM endpoint, so an already-configured deployment needs no
@@ -152,19 +193,12 @@ export const ENV = {
   /** NVIDIA NIM OpenAI-compatible base URL: the hosted NIM endpoint by default, a self-hosted NIM container works too. */
   nimApiUrl: process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1",
   /**
-   * The coding model the coder sub-agent calls on NVIDIA NIM. On the hosted
-   * endpoint this defaults to the strongest coding model NIM serves;
-   * deepseek-ai/deepseek-v4-flash-0731 is the faster, cheaper alternative. A
-   * self-hosted or custom endpoint registers different served model IDs
-   * (e.g. 'moonshotai/kimi-k3'), so NVIDIA_NIM_CODER_MODEL
-   * must be set explicitly there - it resolves to empty until it is.
+   * The editor sub-agent's (the coder's) endpoint, model id and credential -
+   * see resolveCoderConfig. It defaults to Pollinations' unified API serving
+   * deepseek/deepseek-v4.1-flash; the thinker below keeps running on NVIDIA
+   * NIM, so each specialist reads its own transport.
    */
-  nimCoderModel:
-    process.env.NVIDIA_NIM_CODER_MODEL ??
-    ((process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1") ===
-    "https://integrate.api.nvidia.com/v1"
-      ? "moonshotai/kimi-k3"
-      : ""),
+  ...resolveCoderConfig(),
   /**
    * The reasoning model the thinker sub-agent calls on NVIDIA NIM. On the
    * hosted endpoint this defaults to the strongest frontier reasoning model

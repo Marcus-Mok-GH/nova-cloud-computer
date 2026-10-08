@@ -773,6 +773,13 @@ export default function Workspace() {
                           >
                             What can you do?
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setDraft("/ultraplan ")}
+                            className="border border-foreground/[0.13] bg-background/60 px-3.5 py-2 text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/[0.06] dark:border-white/[0.12]"
+                          >
+                            Ultraplan a task
+                          </button>
                         </div>
                       </div>
                     </div>

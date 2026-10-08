@@ -53,6 +53,13 @@ import {
 } from "./workspaceEdits";
 import { WORKSPACE_TOOLS } from "./workspaceToolSchemas";
 import {
+  buildUltraplanInstruction,
+  isPlanTool,
+  parseUltraplanCommand,
+  ultraplanAllowsTool,
+  ULTRAPLAN_USAGE,
+} from "./ultraplan";
+import {
   type AgentAction,
   type AgentChatRunOptions,
   type WorkspaceAgentOptions,
@@ -831,6 +838,14 @@ ${
     await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
   }
 
+  // `/ultraplan <task>` turns this turn into a deep, planning-only pass. The
+  // typed command stays the persisted user bubble; the planning directive is
+  // added to the model's turn only. Inbound-email runs are untrusted input and
+  // never get the mode.
+  const ultraplan = options.emailReply
+    ? null
+    : parseUltraplanCommand(content);
+
   // The workspace sandbox wakes with every run: state is shared with the
   // finally block below, which syncs the live sandbox filesystem back into
   // the durable Neon/S3 store no matter how the run ends.
@@ -838,6 +853,13 @@ ${
   let sandboxWorkspaceId: number | undefined;
 
   try {
+    // `/ultraplan` with no task plans nothing: answer with usage instead of
+    // waking the sandbox or spending an agent run.
+    if (ultraplan && !ultraplan.task) {
+      await options.onChunk?.(ULTRAPLAN_USAGE);
+      const message = await persistAssistant(ULTRAPLAN_USAGE);
+      return { message, actions: [], outOfBudget: false };
+    }
     // A workspace with its own provider (BYOK) never depends on the built-in
     // gateway, so its health flags do not gate the run.
     const customModel = await getActiveCustomModel(ownerId);
@@ -905,6 +927,14 @@ ${
     // the tool there only produces stray Telegram pings.
     const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
       tool => {
+        // A planning-only /ultraplan turn gets a strict read-only allowlist, so
+        // the plan cannot change anything even if the model tries - the plan
+        // document's own tools are the only writes it keeps.
+        if (ultraplan) {
+          return ultraplanAllowsTool(tool.function.name);
+        }
+        // create_plan / edit_plan exist for ultraplan only.
+        if (isPlanTool(tool.function.name)) return false;
         // An inbound-email run is untrusted input from a stranger, so it gets
         // a strict allowlist instead of the full workspace toolkit.
         if (options.emailReply) {
@@ -983,9 +1013,14 @@ ${
     // The model sees the attachment note; the persisted user bubble keeps the
     // clean text the user actually typed (Telegram concatenates its note into
     // the text instead, which is fine there since the user turn is not shown).
-    const modelContent = options.uploadContext
-      ? `${content}${options.uploadContext}`
+    // `/ultraplan` adds its planning directive to the model's turn only - the
+    // persisted user bubble keeps the clean command the user typed.
+    const modelInput = ultraplan
+      ? `${content}\n\n${buildUltraplanInstruction(ultraplan.task, options.channel)}`
       : content;
+    const modelContent = options.uploadContext
+      ? `${modelInput}${options.uploadContext}`
+      : modelInput;
     const currentTurn: GatewayChatMessage = {
       role: "user",
       content: visionActive
@@ -996,7 +1031,7 @@ ${
               image_url: { url: uri },
             })),
           ]
-        : content,
+        : modelInput,
     };
     /**
      * Give the model the conversation so far. Without this, every incoming

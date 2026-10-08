@@ -7,6 +7,7 @@ import {
   parsePersistedToolActivity,
   upsertLiveToolEvent,
   reconcileChatMessages,
+  chatWorkflowMode,
   AGENT_MODE_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   type LiveChatEvent,
@@ -74,6 +75,41 @@ describe("dedupeToolActivityMessages", () => {
     expect(parsePersistedToolActivity(result[0]!.content)!.state).toBe(
       "failed"
     );
+  });
+});
+
+describe("chatWorkflowMode", () => {
+  it("reads the latest mode marker", () => {
+    expect(
+      chatWorkflowMode([
+        { id: 1, role: "user", content: "hi" },
+        {
+          id: 2,
+          role: "assistant",
+          content: `${AGENT_MODE_MESSAGE_PREFIX}chat`,
+        },
+        {
+          id: 3,
+          role: "assistant",
+          content: `${AGENT_MODE_MESSAGE_PREFIX}plan`,
+        },
+      ])
+    ).toBe("plan");
+  });
+
+  it("treats a chat with no assistant turn as new (chat mode)", () => {
+    expect(
+      chatWorkflowMode([{ id: 1, role: "user", content: "build a site" }])
+    ).toBe("chat");
+  });
+
+  it("treats an older conversation with no marker as build", () => {
+    expect(
+      chatWorkflowMode([
+        { id: 1, role: "user", content: "hi" },
+        { id: 2, role: "assistant", content: "hello" },
+      ])
+    ).toBe("build");
   });
 });
 

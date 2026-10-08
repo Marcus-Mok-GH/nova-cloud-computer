@@ -17,6 +17,30 @@ export type PersistedChatMessage = {
   role: ChatRole;
   content: string;
 };
+
+export type ChatWorkflowMode = "chat" | "plan" | "build";
+
+/**
+ * The workflow stage a conversation is in, derived from its persisted rows the
+ * same way the server resolves it: the latest mode marker wins, a chat with no
+ * marker and no assistant turn is new (chat mode), and any older conversation
+ * without a marker is treated as build. Used to label the header badge.
+ */
+export function chatWorkflowMode(
+  messages: PersistedChatMessage[]
+): ChatWorkflowMode {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index].content;
+    if (content.startsWith(AGENT_MODE_MESSAGE_PREFIX)) {
+      const mode = content.slice(AGENT_MODE_MESSAGE_PREFIX.length);
+      if (mode === "chat" || mode === "plan" || mode === "build") return mode;
+      return "chat";
+    }
+  }
+  return messages.some(message => message.role === "assistant")
+    ? "build"
+    : "chat";
+}
 export type ToolActivity = {
   id: string;
   name: string;

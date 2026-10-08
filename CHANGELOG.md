@@ -50,7 +50,7 @@ Telegram/plain-text and web/Markdown split, the read-only allowlist, and the
 plan-file naming) plus five wiring tests in server/workspaceAgent.test.ts:
 the exposed tool set carries no general write tool, carries create_plan and
 edit_plan on an ultraplan turn only, writes PLAN_<chatId>.md through
-create_plan, and replaces it through edit_plan. Full suite: 1062 passed, 4
+create_plan, and replaces it through edit_plan. Full suite: 1063 passed, 4
 skipped. Typecheck clean.
 
 ---

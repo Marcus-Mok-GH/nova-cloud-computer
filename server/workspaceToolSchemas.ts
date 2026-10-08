@@ -152,6 +152,42 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "create_plan",
+      description:
+        "Create this conversation's /ultraplan plan document (PLAN_<chat id>.md in the workspace root). Only available during a planning-only /ultraplan turn. Writes the complete plan once; use edit_plan to revise it later, and read_file to read it back.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "The complete Markdown content of the plan.",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_plan",
+      description:
+        "Replace the entire content of this conversation's /ultraplan plan document (PLAN_<chat id>.md). Only available during a planning-only /ultraplan turn. Read it with read_file first when unsure about its current content.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "The new full content for the plan.",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "rename_file",
       description: "Rename an existing workspace file.",
       parameters: {

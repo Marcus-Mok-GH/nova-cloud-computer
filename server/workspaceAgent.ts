@@ -60,6 +60,16 @@ import {
   ULTRAPLAN_USAGE,
 } from "./ultraplan";
 import {
+  AGENT_MODE_MESSAGE_PREFIX,
+  START_PLANNING_TOOL,
+  type AgentMode,
+  buildBuildModeInstruction,
+  buildChatModePromptBlock,
+  chatModeAllowsTool,
+  recordAgentMode,
+  resolveAgentMode,
+} from "./agentMode";
+import {
   type AgentAction,
   type AgentChatRunOptions,
   type WorkspaceAgentOptions,
@@ -83,6 +93,7 @@ export type {
   WorkspaceToolActivity,
 } from "./workspaceAgentTypes";
 export { SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX } from "./workspaceAgentTypes";
+export { AGENT_MODE_MESSAGE_PREFIX, START_PLANNING_TOOL } from "./agentMode";
 
 
 /** Identity + team context for one personal-agent run. */
@@ -177,7 +188,8 @@ export async function autoTitleChatForUser(
       m =>
         m.role === "assistant" &&
         !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
-        !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
+        !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
+        !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
     );
     if (!firstUser || !lastAssistant) return;
     const prompt = [
@@ -376,7 +388,7 @@ function formatPersonalisationForPrompt(settings: PersonalisationSettings): stri
     : intro;
 }
 
-const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}
+const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}{{mode}}
 
 Your job is to get the user's work done end-to-end and to a high standard. You are a highly capable operator with a full toolkit: reason about what the user actually needs, use your own judgment for conversation and light work, and reach for tools and specialists whenever they make the result faster, more accurate, or more complete. Prefer finishing the task over narrating a plan. Match the tool to the job - editor for real code, solve_equation for math, run_vm_task / run_bash for computation and data work, thinker for hard reasoning, research_web for current or external facts, connectors for outside services, workspace file tools for durable deliverables - then verify what comes back and keep going until the goal is done. The measure of a good turn is the user's problem actually being solved - never settle for a partial, generic or hedged result when the tools to do better are right there.
 
@@ -925,37 +937,67 @@ ${
     // the user sees none of the tool activity, so interim notes are needed -
     // in the web app the user watches the tool activity live, and offering
     // the tool there only produces stray Telegram pings.
-    const agentTools = workspaceToolsForConnectors(connectedConnectors).filter(
-      tool => {
-        // A planning-only /ultraplan turn gets a strict read-only allowlist, so
-        // the plan cannot change anything even if the model tries - the plan
-        // document's own tools are the only writes it keeps.
-        if (ultraplan) {
-          return ultraplanAllowsTool(tool.function.name);
-        }
-        // create_plan / edit_plan exist for ultraplan only.
-        if (isPlanTool(tool.function.name)) return false;
-        // An inbound-email run is untrusted input from a stranger, so it gets
-        // a strict allowlist instead of the full workspace toolkit.
-        if (options.emailReply) {
-          return emailReplyAllowsTool(tool.function.name);
-        }
-        if (
-          options.channel !== "telegram" &&
-          (tool.function.name === "present_file" ||
-            tool.function.name === "send_progress_update")
-        )
-          return false;
-        // The gated identity tools belong to personal agents only.
-        if (
-          !options.agentChat &&
-          (tool.function.name === "request_purchase" ||
-            tool.function.name === "send_agent_email")
-        )
-          return false;
-        return true;
-      }
+    // This conversation's workflow mode (chat -> plan -> build). Only ordinary
+    // assistant chats participate; ultraplan, inbound-email, and personal-agent
+    // runs keep their own tool rules unchanged. The mode is recorded as an
+    // internal marker row, and the rows are read once here and reused for the
+    // model history below.
+    const modesEnabled = !ultraplan && !options.emailReply && !options.agentChat;
+    const priorMessages =
+      (await listChatMessagesForUser(ownerId, chatId)) ?? [];
+    const resolvedMode = modesEnabled
+      ? resolveAgentMode(priorMessages)
+      : { mode: "build" as const, isNewChat: false, fromPlan: false };
+    let agentMode: AgentMode = resolvedMode.mode;
+    // A brand-new conversation starts in chat mode; record it so the mode
+    // survives the turn. A "plan" marker means a plan was drafted and the user
+    // has now replied, which enters build for this run.
+    if (modesEnabled && resolvedMode.isNewChat)
+      await recordAgentMode(ownerId, chatId, "chat");
+    if (modesEnabled && resolvedMode.fromPlan)
+      await recordAgentMode(ownerId, chatId, "build");
+
+    const allTools = workspaceToolsForConnectors(connectedConnectors);
+    // The full toolkit an ordinary build turn gets: everything the previous
+    // filter allowed, minus the plan-writing tools and the chat transition tool.
+    const buildTools = allTools.filter(tool => {
+      const { name } = tool.function;
+      if (isPlanTool(name) || name === START_PLANNING_TOOL) return false;
+      // An inbound-email run is untrusted input from a stranger, so it gets
+      // a strict allowlist instead of the full workspace toolkit.
+      if (options.emailReply) return emailReplyAllowsTool(name);
+      if (
+        options.channel !== "telegram" &&
+        (name === "present_file" || name === "send_progress_update")
+      )
+        return false;
+      // The gated identity tools belong to personal agents only.
+      if (
+        !options.agentChat &&
+        (name === "request_purchase" || name === "send_agent_email")
+      )
+        return false;
+      return true;
+    });
+    // Chat mode is research-only: no tool that can change anything, plus the
+    // single transition tool that hands an action request to planning.
+    const chatTools = allTools.filter(tool =>
+      chatModeAllowsTool(tool.function.name)
     );
+    // The planning phase reuses the /ultraplan allowlist: read-only research
+    // plus the two plan-writing tools. This is also the strict allowlist an
+    // explicit /ultraplan turn gets, so the plan can never change anything.
+    const planTools = allTools.filter(tool =>
+      ultraplanAllowsTool(tool.function.name)
+    );
+    const toolsForMode = (): GatewayToolDefinition[] => {
+      if (ultraplan) return planTools;
+      if (!modesEnabled) return buildTools;
+      if (agentMode === "chat") return chatTools;
+      if (agentMode === "plan") return planTools;
+      return buildTools;
+    };
+    let agentTools = toolsForMode();
     const memoriesLine = await listRecentMemoriesForPrompt(
       ownerId,
       8,
@@ -978,6 +1020,10 @@ ${
         role: "system",
         content: WORKSPACE_AGENT_PROMPT.replace("{{memories}}", memoriesLine)
           .replace("{{agent_identity}}", agentIdentityLine)
+          .replace(
+            "{{mode}}",
+            agentMode === "chat" ? buildChatModePromptBlock() : ""
+          )
           .replace("{{connectors}}", connectorStatusLine(connectedConnectors))
           .replace("{{deployments}}", deploymentsLine)
           .replace(
@@ -1017,7 +1063,9 @@ ${
     // persisted user bubble keeps the clean command the user typed.
     const modelInput = ultraplan
       ? `${content}\n\n${buildUltraplanInstruction(ultraplan.task, options.channel)}`
-      : content;
+      : resolvedMode.fromPlan
+        ? `${content}\n\n${buildBuildModeInstruction(chatId, options.channel)}`
+        : content;
     const modelContent = options.uploadContext
       ? `${modelInput}${options.uploadContext}`
       : modelInput;
@@ -1046,8 +1094,6 @@ ${
      * blow the model's context window.
      */
     const MAX_HISTORY_MESSAGES = 60;
-    const priorMessages =
-      (await listChatMessagesForUser(ownerId, chatId)) ?? [];
     // A run also persists the narration it writes before each tool call, so a
     // settled turn can be several assistant rows in a row ("let me check" then
     // the reply). Merge consecutive same-role rows back into one turn: the
@@ -1058,7 +1104,8 @@ ${
       .filter(
         m =>
           !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
-          !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX)
+          !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
+          !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
       )
       .slice(-MAX_HISTORY_MESSAGES)) {
       const turn: GatewayChatMessage = {
@@ -1400,6 +1447,58 @@ ${
           }
           endTurnCalled = true;
           break;
+        }
+        // The chat-mode model hands an action request over to planning. This is
+        // a local control call like end_turn: no side effects and no budget
+        // cost. It records the task, flips the rest of this run into planning
+        // mode (the strict /ultraplan allowlist plus the plan-writing tools),
+        // and tells the model to draft the plan; the user's reply to that plan
+        // enters build on a later turn.
+        if (call.name === START_PLANNING_TOOL) {
+          let plannedTask = "";
+          try {
+            const parsed = JSON.parse(call.arguments || "{}") as {
+              task?: unknown;
+            };
+            if (typeof parsed?.task === "string") plannedTask = parsed.task.trim();
+          } catch {
+            // Malformed arguments fall back to an empty task; the planning
+            // instruction then still plans from the conversation.
+          }
+          if (modesEnabled && agentMode === "chat") {
+            agentMode = "plan";
+            agentTools = toolsForMode();
+            await recordAgentMode(ownerId, chatId, "plan");
+            await emitTool({
+              id: call.id,
+              name: call.name,
+              state: "completed",
+              args: { arguments: call.arguments.slice(0, 500) },
+              summary:
+                "Switching to planning mode to research the task and draft a plan.",
+            });
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content:
+                "Planning mode is now active. Research the task with the read-only tools you now have and draft the plan with create_plan.",
+            });
+            messages.push({
+              role: "user",
+              content: buildUltraplanInstruction(plannedTask, options.channel, {
+                auto: true,
+              }),
+            });
+            continue;
+          }
+          // Defensive: the tool only exists in chat mode, but never leave a
+          // tool call unanswered if it somehow arrives elsewhere.
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: `${START_PLANNING_TOOL} is only available in chat mode.`,
+          });
+          continue;
         }
         if (await hasAgentStopAfter(ownerId, chatId, runStartedAt))
           return stopRun();

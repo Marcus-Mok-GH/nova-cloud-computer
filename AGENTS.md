@@ -5,7 +5,9 @@ Instructions for AI agents working in this repository.
 ## Git workflow
 
 - For **minor changes** — typo fixes, small copy tweaks, one-line fixes, doc updates, formatting — commit and **push directly to `main`**. Do not open a PR.
-- For **everything else** — new features, refactors, behavior changes, anything touching multiple files or systems — **create a branch and open a pull request**. Do not push directly to `main`.
+- For **everything else** — new features, refactors, behavior changes, anything touching multiple files or systems — **create a branch and open a pull request against the main branch**. Do not push directly to `main`.
+- After fixing coderabbit reviews, **DO NOT** trigger another review.
+- If the AI reviewers are rate-limited (even if it is 1 minute), **DO NOT POLL**.
 
 ### Rules
 

@@ -84,6 +84,7 @@ import {
   executeWorkspaceTool,
 } from "./workspaceToolExecutor";
 import { describeDeploymentsForUser } from "./siteDeploy";
+import { launchPreparingNextTurn } from "./agentsInit";
 // Re-exported so existing importers of this module keep working.
 export { isCodeFileName, isSubstantialCode, unifiedDiff } from "./workspaceEdits";
 export type {
@@ -1766,6 +1767,31 @@ ${
     // full text would duplicate what the user watched appear.
     if (streamedReplyChars === 0) await options.onChunk?.(reply);
     const message = await persistAssistant(reply);
+    // Preparing the next turn: after a settled run that actually changed the
+    // workspace (created/edited/renamed/moved/deleted files or folders), a
+    // background subagent spins up with the /init prompt and keeps AGENTS.md
+    // current so future sessions inherit the project's house rules. The user
+    // sees only one `preparing_next_turn` activity run and settle. Awaited
+    // before returning (see launchPreparingNextTurn) so the sandbox is kept
+    // warm until the subagent has written.
+    if (
+      !closedByDeadline &&
+      options.channel === "web" &&
+      actions.some(
+        (action: AgentAction) =>
+          (action.kind === "file" || action.kind === "folder") &&
+          action.name &&
+          action.name !== "AGENTS.md"
+      )
+    ) {
+      await launchPreparingNextTurn({
+        ownerId,
+        chatId,
+        sandbox: agentSandbox,
+        workspaceId: sandboxWorkspaceId,
+        onEvent: options.onEvent,
+      });
+    }
     return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
     console.error("[Chat] AI gateway chat failed", error);

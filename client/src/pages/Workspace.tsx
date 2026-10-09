@@ -101,6 +101,11 @@ export const teamPlanKickoff = (goal: string): string => {
   ].join(" ");
 };
 
+/**
+ * The Nova workspace screen: the Overview home page (headline + connectors)
+ * when no conversation is open, and the thread view with its composer once a
+ * chat is selected.
+ */
 export default function Workspace() {
   const computer = trpc.workspace.computer.useQuery(undefined, {
     retry: false,

@@ -242,7 +242,7 @@ describe("Workspace rendered browser states", () => {
     };
   });
 
-  it("renders the start-chat prompt box as a real textarea with a disabled send button until text is entered", () => {
+  it("renders the home without the starter composer or the workbench greeting", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
@@ -250,9 +250,11 @@ describe("Workspace rendered browser states", () => {
       refetch: vi.fn(),
     };
     const markup = renderWorkspace();
-    expect(markup).toContain("<textarea");
-    expect(markup).toContain("What do you want Nova to help with?");
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>\s*Create thread/);
+    expect(markup).toContain("What are we working on today?");
+    expect(markup).not.toContain("<textarea");
+    expect(markup).not.toContain("What do you want Nova to help with?");
+    expect(markup).not.toContain("Create thread");
+    expect(markup).not.toContain("Private workbench /");
   });
 
   it("renders workspace asset counts without folder browsing controls", () => {
@@ -276,7 +278,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderWorkspace();
     expect(markup).toContain("What are we working on today?");
     expect(markup).toContain("Tools on hand");
-    expect(markup).toContain("Private workbench /");
+    expect(markup).not.toContain("Private workbench /");
     expect(markup).toContain("GitHub");
     expect(markup).toContain("Gmail");
     expect(markup).not.toContain("Cloud VM");
@@ -444,7 +446,6 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Create thread");
     expect(markup).toContain("Tools on hand");
     expect(markup).not.toContain("Workspace folders");
     expect(markup).not.toContain("Describe a safe workspace task");

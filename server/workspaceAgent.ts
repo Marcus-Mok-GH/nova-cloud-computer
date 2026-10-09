@@ -1789,6 +1789,12 @@ ${
         chatId,
         sandbox: agentSandbox,
         workspaceId: sandboxWorkspaceId,
+        deadlineAtMs,
+        // The run's persisting emitter: the preparing_next_turn rows are
+        // streamed AND appended to the chat ledger like every other tool
+        // activity, so a page reload still shows them and a client that
+        // loses the stream sees the settled state on its next poll.
+        emitTool,
         onEvent: options.onEvent,
       });
     }

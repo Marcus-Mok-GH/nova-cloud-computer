@@ -567,8 +567,19 @@ export async function runAgentsInitTask(
   };
 }
 
-/** The background window the preparing subagent gets when a run just ended. */
+/** Preferred background window for the preparing subagent when a run just ended. */
 const PREPARE_WINDOW_MS = 240_000;
+/**
+ * The preparation must fit INSIDE the invoking serverless function's
+ * remaining lifetime: the run's own deadline is anchored to the request's
+ * arrival, so near the end of a long run a fresh 240s window could run past
+ * maxDuration and get Vercel-killed with the writes unsynced and the
+ * activity unsettled. The subagent therefore never runs past the run's
+ * deadline minus this margin, which leaves room for launchPreparingNextTurn
+ * to sync the sandbox writes back and still settle the activity row before
+ * the invocation ends.
+ */
+const PREPARE_CLEANUP_RESERVE_MS = 15_000;
 /**
  * The activity args shape chatMessages.tsx expects: every tool row carries
  * its call arguments (possibly empty) in args.arguments.
@@ -593,7 +604,9 @@ const PREPARE_ARGS = { arguments: "{}" };
  * already awaited this launch before touching the sandbox sync/pause, so the
  * subagent finishes (and its writes are mirrored) before the sandbox is
  * synced back and paused; moving it to a detached waitUntil could race the
- * pause and sync, and Vercel's generous web maxDuration covers the window.
+ * pause and sync. The window is bounded by the run's own deadlineAtMs
+ * (minus a reserve for the sync-back and the activity settle) so it can
+ * never outlive the invoking serverless function.
  */
 export async function launchPreparingNextTurn(input: {
   ownerId: number;
@@ -602,14 +615,66 @@ export async function launchPreparingNextTurn(input: {
   sandbox: E2BSandboxLike | undefined;
   /** The workspace id the sandbox belongs to, for the sync-back step. */
   workspaceId: number | undefined;
-  /** The run's activity emitter - the subagent's status rides the same channel. */
+  /** When the invoking run/function must be over (epoch ms). */
+  deadlineAtMs?: number;
+  /**
+   * The run's persisting activity emitter (emitTool: streams the event to
+   * the open chat AND appends the TOOL_ACTIVITY_MESSAGE_PREFIX row to the
+   * chat ledger, so the activity survives a page reload and a client that
+   * loses the stream still sees the settled state on the next poll).
+   */
+  /**
+   * The run's persisting activity emitter (emitTool): streams the event to
+   * the open chat AND appends the TOOL_ACTIVITY_MESSAGE_PREFIX row to the
+   * chat ledger, so the activity survives a page reload and a client that
+   * loses the stream sees the settled state on its next poll. It also
+   * error-guards its own persistence, so emit never throws.
+   */
+  emitTool?: (tool: WorkspaceToolActivity) => Promise<void>;
+  /** Stream-only fallback used when no persisting emitter is provided (tests). */
   onEvent?: WorkspaceAgentOptions["onEvent"];
 }): Promise<void> {
   const emit = async (tool: WorkspaceToolActivity) => {
+    if (input.emitTool) {
+      await input.emitTool(tool);
+      return;
+    }
+    // Fallback (tests): no persisting emitter was provided.
     try {
       await input.onEvent?.({ type: "tool", tool });
     } catch {}
   };
+  // The preparation window: the preferred 240s, capped by the invoking
+  // run's remaining budget minus the reserve for the sync-back and settle.
+  // Too little time left (a run closing on its deadline) means skipping is
+  // the only honest option: starting work that cannot sync or settle its
+  // activity would lose the writes and strand a spinning row.
+  const remainingMs =
+    input.deadlineAtMs !== undefined
+      ? input.deadlineAtMs - Date.now()
+      : Number.POSITIVE_INFINITY;
+  if (input.sandbox && input.workspaceId !== undefined) {
+    const availableMs = remainingMs - PREPARE_CLEANUP_RESERVE_MS;
+    if (availableMs < 30_000) {
+      const startedAt = Date.now();
+      try {
+        await emit({
+          id: `${PREPARING_NEXT_TURN_ACTIVITY}-${startedAt}`,
+          name: PREPARING_NEXT_TURN_ACTIVITY,
+          state: "failed",
+          args: {
+            arguments: JSON.stringify({
+              summary:
+                "Skipped: the run's time budget was too close to its end to refresh AGENTS.md.",
+            }),
+          },
+          summary:
+            "Skipped preparing the next turn: not enough time left in this run's budget.",
+        });
+      } catch {}
+      return;
+    }
+  }
   const startedAt = Date.now();
   try {
     if (!input.sandbox || input.workspaceId === undefined) {
@@ -638,9 +703,16 @@ export async function launchPreparingNextTurn(input: {
         "Preparing the next turn: Nova is reading the changed workspace and keeping AGENTS.md current.",
     });
     const workspaceId = input.workspaceId;
+    const prepareDeadlineMs =
+      input.deadlineAtMs !== undefined
+        ? Math.min(
+            Date.now() + PREPARE_WINDOW_MS,
+            input.deadlineAtMs - PREPARE_CLEANUP_RESERVE_MS
+          )
+        : Date.now() + PREPARE_WINDOW_MS;
     const outcome = await runAgentsInitTask({
       sandbox: input.sandbox,
-      deadlineAtMs: Date.now() + PREPARE_WINDOW_MS,
+      deadlineAtMs: prepareDeadlineMs,
     });
     // Sync the subagent's writes into the durable Neon/S3 store immediately
     // under the workspace lock while the sandbox is still warm, then leave

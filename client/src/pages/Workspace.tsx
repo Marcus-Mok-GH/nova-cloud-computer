@@ -108,7 +108,6 @@ export default function Workspace() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const [draft, setDraft] = useState("");
-  const [startPrompt, setStartPrompt] = useState("");
   const [pendingUserContent, setPendingUserContent] = useState("");
   const [liveEvents, setLiveEvents] = useState<LiveChatEvent[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -139,12 +138,8 @@ export default function Workspace() {
   const [composerAttachments, setComposerAttachments] = useState<
     ChatImageAttachment[]
   >([]);
-  const [starterAttachments, setStarterAttachments] = useState<
-    ChatImageAttachment[]
-  >([]);
   const [preparingImages, setPreparingImages] = useState(false);
   const composerImageInputRef = useRef<HTMLInputElement>(null);
-  const starterImageInputRef = useRef<HTMLInputElement>(null);
 
   // Downscales and encodes picked/pasted files, then queues them for the next
   // message up to the per-message cap.
@@ -197,17 +192,6 @@ export default function Workspace() {
       : `Uploaded ${attachments.length} images`);
   const canSendComposer =
     Boolean(draft.trim() || composerAttachments.length) && !preparingImages;
-  const startChat = trpc.chats.create.useMutation({
-    onSuccess: async chat => {
-      await utils.workspace.computer.invalidate();
-      setLocation(`/app?chatId=${chat.id}`);
-    },
-  });
-  const canStartChat =
-    Boolean(startPrompt.trim() || starterAttachments.length) &&
-    !preparingImages &&
-    !startChat.isPending &&
-    !isStreaming;
   // While a conversation is open it polls every 2.5s so activity started
   // elsewhere (e.g. Telegram) streams into this view in real time.
   const savedMessages = trpc.chats.messages.useQuery(
@@ -370,7 +354,7 @@ export default function Workspace() {
   };
   /**
    * Streams a message into `targetChatId`, reused by the active-chat composer
-   * and the "Start a chat" prompt box. Resolves true when the turn streamed
+   * and the one-shot kickoff intents. Resolves true when the turn streamed
    * to completion and false on any failure, so callers that need a confirmed
    * send (e.g. the team kickoff's one-shot intent) can react to it.
    */
@@ -493,33 +477,6 @@ export default function Workspace() {
     setDraft("");
     setComposerAttachments([]);
     await sendMessage(chatId, content, images);
-  };
-  /** Creates a new chat from the "Ask Nova anything about your work" box, navigates to it, then streams the typed prompt as its first message. */
-  const handleStartChat = async () => {
-    if (
-      (!startPrompt.trim() && !starterAttachments.length) ||
-      startChat.isPending ||
-      agentIsWorking
-    )
-      return;
-    const content = contentFor(startPrompt, starterAttachments);
-    const images = starterAttachments.map(attachment => attachment.dataUri);
-    try {
-      const chat = await startChat.mutateAsync({
-        title: "New workspace conversation",
-      });
-      setStartPrompt("");
-      setStarterAttachments([]);
-      setLocation(`/app?chatId=${chat.id}`);
-      await sendMessage(chat.id, content, images);
-    } catch (error) {
-      console.error("Failed to start chat:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Nova could not start that conversation."
-      );
-    }
   };
   // A chat opened from Settings' "Start guided setup" link begins with the
   // personalisation kickoff, once. The intent is stripped from the URL so a
@@ -1094,9 +1051,6 @@ export default function Workspace() {
   const telegramLinked = Boolean(
     telegramStatus.data?.configured && telegramStatus.data?.chatId
   );
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const connectors = [
     {
       name: "Telegram",
@@ -1133,11 +1087,8 @@ export default function Workspace() {
       <div className="chat-editorial-shell relative min-h-full overflow-hidden">
         <div className="chat-editorial-orbit pointer-events-none absolute -right-48 -top-56 size-[36rem] rounded-full border border-primary/[0.12] dark:border-primary/[0.16]" />
         <div className="relative mx-auto grid max-w-[1240px] gap-12 px-4 py-12 sm:px-7 sm:py-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.65fr)] lg:items-start lg:gap-20">
-          <div className="rise-in">
-            <p className="text-[10px] font-bold uppercase tracking-[0.20em] text-primary">
-              Private workbench / {greeting}
-            </p>
-            <h1 className="mt-6 max-w-3xl font-serif text-5xl font-medium leading-[0.94] tracking-[-0.055em] text-foreground sm:text-7xl">
+          <div className="rise-in lg:col-span-2">
+            <h1 className="max-w-3xl font-serif text-5xl font-medium leading-[0.94] tracking-[-0.055em] text-foreground sm:text-7xl">
               What are we working on today?
             </h1>
             <p className="mt-6 max-w-lg text-base leading-7 text-muted-foreground">
@@ -1147,95 +1098,6 @@ export default function Workspace() {
             <div className="mt-10 flex items-center gap-3 text-xs text-muted-foreground">
               <span className="size-2 rounded-full bg-emerald-500" />
               Your workspace stays private to your account
-            </div>
-          </div>
-
-          <div className="rise-in-delay-1 border-t-2 border-primary bg-card/75 p-4 shadow-[0_20px_70px_rgba(36,40,34,0.08)] dark:bg-white/[0.045] dark:shadow-[0_20px_70px_rgba(0,0,0,0.20)] sm:p-5">
-            <div className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                <MessageSquareText className="size-3.5 text-primary" />
-                New thread
-              </span>
-              <span className="text-[10px] text-muted-foreground">Enter ↵</span>
-            </div>
-            <ImageAttachmentTray
-              attachments={starterAttachments}
-              onRemove={id =>
-                setStarterAttachments(previous =>
-                  previous.filter(attachment => attachment.id !== id)
-                )
-              }
-            />
-            <input
-              ref={starterImageInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              multiple
-              hidden
-              onChange={event => {
-                const files = event.target.files;
-                if (files?.length)
-                  void addChatImages(
-                    setStarterAttachments,
-                    starterAttachments,
-                    files
-                  );
-                event.target.value = "";
-              }}
-            />
-            <Textarea
-              value={startPrompt}
-              onChange={event => setStartPrompt(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void handleStartChat();
-                }
-              }}
-              onPaste={event => {
-                const files = Array.from(
-                  event.clipboardData?.files ?? []
-                ).filter(file => file.type.startsWith("image/"));
-                if (!files.length) return;
-                event.preventDefault();
-                void addChatImages(
-                  setStarterAttachments,
-                  starterAttachments,
-                  files
-                );
-              }}
-              placeholder="What do you want Nova to help with?"
-              rows={5}
-              disabled={startChat.isPending || isStreaming}
-              className="mt-6 max-h-40 min-h-32 w-full resize-none border-0 bg-transparent px-0 py-1.5 text-[17px] leading-7 placeholder:text-muted-foreground focus-visible:ring-0"
-            />
-            <div className="mt-5 flex items-center justify-between gap-3 border-t border-foreground/[0.10] pt-4 dark:border-white/[0.10]">
-              <span className="text-[10px] font-medium text-muted-foreground">
-                Nova sees only your workspace.
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => starterImageInputRef.current?.click()}
-                  disabled={preparingImages || startChat.isPending || isStreaming}
-                  aria-label="Attach images"
-                  className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
-                >
-                  <ImagePlus className="size-4" />
-                </button>
-                <Button
-                  type="button"
-                  onClick={() => void handleStartChat()}
-                  disabled={!canStartChat}
-                  className={
-                    canStartChat
-                    ? "rounded-lg bg-foreground px-3.5 py-2 text-xs font-bold text-background hover:bg-foreground/90 dark:bg-white dark:text-black"
-                      : "rounded-lg bg-muted px-3.5 py-2 text-xs font-bold text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10"
-                  }
-                >
-                  {startChat.isPending ? "Creating…" : "Create thread"}
-                </Button>
-              </div>
             </div>
           </div>
 

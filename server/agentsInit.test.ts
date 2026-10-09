@@ -170,6 +170,10 @@ describe("launchPreparingNextTurn", () => {
       chatId: "chat",
       sandbox,
       workspaceId: 41,
+      deadlineAtMs: Date.now() + 300_000,
+      emitTool: async tool => {
+        events.push({ type: "tool", tool });
+      },
       onEvent,
     });
 
@@ -178,6 +182,30 @@ describe("launchPreparingNextTurn", () => {
     const completed = lastActivity(PREPARING_NEXT_TURN_ACTIVITY);
     expect(completed?.tool.state).toBe("completed");
     expect(syncAgentSandbox).toHaveBeenCalledWith(1, 41, sandbox);
+    // The deadline is capped by the caller's remaining budget: the task's
+    // deadline can never exceed the run's own deadline minus the reserve.
+    const started = runNimAgentChatMock.mock.calls[0][0];
+    expect(started.deadlineAtMs).toBeLessThanOrEqual(Date.now() + 300_000);
+  });
+
+  it("skips preparation when the run budget is too close to its end", async () => {
+    await launchPreparingNextTurn({
+      ownerId: 1,
+      chatId: "chat",
+      sandbox,
+      workspaceId: 41,
+      deadlineAtMs: Date.now() + 30_000,
+      emitTool: async tool => {
+        events.push({ type: "tool", tool });
+      },
+    });
+
+    // No model round was started, and one honest failed row settles the activity.
+    expect(runNimAgentChatMock).not.toHaveBeenCalled();
+    expect(syncAgentSandbox).not.toHaveBeenCalled();
+    const last = lastActivity(PREPARING_NEXT_TURN_ACTIVITY);
+    expect(last?.tool.state).toBe("failed");
+    expect(last?.tool.summary).toContain("Skipped");
   });
 
   it("settles the activity to failed and never throws", async () => {
@@ -190,6 +218,7 @@ describe("launchPreparingNextTurn", () => {
         chatId: "chat",
         sandbox,
         workspaceId: 41,
+        deadlineAtMs: Date.now() + 300_000,
         onEvent,
       })
     ).resolves.toBeUndefined();

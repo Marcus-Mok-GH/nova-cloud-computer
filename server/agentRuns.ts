@@ -194,11 +194,11 @@ export async function executeTelegramAgentRun(
         ? await holdAndScheduleContinuation(ownerId, run.id, run.segment)
         : false;
     if (!reply && !chained) {
-      await sendTelegramMessage(
-        token,
-        telegramChatId,
-        "Nova could not finish that reply. Please try again shortly."
-      );
+      // No canned "Nova could not finish that reply" notice here: the run
+      // deliberately posts nothing when it produces no text (see the empty
+      // reply handling in runWorkspaceAgent), and a canned failure line only
+      // repeated what the user already knew. The ledger still records the
+      // run as failed so the gap is diagnosable.
       if (run)
         await finishAgentRunForUser(
           ownerId,

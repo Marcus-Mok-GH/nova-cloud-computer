@@ -845,6 +845,26 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Created notes.txt for you.");
   });
 
+  it("posts nothing when the model closes the turn with no reply text", async () => {
+    // The model ends its turn carrying no text at all (an empty end_turn
+    // argument, no round text, no draft).
+    chatWithAiGateway.mockResolvedValueOnce(endTurnReply({ reply: "" }));
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "hi", { onChunk });
+    // The canned "I could not complete that request" notice is gone: a
+    // textless close persists no assistant row and streams no chunk, and the
+    // caller sees no reply message.
+    const cannedFailureRows = append.mock.calls.filter(
+      callArgs =>
+        callArgs[1].role === "assistant" &&
+        typeof callArgs[1].content === "string" &&
+        callArgs[1].content.toLowerCase().includes("could not complete")
+    );
+    expect(cannedFailureRows).toHaveLength(0);
+    expect(onChunk).not.toHaveBeenCalled();
+    expect(result.message).toBeUndefined();
+  });
+
   it("solves an equation when the model calls solve_equation, then finishes with a reply", async () => {
     chatWithAiGateway
       .mockResolvedValueOnce(

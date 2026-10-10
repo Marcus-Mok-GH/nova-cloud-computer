@@ -1759,14 +1759,21 @@ ${
       // via accept_own_coding, unlocks Nova's own coding).
       await recordSpecialistAcceptance(ownerId, chatId, "pending");
     }
-    if (!reply.trim()) {
-      reply =
-        "I could not complete that request. Please try again, or rephrase it more specifically.";
-    }
+    // A run that closes with no visible reply text no longer gets the canned
+    // "I could not complete that request" notice. It repeated on every
+    // textless close even though a failed step already gets its own retry
+    // nudge inside the model's context (failureNudgeFor above), so the line
+    // was noise rather than information. Nothing is streamed and nothing is
+    // persisted now - the tool rows that ran still show what happened - and
+    // every caller already treats a missing reply as "no text": the web
+    // client polls the ledger, Telegram sends nothing either (its own canned
+    // empty-reply note is gone too), an automation run reports no report,
+    // and auto-title skips the chat.
+    const hasReply = Boolean(reply.trim());
     // The reply already streamed to the client token-by-token: re-sending the
     // full text would duplicate what the user watched appear.
-    if (streamedReplyChars === 0) await options.onChunk?.(reply);
-    const message = await persistAssistant(reply);
+    if (hasReply && streamedReplyChars === 0) await options.onChunk?.(reply);
+    const message = hasReply ? await persistAssistant(reply) : undefined;
     // Preparing the next turn: after a settled run that actually changed the
     // workspace (created/edited/renamed/moved/deleted files or folders), a
     // background subagent spins up with the /init prompt and keeps AGENTS.md

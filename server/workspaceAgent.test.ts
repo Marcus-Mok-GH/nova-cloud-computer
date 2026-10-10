@@ -319,8 +319,7 @@ const {
   END_TURN_NUDGE_PREFIX,
   FAILURE_NUDGE_PREFIX,
   autoTitleChatForUser,
-  setGatewayRetryDelaysForTests,
-  setGatewayRateLimitRetryDelayForTests,
+  setGatewayRetryBackoffForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -401,13 +400,12 @@ const fakeSandbox = () => {
 
 describe("Nova tool-calling workspace agent", () => {
   beforeEach(() => {
-    setGatewayRetryDelaysForTests([0, 0]);
-    setGatewayRateLimitRetryDelayForTests(0);
+    setGatewayRetryBackoffForTests(0);
   });
 
   afterEach(() => {
     vi.clearAllMocks();
-    setGatewayRateLimitRetryDelayForTests(null);
+    setGatewayRetryBackoffForTests(null);
     // Streaming runs now poll the stop flag mid-response: keep the default.
     hasAgentStopAfter.mockImplementation(async () => false);
     // clearAllMocks keeps mock *implementations*, so a sandbox test that
@@ -3432,18 +3430,6 @@ describe("Nova tool-calling workspace agent", () => {
           "unavailable"
         )
       )
-      .mockRejectedValueOnce(
-        new AiGatewayClientError(
-          "image input is not supported by this model",
-          "unavailable"
-        )
-      )
-      .mockRejectedValueOnce(
-        new AiGatewayClientError(
-          "image input is not supported by this model",
-          "unavailable"
-        )
-      )
       .mockResolvedValueOnce(chatResult({ text: "I cannot see that image." }))
       .mockResolvedValueOnce(
         chatResult({ toolCalls: [endTurnCall("I cannot see that image.")] })
@@ -4003,7 +3989,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Hello world");
   });
 
-  it("hides the backend error behind a generic notice when every retry fails", async () => {
+  it("retries a transient outage until the run deadline instead of showing an error", async () => {
     chatWithAiGateway.mockRejectedValue(
       new AiGatewayClientError(
         "fetch failed: connection reset by peer",
@@ -4011,16 +3997,25 @@ describe("Nova tool-calling workspace agent", () => {
       )
     );
     const onChunk = vi.fn();
-    const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
-    expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
+    const result = await runWorkspaceAgent(1, 3, "hello?", {
+      onChunk,
+      deadlineAtMs: Date.now() + 80,
+    });
+    // The blip is retried in place until the budget runs out. The run then
+    // closes as out-of-budget (a status message / automatic continuation)
+    // instead of surfacing a connection error the user cannot act on.
+    expect(result.outOfBudget).toBe(true);
+    expect(chatWithAiGateway.mock.calls.length).toBeGreaterThan(1);
+    const persisted = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.role === "assistant")
+      .map(input => String(input.content))
+      .join("\n");
     // The raw backend error - and any endpoint or service it names - never
     // reaches the chat.
-    expect(result.message.content).not.toContain(
-      "fetch failed: connection reset by peer"
-    );
-    expect(result.message.content).not.toContain("Mistral");
-    expect(onChunk).toHaveBeenCalled();
-    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
+    expect(persisted).not.toContain("fetch failed: connection reset by peer");
+    expect(persisted).not.toContain("Mistral");
+    expect(persisted).not.toContain(AI_UNAVAILABLE_PREFIX);
   });
 
   it("keeps the database cause behind a drizzle Failed query wrapper out of the chat", async () => {
@@ -4417,8 +4412,11 @@ describe("Nova tool-calling workspace agent", () => {
     );
   });
 
-  it("stops after one patient 429 retry and leads with the provider's own error", async () => {
+  it("retries an upstream 429 three times through the fallback chain before reporting the throttle", async () => {
     chatWithAiGateway
+      .mockRejectedValueOnce(
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
+      )
       .mockRejectedValueOnce(
         new AiGatewayClientError("Too Many Requests", "rate_limit")
       )
@@ -4429,8 +4427,9 @@ describe("Nova tool-calling workspace agent", () => {
         new AiGatewayClientError("Too Many Requests", "rate_limit")
       );
     const result = await runWorkspaceAgent(1, 3, "hello?");
-    // The wait happens once per run, never as a fast-retry hammer.
-    expect(chatWithAiGateway).toHaveBeenCalledTimes(2);
+    // The first attempt plus three retries - each re-walking the gateway's
+    // full pool-fallback chain - and only then the throttle is reported.
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(4);
     // The reply explains the throttle in user-facing terms instead of
     // quoting the upstream provider's raw error text.
     expect(result.message.content).toContain("Too many requests right now");
@@ -4456,15 +4455,26 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).not.toContain("Model not found");
   });
 
-  it("skips the patient 429 retry when the run deadline cannot absorb the wait", async () => {
-    chatWithAiGateway.mockRejectedValue(
-      new AiGatewayClientError("Too Many Requests", "rate_limit")
-    );
+  it("retries an upstream 429 instantly, without waiting out a lockout", async () => {
+    chatWithAiGateway
+      .mockRejectedValueOnce(
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockRejectedValueOnce(
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockRejectedValueOnce(
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
+      )
+      .mockRejectedValueOnce(
+        new AiGatewayClientError("Too Many Requests", "rate_limit")
+      );
     const result = await runWorkspaceAgent(1, 3, "hello?", {
       deadlineAtMs: Date.now() + 10_000,
     });
-    // No time for the wait: fail immediately with a user-facing explanation.
-    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
+    // No 45s patient wait: the three retries run immediately, so even a short
+    // deadline still fits all of them before the throttle is reported.
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(4);
     expect(result.message.content).toContain("Too many requests right now");
   });
 
@@ -4478,13 +4488,36 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).not.toContain("no key");
   });
 
-  it("returns invalid-response message when every retry is invalid", async () => {
+  it("closes out-of-budget, not with an error, when a transient failure outlasts the deadline", async () => {
     chatWithAiGateway.mockRejectedValue(
       new AiGatewayClientError("bad", "invalid_response")
     );
-    const result = await runWorkspaceAgent(1, 3, "hello?");
-    expect(result.message.content).toContain("invalid response");
-    expect(chatWithAiGateway).toHaveBeenCalledTimes(3);
+    const result = await runWorkspaceAgent(1, 3, "hello?", {
+      deadlineAtMs: Date.now() + 80,
+    });
+    expect(result.outOfBudget).toBe(true);
+    expect(chatWithAiGateway.mock.calls.length).toBeGreaterThan(1);
+    const persisted = append.mock.calls
+      .map(callArgs => callArgs[1])
+      .filter(input => input.role === "assistant")
+      .map(input => String(input.content))
+      .join("\n");
+    expect(persisted).not.toContain("invalid response");
+  });
+
+  it("does not retry when the backoff cannot fit inside the deadline", async () => {
+    // Each retry claims another allowance slot and daily credit, so the capped
+    // backoff must never be started when it would run past the deadline: the
+    // run closes as out-of-budget after the single attempt instead.
+    setGatewayRetryBackoffForTests(2_000);
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("blip", "unavailable")
+    );
+    const result = await runWorkspaceAgent(1, 3, "hello?", {
+      deadlineAtMs: Date.now() + 100,
+    });
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
+    expect(result.outOfBudget).toBe(true);
   });
 
   it("recovers from a transient gateway failure by retrying the round", async () => {
@@ -4528,9 +4561,11 @@ describe("Nova tool-calling workspace agent", () => {
     );
   });
 
-  it("keeps tool-narration text streamed in earlier rounds when the final round fails", async () => {
-    // Round 1 streams "Checking your files" and requests a tool; round 2
-    // fails with nothing streamed - the user still keeps what they watched.
+  it("keeps the narration streamed before a transient failure, without a failure notice", async () => {
+    // Round 1 streams "Checking your files" and requests a tool; round 2 then
+    // fails transiently until the deadline. The narration the user already
+    // watched is kept, and the run closes as out-of-budget instead of
+    // surfacing the transient failure.
     chatWithAiGateway
       .mockImplementationOnce(async (owner, messages, options) => {
         options?.onChunk?.("Checking your files. ");
@@ -4549,10 +4584,15 @@ describe("Nova tool-calling workspace agent", () => {
         new AiGatewayClientError("dead", "invalid_response")
       );
     const onChunk = vi.fn();
-    const result = await runWorkspaceAgent(1, 3, "make a folder", { onChunk });
-    expect(result.message.content).toContain("Checking your files");
-    expect(result.message.content).toContain("lost the connection");
-    expect(result.message.content).not.toContain("invalid response");
+    const result = await runWorkspaceAgent(1, 3, "make a folder", {
+      onChunk,
+      deadlineAtMs: Date.now() + 120,
+    });
+    expect(onChunk).toHaveBeenCalledWith("Checking your files. ");
+    expect(result.outOfBudget).toBe(true);
+    const streamed = onChunk.mock.calls.map(call => call[0]).join("");
+    expect(streamed).not.toContain("lost the connection");
+    expect(streamed).not.toContain("invalid response");
   });
 });
 

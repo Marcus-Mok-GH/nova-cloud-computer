@@ -202,13 +202,10 @@ class AiGatewayClientError extends Error {
     this.kind = kind;
   }
 }
-const configuredVisionChatModel = vi.fn(() => undefined);
-
 vi.mock("./aiGateway", () => ({
   completeWithAiGateway,
   chatWithAiGateway,
   getAiGatewayStatus,
-  configuredVisionChatModel,
   AiGatewayClientError,
 }));
 
@@ -3383,33 +3380,9 @@ describe("Nova tool-calling workspace agent", () => {
     );
   });
 
-  it("routes image turns to the configured vision model", async () => {
-    configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
-    const dataUri = "data:image/jpeg;base64,aGVsbG8=";
-    chatWithAiGateway.mockResolvedValueOnce(
-      chatResult({ text: "A dog." })
-    );
-    await runWorkspaceAgent(1, 3, "what is in this picture?", {
-      channel: "telegram",
-      imageAttachments: [dataUri],
-    });
-    expect(chatWithAiGateway.mock.calls[0][2]).toMatchObject({
-      model: "glm-4.6v-flash",
-    });
-  });
-
-  it("keeps text turns on the default chat model when a vision model is configured", async () => {
-    configuredVisionChatModel.mockReturnValue("glm-4.6v-flash");
-    chatWithAiGateway.mockResolvedValueOnce(
-      chatResult({ text: "Hello!" })
-    );
-    await runWorkspaceAgent(1, 3, "hi");
-    const options = chatWithAiGateway.mock.calls[0][2] ?? {};
-    expect(options.model).toBeUndefined();
-  });
-
-  it("keeps image turns on the default chat model when no vision model is configured", async () => {
-    configuredVisionChatModel.mockReturnValue(undefined);
+  it("sends image turns to the gateway's single model with no per-turn override", async () => {
+    // The built-in gateway serves one multimodal model, so image turns no
+    // longer switch to a separate vision id.
     const dataUri = "data:image/jpeg;base64,aGVsbG8=";
     chatWithAiGateway.mockResolvedValueOnce(
       chatResult({ text: "A dog." })
@@ -3420,6 +3393,10 @@ describe("Nova tool-calling workspace agent", () => {
     });
     const options = chatWithAiGateway.mock.calls[0][2] ?? {};
     expect(options.model).toBeUndefined();
+    // The image still rides along as a content part for the single model.
+    expect(JSON.stringify(chatWithAiGateway.mock.calls[0][1])).toContain(
+      "image_url"
+    );
   });
 
   it("drops the attachment instead of failing when the model cannot see images", async () => {

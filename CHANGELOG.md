@@ -1,16 +1,19 @@
-2026-10-10 - Transient gateway failures retry instantly instead of stopping the run
+2026-10-10 - Transient gateway failures retry instead of stopping the run
 
 A single upstream blip - a 5xx, a dropped connection, an empty completion -
 used to surface to the user as "Nova lost the connection to its AI service"
 after only a few delayed retries, even though the work so far was safe and the
 run could have recovered. Transient failures (unavailable and invalid_response)
-now retry immediately instead of backing off 400ms/1.2s/5s, and keep retrying
-for as long as the run has budget. When the budget is gone the run closes as
-out-of-budget - the normal model-written status, plus the automatic
-continuation where one is configured - rather than showing an error the user
-cannot act on. A round that already streamed text is still never retried, and
-an image turn still surfaces its failure immediately so the attachment is
-dropped and the turn re-runs on the text model.
+now retry on a short capped backoff - 250ms doubling to 4s, in place of the
+400ms/1.2s/5s ladder - and keep retrying for as long as the run has budget. The
+backoff matters because every attempt claims another shared request allowance
+slot and one daily credit before it is sent, so an unbounded instant loop could
+exhaust a workspace's allowance or credits during an outage. When the budget is
+gone the run closes as out-of-budget - the normal model-written status, plus
+the automatic continuation where one is configured - rather than showing an
+error the user cannot act on. A round that already streamed text is still never
+retried, and an image turn still surfaces its failure immediately so the
+attachment is dropped and the turn re-runs on the text model.
 
 The one failure that still reaches the user is a genuine provider rate limit
 (HTTP 429): those now get three immediate retries, each re-invoking the
@@ -19,10 +22,11 @@ configured pool fallback -> the last-resort model -> the anonymous tier), and
 only after all three does the throttle notice appear. The old single "patient"
 45s wait is gone.
 
-server/workspaceAgent.ts: chatWithGatewayRetry retries instantly and is bounded
-by the run deadline; the run-scoped retry state now tracks a three-retry 429
-budget. server/workspaceAgent.test.ts covers the out-of-budget close, the three
-429 retries, and the preservation of streamed narration.
+server/workspaceAgent.ts: chatWithGatewayRetry retries transient failures on a
+short capped backoff bounded by the run deadline; the run-scoped retry state
+now tracks a three-retry 429 budget. server/workspaceAgent.test.ts covers the
+out-of-budget close, the three 429 retries, and the preservation of streamed
+narration.
 
 2026-10-08 - /ultraplan drafts a deep, planning-only pass before any change
 

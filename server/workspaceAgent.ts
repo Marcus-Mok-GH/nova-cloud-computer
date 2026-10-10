@@ -608,6 +608,21 @@ const RATE_LIMIT_RETRY_LIMIT = 3;
  */
 const TRANSIENT_RETRY_MAX_ATTEMPTS = 8;
 
+/**
+ * Base backoff between transient retries, doubling on each retry up to the
+ * cap. The delay keeps a fast-failing gateway from being hammered: every
+ * attempt claims another shared request allowance slot and one daily credit
+ * before it is sent, so an unbounded instant loop can exhaust a workspace's
+ * allowance or credits during an outage.
+ */
+let gatewayRetryBackoffBaseMs = 250;
+const GATEWAY_RETRY_BACKOFF_CAP_MS = 4_000;
+
+/** Test hook: zero the retry backoff so suites stay fast. */
+export function setGatewayRetryBackoffForTests(ms: number | null) {
+  gatewayRetryBackoffBaseMs = ms ?? 250;
+}
+
 /** Run-scoped retry bookkeeping shared across gateway rounds. */
 type GatewayRetryState = { rateLimitRetriesUsed: number };
 
@@ -687,16 +702,24 @@ async function chatWithGatewayRetry(
       // text model (the round's vision recovery), so surface the failure
       // instead of retrying with the same unviewable image.
       if (options.visionActive) throw error;
-      // Transient failure: retry immediately. With a deadline, keep going
-      // until the budget is gone and then close the run as out-of-budget
-      // (a status message, plus a continuation where one is configured)
+      // Transient failure: retry after a short, capped backoff so fast
+      // failures cannot hammer the gateway. With a deadline the loop is
+      // bounded by the budget and then closes the run as out-of-budget (a
+      // status message, plus a continuation where one is configured)
       // instead of surfacing an error the user cannot act on.
-      if (options.deadlineAtMs !== undefined) {
-        if (Date.now() >= options.deadlineAtMs) throw new RunDeadlineExceeded();
-        continue;
-      }
       transientAttempts += 1;
-      if (transientAttempts >= TRANSIENT_RETRY_MAX_ATTEMPTS) throw error;
+      const delay = Math.min(
+        gatewayRetryBackoffBaseMs * 2 ** Math.min(transientAttempts - 1, 4),
+        GATEWAY_RETRY_BACKOFF_CAP_MS
+      );
+      if (options.deadlineAtMs !== undefined) {
+        if (Date.now() + delay >= options.deadlineAtMs)
+          throw new RunDeadlineExceeded();
+      } else if (transientAttempts >= TRANSIENT_RETRY_MAX_ATTEMPTS) {
+        throw error;
+      }
+      await waitFor(delay);
+      if (options.signal?.aborted) throw error;
     }
   }
 }

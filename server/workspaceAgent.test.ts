@@ -319,6 +319,7 @@ const {
   END_TURN_NUDGE_PREFIX,
   FAILURE_NUDGE_PREFIX,
   autoTitleChatForUser,
+  setGatewayRetryBackoffForTests,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -398,8 +399,13 @@ const fakeSandbox = () => {
 };
 
 describe("Nova tool-calling workspace agent", () => {
+  beforeEach(() => {
+    setGatewayRetryBackoffForTests(0);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
+    setGatewayRetryBackoffForTests(null);
     // Streaming runs now poll the stop flag mid-response: keep the default.
     hasAgentStopAfter.mockImplementation(async () => false);
     // clearAllMocks keeps mock *implementations*, so a sandbox test that
@@ -4497,6 +4503,21 @@ describe("Nova tool-calling workspace agent", () => {
       .map(input => String(input.content))
       .join("\n");
     expect(persisted).not.toContain("invalid response");
+  });
+
+  it("does not retry when the backoff cannot fit inside the deadline", async () => {
+    // Each retry claims another allowance slot and daily credit, so the capped
+    // backoff must never be started when it would run past the deadline: the
+    // run closes as out-of-budget after the single attempt instead.
+    setGatewayRetryBackoffForTests(2_000);
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("blip", "unavailable")
+    );
+    const result = await runWorkspaceAgent(1, 3, "hello?", {
+      deadlineAtMs: Date.now() + 100,
+    });
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
+    expect(result.outOfBudget).toBe(true);
   });
 
   it("recovers from a transient gateway failure by retrying the round", async () => {

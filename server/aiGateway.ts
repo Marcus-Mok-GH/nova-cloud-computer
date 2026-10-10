@@ -19,7 +19,6 @@ const STREAM_STALL_TIMEOUT_MS = 120_000;
 /** Patient timeout for long single-shot completions (e.g. automation planning). */
 export const LONG_COMPLETION_TIMEOUT_MS = CHAT_REQUEST_TIMEOUT_MS;
 const ERROR_MESSAGE_LIMIT = 600;
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 10_000;
 
 export type GatewayCompletion = {
@@ -32,29 +31,11 @@ export type GatewayCompletion = {
   };
 };
 
-type GatewayModel = {
+/** One selectable model in the built-in gateway's catalogue (the picker's shape). */
+export type AvailableGatewayModel = {
   id: string;
-  object?: string;
-  created?: number;
-  owned_by?: string;
-  root?: string;
-  task?: string;
-  capabilities?: string[] | Record<string, unknown>;
-  supported_modalities?: string[];
-  modalities?: string[];
-};
-
-type GatewayModelsResponse = {
-  data?: GatewayModel[];
-};
-
-export type AvailableGatewayModel = GatewayModel & {
-  /** Models in the picker always support chat; vision models also accept image input. */
   kind: "text" | "vision";
 };
-
-let modelCache:
-  { models: AvailableGatewayModel[]; expiresAt: number } | undefined;
 
 type GatewayHealthFlags = {
   configured: boolean;
@@ -106,44 +87,30 @@ export class AiGatewayClientError extends Error {
   }
 }
 
-/** Default transport: the default provider's OpenAI-compatible hosted API. */
-const DEFAULT_PROVIDER_BASE_URL = "https://api.mistral.ai/v1";
+/**
+ * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
+ * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
+ * credential. The gateway serves exactly one model (TOKENHARBOR_CHAT_MODEL);
+ * there is no provider mode, discovery ladder, or fallback chain.
+ */
+const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
 
-/** Default transport for the Z.ai (Zhipu GLM) gateway. */
-const ZAI_API_BASE_URL = "https://api.z.ai/api/paas/v4";
+/** The single model Nova's built-in gateway serves. */
+export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
 
 /**
- * The gateway serves either Z.ai (Zhipu GLM) or the default provider. Mode is
- * chosen by which credential is configured: a ZAI_API_KEY switches the gateway
- * to Z.ai, including its env var names (ZAI_GATEWAY_URL, ZAI_DEFAULT_MODEL,
- * ZAI_FALLBACK_MODEL) and default base URL; without it the default provider
- * configuration (the legacy MISTRAL_*-prefixed vars: MISTRAL_API_KEY /
- * NOVA_MISTRAL_GATEWAY_TOKEN, MISTRAL_GATEWAY_URL, MISTRAL_DEFAULT_MODEL,
- * MISTRAL_FALLBACK_MODEL) keeps working unchanged. Reading the credential and
- * its companion vars from the same mode keeps the switch atomic: a deployment
- * that sets ZAI_API_KEY but has not yet set ZAI_GATEWAY_URL falls back to
- * Z.ai's own base URL, never to the default provider's URL paired with a Z.ai
- * credential.
+ * The Token Harbor credential. Mirroring the providers this replaced, a value
+ * shorter than 32 characters is treated as a placeholder rather than a key.
  */
-function zaiGatewayToken() {
-  const token =
-    process.env.ZAI_API_KEY?.trim() ||
-    process.env.NOVA_ZAI_GATEWAY_TOKEN?.trim();
+function tokenHarborToken() {
+  const token = process.env.TOKENHARBOR_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
 }
 
-function defaultProviderToken() {
-  const token =
-    process.env.MISTRAL_API_KEY?.trim() ||
-    process.env.NOVA_MISTRAL_GATEWAY_TOKEN?.trim();
-  return token && token.length >= 32 ? token : undefined;
-}
-
+/** Optional HTTPS override for the Token Harbor base URL (tests, mirrors). */
 function configuredGatewayUrl() {
-  const zai = !!zaiGatewayToken();
-  const raw = zai
-    ? process.env.ZAI_GATEWAY_URL?.trim() || ZAI_API_BASE_URL
-    : process.env.MISTRAL_GATEWAY_URL?.trim() || DEFAULT_PROVIDER_BASE_URL;
+  const raw =
+    process.env.TOKENHARBOR_GATEWAY_URL?.trim() || TOKENHARBOR_API_BASE_URL;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return undefined;
@@ -154,14 +121,14 @@ function configuredGatewayUrl() {
 }
 
 function configuredGatewayToken() {
-  return zaiGatewayToken() ?? defaultProviderToken();
+  return tokenHarborToken();
 }
 
 /**
  * Best-effort upstream error text from an OpenAI-compatible error payload.
- * Multi-gateway relays (like the Kilo AI gateway) wrap the provider's real
- * error in error.metadata.raw behind a generic message ("Provider returned
- * error"), so prefer the raw text when it is present.
+ * Multi-gateway relays wrap the provider's real error in error.metadata.raw
+ * behind a generic message ("Provider returned error"), so prefer the raw
+ * text when it is present.
  */
 function gatewayErrorMessageFromPayload(
   payload: unknown
@@ -209,12 +176,12 @@ function describeGatewayError(
 
 /**
  * Daily inference request cap per workspace. Returns null (no cap) unless
- * MISTRAL_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
   const raw =
-    process.env.MISTRAL_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+    process.env.TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed >= 1
@@ -256,27 +223,15 @@ export function sanitizeGatewayError(error: unknown) {
     .slice(0, ERROR_MESSAGE_LIMIT);
 }
 
-function serviceHeaders(token: string) {
-  return {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-}
-
 async function gatewayFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  externalSignal?: AbortSignal,
-  target?: { baseUrl: string; token?: string }
+  externalSignal?: AbortSignal
 ) {
-  // The primary gateway target is resolved lazily so a call with an explicit
-  // anonymous target (the Kilo tier) never requires a configured credential.
-  const resolvedTarget = target ?? {
-    baseUrl: configuredGatewayUrl(),
-    token: configuredGatewayToken(),
-  };
-  if (!resolvedTarget.baseUrl || (!target && !resolvedTarget.token))
+  const baseUrl = configuredGatewayUrl();
+  const token = configuredGatewayToken();
+  if (!baseUrl || !token)
     throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
       "configuration"
@@ -288,15 +243,10 @@ async function gatewayFetch(
   if (externalSignal?.aborted) controller.abort();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${resolvedTarget.baseUrl}${path}`, {
+    return await fetch(`${baseUrl}${path}`, {
       ...init,
-      // Anonymous targets carry no token: the gateway serves their free
-      // models without credentials, and a bogus Authorization header would
-      // be rejected outright.
       headers: {
-        ...(resolvedTarget.token
-          ? { Authorization: `Bearer ${resolvedTarget.token}` }
-          : {}),
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         ...init.headers,
       },
@@ -329,7 +279,7 @@ export async function getAiGatewayStatus(ownerId: number) {
     // Legacy identifier: this matches the `model_provider` enum value stored
     // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
-    model: configuredDefaultChatModel(),
+    model: TOKENHARBOR_CHAT_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -354,7 +304,7 @@ export async function getAiGatewayStatus(ownerId: number) {
     gatewayHealthCache?.key === cacheKey &&
     gatewayHealthCache.expiresAt > Date.now()
   ) {
-    return { ...base, model: defaultGatewayModel(), ...gatewayHealthCache.flags };
+    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...gatewayHealthCache.flags };
   }
   try {
     const response = await gatewayFetch("/models");
@@ -371,17 +321,7 @@ export async function getAiGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    // Reuse the same /models round-trip to prime model discovery: the default
-    // chat model prefers a vision-capable entry so uploaded images reach the
-    // model directly instead of hitting the no-vision fallback.
-    if (response.ok) {
-      const payload = (await response.json().catch(() => undefined)) as
-        | GatewayModelsResponse
-        | undefined;
-      const models = parseGatewayModels(payload);
-      if (models.length > 0) cacheGatewayModels(models);
-    }
-    return { ...base, model: defaultGatewayModel(), ...flags };
+    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
   } catch {
     const flags: GatewayHealthFlags = {
       configured: true,
@@ -394,126 +334,18 @@ export async function getAiGatewayStatus(ownerId: number) {
       expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
       flags,
     };
-    return { ...base, model: defaultGatewayModel(), ...flags };
+    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
   }
 }
 
-function modelKind(model: GatewayModel): "text" | "vision" | undefined {
-  const explicitTask = model.task?.toLowerCase().trim();
-  if (
-    explicitTask &&
-    /embedding|rerank|classification|audio|image-generation|text-to-image|image-embedding|video/i.test(
-      explicitTask
-    )
-  )
-    return undefined;
-  const explicitModalities = [
-    ...(model.modalities ?? []),
-    ...(model.supported_modalities ?? []),
-  ].map(value => value.toLowerCase());
-  if (explicitModalities.length > 0) {
-    // Only models that cannot chat in text are rejected. Omni models that
-    // understand audio or video alongside text and images stay eligible.
-    if (!explicitModalities.some(value => value === "text")) return undefined;
-    return explicitModalities.some(
-      value => value === "image" || value === "image_in"
-    )
-      ? "vision"
-      : "text";
-  }
-  if (explicitTask && /vision|multimodal|visual-language/i.test(explicitTask))
-    return "vision";
-  if (explicitTask && /chat|completion|text|language/i.test(explicitTask))
-    return "text";
-  if (
-    model.capabilities &&
-    typeof model.capabilities === "object" &&
-    !Array.isArray(model.capabilities)
-  ) {
-    const keys = Object.keys(model.capabilities).map(key => key.toLowerCase());
-    if (
-      keys.some(key =>
-        /audio|video|image-generation|text-to-image|embedding|rerank/i.test(key)
-      )
-    )
-      return undefined;
-    const supportsChat = keys.some(key =>
-      /chat|completion|text|language/i.test(key)
-    );
-    if (!supportsChat) return undefined;
-    return keys.some(key => /vision|multimodal|image/i.test(key))
-      ? "vision"
-      : "text";
-  }
-  // The provider's OpenAI-compatible /v1/models response normally only includes the
-  // model ID and ownership fields. Treat metadata-poor models as text chat models
-  // unless their ID identifies a known non-chat model family; otherwise the picker
-  // is empty even though the gateway successfully returned available models.
-  if (/(^|[\/_-])(embed|embedding|rerank|reranker|bge|e5|retriev|asr|speech|tts|audio|voxtral|ocr|flux|stable-diffusion|image-generator|text-to-image|video)([\/_-]|$)/i.test(model.id))
-    return undefined;
-  return /(^|[\/_-])(vision|vlm|multimodal|visual-language|omni|pixtral)([\/_-]|$)/i.test(
-    model.id
-  )
-    ? "vision"
-    : "text";
-}
-
 /**
- * Default chat model: ministral-14b - the strongest model the default
- * provider's free tier serves (verified 2026-09-18: its medium/small/magistral
- * families are all paid-tier-only and return misleading 429s on free keys).
- * Text-only with function/tool calling and a 128K-token context, served
- * over the OpenAI-compatible chat API.
- */
-export const DEFAULT_CHAT_MODEL = "ministral-14b-latest";
-
-/**
- * Text-only fallback if model discovery proves the default is not served here.
- * ministral-8b is the next-strongest free-tier-served text model.
- */
-export const TEXT_FALLBACK_MODEL = "ministral-8b-latest";
-
-/**
- * Free-tier text fallback for Z.ai deployments: like the default model, the
- * free flash models are served but unlisted by /models, so the default
- * provider's fallback id would never resolve there.
- */
-export const ZAI_TEXT_FALLBACK_MODEL = "glm-4.5-flash";
-
-/**
- * Default model for chat turns that carry image attachments: Z.ai's free
- * vision model. Its /models endpoint omits the free flash models, so (like
- * the text fallback) the id is hardcoded rather than discovered.
- */
-export const ZAI_VISION_FALLBACK_MODEL = "glm-4.6v-flash";
-
-/**
- * Free-tier last resort for Z.ai deployments: when the default AND the
- * text-fallback pools are both congested, the chain tries the remaining
- * free model. It only serves a vision-capable flash model, which also
- * accepts text-only turns, so the id matches the vision default. Like the
- * other free flash models it is served but unlisted by /models.
- */
-export const ZAI_LAST_RESORT_MODEL_ID = "glm-4.6v-flash";
-
-/**
- * Operator override for the default chat model id. The hardcoded default is
- * specific to the default provider, but the gateway can serve any OpenAI-compatible provider
- * (e.g. Z.ai's GLM API via ZAI_GATEWAY_URL). This override lets the
- * deployment point the default at the provider's own model id - for example
- * ZAI_DEFAULT_MODEL=glm-4.7-flash - without a code change. The override
- * is only authoritative when the gateway actually serves that model id;
- * otherwise discovery degrades exactly as it does for the hardcoded default.
- */
-/**
- * Per-model deep-thinking request fields. GLM-4.5-and-newer models (this
- * gateway's Z.ai family) accept `thinking: { type: "enabled" }` in the
- * OpenAI-compatible body; GLM-5.2 and newer additionally take
- * `reasoning_effort`, where "max" is the deepest reasoning Z.ai serves.
- * Default-provider models (ministral) have no thinking mode, and sending unknown
- * fields to a strict endpoint risks a rejection, so everything else gets
- * none. Exported so the BYOK gateway applies the same per-model logic to a
- * workspace's custom GLM-family models.
+ * Per-model deep-thinking request fields. GLM-4.5-and-newer models accept
+ * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
+ * newer additionally take `reasoning_effort`, where "max" is the deepest
+ * reasoning served. Models without a thinking mode (the built-in gateway's
+ * DeepSeek model included) get none, since sending unknown fields to a strict
+ * endpoint risks a rejection. Exported so the BYOK gateway applies the same
+ * per-model logic to a workspace's custom GLM-family models.
  */
 export function reasoningParamsForModel(modelId: string): Record<string, unknown> {
   const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
@@ -528,280 +360,15 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 }
 
 /**
- * One model role's operator override and hardcoded fallback, per provider mode.
- * Z.ai serves free flash models that its /models list omits, so the vision and
- * last-resort roles exist only there; the default provider has the first two.
- * Keeping the ids in one table means every role reads the active mode the same
- * way, and adding a provider is a data change rather than four code changes.
+ * The built-in gateway's model catalogue. Nova serves exactly one model -
+ * Token Harbor's free DeepSeek V4.1 Flash - so the model picker and the
+ * settings validation see a single entry. `_forceRefresh` is retained for
+ * call-site compatibility; there is no discovery round-trip to refresh.
  */
-type ModelRole = "default" | "vision" | "fallback" | "lastResort";
-type ProviderModelTable = Partial<
-  Record<ModelRole, { env: string; fallback: string }>
->;
-
-const PROVIDER_MODELS: { zai: ProviderModelTable; default: ProviderModelTable } = {
-  zai: {
-    // A Z.ai deployment with no ZAI_DEFAULT_MODEL must still fall back to a
-    // model Z.ai serves: the default provider's ministral id would be rejected.
-    default: { env: "ZAI_DEFAULT_MODEL", fallback: ZAI_TEXT_FALLBACK_MODEL },
-    vision: { env: "ZAI_VISION_MODEL", fallback: ZAI_VISION_FALLBACK_MODEL },
-    fallback: { env: "ZAI_FALLBACK_MODEL", fallback: ZAI_TEXT_FALLBACK_MODEL },
-    lastResort: {
-      env: "ZAI_LAST_RESORT_MODEL",
-      fallback: ZAI_LAST_RESORT_MODEL_ID,
-    },
-  },
-  default: {
-    default: { env: "MISTRAL_DEFAULT_MODEL", fallback: DEFAULT_CHAT_MODEL },
-    fallback: { env: "MISTRAL_FALLBACK_MODEL", fallback: TEXT_FALLBACK_MODEL },
-  },
-};
-
-/**
- * The model id configured for one role, or undefined when the active provider
- * serves no model for it. The env override wins over the hardcoded fallback.
- */
-function configuredProviderModel(role: ModelRole): string | undefined {
-  const entry = PROVIDER_MODELS[zaiGatewayToken() ? "zai" : "default"][role];
-  if (!entry) return undefined;
-  return process.env[entry.env]?.trim() || entry.fallback;
-}
-
-export function configuredDefaultChatModel(): string {
-  return configuredProviderModel("default") ?? DEFAULT_CHAT_MODEL;
-}
-
-/**
- * Operator override for the vision model id used on chat turns with image
- * attachments. Returns undefined in default-provider mode so model resolution keeps
- * its discovery-based vision preference there; in Z.ai mode the override (or
- * the hardcoded free vision model) is authoritative, mirroring the
- * configured-default behaviour.
- */
-export function configuredVisionChatModel(): string | undefined {
-  return configuredProviderModel("vision");
-}
-
-/**
- * Operator override for the text fallback model id, mirroring
- * configuredDefaultChatModel for deployments on a different provider.
- */
-export function configuredTextFallbackModel(): string {
-  return configuredProviderModel("fallback") ?? TEXT_FALLBACK_MODEL;
-}
-
-/**
- * Third and final pool-overload tier for Z.ai deployments: when the default
- * and fallback pools are both congested, requests retry on this model.
- * Returns undefined in default-provider mode so the two-tier chain (default, then
- * configured text fallback) keeps its existing behaviour there.
- */
-export function configuredLastResortModel(): string | undefined {
-  return configuredProviderModel("lastResort");
-}
-
-/**
- * Zero-key last-resort tier for Z.ai deployments: when the whole Z.ai chain
- * (default, text fallback, last resort) is congested, the request is retried
- * anonymously on the Kilo AI gateway, whose OpenAI-compatible endpoint serves
- * ":free" models without any credential (200 requests/hour per IP upstream).
- * The hop models were live-probed for tool calling, clean streamed output,
- * and low congestion: cohere/north-mini-code (fast agentic coder, ~0.7s) is
- * the text hop and inclusionai/ling-3.0-flash-vl (vision-capable, steady
- * availability) is the floor. The vision hop also serves text-only turns, so
- * it doubles as the text chain's second attempt; image turns skip the text
- * hop entirely because a text-only model would reject the image input and
- * abort the attempt. Anonymous tier only: this never uses a Kilo credential,
- * so it cannot regress to a billed path.
- */
-export const KILO_API_BASE_URL = "https://api.kilo.ai/api/gateway";
-export const KILO_ANONYMOUS_MODEL_ID = "cohere/north-mini-code:free";
-export const KILO_ANONYMOUS_VISION_MODEL_ID = "inclusionai/ling-3.0-flash-vl:free";
-
-/**
- * Deep-reasoning request fields for Kilo gateway hops. The Kilo gateway is
- * OpenRouter-style: its chat models accept `reasoning: { enabled: true }`
- * regardless of the model id (live-verified on both anonymous hops), and the
- * thinking is served back on the message / delta `reasoning` field. Applied
- * to every hop attempt, so operator-overridden hop models think too - a
- * model without reasoning support simply ignores the field.
- */
-export function kiloReasoningParams(): Record<string, unknown> {
-  return { reasoning: { enabled: true } };
-}
-
-/**
- * Operator override for the Kilo gateway base URL, mirroring the primary
- * gateway's https-only validation. An invalid value silently disables the
- * anonymous tier (the chain keeps its pre-Kilo behaviour) rather than
- * breaking the configured primary path.
- */
-function configuredKiloGatewayUrl() {
-  const raw = process.env.KILO_GATEWAY_URL?.trim() || KILO_API_BASE_URL;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:") return undefined;
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return undefined;
-  }
-}
-
-/** One hop id from an env override; "off"/"none"/"" removes the hop. */
-function kiloHopModel(
-  override: string | undefined,
-  fallback: string
-): string | undefined {
-  const value = override?.trim();
-  if (value === undefined) return fallback;
-  if (!value || value.toLowerCase() === "off" || value.toLowerCase() === "none")
-    return undefined;
-  return value;
-}
-
-/**
- * Ordered Kilo anonymous hop ids for one chat turn. Vision turns (resolved
- * to the vision model) only try the vision-capable hop; text turns try the
- * coding hop first and the vision hop as the floor. Returns an empty list
- * when every hop is disabled via env override.
- */
-export function configuredKiloAnonymousHopModels(resolvedModel: string): string[] {
-  const text = kiloHopModel(
-    process.env.KILO_ANONYMOUS_MODEL,
-    KILO_ANONYMOUS_MODEL_ID
-  );
-  const vision = kiloHopModel(
-    process.env.KILO_ANONYMOUS_VISION_MODEL,
-    KILO_ANONYMOUS_VISION_MODEL_ID
-  );
-  const visionTurn =
-    !!resolvedModel && resolvedModel === configuredVisionChatModel();
-  const hops = visionTurn ? [vision] : [text, vision];
-  return Array.from(new Set(hops.filter((model): model is string => !!model)));
-}
-
-/**
- * The anonymous Kilo target, or undefined when the deployment is not in Z.ai
- * mode or the gateway URL is misconfigured. Carries no token on purpose: the
- * free models are served without credentials.
- */
-function kiloGatewayTarget(): { baseUrl: string; token?: string } | undefined {
-  const baseUrl = configuredKiloGatewayUrl();
-  return baseUrl ? { baseUrl } : undefined;
-}
-
-/**
- * Pool-overload degradation window: after the resolved chat model fails with
- * an upstream overload (HTTP 429 - z.ai error 1305 free-pool congestion),
- * later requests skip straight to the pool-fallback model until this many
- * milliseconds pass.
- */
-const POOL_DEGRADE_MS = 5 * 60_000;
-/** Timestamp (epoch ms) until which the resolved chat model stays degraded. */
-let poolDegradedUntil = 0;
-/** Test hook: clear pool-overload degradation between suites. */
-export function resetGatewayPoolDegradation() {
-  poolDegradedUntil = 0;
-}
-
-/** Test hook: drop the discovered-model cache between suites. */
-export function resetGatewayModelCache() {
-  modelCache = undefined;
-}
-
-/**
- * The default chat model, preferring a vision-capable one so uploaded images
- * reach the model directly. Falls back to the text default until discovery
- * finds a vision model.
- */
-export function defaultGatewayModel(): string {
-  const defaultModel = configuredDefaultChatModel();
-  const textFallbackModel = configuredTextFallbackModel();
-  // Z.ai serves free flash models that its /models endpoint does not list, so
-  // a configured Z.ai override is authoritative without the served-check
-  // below - discovery would otherwise degrade a deliberate glm-4.7-flash
-  // default to the first listed (paid) model and trip the account balance
-  // wall. The default provider keeps the served-check: its /models list is
-  // authoritative.
-  if (defaultModel !== DEFAULT_CHAT_MODEL && zaiGatewayToken())
-    return defaultModel;
-  if (!modelCache || modelCache.expiresAt <= Date.now()) return defaultModel;
-  // The configured default is authoritative whenever this gateway serves it.
-  if (modelCache.models.some(model => model.id === defaultModel))
-    return defaultModel;
-  // This gateway does not serve the default: degrade to another vision model
-  // (preferring the current medium family over the deprecated pixtral one),
-  // then to a discovered text model. The configured text fallback is only
-  // authoritative when this gateway actually serves it.
-  const vision = modelCache.models.filter(model => model.kind === "vision");
-  const visionPick =
-    vision.find(model => model.id.includes("medium"))?.id ??
-    vision.find(model => model.id.includes("pixtral"))?.id ??
-    vision[0]?.id;
-  if (visionPick) return visionPick;
-  return (
-    modelCache.models.find(model => model.id === textFallbackModel)?.id ??
-    modelCache.models.find(model => model.kind === "text")?.id ??
-    textFallbackModel
-  );
-}
-
-function parseGatewayModels(payload: GatewayModelsResponse | undefined): AvailableGatewayModel[] {
-  const rawData = payload?.data;
-  if (!Array.isArray(rawData)) return [];
-  return rawData
-    .filter(
-      (model): model is GatewayModel =>
-        typeof model?.id === "string" && model.id.trim().length > 0
-    )
-    .map(model => ({ ...model, id: model.id.trim() }))
-    .map(model => ({ ...model, kind: modelKind(model) }))
-    .filter(
-      (model): model is AvailableGatewayModel => model.kind !== undefined
-    );
-}
-
-function cacheGatewayModels(models: AvailableGatewayModel[]) {
-  const deduplicated = Array.from(
-    new Map(models.map(model => [model.id, model])).values()
-  ).sort((a, b) => a.id.localeCompare(b.id));
-  modelCache = {
-    models: deduplicated,
-    expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
-  };
-  return deduplicated;
-}
-
-/**
- * Discovers chat-capable text/VLM models from the gateway's OpenAI-compatible
- * /v1/models endpoint. Vision-language models remain eligible because they accept text
- * chat as well as image input. Results are cached briefly for model pickers.
- * Returns the list of available gateway models, cached for five minutes.
- */
-export async function listGatewayModels(forceRefresh = false) {
-  if (!forceRefresh && modelCache && modelCache.expiresAt > Date.now())
-    return modelCache.models;
-  const response = await gatewayFetch("/models");
-  const payload = (await response.json().catch(() => undefined)) as
-    GatewayModelsResponse | { error?: { message?: string } } | undefined;
-  if (!response.ok) {
-    const message =
-      payload && "error" in payload ? payload.error?.message : undefined;
-    throw new AiGatewayClientError(
-      message ??
-        describeGatewayError(payload, response.status) ??
-        "AI model discovery is temporarily unavailable.",
-      classifyGatewayHttpError(response.status)
-    );
-  }
-  const models = parseGatewayModels(payload as GatewayModelsResponse | undefined);
-  if (models.length === 0) {
-    throw new AiGatewayClientError(
-      "The AI service returned no available chat models.",
-      "invalid_response"
-    );
-  }
-  return cacheGatewayModels(models);
+export async function listGatewayModels(
+  _forceRefresh = false
+): Promise<AvailableGatewayModel[]> {
+  return [{ id: TOKENHARBOR_CHAT_MODEL, kind: "vision" }];
 }
 
 /**
@@ -911,7 +478,7 @@ async function settleGatewayCredit(ownerId: number, model: string | undefined, u
 export async function completeWithAiGateway(
   ownerId: number,
   prompt: string,
-  modelId?: string,
+  _modelId?: string,
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
@@ -937,11 +504,12 @@ export async function completeWithAiGateway(
       "allowance_reached"
     );
   }
-  const resolvedModel = modelId?.trim() || status.model;
-  const postPromptCompletion = async (
-    model: string,
-    target?: { baseUrl: string; token?: string }
-  ) => {
+  // The built-in gateway serves exactly one model, so a caller-supplied id
+  // (e.g. the tRPC ai.complete input) is intentionally ignored: the
+  // single-model contract cannot be bypassed, and a non-free Token Harbor
+  // model can never be billed to the deployment.
+  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
+  const postPromptCompletion = async (model: string) => {
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
     body: JSON.stringify({
@@ -949,7 +517,7 @@ export async function completeWithAiGateway(
       messages: [{ role: "user", content: prompt }],
       ...(onChunk ? { stream: true } : {}),
     }),
-  }, timeoutMs, undefined, target);
+  }, timeoutMs);
   if (onChunk) {
     const completion = await readGatewayStreamedCompletion(response, onChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -1012,14 +580,7 @@ export async function completeWithAiGateway(
     ),
   };
   };
-  const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
-  const result = await attemptWithPoolFallback(
-    status,
-    claim,
-    resolvedModel,
-    model => postPromptCompletion(model),
-    kiloTarget ? model => postPromptCompletion(model, kiloTarget) : undefined
-  );
+  const result = await postPromptCompletion(resolvedModel);
   const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
   return { ...result, creditsCharged };
 }
@@ -1110,9 +671,9 @@ type StreamedGatewayChat = {
 
 /**
  * The model's private reasoning text from one raw field, tolerating both
- * shapes seen across gateways: Z.ai's reasoning_content and Kilo's reasoning
- * are plain strings, while some OpenRouter-style providers wrap the text as
- * `{ text }`. Returns "" when the field carries no reasoning text.
+ * shapes seen across gateways: `reasoning_content` and `reasoning` are plain
+ * strings, while some OpenRouter-style providers wrap the text as `{ text }`.
+ * Returns "" when the field carries no reasoning text.
  */
 function reasoningTextFrom(raw: unknown): string {
   if (typeof raw === "string") return raw;
@@ -1350,112 +911,12 @@ export async function readGatewayStreamedChatResult(
   };
 }
 
-/**
- * Runs one model attempt with pool-overload degradation: when the resolved
- * chat model fails with an upstream overload (HTTP 429 - z.ai error 1305
- * free-pool congestion), the request retries once on the configured
- * pool-fallback model, then - on Z.ai, where a third free pool exists - the
- * last-resort model, and later requests skip straight to the fallback for
- * POOL_DEGRADE_MS. Fallback attempts reuse the run's allowance claim, so
- * they are not double-charged. If every pool in the chain is overloaded, the
- * degradation window ends early so the next request retries the primary
- * model instead of pinning to a dead pool.
- */
-async function attemptWithPoolFallback<T>(
-  status: Awaited<ReturnType<typeof getAiGatewayStatus>>,
-  claim: NonNullable<
-    Awaited<ReturnType<typeof claimInferenceRequestForUser>>
-  >,
-  resolvedModel: string,
-  attempt: (model: string) => Promise<T>,
-  kiloAttempt?: (model: string) => Promise<T>
-): Promise<T> {
-  const poolFallback = configuredTextFallbackModel();
-  const lastResort = configuredLastResortModel();
-  // Overload retry chain: the resolved model, then the configured pool
-  // fallback, then (Z.ai only) the last-resort model. Deduplicated so a
-  // repeated id (e.g. a vision turn resolved to the vision model, which is
-  // also the last resort) is not attempted twice.
-  const chain = [resolvedModel];
-  for (const model of [poolFallback, lastResort]) {
-    if (model && !chain.includes(model)) chain.push(model);
-  }
-  const degraded = poolDegradedUntil > Date.now();
-  // While degraded, skip the congested primary and go straight to the pool
-  // fallback (chain position 1 whenever a distinct fallback exists).
-  const startIndex = degraded && chain.length > 1 ? 1 : 0;
-  for (let index = startIndex; index < chain.length; index += 1) {
-    try {
-      return await attempt(chain[index]);
-    } catch (error) {
-      const isOverload =
-        error instanceof AiGatewayClientError && error.kind === "rate_limit";
-      if (!isOverload) throw error;
-      if (index + 1 < chain.length) {
-        if (chain[index] === resolvedModel) {
-          poolDegradedUntil = Date.now() + POOL_DEGRADE_MS;
-          console.warn(
-            `[AI gateway] ${resolvedModel} overloaded - retrying on pool fallback ${chain[index + 1]}, degraded for ${
-              POOL_DEGRADE_MS / 60_000
-            }m`
-          );
-        } else {
-          console.warn(
-            `[AI gateway] ${chain[index]} also overloaded - retrying on last resort ${chain[index + 1]}`
-          );
-        }
-        continue;
-      }
-      // Every pool in the Z.ai chain is congested: try the zero-key Kilo
-      // anonymous tier before giving up (Z.ai deployments only).
-      const hops = kiloAttempt
-        ? configuredKiloAnonymousHopModels(resolvedModel)
-        : [];
-      if (!kiloAttempt || hops.length === 0) {
-        // No zero-key tier available (or every hop is disabled): end the
-        // degradation window so the next request retries the primary model
-        // instead of pinning to a dead pool.
-        if (poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
-        throw error;
-      }
-      for (let hopIndex = 0; hopIndex < hops.length; hopIndex += 1) {
-        try {
-          const result = await kiloAttempt(hops[hopIndex]);
-          // Keep the degradation window open: the primary pools are still
-          // congested, so the next request should skip straight past them
-          // (and reach this tier again) instead of re-probing each dead pool.
-          console.warn(
-            `[AI gateway] Z.ai chain fully congested - served by the Kilo anonymous tier ${hops[hopIndex]}`
-          );
-          return result;
-        } catch (kiloError) {
-          const kiloOverload =
-            kiloError instanceof AiGatewayClientError &&
-            kiloError.kind === "rate_limit";
-          if (!kiloOverload) throw kiloError;
-          if (hopIndex + 1 < hops.length) {
-            console.warn(
-              `[AI gateway] Kilo anonymous hop ${hops[hopIndex]} also overloaded - trying ${hops[hopIndex + 1]}`
-            );
-            continue;
-          }
-          // The zero-key floor is congested too: end the degradation window
-          // so the next request retries the primary model.
-          if (poolDegradedUntil > Date.now()) poolDegradedUntil = 0;
-          throw kiloError;
-        }
-      }
-      throw new Error("unreachable");
-    }
-  }
-  throw new Error("unreachable");
-}
-
 export async function chatWithAiGateway(
   ownerId: number,
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
+    /** Accepted for call-site compatibility; ignored - the gateway serves one model. */
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
@@ -1487,27 +948,23 @@ export async function chatWithAiGateway(
       "allowance_reached"
     );
   }
-  const resolvedModel = options.model?.trim() || status.model;
-  const kiloTarget = zaiGatewayToken() ? kiloGatewayTarget() : undefined;
-  const result = await attemptWithPoolFallback(
+  // Single-model gateway: a per-call model override is ignored for the same
+  // reason as completeWithAiGateway.
+  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
+  const result = await attemptGatewayChat(
     status,
     claim,
-    resolvedModel,
-    model => attemptGatewayChat(status, claim, messages, options, model),
-    kiloTarget
-      ? model =>
-          attemptGatewayChat(status, claim, messages, options, model, kiloTarget)
-      : undefined
+    messages,
+    options,
+    resolvedModel
   );
   await settleGatewayCredit(ownerId, result.model, result.usage);
   return result;
 }
 
 /**
- * One OpenAI-compatible chat attempt against a specific model, streaming or
- * buffered. Extracted from chatWithAiGateway so the pool-overload
- * fallback can retry the same request against a different model without
- * re-claiming the inference allowance.
+ * One OpenAI-compatible chat attempt against the resolved model, streaming or
+ * buffered. The request's inference allowance was already claimed by the caller.
  */
 async function attemptGatewayChat(
   status: Awaited<ReturnType<typeof getAiGatewayStatus>>,
@@ -1521,8 +978,7 @@ async function attemptGatewayChat(
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   },
-  resolvedModel: string,
-  target?: { baseUrl: string; token?: string }
+  resolvedModel: string
 ): Promise<GatewayChatResult> {
   // The gateway occasionally returns a 200 completion with no text and no
   // tool calls (seen on long tool-calling runs). One automatic retry absorbs
@@ -1539,11 +995,8 @@ async function attemptGatewayChat(
           messages,
           // Deep thinking at maximum effort for every reasoning-capable
           // model (per-model: GLM-4.5+ takes thinking.type=enabled,
-          // GLM-5.2+ also reasoning_effort=max; Kilo targets take the
-          // OpenRouter-style reasoning.enabled for every hop model).
-          ...(target
-            ? kiloReasoningParams()
-            : reasoningParamsForModel(resolvedModel)),
+          // GLM-5.2+ also reasoning_effort=max).
+          ...reasoningParamsForModel(resolvedModel),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),
@@ -1551,8 +1004,7 @@ async function attemptGatewayChat(
         }),
       },
       CHAT_REQUEST_TIMEOUT_MS,
-      options.signal,
-      target
+      options.signal
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";

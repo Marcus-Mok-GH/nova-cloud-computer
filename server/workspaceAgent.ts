@@ -35,7 +35,6 @@ import {
   type GatewayToolCall,
   type GatewayToolDefinition,
   AiGatewayClientError,
-  configuredVisionChatModel,
 } from "./aiGateway";
 import {
   chatWithWorkspaceModel,
@@ -594,10 +593,8 @@ const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
 /**
  * Upstream 429s are the one failure that reaches the user: the provider is
  * genuinely rate limiting, so retrying indefinitely would only extend the
- * lockout. A 429 gets this many immediate retries, each re-invoking the
- * gateway so it walks the full pool-fallback chain again (primary model ->
- * configured pool fallback -> last resort -> anonymous tier) rather than
- * hammering the same congested model.
+ * lockout. A 429 gets this many immediate retries on the gateway's single
+ * model before the throttle is reported.
  */
 const RATE_LIMIT_RETRY_LIMIT = 3;
 
@@ -643,8 +640,6 @@ async function chatWithGatewayRetry(
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
-    /** Model override for this round (e.g. the vision model on image turns). */
-    model?: string;
     onChunk?: (chunk: string) => void;
     /** Streams the model's private reasoning (reasoning_content) if present. */
     onReasoning?: (chunk: string) => void;
@@ -669,7 +664,6 @@ async function chatWithGatewayRetry(
     try {
       return await chatWithWorkspaceModel(ownerId, messages, {
         tools: options.tools,
-        ...(options.model ? { model: options.model } : {}),
         ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
         ...(emit
@@ -688,8 +682,8 @@ async function chatWithGatewayRetry(
       if (streamedChars > 0) throw error;
       const kind =
         error instanceof AiGatewayClientError ? error.kind : undefined;
-      // Upstream 429: a fixed three immediate retries, each walking the full
-      // pool-fallback chain, and only then the throttle is reported.
+      // Upstream 429: a fixed three immediate retries, and only then the
+      // throttle is reported.
       if (kind === "rate_limit") {
         const used = options.retryState?.rateLimitRetriesUsed ?? 0;
         if (used >= RATE_LIMIT_RETRY_LIMIT) throw error;
@@ -1259,12 +1253,6 @@ ${
           }
         : undefined;
       let result: Awaited<ReturnType<typeof chatWithGatewayRetry>>;
-      // Chat turns that still carry image parts go to the configured vision
-      // model (Z.ai: glm-4.6v-flash) instead of the text default, so the
-      // images are actually seen rather than dropped. Once visionActive is
-      // cleared by the no-vision recovery path below, rounds run on the
-      // default chat model again.
-      const visionModel = configuredVisionChatModel();
       // This round's thinking block: reasoning-capable models stream their
       // private reasoning (reasoning_content) before the answer or tool
       // calls. It surfaces live as a collapsible "Thinking" block via the
@@ -1310,7 +1298,6 @@ ${
       const runChatRound = () =>
         chatWithGatewayRetry(ownerId, messages, {
           tools: agentTools,
-          ...(visionActive && visionModel ? { model: visionModel } : {}),
           ...(emitChunk ? { onChunk: emitChunk } : {}),
           onReasoning,
           signal: stopController.signal,

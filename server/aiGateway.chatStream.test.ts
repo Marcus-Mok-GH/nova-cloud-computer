@@ -37,20 +37,18 @@ function modelsResponse() {
 }
 
 beforeEach(() => {
-  // Tokens shorter than 32 chars are ignored by configuredGatewayToken().
-  process.env.NOVA_MISTRAL_GATEWAY_TOKEN = "test-gateway-token-0123456789abcdef012345";
+  // Credentials shorter than 32 chars are ignored by tokenHarborToken().
+  process.env.TOKENHARBOR_API_KEY = "thk_live_test-gateway-key-0123456789abcdef012345";
+  process.env.TOKENHARBOR_GATEWAY_URL = "https://gateway.example.com/v1";
   resetAiGatewayHealthCache();
-  process.env.MISTRAL_GATEWAY_URL = "https://gateway.example.com/v1";
   vi.useFakeTimers();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   global.fetch = ORIGINAL_FETCH;
-  delete process.env.NOVA_MISTRAL_GATEWAY_TOKEN;
-  delete process.env.MISTRAL_GATEWAY_URL;
-  delete process.env.ZAI_API_KEY;
-  delete process.env.ZAI_DEFAULT_MODEL;
+  delete process.env.TOKENHARBOR_API_KEY;
+  delete process.env.TOKENHARBOR_GATEWAY_URL;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -310,9 +308,7 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
   });
 
-  it("sends the thinking fields to the provider for a GLM-family model", async () => {
-    process.env.ZAI_API_KEY = "sk-zai-test-key-0123456789abcdef0123456789";
-    process.env.ZAI_DEFAULT_MODEL = "glm-5.3-flash";
+  it("posts the single Token Harbor model without GLM thinking fields", async () => {
     let requestBody: Record<string, unknown> = {};
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -325,8 +321,9 @@ describe("AI gateway chat stream handling", () => {
     }) as unknown as typeof fetch;
     const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Thought it through.");
-    expect(requestBody.model).toBe("glm-5.3-flash");
-    expect(requestBody.thinking).toEqual({ type: "enabled" });
-    expect(requestBody.reasoning_effort).toBe("max");
+    expect(requestBody.model).toBe("deepseek-v4.1-flash:free");
+    // DeepSeek is not in the GLM family, so no thinking fields are added.
+    expect(requestBody.thinking).toBeUndefined();
+    expect(requestBody.reasoning_effort).toBeUndefined();
   });
 });

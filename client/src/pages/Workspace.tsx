@@ -32,7 +32,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
+  Check,
   CircleDashed,
+  Copy,
   CornerDownLeft,
   Github,
   ImagePlus,
@@ -79,6 +81,57 @@ function ImageAttachmentTray({
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Copies one chat message to the clipboard. The label flips to "Copied" for a
+ * couple of seconds so the action is confirmed in place instead of with a toast
+ * that would cover the thread.
+ */
+function CopyMessageButton({
+  text,
+  className = "",
+}: {
+  text: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    []
+  );
+
+  const copy = async () => {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Could not copy that message.");
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      aria-label={copied ? "Message copied" : "Copy message"}
+      className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
+    >
+      {copied ? (
+        <Check className="size-3 text-emerald-500" />
+      ) : (
+        <Copy className="size-3" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 
@@ -812,15 +865,17 @@ export default function Workspace() {
                         return (
                           <div
                             key={row.key}
-                            className="chat-in flex w-full shrink-0 justify-end"
+                            className="chat-in flex w-full shrink-0 flex-col items-end gap-1.5"
                           >
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
                               {row.content}
                             </div>
+                            <CopyMessageButton text={row.content} />
                           </div>
                         );
                       const isLast = rows.indexOf(row) === rows.length - 1;
                       const streaming = row.live && agentIsWorking && isLast;
+                      const unavailable = isUnavailableReply(row.content);
                       return (
                         <div
                           key={row.key}
@@ -840,7 +895,7 @@ export default function Workspace() {
                                 <span className="size-1 animate-pulse rounded-full bg-primary" />
                               )}
                             </div>
-                            {isUnavailableReply(row.content) ? (
+                            {unavailable ? (
                               <div
                                 data-testid="assistant-error"
                                 className="flex items-start gap-2 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm sm:px-5 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300"
@@ -865,6 +920,13 @@ export default function Workspace() {
                                     <span className="stream-caret" />
                                   )}
                                 </div>
+                              </div>
+                            )}
+                            {/* The sanitized error block never offers a copy:
+                                its raw detail stays out of the DOM. */}
+                            {!unavailable && (
+                              <div className="mt-1.5 flex justify-end">
+                                <CopyMessageButton text={row.content} />
                               </div>
                             )}
                           </div>

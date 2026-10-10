@@ -1867,13 +1867,16 @@ ${
     // error: raw detail (provider endpoints, database causes, config names)
     // is for the server logs only - the catch above already console.error'd
     // it. Each kind keeps an actionable, user-facing lead instead.
-    // On the user's own provider (BYOK) the raw upstream error IS the user's
-    // own provider's error - their key, their endpoint - so the full message
-    // is surfaced verbatim instead of the generic notice, which would hide
-    // the one clue (quota, invalid key, wrong model id) that explains it.
+    // On the user's own provider (BYOK) an AiGatewayClientError IS the
+    // provider's own error message - their key, their quota, their model id
+    // - so it is surfaced verbatim: the generic copy would hide the one clue
+    // that explains the failure. Errors that did not come from the provider
+    // path (internal failures such as drizzle query wrappers) keep the
+    // sanitized notice even on a BYOK run: they never name the user's
+    // provider and can expose Nova internals.
     let reply: string;
-    if (byok) {
-      const detail = error instanceof Error ? error.message.trim() : String(error).trim();
+    if (byok && error instanceof AiGatewayClientError) {
+      const detail = error.message.trim();
       reply = detail
         ? `Your provider returned an error: ${detail}`
         : AI_UNAVAILABLE_PREFIX + "Your provider could not be reached. Please try again shortly.";

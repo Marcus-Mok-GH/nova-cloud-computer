@@ -173,6 +173,17 @@ describe("AI gateway client", () => {
     expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL]);
   });
 
+  it("ignores any caller-supplied model override", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "one" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "two" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+
+    await completeWithAiGateway(7, "hi", "claude-opus-5.5");
+    await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6-astra" });
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_CHAT_MODEL]);
+  });
+
   it("maps permanent 4xx completion failures to a non-retryable client error", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))

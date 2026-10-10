@@ -247,15 +247,16 @@ export const appRouter = router({
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
-      if (input.activeProvider !== undefined || input.activeModelId !== undefined) {
+      if (input.activeModelId !== undefined) {
+        // Only an explicit model-id change is validated against the live
+        // gateway catalogue. A bare provider switch (e.g. back to the
+        // built-in gateway) must never need the round-trip: the stored
+        // activeModelId is bookkeeping (resume paths resolve their own
+        // model), and a gateway that omits its default model from /models
+        // would otherwise block the switch with an unrelated error.
         try {
-          const current = await getWorkspaceModelSettingsForUser(ctx.user.id);
-          const provider = input.activeProvider ?? current.activeProvider;
-          const modelId = input.activeModelId ?? current.activeModelId;
-          if (provider === "mistral") {
-            const models = await listGatewayModels(true);
-            if (!models.some(model => model.id === modelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That text or vision model is not currently available." });
-          }
+          const models = await listGatewayModels(true);
+          if (!models.some(model => model.id === input.activeModelId)) throw new TRPCError({ code: "BAD_REQUEST", message: "That text or vision model is not currently available." });
         } catch (error) {
           if (error instanceof TRPCError) throw error;
           if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });

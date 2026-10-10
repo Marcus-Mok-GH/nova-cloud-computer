@@ -671,9 +671,9 @@ type StreamedGatewayChat = {
 
 /**
  * The model's private reasoning text from one raw field, tolerating both
- * shapes seen across gateways: Z.ai's reasoning_content and Kilo's reasoning
- * are plain strings, while some OpenRouter-style providers wrap the text as
- * `{ text }`. Returns "" when the field carries no reasoning text.
+ * shapes seen across gateways: `reasoning_content` and `reasoning` are plain
+ * strings, while some OpenRouter-style providers wrap the text as `{ text }`.
+ * Returns "" when the field carries no reasoning text.
  */
 function reasoningTextFrom(raw: unknown): string {
   if (typeof raw === "string") return raw;

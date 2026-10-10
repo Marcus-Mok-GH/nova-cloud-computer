@@ -1,3 +1,25 @@
+2026-10-10 - One model: the built-in gateway serves only Token Harbor's DeepSeek V4.1 Flash
+
+Nova's built-in AI gateway now targets Token Harbor (https://tokenharbor.ai), a
+unified OpenAI-compatible gateway, and serves exactly one model:
+deepseek-v4.1-flash:free. Every turn - text, tool calling, or with image
+attachments - runs on that model. The Z.ai and legacy default-provider
+transport modes, the /models discovery and degradation ladder, per-turn
+vision-model routing, the text fallback, the last-resort model, the keyless
+Kilo anonymous tier, and the five-minute pool-overload degradation window are
+all gone, along with their tests. A failed call surfaces its error instead of
+retrying on a different model, and any caller-supplied model id (for example
+through the tRPC ai.complete input) is ignored so the single-model contract
+cannot be bypassed and a non-free model is never billed to the deployment.
+
+The credential is now TOKENHARBOR_API_KEY - a thk_live_... Universal Key, still
+required on the free route - with an optional TOKENHARBOR_GATEWAY_URL base-URL
+override (default https://tokenharbor.ai/v1) and the renamed
+TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE per-workspace request cap.
+
+server/aiGateway.ts, server/workspaceAgent.ts, docs/ai-gateway-contract.md,
+README.md, and the gateway and workspace-agent test suites.
+
 2026-10-10 - Transient gateway failures retry instead of stopping the run
 
 A single upstream blip - a 5xx, a dropped connection, an empty completion -

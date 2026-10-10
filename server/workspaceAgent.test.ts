@@ -73,6 +73,7 @@ const renameChat = vi.fn(
   ) => ({ id: 3, title })
 );
 
+const getActiveCustomModelForUser = vi.fn(async () => null);
 vi.mock("./db", () => ({
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
@@ -82,7 +83,7 @@ vi.mock("./db", () => ({
     remainingCredits: 500,
     creditValueCents: 1,
   })),
-  getActiveCustomModelForUser: vi.fn(async () => null),
+  getActiveCustomModelForUser: getActiveCustomModelForUser,
   appendChatMessageForUser: append,
   getChatForUser: chat,
   listChatMessagesForUser: chatMessages,
@@ -4035,6 +4036,59 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
     expect(result.message.content).not.toContain("Failed query");
     expect(result.message.content).not.toContain("deploymentKey");
+  });
+
+  it("surfaces the provider's full error when the run is BYOK", async () => {
+    // On the user's own provider the upstream error (their key, quota, model
+    // id) is the one actionable clue - it reaches the chat verbatim instead
+    // of the sanitized built-in-service notice.
+    getActiveCustomModelForUser.mockResolvedValueOnce({
+      id: 9,
+      workspaceId: 1,
+      name: "Mine",
+      modelId: "gpt-5o",
+      baseUrl: "https://api.example.com/v1",
+      compatibility: "openai",
+      encryptedApiKey: "encrypted",
+      supportsImageInput: false,
+    });
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError(
+        "Toolnz rate limit: your key exceeded requests per minute",
+        "rate_limit"
+      )
+    );
+    const result = await runWorkspaceAgent(1, 3, "hi");
+    expect(result.message.content).toContain(
+      "Toolnz rate limit: your key exceeded requests per minute"
+    );
+    expect(result.message.content).not.toContain(
+      "Too many requests right now"
+    );
+    expect(getAiGatewayStatus).not.toHaveBeenCalled();
+  });
+
+  it("keeps internal errors sanitized even when the run is BYOK", async () => {
+    // The verbatim surfacing applies to provider-originated errors only:
+    // an internal failure (e.g. a drizzle Failed query wrapper) on a BYOK
+    // run names nothing about the user's provider and must stay out of the
+    // chat, exactly like it does on the built-in gateway.
+    getActiveCustomModelForUser.mockResolvedValueOnce({
+      id: 9,
+      workspaceId: 1,
+      name: "Mine",
+      modelId: "gpt-5o",
+      baseUrl: "https://api.example.com/v1",
+      compatibility: "openai",
+      encryptedApiKey: "encrypted",
+      supportsImageInput: false,
+    });
+    const wrapped = new Error('Failed query: select "deploymentKey" from "site_deployments"');
+    chatWithAiGateway.mockRejectedValue(wrapped);
+    const result = await runWorkspaceAgent(1, 3, "hi");
+    expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
+    expect(result.message.content).not.toContain("deploymentKey");
+    expect(result.message.content).not.toContain("Failed query");
   });
 
   it("reports configuration error when the gateway is not configured", async () => {

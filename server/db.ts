@@ -390,6 +390,11 @@ export async function updateWorkspaceModelSettingsForUser(ownerId: number, input
     if (input.activeProvider === "custom") updateSet.activeModelId = model.modelId;
   } else if (input.activeCustomModelId === null) updateSet.activeCustomModelId = null;
   if (input.activeProvider === "custom" && (input.activeCustomModelId ?? settings.activeCustomModelId) === null) return undefined;
+  // Leaving the custom provider (back to a built-in gateway provider) must
+  // clear the active custom-model row too: "use the built-in AI" means
+  // exactly that, not a leftover selection that silently re-routes agent
+  // traffic to the user's own endpoint.
+  if (input.activeProvider !== undefined && input.activeProvider !== "custom") updateSet.activeCustomModelId = null;
   if (input.activeProvider !== undefined) updateSet.activeProvider = input.activeProvider;
   if (input.activeModelId !== undefined) updateSet.activeModelId = input.activeModelId;
   if (input.workspaceRules !== undefined) updateSet.workspaceRules = input.workspaceRules;

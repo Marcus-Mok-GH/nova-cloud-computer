@@ -478,7 +478,7 @@ async function settleGatewayCredit(ownerId: number, model: string | undefined, u
 export async function completeWithAiGateway(
   ownerId: number,
   prompt: string,
-  modelId?: string,
+  _modelId?: string,
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
@@ -504,7 +504,11 @@ export async function completeWithAiGateway(
       "allowance_reached"
     );
   }
-  const resolvedModel = modelId?.trim() || status.model;
+  // The built-in gateway serves exactly one model, so a caller-supplied id
+  // (e.g. the tRPC ai.complete input) is intentionally ignored: the
+  // single-model contract cannot be bypassed, and a non-free Token Harbor
+  // model can never be billed to the deployment.
+  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
   const postPromptCompletion = async (model: string) => {
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
@@ -912,6 +916,7 @@ export async function chatWithAiGateway(
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
+    /** Accepted for call-site compatibility; ignored - the gateway serves one model. */
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
@@ -943,7 +948,9 @@ export async function chatWithAiGateway(
       "allowance_reached"
     );
   }
-  const resolvedModel = options.model?.trim() || status.model;
+  // Single-model gateway: a per-call model override is ignored for the same
+  // reason as completeWithAiGateway.
+  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
   const result = await attemptGatewayChat(
     status,
     claim,

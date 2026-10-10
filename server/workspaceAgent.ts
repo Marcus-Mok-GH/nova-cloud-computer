@@ -871,6 +871,10 @@ ${
   // one-per-run failure nudge and the error-path close-out note; the map
   // intercepts a model stuck repeating an identical failing call.
   const failedSteps: string[] = [];
+  // Whether this run routes to the workspace's own provider (BYOK).
+  // Declared outside the try so the catch below can surface the provider's
+  // raw error instead of the built-in service's sanitized notice.
+  let byok = false;
   const failedAttempts = new Map<
     string,
     { count: number; firstFailure: string }
@@ -906,8 +910,11 @@ ${
       return { message, actions: [], outOfBudget: false };
     }
     // A workspace with its own provider (BYOK) never depends on the built-in
-    // gateway, so its health flags do not gate the run.
+    // gateway, so its health flags do not gate the run. The flag also lets
+    // the catch below surface the provider's raw error instead of the
+    // built-in service's sanitized notice.
     const customModel = await getActiveCustomModel(ownerId);
+    byok = Boolean(customModel);
     if (!customModel) {
       const status = await getAiGatewayStatus(ownerId);
       if (!status.configured) {
@@ -1856,13 +1863,21 @@ ${
           .map((step, index) => `${index + 1}. ${step}`)
           .join("\n")}`
       : "";
-    // Failure replies never quote the backend error: raw detail (provider
-    // endpoints, database causes, config names) is for the server logs only
-    // - the catch above already console.error'd it. Each kind keeps an
-    // actionable, user-facing lead instead, so no internal service or
-    // environment detail reaches the chat.
+    // Failure replies never blindly quote the built-in gateway's backend
+    // error: raw detail (provider endpoints, database causes, config names)
+    // is for the server logs only - the catch above already console.error'd
+    // it. Each kind keeps an actionable, user-facing lead instead.
+    // On the user's own provider (BYOK) the raw upstream error IS the user's
+    // own provider's error - their key, their endpoint - so the full message
+    // is surfaced verbatim instead of the generic notice, which would hide
+    // the one clue (quota, invalid key, wrong model id) that explains it.
     let reply: string;
-    if (kind === "configuration") {
+    if (byok) {
+      const detail = error instanceof Error ? error.message.trim() : String(error).trim();
+      reply = detail
+        ? `Your provider returned an error: ${detail}`
+        : AI_UNAVAILABLE_PREFIX + "Your provider could not be reached. Please try again shortly.";
+    } else if (kind === "configuration") {
       reply =
         "Nova's AI is not connected on this workspace yet. An administrator must finish setting it up before chat is available.";
     } else if (kind === "allowance_reached") {

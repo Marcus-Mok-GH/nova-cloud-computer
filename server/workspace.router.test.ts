@@ -105,6 +105,30 @@ vi.mock("./db", () => ({
 
 vi.mock("./memories", () => ({ clearMemoriesForUser: clearMemoriesSpy }));
 
+// The gateway model catalogue must never gate a settings change: the real
+// client would otherwise be unable to switch providers in any environment
+// where the shared gateway is unreachable or omits its own default model.
+const GATEWAY_MODELS = [
+  { id: "chat-medium-latest", kind: "vision", contextWindow: 128_000 },
+  { id: "chat-small-latest", kind: "text", contextWindow: 32_000 },
+];
+const listGatewayModelsSpy = vi.fn(async () => GATEWAY_MODELS);
+const getAiGatewayStatusSpy = vi.fn(async () => ({ configured: true, reachable: true, providerConfigured: true, providerConfigurationKnown: true, provider: "mistral" as const, model: "chat-medium-latest", allowance: { usedRequests: 0, maxRequests: 50, remainingRequests: 50, exhausted: false } }));
+const completeWithAiGatewaySpy = vi.fn(async () => ({ text: "ok", model: "chat-small-latest", usage: null, allowance: { usedRequests: 1, maxRequests: 50, remainingRequests: 49, exhausted: false } }));
+class AiGatewayClientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AiGatewayClientError";
+  }
+}
+vi.mock("./aiGateway", () => ({
+  listGatewayModels: listGatewayModelsSpy,
+  getAiGatewayStatus: getAiGatewayStatusSpy,
+  completeWithAiGateway: completeWithAiGatewaySpy,
+  AiGatewayClientError,
+}));
+vi.mock("./byokGateway", () => ({ testCustomModelEndpoint: vi.fn() }));
+
 const { appRouter } = await import("./routers");
 
 function contextFor(id: number): TrpcContext {
@@ -112,7 +136,7 @@ function contextFor(id: number): TrpcContext {
 }
 
 describe("Nova workspace authenticated API", () => {
-  beforeEach(() => { projects.clear(); tasks.clear(); customModels.clear(); modelSettings.clear(); nextProjectId = 100; nextTaskId = 700; nextCustomModelId = 900; vi.clearAllMocks(); });
+  beforeEach(() => { projects.clear(); tasks.clear(); customModels.clear(); modelSettings.clear(); nextProjectId = 100; nextTaskId = 700; nextCustomModelId = 900; vi.clearAllMocks(); listGatewayModelsSpy.mockReset().mockImplementation(async () => GATEWAY_MODELS); });
 
   it("creates, reads, updates, and deletes a project through the authenticated router", async () => {
     const caller = appRouter.createCaller(contextFor(41));
@@ -188,5 +212,23 @@ describe("Nova workspace authenticated API", () => {
     expect((await stranger.workspace.modelSettings()).customModels).toEqual([]);
     await expect(stranger.workspace.updateSettings({ activeProvider: "custom", activeCustomModelId: model.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.models.deleteCustom({ id: model.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("switches back to the built-in provider without consulting the live gateway catalogue", async () => {
+    const owner = appRouter.createCaller(contextFor(41));
+    const model = await owner.models.createCustom({ name: "Mine", modelId: "my-model", baseUrl: "https://models.example.test/v1", compatibility: "openai", apiKey: "k", supportsImageInput: false });
+    await owner.workspace.updateSettings({ activeProvider: "custom", activeCustomModelId: model.id });
+    listGatewayModelsSpy.mockRejectedValueOnce(new AiGatewayClientError("gateway unreachable"));
+    // A bare provider switch is stored bookkeeping: a dead or degraded
+    // gateway must not block the move back to the built-in provider.
+    await expect(owner.workspace.updateSettings({ activeProvider: "mistral" })).resolves.toMatchObject({ activeProvider: "mistral" });
+    expect(listGatewayModelsSpy).not.toHaveBeenCalled();
+  });
+
+  it("still validates an explicit model-id change against the gateway catalogue", async () => {
+    const owner = appRouter.createCaller(contextFor(41));
+    await expect(owner.workspace.updateSettings({ activeProvider: "mistral", activeModelId: "not-a-gateway-model" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(listGatewayModelsSpy).toHaveBeenCalledTimes(1);
+    await expect(owner.workspace.updateSettings({ activeProvider: "mistral", activeModelId: "chat-small-latest" })).resolves.toMatchObject({ activeProvider: "mistral", activeModelId: "chat-small-latest" });
   });
 });

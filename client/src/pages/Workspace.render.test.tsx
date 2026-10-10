@@ -506,6 +506,31 @@ describe("Workspace rendered browser states", () => {
     expect((markup.match(/<p[^>]*>Nova<\/p>/g) || []).length).toBe(1);
   });
 
+  it("offers a copy button for both the user's message and Nova's reply", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Hi Nova" },
+      { id: 2, role: "assistant", content: "Hello there" },
+    ];
+    const markup = renderChat();
+    // One copy control per rendered message, each carrying its own text.
+    expect(markup.match(/aria-label="Copy message"/g) || []).toHaveLength(2);
+    expect(markup).toContain("Hi Nova");
+    expect(markup).toContain("Hello there");
+  });
+
+  it("does not offer a copy button for the sanitized unavailable-AI error", () => {
+    state.chatMessages = [
+      {
+        id: 1,
+        role: "assistant",
+        content: `${AI_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset`,
+      },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="assistant-error"');
+    expect(markup.match(/aria-label="Copy message"/g) || []).toHaveLength(0);
+  });
+
   it("shows exactly one label for two consecutive assistant messages", () => {
     state.chatMessages = [
       { id: 1, role: "assistant", content: "First reply" },

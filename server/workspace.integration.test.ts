@@ -73,6 +73,15 @@ describe("Nova workspace persistence", () => {
       const safeSettings = await getWorkspaceModelSettingsForUser(owner.id);
       expect(JSON.stringify(safeSettings)).not.toContain(apiKey);
       expect(safeSettings.customModels).toEqual(expect.arrayContaining([expect.objectContaining({ id: model.id, name: marker, hasApiKey: true })]));
+
+      // Switching back to a built-in provider clears the selection, so the
+      // workspace truly runs on the built-in gateway again (the delete path
+      // must not be the only way back).
+      const switched = await updateWorkspaceModelSettingsForUser(owner.id, { activeProvider: "mistral" });
+      expect(switched).toMatchObject({ activeProvider: "mistral", activeCustomModelId: null });
+      // The custom model survives the switch and can be reactivated.
+      const reactivated = await updateWorkspaceModelSettingsForUser(owner.id, { activeProvider: "custom", activeCustomModelId: model.id });
+      expect(reactivated).toMatchObject({ activeProvider: "custom", activeCustomModelId: model.id });
     } finally {
       if (customModelId) await deleteCustomModelForUser(owner.id, customModelId);
     }

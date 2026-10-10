@@ -4068,6 +4068,29 @@ describe("Nova tool-calling workspace agent", () => {
     expect(getAiGatewayStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps internal errors sanitized even when the run is BYOK", async () => {
+    // The verbatim surfacing applies to provider-originated errors only:
+    // an internal failure (e.g. a drizzle Failed query wrapper) on a BYOK
+    // run names nothing about the user's provider and must stay out of the
+    // chat, exactly like it does on the built-in gateway.
+    getActiveCustomModelForUser.mockResolvedValueOnce({
+      id: 9,
+      workspaceId: 1,
+      name: "Mine",
+      modelId: "gpt-5o",
+      baseUrl: "https://api.example.com/v1",
+      compatibility: "openai",
+      encryptedApiKey: "encrypted",
+      supportsImageInput: false,
+    });
+    const wrapped = new Error('Failed query: select "deploymentKey" from "site_deployments"');
+    chatWithAiGateway.mockRejectedValue(wrapped);
+    const result = await runWorkspaceAgent(1, 3, "hi");
+    expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
+    expect(result.message.content).not.toContain("deploymentKey");
+    expect(result.message.content).not.toContain("Failed query");
+  });
+
   it("reports configuration error when the gateway is not configured", async () => {
     getAiGatewayStatus.mockReturnValueOnce({
       configured: false,

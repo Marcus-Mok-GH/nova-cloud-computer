@@ -588,41 +588,55 @@ function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
   return `${action.operation === "deleted" ? "Delet" : action.operation === "updated" ? "Updat" : "Creat"}ed ${action.kind}: ${action.name}.`;
 }
 
-/** Transient gateway failures worth one automatic in-run retry. */
+/** Transient gateway failures worth an automatic in-run retry. */
 const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
-let gatewayRetryDelaysMs: number[] = [400, 1200, 5000];
 
 /**
- * The upstream provider applies per-tier rate limits (requests per second plus token
- * budgets), and a 429 lockout can persist for a while - every request sent
- * during the lockout can extend it. So upstream rate limits get ONE patient
- * retry (transient 429s under load do clear in seconds), never the fast
- * retry loop, and only when the run budget can absorb the wait.
+ * Upstream 429s are the one failure that reaches the user: the provider is
+ * genuinely rate limiting, so retrying indefinitely would only extend the
+ * lockout. A 429 gets this many immediate retries, each re-invoking the
+ * gateway so it walks the full pool-fallback chain again (primary model ->
+ * configured pool fallback -> last resort -> anonymous tier) rather than
+ * hammering the same congested model.
  */
-const RATE_LIMIT_RETRY_DELAY_MS = 45_000;
-/** The patient retry only runs with this much run budget left afterwards. */
-const RATE_LIMIT_RETRY_MIN_REMAINING_MS = 60_000;
-let gatewayRateLimitRetryDelayMs: number | null = null;
+const RATE_LIMIT_RETRY_LIMIT = 3;
 
-/** Test hook: shrink the patient rate-limit wait so suites stay fast. */
-export function setGatewayRateLimitRetryDelayForTests(ms: number | null) {
-  gatewayRateLimitRetryDelayMs = ms;
+/**
+ * Safety bound for the transient retry loop when a run carries no deadline
+ * (standalone helpers, unit calls): a hard-down gateway must not spin forever.
+ * Real runs always pass a deadline, and that deadline is the real bound.
+ */
+const TRANSIENT_RETRY_MAX_ATTEMPTS = 8;
+
+/**
+ * Base backoff between transient retries, doubling on each retry up to the
+ * cap. The delay keeps a fast-failing gateway from being hammered: every
+ * attempt claims another shared request allowance slot and one daily credit
+ * before it is sent, so an unbounded instant loop can exhaust a workspace's
+ * allowance or credits during an outage.
+ */
+let gatewayRetryBackoffBaseMs = 250;
+const GATEWAY_RETRY_BACKOFF_CAP_MS = 4_000;
+
+/** Test hook: zero the retry backoff so suites stay fast. */
+export function setGatewayRetryBackoffForTests(ms: number | null) {
+  gatewayRetryBackoffBaseMs = ms ?? 250;
 }
 
 /** Run-scoped retry bookkeeping shared across gateway rounds. */
-type GatewayRetryState = { rateLimitRetryUsed: boolean };
-
-/** Test hook: zero the retry backoff so suites stay fast. */
-export function setGatewayRetryDelaysForTests(delays: number[]) {
-  gatewayRetryDelaysMs = delays;
-}
+type GatewayRetryState = { rateLimitRetriesUsed: number };
 
 const waitFor = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Calls the gateway with automatic retries for transient failures (network
- * blips, 5xx, empty completions). A round that already streamed text to the
- * client is never retried: a fresh attempt would duplicate what the user saw.
+ * blips, 5xx, empty completions). Retries are immediate - a blip recovers in
+ * place instead of pausing the round - and keep going until the run deadline,
+ * so a transient failure never surfaces to the user as an error by itself: the
+ * run closes with the normal out-of-budget status (and a continuation, where
+ * one is configured) once the budget is gone. A round that already streamed
+ * text to the client is never retried: a fresh attempt would duplicate what
+ * the user saw.
  */
 async function chatWithGatewayRetry(
   ownerId: number,
@@ -635,14 +649,21 @@ async function chatWithGatewayRetry(
     /** Streams the model's private reasoning (reasoning_content) if present. */
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
-    /** Run deadline (epoch ms) - the patient rate-limit wait must fit. */
+    /** Run deadline (epoch ms) - the bound on the transient retry loop. */
     deadlineAtMs?: number;
-    /** Run-scoped state: the patient wait happens at most once per run. */
+    /** Run-scoped state: the 429 retry budget is shared across rounds. */
     retryState?: GatewayRetryState;
+    /**
+     * True on an image turn before the attachment is dropped. A failed image
+     * round must surface its error so the round can drop the attachment and
+     * re-run on the text model, not keep re-sending an image the model
+     * cannot take.
+     */
+    visionActive?: boolean;
   }
 ) {
-  const maxAttempts = gatewayRetryDelaysMs.length + 1;
-  for (let attempt = 0; ; attempt += 1) {
+  let transientAttempts = 0;
+  for (;;) {
     let streamedChars = 0;
     const emit = options.onChunk;
     try {
@@ -663,31 +684,42 @@ async function chatWithGatewayRetry(
     } catch (error) {
       // A user-requested stop aborts the in-flight request: never retry it.
       if (options.signal?.aborted) throw error;
-      const retryable =
-        error instanceof AiGatewayClientError &&
-        GATEWAY_RETRY_KINDS.has(error.kind);
-      // Upstream 429: one patient retry, deadline-gated, once per run. The
-      // fast loop must never hammer a lockout - that only extends it.
-      const isUpstreamRateLimit =
-        error instanceof AiGatewayClientError &&
-        error.kind === "rate_limit";
-      const waitMs = gatewayRateLimitRetryDelayMs ?? RATE_LIMIT_RETRY_DELAY_MS;
-      if (
-        isUpstreamRateLimit &&
-        streamedChars === 0 &&
-        !(options.retryState?.rateLimitRetryUsed ?? false) &&
-        options.deadlineAtMs !== undefined &&
-        Date.now() + waitMs + RATE_LIMIT_RETRY_MIN_REMAINING_MS <=
-          options.deadlineAtMs
-      ) {
-        if (options.retryState) options.retryState.rateLimitRetryUsed = true;
-        await waitFor(waitMs);
+      // A round that already streamed text is never retried.
+      if (streamedChars > 0) throw error;
+      const kind =
+        error instanceof AiGatewayClientError ? error.kind : undefined;
+      // Upstream 429: a fixed three immediate retries, each walking the full
+      // pool-fallback chain, and only then the throttle is reported.
+      if (kind === "rate_limit") {
+        const used = options.retryState?.rateLimitRetriesUsed ?? 0;
+        if (used >= RATE_LIMIT_RETRY_LIMIT) throw error;
+        if (options.retryState)
+          options.retryState.rateLimitRetriesUsed = used + 1;
         continue;
       }
-      if (streamedChars > 0 || !retryable || attempt >= maxAttempts - 1) {
+      if (kind === undefined || !GATEWAY_RETRY_KINDS.has(kind)) throw error;
+      // An image turn that errors drops the attachment and re-runs on the
+      // text model (the round's vision recovery), so surface the failure
+      // instead of retrying with the same unviewable image.
+      if (options.visionActive) throw error;
+      // Transient failure: retry after a short, capped backoff so fast
+      // failures cannot hammer the gateway. With a deadline the loop is
+      // bounded by the budget and then closes the run as out-of-budget (a
+      // status message, plus a continuation where one is configured)
+      // instead of surfacing an error the user cannot act on.
+      transientAttempts += 1;
+      const delay = Math.min(
+        gatewayRetryBackoffBaseMs * 2 ** Math.min(transientAttempts - 1, 4),
+        GATEWAY_RETRY_BACKOFF_CAP_MS
+      );
+      if (options.deadlineAtMs !== undefined) {
+        if (Date.now() + delay >= options.deadlineAtMs)
+          throw new RunDeadlineExceeded();
+      } else if (transientAttempts >= TRANSIENT_RETRY_MAX_ATTEMPTS) {
         throw error;
       }
-      await waitFor(gatewayRetryDelaysMs[attempt]);
+      await waitFor(delay);
+      if (options.signal?.aborted) throw error;
     }
   }
 }
@@ -775,7 +807,7 @@ export async function runWorkspaceAgent(
 
   const actions: AgentAction[] = [];
   const deadlineAtMs = options.deadlineAtMs ?? Date.now() + MAX_RUN_BUDGET_MS;
-  const retryState: GatewayRetryState = { rateLimitRetryUsed: false };
+  const retryState: GatewayRetryState = { rateLimitRetriesUsed: 0 };
   // Summaries of the tool calls in the current round - they brief the model
   // on the closing reply when the run runs out of time before the final round.
   let lastRoundSummaries: string[] = [];
@@ -1277,6 +1309,7 @@ ${
           signal: stopController.signal,
           deadlineAtMs,
           retryState,
+          ...(visionActive ? { visionActive: true } : {}),
         });
       // Rounds after the first are raced against the deadline: a slow LLM
       // round can take up to the client's own 120s timeout, which used to

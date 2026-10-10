@@ -123,20 +123,18 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `DATABASE_URL`               | Neon Postgres connection string                                                 |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `MISTRAL_API_KEY`             | Server-only API key for the default provider mode of the AI gateway; powers chat |
-| `MISTRAL_GATEWAY_URL`         | Optional HTTPS override for the default provider's inference base URL            |
-| `NOVA_MISTRAL_GATEWAY_TOKEN`  | Legacy fallback credential if `MISTRAL_API_KEY` is not set                       |
-| `MISTRAL_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; defaults to `50`              |
+| `TOKENHARBOR_API_KEY`         | Server-only Token Harbor key (`thk_live_...`) powering the built-in AI gateway    |
+| `TOKENHARBOR_GATEWAY_URL`     | Optional HTTPS override for the Token Harbor base URL (defaults to `https://tokenharbor.ai/v1`) |
+| `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
-| `ZAI_API_KEY`                | Server-only API key that switches the AI gateway to its Z.ai (GLM) mode         |
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
 
-The `MISTRAL_*` names are the legacy variable names for the gateway's default
-provider mode and are kept for deployment compatibility. See
-[`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for both transport
-modes and their model overrides.
+The built-in gateway serves exactly one model - Token Harbor's free
+`deepseek-v4.1-flash:free` - with no fallback chain. See
+[`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
+details.
 
 ---
 

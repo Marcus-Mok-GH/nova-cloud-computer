@@ -9,6 +9,7 @@ import {
   createCustomModelForUser,
   createWorkspaceFileForUser,
   createWorkspaceFolderForUser,
+  searchWorkspaceFilesForUser,
   isUsernameTaken,
   setUsernameForUser,
   deleteCustomModelForUser,
@@ -56,6 +57,7 @@ import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysF
 import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
+import { FILE_SEARCH_MAX_QUERY_LENGTH } from "./fileSearch";
 import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
@@ -387,7 +389,24 @@ export const appRouter = router({
     runDue: protectedProcedure.mutation(async ({ ctx }) => { try { return await runDueAutomationsForUser(ctx.user.id); } catch (error) { /* Only the automation module's own "Nova ..." messages are user-facing; anything else (query errors, provider internals) is logged and kept out of the response. */ const detail = error instanceof Error ? error.message : ""; if (detail && !detail.startsWith("Nova ")) console.warn("[Automations] runDue failed:", detail); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: detail.startsWith("Nova ") ? detail : "Nova could not run the saved automation." }); } }),
   }),
   folders: router({ create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => { const folder = await createWorkspaceFolderForUser(ctx.user.id, input); if (!folder) throwIfNotFound(folder, "parent folder"); return folder; }), update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => { const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input); if (!folder) throwIfNotFound(folder, "folder"); return folder; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "folder"); return { success: true } as const; }) }),
-  files: router({ create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => { const file = await createWorkspaceFileForUser(ctx.user.id, input); if (!file) throwIfNotFound(file, "folder"); return file; }), update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => { const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input); if (!file) throwIfNotFound(file, "file or destination folder"); return file; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "file"); return { success: true } as const; }) }),
+  files: router({
+    create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => { const file = await createWorkspaceFileForUser(ctx.user.id, input); if (!file) throwIfNotFound(file, "folder"); return file; }),
+    update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => { const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input); if (!file) throwIfNotFound(file, "file or destination folder"); return file; }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "file"); return { success: true } as const; }),
+    /** Full-text search across the workspace's files: name, body and MIME type.
+     *  `regex` treats the query as a regular expression. */
+    search: protectedProcedure
+      .input(z.object({
+        query: z.string().trim().min(1, "Enter something to search for.").max(FILE_SEARCH_MAX_QUERY_LENGTH, `Search queries are at most ${FILE_SEARCH_MAX_QUERY_LENGTH} characters.`),
+        regex: z.boolean().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const result = await searchWorkspaceFilesForUser(ctx.user.id, input);
+        if ("error" in result) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+        return result.matches;
+      }),
+  }),
   chats: router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
     messages: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),

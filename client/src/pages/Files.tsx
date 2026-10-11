@@ -3,12 +3,18 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { detectLanguage, languageLabel } from "@/lib/syntaxHighlight";
 import { getFolderTrail } from "@/lib/workspaceBrowser";
+import { highlightSegments } from "@/lib/fileSearch";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, ChevronsDownUp, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Trash2, X } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, ChevronsDownUp, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Search, Trash2, X } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type OpenFile = { id: number; name: string; content: string; mimeType?: string | null; folderId?: number | null };
+type SearchSnippet = { line: number; text: string };
+type SearchResult = { id: number; name: string; folderId: number | null; mimeType: string; matchedName: boolean; matchCount: number; snippets: SearchSnippet[]; score: number };
+
+/** Toggle label for the regular-expression search mode. */
+const REGEX_LABEL = ".*";
 type Creating = { kind: "file" | "folder"; parentId: number | null };
 type TreeProps = { folders: any[]; files: any[]; parentId: number | null; depth: number; activeFolderId: number | null; expanded: Set<number>; setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>; selectFolder: (id: number | null) => void; open: (file: OpenFile) => void; remove: (file: any, e?: React.MouseEvent) => void; creating: Creating | null; finishCreate: (name: string) => void; cancelCreate: () => void };
 
@@ -29,6 +35,14 @@ export default function Files() {
   const isDirty = (tab: OpenFile) => drafts[tab.id] !== undefined && drafts[tab.id] !== tab.content;
   const language = activeFile ? detectLanguage(activeFile.name, activeFile.mimeType) : "text";
   const breadcrumb = useMemo(() => getFolderTrail(folders, activeFile?.folderId ?? null), [folders, activeFile?.folderId]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [regexSearch, setRegexSearch] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Debounce keystrokes so typing does not fire a search per character.
+  useEffect(() => { const handle = setTimeout(() => setDebouncedQuery(searchQuery), 200); return () => clearTimeout(handle); }, [searchQuery]);
+  const trimmedQuery = debouncedQuery.trim();
+  const searching = trimmedQuery.length > 0;
+  const searchResults = trpc.files.search.useQuery({ query: trimmedQuery, regex: regexSearch, limit: 50 }, { enabled: searching, retry: false });
 
   const createFolder = trpc.folders.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
   const createFile = trpc.files.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate(), onError: e => toast.error(e.message) });
@@ -82,9 +96,30 @@ export default function Files() {
     <div className="mx-auto flex h-[calc(100svh-5rem)] min-h-0 max-w-none flex-col overflow-hidden border-0 sm:mx-4 sm:my-1 sm:rounded-2xl sm:border sm:border-border sm:shadow-[0_1px_2px_rgba(10,10,10,0.03)] md:h-full lg:mx-6 lg:flex-row dark:sm:border-white/10">
       <aside className="flex h-44 w-full shrink-0 flex-col sm:h-56 border-b border-border bg-muted/70 lg:h-auto lg:w-[248px] lg:border-b-0 lg:border-r dark:border-white/10 dark:bg-card/40">
         <div className="flex h-9 shrink-0 items-center justify-between gap-1 px-2"><span className="truncate text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Explorer</span><div className="flex shrink-0 items-center gap-0.5"><button onClick={() => make("file")} title="New file" aria-label="New file" className="grid size-6 max-sm:size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-neutral-200/70 hover:text-foreground dark:hover:bg-card/10 dark:hover:text-white"><FilePlus2 className="size-3.5" /></button><button onClick={() => make("folder")} title="New folder" aria-label="New folder" className="grid size-6 max-sm:size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-neutral-200/70 hover:text-foreground dark:hover:bg-card/10 dark:hover:text-white"><FolderPlus className="size-3.5" /></button><button onClick={collapseAll} title="Collapse folders" aria-label="Collapse folders" className="grid size-6 max-sm:size-8 place-items-center rounded-md text-muted-foreground transition hover:bg-neutral-200/70 hover:text-foreground dark:hover:bg-card/10 dark:hover:text-white"><ChevronsDownUp className="size-3.5" /></button></div></div>
+        <div className="shrink-0 px-2 pb-1.5 pt-0.5">
+          <div className="flex h-7 items-center gap-1 rounded-md border border-border bg-background px-1.5 focus-within:border-primary dark:border-white/10 dark:bg-card/30">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" />
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search files" aria-label="Search workspace files" spellCheck={false} className="min-w-0 flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground" />
+            {searchQuery && <button onClick={() => setSearchQuery("")} aria-label="Clear search" className="grid size-4 shrink-0 place-items-center rounded-sm text-muted-foreground transition hover:text-foreground"><X className="size-3" /></button>}
+            <button onClick={() => setRegexSearch(value => !value)} aria-pressed={regexSearch} title="Match with a regular expression" aria-label="Match with a regular expression" className={`shrink-0 rounded-sm px-1 font-mono text-[10px] transition ${regexSearch ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>{REGEX_LABEL}</button>
+          </div>
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1 pt-0.5 text-[13px]">
-          <button onClick={() => selectFolder(null)} className={`flex h-[26px] max-sm:h-9 w-full items-center gap-1.5 rounded-sm px-2 text-left transition ${activeFolderId === null ? "bg-neutral-200/80 text-foreground dark:bg-card/10 dark:text-foreground" : "text-muted-foreground hover:bg-neutral-200/50 dark:text-foreground/80 dark:hover:bg-card/5"}`}><HardDrive className="size-3.5 shrink-0" /><span className="min-w-0 truncate font-semibold">NOVA WORKSPACE</span></button>
-          <Tree folders={folders} files={files} parentId={null} depth={0} activeFolderId={activeFolderId} expanded={expanded} setExpanded={setExpanded} selectFolder={selectFolder} open={open} remove={remove} creating={creating} finishCreate={finishCreate} cancelCreate={() => setCreating(null)} />
+          {searching ? (
+            <FileSearchResults
+              results={(searchResults.data ?? []) as SearchResult[]}
+              loading={searchResults.isFetching}
+              error={searchResults.isError ? (searchResults.error?.message ?? "Nova could not search your files.") : null}
+              query={trimmedQuery}
+              regex={regexSearch}
+              folders={folders}
+              files={files}
+              onOpen={open}
+            />
+          ) : <>
+            <button onClick={() => selectFolder(null)} className={`flex h-[26px] max-sm:h-9 w-full items-center gap-1.5 rounded-sm px-2 text-left transition ${activeFolderId === null ? "bg-neutral-200/80 text-foreground dark:bg-card/10 dark:text-foreground" : "text-muted-foreground hover:bg-neutral-200/50 dark:text-foreground/80 dark:hover:bg-card/5"}`}><HardDrive className="size-3.5 shrink-0" /><span className="min-w-0 truncate font-semibold">NOVA WORKSPACE</span></button>
+            <Tree folders={folders} files={files} parentId={null} depth={0} activeFolderId={activeFolderId} expanded={expanded} setExpanded={setExpanded} selectFolder={selectFolder} open={open} remove={remove} creating={creating} finishCreate={finishCreate} cancelCreate={() => setCreating(null)} />
+          </>}
         </div>
       </aside>
 
@@ -128,6 +163,46 @@ export default function Files() {
       </main>
     </div>
   </DashboardLayout>;
+}
+
+type FileSearchResultsProps = {
+  results: SearchResult[];
+  loading: boolean;
+  error: string | null;
+  query: string;
+  regex: boolean;
+  folders: any[];
+  files: any[];
+  onOpen: (file: OpenFile) => void;
+};
+
+/** Search-result list shown in the Explorer while a query is active. */
+export function FileSearchResults({ results, loading, error, query, regex, folders, files, onOpen }: FileSearchResultsProps) {
+  if (loading) return <p className="px-2 py-3 text-[12px] text-muted-foreground">Searching the workspace…</p>;
+  if (error) return <p className="px-2 py-3 text-[12px] text-red-600 dark:text-red-400">{error}</p>;
+  if (results.length === 0) return <p className="px-2 py-3 text-[12px] text-muted-foreground">No files match “{query}”.</p>;
+  return <div className="space-y-0.5">
+    {results.map(result => {
+      const file = files.find(candidate => candidate.id === result.id);
+      const trail = getFolderTrail(folders, result.folderId).map(folder => folder.name).join(" / ");
+      return <div key={result.id}>
+        <button onClick={() => file && onOpen(file)} disabled={!file} className="block w-full rounded-sm px-2 py-1 text-left transition hover:bg-neutral-200/50 disabled:opacity-60 dark:hover:bg-card/5">
+          <span className="flex items-center gap-1.5">
+            <File className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate text-[13px] font-medium">{result.name}</span>
+            {result.matchCount > 0 && <span className="ml-auto shrink-0 pl-2 text-[10px] text-muted-foreground">{result.matchCount} {result.matchCount === 1 ? "match" : "matches"}</span>}
+          </span>
+          {trail && <span className="block truncate pl-5 text-[11px] text-muted-foreground">{trail}</span>}
+        </button>
+        {result.snippets.map(snippet => <p key={snippet.line} className="truncate px-2 py-0.5 pl-7 font-mono text-[11px] leading-5 text-muted-foreground">
+          <span className="mr-1.5 select-none text-foreground/40">{snippet.line}</span>
+          {highlightSegments(snippet.text, query, regex).map((segment, index) => segment.match
+            ? <mark key={index} className="rounded-sm bg-primary/20 px-0.5 text-foreground">{segment.text}</mark>
+            : <React.Fragment key={index}>{segment.text}</React.Fragment>)}
+        </p>)}
+      </div>;
+    })}
+  </div>;
 }
 
 function CreateRow({ kind, depth, finish, cancel }: { kind: "file" | "folder"; depth: number; finish: (name: string) => void; cancel: () => void }) {

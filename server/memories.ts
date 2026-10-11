@@ -280,6 +280,50 @@ export async function deleteMemoryForUser(
 }
 
 /**
+ * Lists every memory the owner has stored - the shared scope plus each
+ * personal agent's private memories - most recently updated first. Backs the
+ * settings page, where the owner manages memories by hand.
+ */
+export async function listMemoriesForUser(
+  ownerId: number,
+  limit = 50
+): Promise<ConversationMemoryRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(conversationMemories)
+    .where(eq(conversationMemories.ownerId, ownerId))
+    .orderBy(desc(conversationMemories.updatedAt))
+    .limit(Math.max(1, Math.min(limit, 200)));
+  return rows.map(toRecord);
+}
+
+/**
+ * Deletes one memory by id from any of the owner's scopes. Unlike
+ * deleteMemoryForUser this is deliberately not scope-narrowed: from settings
+ * the owner may forget any memory in the workspace, including one a personal
+ * agent wrote. Returns false when the id is not the owner's.
+ */
+export async function deleteOwnedMemoryForUser(
+  ownerId: number,
+  memoryId: number
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const deleted = await db
+    .delete(conversationMemories)
+    .where(
+      and(
+        eq(conversationMemories.ownerId, ownerId),
+        eq(conversationMemories.id, memoryId)
+      )
+    )
+    .returning({ id: conversationMemories.id });
+  return deleted.length > 0;
+}
+
+/**
  * Clears every memory the owner has stored. With no scope this removes the
  * shared (default Nova) memories *and* every personal agent's private ones;
  * passing a scope narrows the wipe to just that agent. Returns the number of

@@ -4,6 +4,8 @@ import {
   buildS3PutRequest,
   clearMemoriesForUser,
   deleteMemoryForUser,
+  deleteOwnedMemoryForUser,
+  listMemoriesForUser,
   listRecentMemoriesForPrompt,
   readMemoryForUser,
   saveMemoryForUser,
@@ -111,6 +113,8 @@ describe("conversation memory store", () => {
     await expect(searchMemoriesForUser(1, "deploy")).resolves.toEqual([]);
     await expect(readMemoryForUser(1, 7)).resolves.toBeNull();
     await expect(deleteMemoryForUser(1, 7)).resolves.toBe(false);
+    await expect(deleteOwnedMemoryForUser(1, 7)).resolves.toBe(false);
+    await expect(listMemoriesForUser(1)).resolves.toEqual([]);
     await expect(listRecentMemoriesForPrompt(1)).resolves.toBe("none yet");
   });
 
@@ -266,6 +270,32 @@ describe("conversation memory store", () => {
     const record = await readMemoryForUser(1, 7);
     expect(record?.id).toBe(7);
     await expect(deleteMemoryForUser(1, 7)).resolves.toBe(true);
+  });
+
+  it("lists every memory the owner has stored across scopes", async () => {
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({
+        rows: [memoryRow({ id: 7 }), memoryRow({ id: 8, agentId: 5, kind: "note" })],
+      }) as never
+    );
+    const records = await listMemoriesForUser(1);
+    expect(records.map(record => record.id)).toEqual([7, 8]);
+  });
+
+  it("deletes an owned memory by id without narrowing the scope", async () => {
+    let whereCondition: unknown;
+    vi.mocked(getDb).mockResolvedValue(
+      makeFakeDb({
+        onDelete: () => [7],
+        onDeleteWhere: condition => {
+          whereCondition = condition;
+        },
+      }) as never
+    );
+    await expect(deleteOwnedMemoryForUser(1, 7)).resolves.toBe(true);
+    const params = paramValues(whereCondition);
+    expect(params).toContain(1);
+    expect(params).toContain(7);
   });
 });
 

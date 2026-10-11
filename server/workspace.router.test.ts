@@ -74,6 +74,10 @@ const deleteCustomModelSpy = vi.fn(async (ownerId: number, modelId: number) => {
 });
 const factoryResetSpy = vi.fn(async (ownerId: number) => ({ success: true, cancelledRuns: 1, deletedFiles: 3, deletedFolders: 2, previousSandboxId: "sbx-old", sandboxId: "sbx-new" }));
 const clearMemoriesSpy = vi.fn(async (_ownerId: number) => 4);
+const listMemoriesSpy = vi.fn(async (_ownerId: number) => [
+  { id: 7, chatId: "c-1", kind: "conversation", title: "Deploy the portfolio site", summary: "Built and deployed it.", tags: null, content: "…", s3Uri: null, updatedAt: new Date("2026-09-21T10:00:00Z") },
+]);
+const deleteOwnedMemorySpy = vi.fn(async (_ownerId: number, _memoryId: number) => true);
 const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsRecord>) => {
   const previous = modelSettings.get(ownerId) ?? { activeProvider: "anthropic" as const, activeModelId: "claude-sonnet", activeCustomModelId: null, workspaceRules: null };
   if (input.activeCustomModelId && customModels.get(input.activeCustomModelId)?.workspaceId !== ownerId) return undefined;
@@ -103,7 +107,7 @@ vi.mock("./db", () => ({
   factoryResetWorkspaceForUser: factoryResetSpy,
 }));
 
-vi.mock("./memories", () => ({ clearMemoriesForUser: clearMemoriesSpy }));
+vi.mock("./memories", () => ({ clearMemoriesForUser: clearMemoriesSpy, listMemoriesForUser: listMemoriesSpy, deleteOwnedMemoryForUser: deleteOwnedMemorySpy }));
 
 // The gateway model catalogue must never gate a settings change: the real
 // client would otherwise be unable to switch providers in any environment
@@ -200,6 +204,23 @@ describe("Nova workspace authenticated API", () => {
     expect(result).toEqual({ success: true, deletedMemories: 4 });
     expect(clearMemoriesSpy).toHaveBeenCalledTimes(1);
     expect(clearMemoriesSpy).toHaveBeenCalledWith(41);
+  });
+
+  it("lists stored memories and forgets one on request", async () => {
+    const caller = appRouter.createCaller(contextFor(41));
+    await expect(caller.workspace.listMemories()).resolves.toEqual([
+      expect.objectContaining({ id: 7, title: "Deploy the portfolio site" }),
+    ]);
+    expect(listMemoriesSpy).toHaveBeenCalledWith(41);
+    await expect(caller.workspace.deleteMemory({ id: 7 })).resolves.toEqual({ success: true });
+    expect(deleteOwnedMemorySpy).toHaveBeenCalledWith(41, 7);
+  });
+
+  it("refuses to forget a memory that is not the owner's", async () => {
+    deleteOwnedMemorySpy.mockResolvedValueOnce(false);
+    const intruder = appRouter.createCaller(contextFor(82));
+    await expect(intruder.workspace.deleteMemory({ id: 999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(deleteOwnedMemorySpy).toHaveBeenCalledWith(82, 999);
   });
 
   it("keeps custom model credentials and selections inside the owning workspace", async () => {

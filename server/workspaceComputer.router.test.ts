@@ -7,7 +7,9 @@ const chats = new Map<string, { id: string; ownerId: number; title: string }>();
 let nextId = 1;
 let nextChatId = 1;
 
-vi.mock("./db", () => ({
+vi.mock("./db", async () => {
+  const { searchWorkspaceFiles } = await import("./fileSearch");
+  return {
   getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   createWorkspaceFolderForUser: vi.fn(async (ownerId: number, input: { name: string }) => { const item = { id: nextId++, ownerId, name: input.name }; folders.set(item.id, item); return item; }),
@@ -21,7 +23,9 @@ vi.mock("./db", () => ({
   getWorkspaceComputer: vi.fn(async (ownerId: number) => ({ workspace: { id: ownerId }, folders: [...folders.values()].filter(item => item.ownerId === ownerId), files: [...files.values()].filter(item => item.ownerId === ownerId), chats: [...chats.values()].filter(item => item.ownerId === ownerId), settings: {} })),
   getOrCreateWorkspace: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
-}));
+  searchWorkspaceFilesForUser: vi.fn(async (ownerId: number, options: { query: string; regex?: boolean; limit?: number }) => searchWorkspaceFiles([...files.values()].filter(item => item.ownerId === ownerId), options)),
+  };
+});
 vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 const { appRouter } = await import("./routers");
 const context = (id: number): TrpcContext => ({ user: { id, openId: String(id), name: null, email: null, loginMethod: "test", role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() }, req: {} as TrpcContext["req"], res: {} as TrpcContext["res"] });
@@ -38,6 +42,20 @@ describe("workspace computer router", () => {
     expect(await owner.workspace.computer()).toMatchObject({ folders: [expect.objectContaining({ id: folder.id, name: "Updated plans" })], files: [expect.objectContaining({ id: file.id, name: "updated-brief.md" })], chats: [expect.objectContaining({ id: chat.id })] });
     await expect(owner.files.delete({ id: file.id })).resolves.toEqual({ success: true });
   });
+  it("searches the workspace's files by name and body", async () => {
+    const owner = appRouter.createCaller(context(1));
+    await owner.files.create({ name: "launch-plan.md", content: "First draft" });
+    await owner.files.create({ name: "notes.md", content: "Ship the launch on Friday" });
+    await owner.files.create({ name: "unrelated.txt", content: "nothing here" });
+
+    const results = await owner.files.search({ query: "launch" });
+    expect(results.map(result => result.name)).toEqual(["launch-plan.md", "notes.md"]);
+    expect(results[1].snippets).toEqual([{ line: 1, text: "Ship the launch on Friday" }]);
+
+    await expect(owner.files.search({ query: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.files.search({ query: "(", regex: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("does not permit a second user to access or delete private computer items", async () => {
     const owner = appRouter.createCaller(context(1)); const stranger = appRouter.createCaller(context(2));
     const folder = await owner.folders.create({ name: "Private" }); const file = await owner.files.create({ name: "private.txt" }); const chat = await owner.chats.create({ title: "Private chat" });

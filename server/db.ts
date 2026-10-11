@@ -36,6 +36,7 @@ import { getTelegramWebhookInfo } from "./telegram";
 import { ENV } from "./_core/env";
 import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "./e2b";
 import { wouldCreateWorkspaceFolderCycle } from "./workspaceFolderTree";
+import { searchWorkspaceFiles, type FileSearchOptions } from "./fileSearch";
 import { newChatId } from "./chatId";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -625,6 +626,12 @@ export async function listWorkspaceFilesForUser(ownerId: number) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   return db.select().from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspace.id)).orderBy(desc(workspaceFiles.updatedAt));
+}
+
+/** Searches every file in the workspace by name, body and MIME type. */
+export async function searchWorkspaceFilesForUser(ownerId: number, options: FileSearchOptions) {
+  const files = await listWorkspaceFilesForUser(ownerId);
+  return searchWorkspaceFiles(files, options);
 }
 
 export async function createWorkspaceFileForUser(ownerId: number, input: { name: string; content?: string; mimeType?: string; folderId?: number | null }) {

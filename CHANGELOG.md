@@ -1,3 +1,37 @@
+2026-10-11 - The Files explorer searches every workspace file by name and content
+
+Nova's files could be browsed but not searched: finding something meant
+walking the folder tree or asking the agent. The Files page now has a search
+box in the Explorer header that runs a workspace-wide full-text search across
+every file's name, body and MIME type, with a `.*` toggle for
+regular-expression queries. Results replace the tree while a query is active
+and show each hit with its folder trail, match count, and line-anchored
+snippets whose match is highlighted; clicking one opens the file in the
+editor. Search runs server-side, so the browser never scans file content.
+
+server/fileSearch.ts is the pure matching and ranking layer: case-insensitive
+by default, a JavaScript regular expression when asked, filename matches
+ranked above body matches, base64 data-URI content skipped so binary uploads
+do not produce noise, and up to three snippets per file with long lines capped
+around the match. A blank query, an over-long query, an invalid pattern, and a
+pattern that matches everything are rejected with a clear message.
+server/db.ts adds searchWorkspaceFilesForUser, which scans the workspace's own
+workspace_files rows, and server/routers.ts exposes it as the `files.search`
+tRPC query (query, optional regex, optional limit).
+
+client/src/pages/Files.tsx adds the debounced search box, the regex toggle and
+the FileSearchResults list; client/src/lib/fileSearch.ts splits a snippet into
+plain and matched segments so the UI highlights without re-implementing the
+server's matching rules. Files: server/fileSearch.ts, server/db.ts,
+server/routers.ts, client/src/lib/fileSearch.ts, client/src/pages/Files.tsx,
+CHANGELOG.md, plus tests (server/fileSearch.test.ts,
+client/src/lib/fileSearch.test.ts, client/src/pages/Files.render.test.tsx,
+server/workspaceComputer.router.test.ts). 28 new/updated tests pass; typecheck
+carries only the two pre-existing dependency-duplication errors in untouched
+appTree.tsx and vite.config.ts.
+
+---
+
 2026-10-10 - One model: the built-in gateway serves only Token Harbor's DeepSeek V4.1 Flash
 
 Nova's built-in AI gateway now targets Token Harbor (https://tokenharbor.ai), a

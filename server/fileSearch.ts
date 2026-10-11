@@ -63,7 +63,6 @@ const BINARY_DATA_URI = /^data:[^,]*;base64,/i;
 
 export type FileSearchMatcher = {
   test: (text: string) => boolean;
-  count: (text: string) => number;
   firstIndex: (text: string) => number;
 };
 
@@ -82,10 +81,8 @@ export function buildFileSearchMatcher(query: string, regex = false): FileSearch
   }
   const source = regex ? trimmed : escapeRegExp(trimmed);
   let single: RegExp;
-  let global: RegExp;
   try {
     single = new RegExp(source, "i");
-    global = new RegExp(source, "gi");
   } catch {
     return { error: "That is not a valid regular expression." };
   }
@@ -94,7 +91,6 @@ export function buildFileSearchMatcher(query: string, regex = false): FileSearch
   if (single.test("")) return { error: "That pattern matches everything - make it more specific." };
   return {
     test: text => single.test(text),
-    count: text => (text.match(global) ?? []).length,
     firstIndex: text => text.search(single),
   };
 }

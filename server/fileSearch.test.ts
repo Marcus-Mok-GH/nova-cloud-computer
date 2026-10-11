@@ -44,12 +44,13 @@ describe("buildFileSearchMatcher", () => {
     expect(matcher.test("xxaxbxx")).toBe(false);
   });
 
-  it("matches case-insensitively and counts occurrences", () => {
+  it("matches case-insensitively and locates the first match", () => {
     const matcher = buildFileSearchMatcher("nova");
     expect("error" in matcher).toBe(false);
     if ("error" in matcher) return;
     expect(matcher.test("Nova Cloud")).toBe(true);
-    expect(matcher.count("nova Nova NOVA")).toBe(3);
+    expect(matcher.test("nothing here")).toBe(false);
+    expect(matcher.firstIndex("hi NOVA there")).toBe(3);
   });
 });
 

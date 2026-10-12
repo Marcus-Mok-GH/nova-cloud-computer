@@ -11,6 +11,13 @@ describe("stripMarkdownForSpeech", () => {
     expect(out).toContain("Done.");
   });
 
+  it("replaces an unclosed fence with a placeholder", () => {
+    const out = stripMarkdownForSpeech("Hello:\n```ts\nconst x = 1;");
+    expect(out).not.toContain("```");
+    expect(out).not.toContain("const x");
+    expect(out).toContain("code sample");
+  });
+
   it("keeps link labels and drops URLs", () => {
     const out = stripMarkdownForSpeech(
       "See [docs](https://example.com/x) or https://example.com/y now"

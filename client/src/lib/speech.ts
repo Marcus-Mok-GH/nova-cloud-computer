@@ -24,6 +24,9 @@ export function stripMarkdownForSpeech(raw: string): string {
   let text = (raw ?? "").replace(/\r\n/g, "\n");
   // Fenced code blocks -> placeholder (or drop when empty).
   text = text.replace(/```[\s\S]*?```/g, " code sample. ");
+  // An unclosed fence (e.g. a truncated reply): everything from the opening
+  // fence on is code, so it carries no speakable content.
+  text = text.replace(/^\s*```[\s\S]*$/m, " code sample. ");
   // Inline code keeps its content but drops the backticks.
   text = text.replace(/`([^`\n]+)`/g, "$1");
   // Images ![alt](url) -> alt only.
@@ -167,9 +170,11 @@ export function speakChunks(
     return stop;
   }
   const synthesis = window.speechSynthesis;
-  synthesis.cancel();
+  // Bump first: cancel() may synchronously fire the previous run's end
+  // handlers in some browsers, and they must already read as stale.
   activeGeneration += 1;
   const generation = activeGeneration;
+  synthesis.cancel();
   const voice = pickDefaultVoice();
   let cancelled = false;
   let index = 0;

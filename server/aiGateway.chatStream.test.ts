@@ -163,20 +163,23 @@ describe("AI gateway chat stream handling", () => {
 
   it("fails a stalled stream as unavailable instead of hanging forever", async () => {
     // The stream opens, headers arrive, then the gateway goes silent forever.
+    // Both the primary and the Haiku fallback stall, so the run surfaces the
+    // fallback's stall as unavailable.
     const cancel = vi.fn(() => {});
-    const body = new ReadableStream<Uint8Array>({
-      start() {
-        // Never enqueue, never close.
-      },
-      cancel: () => {
-        cancel();
-        return Promise.resolve();
-      },
-    });
+    const stalledBody = () =>
+      new ReadableStream<Uint8Array>({
+        start() {
+          // Never enqueue, never close.
+        },
+        cancel: () => {
+          cancel();
+          return Promise.resolve();
+        },
+      });
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/models")) return modelsResponse();
-      return new Response(body, {
+      return new Response(stalledBody(), {
         status: 200,
         headers: { "content-type": "text/event-stream" },
       });
@@ -194,8 +197,9 @@ describe("AI gateway chat stream handling", () => {
         settled = { error };
       }
     );
-    // Let microtasks and the stall timer resolve without blocking the test.
-    await vi.advanceTimersByTimeAsync(121_000);
+    // Let microtasks and both attempts' stall timers resolve without
+    // blocking the test.
+    await vi.advanceTimersByTimeAsync(250_000);
     await attempt;
     expect(settled).toMatchObject({
       error: expect.objectContaining({ kind: "unavailable" }),
@@ -306,6 +310,31 @@ describe("AI gateway chat stream handling", () => {
     // endpoints must never see a parameter they do not implement.
     expect(reasoningParamsForModel("ministral-14b-latest")).toEqual({});
     expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
+  });
+
+  it("falls back to the Haiku model when the primary chat model is rate-limited", async () => {
+    let calls = 0;
+    const fetchImpl = gatewayFetchStub(path => {
+      if (path !== "/chat/completions") throw new Error(`unexpected path ${path}`);
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ error: { message: "overloaded" } }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return sseResponse([
+        `data: ${JSON.stringify({ model: "claude-haiku-5.5:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+        "data: [DONE]\n\n",
+      ]);
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
+      onChunk: () => {},
+    });
+    expect(result.text).toBe("Fallback reply.");
+    expect(result.model).toBe("claude-haiku-5.5:free");
+    expect(calls).toBe(2);
   });
 
   it("posts the single Token Harbor model without GLM thinking fields", async () => {

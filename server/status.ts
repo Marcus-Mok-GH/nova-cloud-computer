@@ -233,7 +233,7 @@ export async function collectServiceStatus(
     id: "connectors",
     name: "Connectors",
     state: composioConfigured() ? "operational" : "unconfigured",
-    detail: composioConfigured() ? "Ready to connect apps like GitHub and Gmail" : "Not available on this workspace yet",
+    detail: composioConfigured() ? "Ready to connect apps like GitHub, Gmail and Vercel" : "Not available on this workspace yet",
     latencyMs: null,
   });
 

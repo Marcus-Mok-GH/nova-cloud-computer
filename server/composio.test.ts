@@ -376,6 +376,53 @@ describe("Composio connector client", () => {
     );
   });
 
+  it("supports the Vercel toolkit with its own connection state and messages", async () => {
+    const fetchImpl = vi.fn(async () =>
+      composioResponse({
+        items: [
+          { id: "acc_github", user_id: "nova-user-6", status: "ACTIVE", toolkit: { slug: "github" } },
+          { id: "acc_vercel", user_id: "nova-user-6", status: "ACTIVE", toolkit: { slug: "vercel" } },
+        ],
+      })
+    );
+    await expect(getComposioConnectionStatus(6, "vercel", fetchImpl)).resolves.toEqual({
+      configured: true,
+      connected: true,
+      status: "active",
+      connectedAccountId: "acc_vercel",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/connected_accounts?user_id=nova-user-6&toolkit_slug=vercel"),
+      expect.anything()
+    );
+    // A GitHub-only account must not light up the Vercel card.
+    const githubOnly = vi.fn(async () =>
+      composioResponse({
+        items: [{ id: "acc_github", user_id: "nova-user-6", status: "ACTIVE", toolkit: { slug: "github" } }],
+      })
+    );
+    await expect(getComposioConnectionStatus(6, "vercel", githubOnly)).resolves.toEqual({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      connectedAccountId: null,
+    });
+  });
+
+  it("creates a Vercel connection link and refuses to execute while disconnected", async () => {
+    const linkFetch = vi.fn()
+      .mockResolvedValueOnce(composioResponse({ items: [{ id: "acfg_vercel" }] }))
+      .mockResolvedValueOnce(composioResponse({ redirect_url: "https://composio.dev/link/vercel", connected_account_id: "acc_new" }));
+    await expect(createComposioConnectionLink(5, "vercel", {}, linkFetch)).resolves.toEqual({
+      redirectUrl: "https://composio.dev/link/vercel",
+      connectedAccountId: "acc_new",
+    });
+    const emptyFetch = vi.fn(async () => composioResponse({ items: [] }));
+    await expect(executeComposioTool(6, "vercel", "VERCEL_LIST_PROJECTS", {}, emptyFetch)).rejects.toThrow(
+      "Vercel is not connected yet"
+    );
+  });
+
   it("wraps Composio HTTP errors with their message", async () => {
     const fetchImpl = vi.fn(async () => composioResponse({ error: { message: "Invalid API key" } }, 401));
     await expect(getComposioConnectionStatus(1, fetchImpl)).rejects.toThrow("Invalid API key");

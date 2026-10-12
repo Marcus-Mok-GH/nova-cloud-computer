@@ -519,13 +519,13 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Hello there");
   });
 
-  it("offers a regenerate button next to each copy button", () => {
+  it("offers a regenerate button only for Nova's reply, not the user's message", () => {
     state.chatMessages = [
       { id: 1, role: "user", content: "Hi Nova" },
       { id: 2, role: "assistant", content: "Hello there" },
     ];
     const markup = renderChat();
-    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(2);
+    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(1);
   });
 
   it("does not offer a regenerate button for the sanitized unavailable-AI error", () => {

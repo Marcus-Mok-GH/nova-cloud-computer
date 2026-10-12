@@ -4711,8 +4711,19 @@ describe("connector tool gating", () => {
           properties: Record<string, { enum?: string[] }>;
         }
       ).properties.connector.enum
-    ).toEqual(["gmail"]);
+    ).toEqual(["gmail", "vercel"]);
     expect(tools.find(tool => tool.function.name === "github")).toBeDefined();
+  });
+
+  it("exposes the shared catalog when only Vercel is connected", () => {
+    const tools = workspaceToolsForConnectors(["vercel"]);
+    expect(
+      tools.find(tool => tool.function.name === "list_connector_tools")
+    ).toBeDefined();
+    expect(
+      tools.find(tool => tool.function.name === "use_connector_tool")
+    ).toBeDefined();
+    expect(tools.find(tool => tool.function.name === "github")).toBeUndefined();
   });
 
   it("status failures degrade to no connected toolkits", async () => {
@@ -4729,7 +4740,7 @@ describe("connector tool gating", () => {
       return { connected: true };
     };
     const connected = await getConnectedConnectorToolkits(1, check as never);
-    expect(connected).toEqual(["github"]);
+    expect(connected).toEqual(["github", "vercel"]);
   });
 
   it("reports only connected toolkits", async () => {

@@ -140,6 +140,7 @@ vi.mock("@/lib/trpc", () => ({
       },
       send: { useMutation: () => mutation },
       stop: { useMutation: () => mutation },
+      revert: { useMutation: () => mutation },
     },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({
@@ -516,6 +517,28 @@ describe("Workspace rendered browser states", () => {
     expect(markup.match(/aria-label="Copy message"/g) || []).toHaveLength(2);
     expect(markup).toContain("Hi Nova");
     expect(markup).toContain("Hello there");
+  });
+
+  it("offers a regenerate button next to each copy button", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Hi Nova" },
+      { id: 2, role: "assistant", content: "Hello there" },
+    ];
+    const markup = renderChat();
+    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(2);
+  });
+
+  it("does not offer a regenerate button for the sanitized unavailable-AI error", () => {
+    state.chatMessages = [
+      {
+        id: 1,
+        role: "assistant",
+        content: `${AI_UNAVAILABLE_PREFIX}fetch failed to https://api.mistral.ai/v1/chat/completions: connection reset`,
+      },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="assistant-error"');
+    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(0);
   });
 
   it("does not offer a copy button for the sanitized unavailable-AI error", () => {

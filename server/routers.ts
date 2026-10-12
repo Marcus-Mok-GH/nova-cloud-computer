@@ -27,6 +27,7 @@ import {
   getWorkspaceModelSettingsForUser,
   getWorkspaceDashboard,
   listChatMessagesForUser,
+  revertChatToMessageForUser,
   listProjectsForUser,
   listTasksForUser,
   updateTaskStatusForUser,
@@ -410,6 +411,8 @@ export const appRouter = router({
   chats: router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
     messages: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),
+    /** Reverts a conversation to an earlier message for the regenerate flow: deletes that message and everything after it. */
+    revert: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), messageId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await revertChatToMessageForUser(ctx.user.id, input.chatId, input.messageId); if (!result) throwIfNotFound(result, "conversation message"); return { success: true as const, deleted: result.deletedCount }; }),
     runStatus: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");

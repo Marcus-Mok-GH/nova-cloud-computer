@@ -163,8 +163,8 @@ describe("AI gateway chat stream handling", () => {
 
   it("fails a stalled stream as unavailable instead of hanging forever", async () => {
     // The stream opens, headers arrive, then the gateway goes silent forever.
-    // Both the primary and the Haiku fallback stall, so the run surfaces the
-    // fallback's stall as unavailable.
+    // The primary and both fallbacks stall, so the run surfaces the
+    // last fallback's stall as unavailable.
     const cancel = vi.fn(() => {});
     const stalledBody = () =>
       new ReadableStream<Uint8Array>({
@@ -197,9 +197,9 @@ describe("AI gateway chat stream handling", () => {
         settled = { error };
       }
     );
-    // Let microtasks and both attempts' stall timers resolve without
+    // Let microtasks and all three attempts' stall timers resolve without
     // blocking the test.
-    await vi.advanceTimersByTimeAsync(250_000);
+    await vi.advanceTimersByTimeAsync(370_000);
     await attempt;
     expect(settled).toMatchObject({
       error: expect.objectContaining({ kind: "unavailable" }),

@@ -90,10 +90,10 @@ export class AiGatewayClientError extends Error {
 /**
  * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
  * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
- * credential. The gateway serves a primary model with one free-tier fallback:
+ * credential. The gateway serves a primary model with two free-tier fallbacks:
  * when the primary fails with a transient error (overload / rate limit,
  * upstream 5xx or timeout, empty completion), the same request is retried
- * once against the fallback before the error surfaces.
+ * in order against each fallback before the error surfaces.
  */
 const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
 
@@ -113,6 +113,21 @@ export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
  */
 export const TOKENHARBOR_FALLBACK_MODEL = "claude-haiku-5.5:free";
 
+/**
+ * Second fallback model when both the primary and the first fallback fail
+ * transiently. Token Harbor serves this as `mimo-v2.6-flash:free`
+ * (free-tier: never billed, same `:free` pattern as the primary, so the
+ * deployment is never charged). Provider is Xiaomi (MiMo family), served via
+ * Token Harbor's free tier (`https://tokenharbor.ai/models/mimo-v2.6-flash:free`,
+ * Xiaomi provider at `https://tokenharbor.ai/providers/xiaomi`): a 1M-context
+ * omnimodal reasoning model (text, image, audio, video input) used on
+ * Token Harbor's free allowance for high-frequency agent/coding calls, so it
+ * can serve the agent loop (tool calling + vision) as a last resort.
+ * Override with TOKENHARBOR_SECOND_FALLBACK_MODEL; set it to
+ * "none"/"disabled" to turn the second fallback off.
+ */
+export const TOKENHARBOR_SECOND_FALLBACK_MODEL = "mimo-v2.6-flash:free";
+
 /** Primary-first chain every built-in inference request walks. */
 export function gatewayModelChain(): string[] {
   const raw = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim().toLowerCase();
@@ -121,8 +136,16 @@ export function gatewayModelChain(): string[] {
   }
   const override = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim();
   const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
-  if (fallback === TOKENHARBOR_CHAT_MODEL) return [TOKENHARBOR_CHAT_MODEL];
-  return [TOKENHARBOR_CHAT_MODEL, fallback];
+  const chain = [TOKENHARBOR_CHAT_MODEL];
+  if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push(fallback);
+  const secondRaw = process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL?.trim();
+  const secondLower = secondRaw?.toLowerCase();
+  if (secondLower === "none" || secondLower === "disabled" || secondLower === "off") {
+    return chain;
+  }
+  const second = secondRaw ? secondRaw : TOKENHARBOR_SECOND_FALLBACK_MODEL;
+  if (second !== TOKENHARBOR_CHAT_MODEL && second !== fallback) chain.push(second);
+  return chain;
 }
 
 /**
@@ -318,6 +341,7 @@ export async function getAiGatewayStatus(ownerId: number) {
     provider: "mistral" as const,
     model: TOKENHARBOR_CHAT_MODEL,
     fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
+    secondFallbackModel: TOKENHARBOR_SECOND_FALLBACK_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -401,8 +425,9 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
  * (Token Harbor's free DeepSeek V4.1 Flash) with Claude Haiku 5.5 (free) as
- * the transient-failure fallback, so the picker and settings validation see
- * both entries. `_forceRefresh` is retained for call-site compatibility;
+ * the first transient-failure fallback and Xiaomi's MiMo V2.6 Flash (free) as
+ * the second, so the picker and settings validation see all three entries.
+ * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.
  */
 export async function listGatewayModels(
@@ -411,6 +436,7 @@ export async function listGatewayModels(
   return [
     { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
     { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+    { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
   ];
 }
 

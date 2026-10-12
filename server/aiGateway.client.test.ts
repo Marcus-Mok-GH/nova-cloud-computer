@@ -19,6 +19,7 @@ const {
   resetAiGatewayHealthCache,
   TOKENHARBOR_CHAT_MODEL,
   TOKENHARBOR_FALLBACK_MODEL,
+  TOKENHARBOR_SECOND_FALLBACK_MODEL,
   AiGatewayClientError,
 } = await import("./aiGateway");
 
@@ -37,10 +38,14 @@ describe("AI gateway client", () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.TOKENHARBOR_API_KEY;
   const originalUrl = process.env.TOKENHARBOR_GATEWAY_URL;
+  const originalFallback = process.env.TOKENHARBOR_FALLBACK_MODEL;
+  const originalSecondFallback = process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL;
 
   beforeEach(() => {
     delete process.env.TOKENHARBOR_API_KEY;
     delete process.env.TOKENHARBOR_GATEWAY_URL;
+    delete process.env.TOKENHARBOR_FALLBACK_MODEL;
+    delete process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL;
     process.env.TOKENHARBOR_API_KEY = API_KEY;
     process.env.TOKENHARBOR_GATEWAY_URL = MIRROR_URL;
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -53,6 +58,8 @@ describe("AI gateway client", () => {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.TOKENHARBOR_API_KEY; else process.env.TOKENHARBOR_API_KEY = originalKey;
     if (originalUrl === undefined) delete process.env.TOKENHARBOR_GATEWAY_URL; else process.env.TOKENHARBOR_GATEWAY_URL = originalUrl;
+    if (originalFallback === undefined) delete process.env.TOKENHARBOR_FALLBACK_MODEL; else process.env.TOKENHARBOR_FALLBACK_MODEL = originalFallback;
+    if (originalSecondFallback === undefined) delete process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL; else process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL = originalSecondFallback;
   });
 
   it("targets Token Harbor's base URL by default", async () => {
@@ -128,6 +135,19 @@ describe("AI gateway client", () => {
     await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "fallback reply" });
     // Primary first, then the Haiku fallback; one allowance claim for both.
     expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to MiMo when the primary and Haiku models are overloaded", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "mimo reply" } }], model: TOKENHARBOR_SECOND_FALLBACK_MODEL }), { status: 200 }));
+
+    await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "mimo reply" });
+    // Primary first, then Haiku, then MiMo; one allowance claim for all three.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
   });
 
@@ -222,14 +242,15 @@ describe("AI gateway client", () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }));
 
     await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({
       kind: "unavailable",
       message: "upstream exploded",
     });
-    // Both primary and fallback failed; the fallback's error surfaces.
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    // Primary and both fallbacks failed; the last fallback's error surfaces.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL]);
   });
 
   it("reports a 401 from the health probe as a provider configuration problem", async () => {
@@ -245,10 +266,11 @@ describe("AI gateway client", () => {
     });
   });
 
-  it("exposes the primary model and the Haiku fallback", async () => {
+  it("exposes the primary model and both fallbacks", async () => {
     await expect(listGatewayModels(true)).resolves.toEqual([
       { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
       { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
     ]);
   });
 });

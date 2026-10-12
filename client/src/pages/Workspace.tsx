@@ -609,6 +609,13 @@ export default function Workspace() {
       return false;
     } finally {
       if (streamAbortRef.current === controller) {
+        // A stream that ends (naturally or aborted) after the reader moved on
+        // must still leave its marker: navigation can update the viewed chat
+        // between the fetch settling and the chat-switch effect running, and
+        // the effect only marks a controller that is still live. Marking here
+        // covers that gap; it is a no-op when the chat is still on screen.
+        if (viewedChatIdRef.current !== targetChatId)
+          markChatAway(targetChatId);
         streamAbortRef.current = null;
         streamOwnerChatIdRef.current = undefined;
       }

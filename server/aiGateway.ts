@@ -90,13 +90,50 @@ export class AiGatewayClientError extends Error {
 /**
  * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
  * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
- * credential. The gateway serves exactly one model (TOKENHARBOR_CHAT_MODEL);
- * there is no provider mode, discovery ladder, or fallback chain.
+ * credential. The gateway serves a primary model with one free-tier fallback:
+ * when the primary fails with a transient error (overload / rate limit,
+ * upstream 5xx or timeout, empty completion), the same request is retried
+ * once against the fallback before the error surfaces.
  */
 const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
 
-/** The single model Nova's built-in gateway serves. */
+/** The primary model Nova's built-in gateway serves (free-tier: never billed). */
 export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
+
+/**
+ * Fallback model when the primary fails transiently. Token Harbor serves this
+ * as `claude-haiku-5.5:free` (free-tier: never billed, same `:free` pattern as
+ * the primary, so the deployment is never charged). Verified against Token
+ * Harbor's catalogue at https://tokenharbor.ai/models/claude-haiku-5.5:free;
+ * the bare Anthropic id is `claude-haiku-5-5`, but on this OpenAI-compatible
+ * gateway the `claude-haiku-5.5:free` route id must be used. Haiku 5.5 supports
+ * tool calling, vision, and reasoning, so it can serve the agent loop.
+ * Override with TOKENHARBOR_FALLBACK_MODEL; set it to "none"/"disabled" to
+ * turn the fallback off.
+ */
+export const TOKENHARBOR_FALLBACK_MODEL = "claude-haiku-5.5:free";
+
+/** Primary-first chain every built-in inference request walks. */
+export function gatewayModelChain(): string[] {
+  const raw = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim().toLowerCase();
+  if (raw === "none" || raw === "disabled" || raw === "off") {
+    return [TOKENHARBOR_CHAT_MODEL];
+  }
+  const override = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim();
+  const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
+  if (fallback === TOKENHARBOR_CHAT_MODEL) return [TOKENHARBOR_CHAT_MODEL];
+  return [TOKENHARBOR_CHAT_MODEL, fallback];
+}
+
+/**
+ * Failures worth retrying on the fallback model: the primary is overloaded,
+ * unreachable, or returned an empty completion. Permanent problems
+ * (client_error, configuration, allowance/credits, stopped) are returned
+ * as-is - retrying them on another model cannot help.
+ */
+export function isFallbackRetryableKind(kind: AiGatewayClientErrorKind): boolean {
+  return kind === "unavailable" || kind === "rate_limit" || kind === "invalid_response";
+}
 
 /**
  * The Token Harbor credential. Mirroring the providers this replaced, a value
@@ -280,6 +317,7 @@ export async function getAiGatewayStatus(ownerId: number) {
     // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
     model: TOKENHARBOR_CHAT_MODEL,
+    fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -343,9 +381,10 @@ export async function getAiGatewayStatus(ownerId: number) {
  * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
  * newer additionally take `reasoning_effort`, where "max" is the deepest
  * reasoning served. Models without a thinking mode (the built-in gateway's
- * DeepSeek model included) get none, since sending unknown fields to a strict
- * endpoint risks a rejection. Exported so the BYOK gateway applies the same
- * per-model logic to a workspace's custom GLM-family models.
+ * DeepSeek primary and Claude Haiku 5.5 fallback included) get none, since
+ * sending unknown fields to a strict endpoint risks a rejection. Exported so
+ * the BYOK gateway applies the same per-model logic to a workspace's custom
+ * GLM-family models.
  */
 export function reasoningParamsForModel(modelId: string): Record<string, unknown> {
   const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
@@ -360,15 +399,19 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 }
 
 /**
- * The built-in gateway's model catalogue. Nova serves exactly one model -
- * Token Harbor's free DeepSeek V4.1 Flash - so the model picker and the
- * settings validation see a single entry. `_forceRefresh` is retained for
- * call-site compatibility; there is no discovery round-trip to refresh.
+ * The built-in gateway's model catalogue. Nova serves a primary model
+ * (Token Harbor's free DeepSeek V4.1 Flash) with Claude Haiku 5.5 (free) as
+ * the transient-failure fallback, so the picker and settings validation see
+ * both entries. `_forceRefresh` is retained for call-site compatibility;
+ * there is no discovery round-trip to refresh.
  */
 export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
-  return [{ id: TOKENHARBOR_CHAT_MODEL, kind: "vision" }];
+  return [
+    { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
+    { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+  ];
 }
 
 /**
@@ -504,22 +547,32 @@ export async function completeWithAiGateway(
       "allowance_reached"
     );
   }
-  // The built-in gateway serves exactly one model, so a caller-supplied id
-  // (e.g. the tRPC ai.complete input) is intentionally ignored: the
-  // single-model contract cannot be bypassed, and a non-free Token Harbor
-  // model can never be billed to the deployment.
-  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
+  // The built-in gateway walks its primary → fallback chain, so a
+  // caller-supplied id (e.g. the tRPC ai.complete input) is intentionally
+  // ignored: the free-tier contract cannot be bypassed, and a non-free Token
+  // Harbor model can never be billed to the deployment.
+  const chain = gatewayModelChain();
+  // Tracks whether the primary already streamed partial text before failing:
+  // the fallback still runs (better than an error), but its text appends
+  // after whatever was already emitted.
+  let streamedBeforeFallback = false;
+  const trackingOnChunk = onChunk
+    ? (chunk: string) => {
+        if (chunk) streamedBeforeFallback = true;
+        onChunk(chunk);
+      }
+    : undefined;
   const postPromptCompletion = async (model: string) => {
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],
-      ...(onChunk ? { stream: true } : {}),
+      ...(trackingOnChunk ? { stream: true } : {}),
     }),
   }, timeoutMs);
-  if (onChunk) {
-    const completion = await readGatewayStreamedCompletion(response, onChunk);
+  if (trackingOnChunk) {
+    const completion = await readGatewayStreamedCompletion(response, trackingOnChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
     if (!text) {
       throw new AiGatewayClientError(
@@ -580,7 +633,28 @@ export async function completeWithAiGateway(
     ),
   };
   };
-  const result = await postPromptCompletion(resolvedModel);
+  const result = await (async () => {
+    let lastError: unknown;
+    for (let index = 0; index < chain.length; index += 1) {
+      const model = chain[index];
+      try {
+        return await postPromptCompletion(model);
+      } catch (error) {
+        lastError = error;
+        const retryable =
+          error instanceof AiGatewayClientError &&
+          isFallbackRetryableKind(error.kind);
+        if (retryable && index + 1 < chain.length) {
+          console.warn(
+            `[AI gateway] model ${model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1]}`
+          );
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  })();
   const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
   return { ...result, creditsCharged };
 }
@@ -916,7 +990,7 @@ export async function chatWithAiGateway(
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
-    /** Accepted for call-site compatibility; ignored - the gateway serves one model. */
+    /** Accepted for call-site compatibility; ignored - the gateway walks its primary → fallback chain. */
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
@@ -948,18 +1022,46 @@ export async function chatWithAiGateway(
       "allowance_reached"
     );
   }
-  // Single-model gateway: a per-call model override is ignored for the same
-  // reason as completeWithAiGateway.
-  const resolvedModel = TOKENHARBOR_CHAT_MODEL;
-  const result = await attemptGatewayChat(
-    status,
-    claim,
-    messages,
-    options,
-    resolvedModel
-  );
-  await settleGatewayCredit(ownerId, result.model, result.usage);
-  return result;
+  // Primary → fallback chain: a per-call model override is ignored for the
+  // same reason as completeWithAiGateway. The allowance was already claimed
+  // once, so the fallback reuses it without double-charging.
+  const chain = gatewayModelChain();
+  let streamedBeforeFallback = false;
+  const trackingOnChunk = options.onChunk
+    ? (chunk: string) => {
+        if (chunk) streamedBeforeFallback = true;
+        options.onChunk!(chunk);
+      }
+    : undefined;
+  const attemptOptions = { ...options, ...(trackingOnChunk ? { onChunk: trackingOnChunk } : {}) };
+  let lastError: unknown;
+  for (let index = 0; index < chain.length; index += 1) {
+    const model = chain[index];
+    try {
+      const result = await attemptGatewayChat(
+        status,
+        claim,
+        messages,
+        attemptOptions,
+        model
+      );
+      await settleGatewayCredit(ownerId, result.model, result.usage);
+      return result;
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        error instanceof AiGatewayClientError &&
+        isFallbackRetryableKind(error.kind);
+      if (retryable && index + 1 < chain.length) {
+        console.warn(
+          `[AI gateway] model ${model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1]}`
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
 /**

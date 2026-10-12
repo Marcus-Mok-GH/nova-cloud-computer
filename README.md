@@ -127,13 +127,15 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `TOKENHARBOR_GATEWAY_URL`     | Optional HTTPS override for the Token Harbor base URL (defaults to `https://tokenharbor.ai/v1`) |
 | `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
 | `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `claude-haiku-5.5:free`); set to `none`/`disabled` to disable |
+| `TOKENHARBOR_SECOND_FALLBACK_MODEL` | Optional override for the built-in gateway second fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
 
 The built-in gateway serves Token Harbor's free
-`deepseek-v4.1-flash:free` with `claude-haiku-5.5:free` as the fallback for
+`deepseek-v4.1-flash:free` with `claude-haiku-5.5:free` as the first fallback
+and `mimo-v2.6-flash:free` (Xiaomi MiMo) as the second fallback for
 transient failures. See
 [`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
 details.

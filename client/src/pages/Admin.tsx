@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import {
   Ban,
   BadgeCheck,
+  Bell,
   Bot,
   Eye,
   FileText,
@@ -269,11 +270,111 @@ export function AdminUserContent({ userId }: { userId: number }) {
   );
 }
 
+/** Notification tab: failed Nova-model API requests, newest first. */
+export function AdminApiErrorNotifications() {
+  const utils = trpc.useUtils();
+  const logsQuery = trpc.admin.apiErrorLogs.useQuery(
+    { limit: 100 },
+    { retry: false, refetchInterval: 30_000 }
+  );
+  const clearLogs = trpc.admin.clearApiErrorLogs.useMutation({
+    onSuccess: async result => {
+      await utils.admin.apiErrorLogs.invalidate();
+      toast.success(
+        result.cleared > 0
+          ? `Cleared ${result.cleared} API error notification${result.cleared === 1 ? "" : "s"}.`
+          : "API error log is already empty."
+      );
+    },
+    onError: error => {
+      toast.error(error.message || "Could not clear notifications.");
+    },
+  });
+
+  const logs = logsQuery.data ?? [];
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card dark:border-white/10 dark:bg-card">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-4 dark:border-white/5">
+        <h2 className="flex items-center gap-2 text-sm font-bold">
+          <Bell className="size-4" /> Notifications
+          <span className="text-xs font-normal text-muted-foreground">
+            {logsQuery.isLoading ? "…" : `${logs.length} failed Nova request${logs.length === 1 ? "" : "s"}`}
+          </span>
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => logsQuery.refetch()}
+            className="pill-btn px-3 py-1.5 text-xs"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm("Clear all Nova API error notifications? This cannot be undone.")) {
+                clearLogs.mutate();
+              }
+            }}
+            disabled={logs.length === 0 || clearLogs.isPending}
+            className="pill-btn px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {clearLogs.isPending ? <Loader2 className="size-3.5 animate-spin" /> : "Clear"}
+          </button>
+        </div>
+      </div>
+      {logsQuery.isError ? (
+        <div className="flex items-center gap-2 px-5 py-8 text-xs text-red-600 dark:text-red-400">
+          Couldn't load API error notifications.
+          <button onClick={() => logsQuery.refetch()} className="pill-btn px-2.5 py-1 text-[11px]">
+            Retry
+          </button>
+        </div>
+      ) : logsQuery.isLoading ? (
+        <div className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading notifications…
+        </div>
+      ) : logs.length === 0 ? (
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+          No failed Nova-model API requests. New failures appear here automatically.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border dark:divide-white/5">
+          {logs.map(log => (
+            <li key={log.id} className="px-5 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:bg-red-500/10 dark:text-red-300">
+                  {log.statusCode}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  {log.method} {log.endpoint}
+                </span>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold text-primary">
+                  {log.modelId}
+                </span>
+                {log.errorCode && (
+                  <span className="font-mono text-[10px] text-muted-foreground">{log.errorCode}</span>
+                )}
+                <span className="ml-auto text-[11px] text-muted-foreground">{formatStamp(log.createdAt)}</span>
+              </div>
+              <p className="mt-2 break-words text-sm text-foreground/90">{log.errorMessage}</p>
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                owner #{log.ownerId}
+                {log.errorKind ? ` · ${log.errorKind}` : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { loading, user } = useAuth();
   const utils = trpc.useUtils();
   const [pendingUserId, setPendingUserId] = useState<number | null>(null);
   const [inspectingUserId, setInspectingUserId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"accounts" | "notifications">("accounts");
   const [pendingAction, setPendingAction] = useState<
     "role" | "ban" | "delete" | null
   >(null);
@@ -289,6 +390,10 @@ export default function Admin() {
     enabled: isConsoleOperator,
     retry: false,
   });
+  const errorCountQuery = trpc.admin.apiErrorLogs.useQuery(
+    { limit: 100 },
+    { enabled: isConsoleOperator, retry: false, refetchInterval: 30_000 }
+  );
 
   const invalidateAdminData = async () =>
     Promise.all([
@@ -440,7 +545,38 @@ export default function Admin() {
           ))}
         </div>
 
-        <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-card dark:border-white/10 dark:bg-card">
+        <div role="tablist" aria-label="Admin sections" className="mt-8 flex gap-2">
+          <button
+            role="tab"
+            aria-selected={activeTab === "accounts"}
+            onClick={() => setActiveTab("accounts")}
+            className={`pill-btn px-4 py-2 text-sm ${activeTab === "accounts" ? "pill-btn-primary" : ""}`}
+          >
+            Accounts
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "notifications"}
+            onClick={() => setActiveTab("notifications")}
+            className={`pill-btn flex items-center gap-2 px-4 py-2 text-sm ${activeTab === "notifications" ? "pill-btn-primary" : ""}`}
+          >
+            <Bell className="size-4" />
+            Notifications
+            {(errorCountQuery.data?.length ?? 0) > 0 && (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {errorCountQuery.data?.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === "notifications" ? (
+          <div role="tabpanel" className="mt-4">
+            <AdminApiErrorNotifications />
+          </div>
+        ) : (
+          <>
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card dark:border-white/10 dark:bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4 dark:border-white/5">
             <h2 className="text-sm font-bold">Accounts</h2>
             <span className="text-xs text-muted-foreground">
@@ -641,6 +777,8 @@ export default function Admin() {
             </ul>
           )}
         </div>
+          </>
+        )}
       </section>
     </DashboardLayout>
   );

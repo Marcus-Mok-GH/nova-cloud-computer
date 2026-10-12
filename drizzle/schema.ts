@@ -86,6 +86,27 @@ export type PriorityPurchase = typeof priorityPurchases.$inferSelect;
 /** Webhook update ids Nova has already handled - dedupes Telegram redeliveries. */
 export const telegramUpdateLog = pgTable("telegram_update_log", { updateId: bigint("updateId", { mode: "number" }).primaryKey(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
 export const agentStopRequests = pgTable("agent_stop_requests", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("agent_stop_requests_owner_idx").on(table.ownerId, table.createdAt)]);
+
+/**
+ * Error log for failed Nova-model API requests. Only failures routed to
+ * Nova's built-in model (`nova-pro`, `ownedBy: "nova"`) are recorded; BYOK
+ * failures stay with the workspace's own provider and are never stored here.
+ * Surfaced in the admin console notification tab, which `adminProcedure`
+ * restricts to admins and developers.
+ */
+export const novaApiErrorLogs = pgTable("nova_api_error_logs", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  endpoint: varchar("endpoint", { length: 240 }).default("/api/v1/chat/completions").notNull(),
+  method: varchar("method", { length: 16 }).default("POST").notNull(),
+  modelId: varchar("modelId", { length: 240 }).default("nova-pro").notNull(),
+  statusCode: integer("statusCode").notNull(),
+  errorKind: varchar("errorKind", { length: 64 }),
+  errorCode: varchar("errorCode", { length: 64 }),
+  errorMessage: varchar("errorMessage", { length: 1200 }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("nova_api_error_logs_created_idx").on(table.createdAt), index("nova_api_error_logs_owner_created_idx").on(table.ownerId, table.createdAt)]);
+export type NovaApiErrorLog = typeof novaApiErrorLogs.$inferSelect;
 export type Workspace = typeof workspaces.$inferSelect; export type Project = typeof projects.$inferSelect; export type Task = typeof tasks.$inferSelect; export type CustomModel = typeof customModels.$inferSelect; export type WorkspaceSettings = typeof workspaceSettings.$inferSelect; export type WorkspaceFolder = typeof workspaceFolders.$inferSelect; export type WorkspaceFile = typeof workspaceFiles.$inferSelect; export type Chat = typeof chats.$inferSelect; export type ChatMessage = typeof chatMessages.$inferSelect; export type ConversationMemory = typeof conversationMemories.$inferSelect; export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect; export type ApiKey = typeof apiKeys.$inferSelect; export type InferenceAllowance = typeof inferenceAllowances.$inferSelect; export type DailyCredit = typeof dailyCredits.$inferSelect; export type AgentVmRun = typeof agentVmRuns.$inferSelect; export type AgentStopRequest = typeof agentStopRequests.$inferSelect; export type TelegramUpdateLog = typeof telegramUpdateLog.$inferSelect; export type Automation = typeof automations.$inferSelect; export type AutomationRun = typeof automationRuns.$inferSelect; export type UserAutomation = typeof userAutomations.$inferSelect;
 
 export const siteDeployments = pgTable("site_deployments", {

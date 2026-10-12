@@ -15,7 +15,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
     credits: { status: { useQuery: () => ({ data: undefined, isLoading: false }) } },
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() }, apiErrorLogs: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { users: 2, admins: 1, chats: 3, messages: 12, projects: 1, tasks: 4, automations: 0, workspaces: 2, telegramLinked: 1, activeAgentRuns: 0 }, recentUsers: [], recentAgentRuns: [] }, isLoading: false }) },
       users: { useQuery: () => ({ data: [
@@ -28,6 +28,8 @@ vi.mock("@/lib/trpc", () => ({
       userChats: { useQuery: () => ({ data: [], isLoading: false }) },
       userFiles: { useQuery: () => ({ data: [], isLoading: false }) },
       userFileContent: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      apiErrorLogs: { useQuery: () => ({ data: [], isLoading: false, refetch: vi.fn() }) },
+      clearApiErrorLogs: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
     },
   },
 }));

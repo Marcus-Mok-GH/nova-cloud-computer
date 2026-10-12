@@ -316,6 +316,13 @@
       "when": 1791009308794,
       "tag": "0044_perfect_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791796639953,
+      "tag": "0045_nova_api_error_logs",
+      "breakpoints": true
     }
   ]
 }

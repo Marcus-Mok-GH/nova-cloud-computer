@@ -5,6 +5,7 @@ import { ChevronRight, MessageSquareText, Sparkles, Trash2 } from "lucide-react"
 import NewChatButton from "@/components/NewChatButton";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
+import { useAwayChats } from "@/lib/awayChats";
 import { useLocation } from "wouter";
 
 export default function Chats() {
@@ -12,6 +13,7 @@ export default function Chats() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false, refetchInterval: 5000, refetchIntervalInBackground: false });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
+  const awayChats = useAwayChats();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const deleteChat = async (chatId: string, title: string) => {
     if (!window.confirm(`Delete “${title}”? This conversation and its messages will be permanently deleted.`)) return;
@@ -44,6 +46,7 @@ export default function Chats() {
               <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><MessageSquareText className="size-4" /></span>
                 <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-bold text-foreground dark:text-foreground">{chat.title}</h2><p className="mt-1 text-xs text-muted-foreground">Open saved conversation</p></div>
+                {awayChats.includes(chat.id) && <span data-testid="chat-away" className="flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"><span className="size-1.5 rounded-full bg-emerald-500" />Updated</span>}
                 <ChevronRight className="size-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-muted-foreground dark:text-muted-foreground" />
               </button>
               <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground opacity-100 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>

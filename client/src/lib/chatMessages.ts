@@ -351,8 +351,8 @@ export function groupPersistedChatItems(
  * replaying the entry animation or flashing stale content.
  */
 export type TurnRenderItem =
-  | { kind: "user"; key: string; content: string; pending: boolean }
-  | { kind: "reply"; key: string; content: string; live: boolean }
+  | { kind: "user"; key: string; messageId: number; content: string; pending: boolean }
+  | { kind: "reply"; key: string; messageId: number; content: string; live: boolean }
   | { kind: "toolRun"; key: string; activities: ToolActivity[]; live: boolean };
 
 /**
@@ -416,6 +416,7 @@ export function buildTurnItems({
     items.push({
       kind: "user",
       key: "user-pending",
+      messageId: 0,
       content: pendingUserContent,
       pending: true,
     });
@@ -466,6 +467,7 @@ export function buildTurnItems({
       items.push({
         kind: "user",
         key: `user-${item.message.id}`,
+        messageId: item.message.id,
         content: item.message.content,
         pending: false,
       });
@@ -473,6 +475,7 @@ export function buildTurnItems({
       items.push({
         kind: "reply",
         key: `reply-${item.message.id}`,
+        messageId: item.message.id,
         content: item.message.content,
         live: false,
       });
@@ -491,6 +494,7 @@ export function buildTurnItems({
         items.push({
           kind: "reply",
           key: `live-reply-${index}`,
+          messageId: 0,
           content: item.content,
           live: true,
         });

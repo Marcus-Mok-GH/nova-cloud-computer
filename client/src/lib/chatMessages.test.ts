@@ -500,12 +500,14 @@ describe("buildTurnItems", () => {
     expect(items[0]).toEqual({
       kind: "user",
       key: "user-1",
+      messageId: 1,
       content: "Tidy my files",
       pending: false,
     });
     expect(items[1]).toEqual({
       kind: "reply",
       key: "live-reply-0",
+      messageId: 0,
       content: "Let me check that.",
       live: true,
     });
@@ -515,6 +517,7 @@ describe("buildTurnItems", () => {
     expect(items[3]).toEqual({
       kind: "reply",
       key: "live-reply-2",
+      messageId: 0,
       content: "Found two files.",
       live: true,
     });
@@ -555,6 +558,7 @@ describe("buildTurnItems", () => {
     expect(items[1]).toEqual({
       kind: "reply",
       key: "reply-2",
+      messageId: 2,
       content: "Let me check that.",
       live: false,
     });
@@ -562,6 +566,7 @@ describe("buildTurnItems", () => {
     expect(items[3]).toEqual({
       kind: "reply",
       key: "live-reply-2",
+      messageId: 0,
       content: "Found two files.",
       live: true,
     });
@@ -582,6 +587,7 @@ describe("buildTurnItems", () => {
     expect(items[2]).toEqual({
       kind: "reply",
       key: "reply-3",
+      messageId: 3,
       content: "Sorted both files.",
       live: false,
     });
@@ -628,6 +634,7 @@ describe("buildTurnItems", () => {
     expect(items[2]).toEqual({
       kind: "reply",
       key: "reply-3",
+      messageId: 3,
       content: "All sorted.",
       live: false,
     });
@@ -644,6 +651,7 @@ describe("buildTurnItems", () => {
       {
         kind: "user",
         key: "user-pending",
+        messageId: 0,
         content: "Tidy my files",
         pending: true,
       },
@@ -666,6 +674,7 @@ describe("buildTurnItems", () => {
     expect(items[1]).toEqual({
       kind: "reply",
       key: "reply-2",
+      messageId: 2,
       content: "[Mira] Found two files.",
       live: false,
     });
@@ -730,6 +739,7 @@ describe("buildTurnItems", () => {
     expect(items[2]).toEqual({
       kind: "reply",
       key: "live-reply-0",
+      messageId: 0,
       content: "Here is the answer",
       live: true,
     });

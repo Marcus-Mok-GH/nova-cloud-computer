@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
+import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Rocket, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -49,7 +49,7 @@ export default function WorkspaceSettings() {
     <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className={activeTab === "general" ? "space-y-7" : "hidden"}><section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Workspace rules</p><h2 className="mt-1 text-xl font-bold tracking-tight">How Nova should help</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Save standing preferences for future assistant experiences.</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder="For example: Keep status updates concise. Always show a draft before sending anything outside this workspace." maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} Save rules</Button></div></section><ThemeCard /></div>
     <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalisationCard /><MemoryCard /></div>
     <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className={activeTab === "ai" ? "space-y-7" : "hidden"}><ModelProviderCard /></div>
-    <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /></div>
+    <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /><ConnectorCard toolkit="vercel" /></div>
     <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
     <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
     <div role="tabpanel" id="settings-panel-billing" aria-labelledby="settings-tab-billing" className={activeTab === "billing" ? "space-y-7" : "hidden"}><BillingCard /></div>
@@ -150,13 +150,19 @@ function TelegramBotCard() {
   return <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Telegram Bot</p><h2 className="mt-1 text-xl font-bold tracking-tight">Send from your workspace</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Saving the bot token only configures the bot. Your Telegram account is connected only after Telegram sends Nova your chat.</p></div>{ready && <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><Check size={14} /> Telegram connected</span>}{waitingForTelegram && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700"><MessageCircle size={14} /> Waiting for Telegram</span>}{configured && !webhookLinked && <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-700"><AlertTriangle size={14} /> Webhook not reachable</span>}</div><div className="mt-6 grid gap-5 lg:grid-cols-2"><div className="space-y-4 rounded-2xl border bg-muted/20 p-4"><div className="flex items-center gap-2"><MessageCircle className="size-4 text-primary" /><p className="text-sm font-bold">{ready ? "Disconnect your Telegram account" : "Connect your Telegram account"}</p></div><p className="text-xs leading-5 text-muted-foreground">{ready ? "Telegram is connected. Disconnecting removes Nova\u2019s access and deletes the stored credentials - you can connect again any time." : "Connect Telegram secures the bot link and opens the chat with a secure link message pre-filled - send it and this chat links to your account automatically. Check connection then confirms the link."}</p>{ready ? <Button variant="outline" className="w-full text-destructive hover:text-destructive" onClick={() => { if (window.confirm("Disconnect Telegram? Nova will lose access to this Telegram chat until you connect again.")) remove.mutate(); }} disabled={remove.isPending}>{(remove.isPending || status.isFetching) && <Loader2 className="animate-spin" size={15} />} Disconnect Telegram</Button> : <Button className="w-full" onClick={() => { const knownUsername = status.data?.botUsername ?? null; const knownCode = status.data?.linkCode ?? null; const openBot = (username: string, code: string) => window.open(`https://t.me/${username}?text=${encodeURIComponent(`/start nova_app_link_${code}`)}`, "_blank", "noopener"); if (knownUsername && knownCode) openBot(knownUsername, knownCode); void (async () => { const saved = await configure.mutateAsync({ chatId: chatId.trim() || null }).catch(() => null); if (!saved) return; const code = saved.linkCode ?? knownCode; if (!saved.botUsername || !code) { toast.error("The bot link details are unavailable, so Telegram could not be opened."); return; } if (!(knownUsername && knownCode)) openBot(saved.botUsername, code); toast.success("Connection secured. Send the pre-filled message in Telegram to link your account."); })(); }} disabled={configure.isPending}>{configure.isPending && <Loader2 className="animate-spin" size={15} />} Connect Telegram</Button>}{configured && !ready && <div className="flex gap-2"><Button variant="outline" className="flex-1" onClick={() => discover.mutate()} disabled={discover.isPending}>{discover.isPending && <Loader2 className="animate-spin" size={15} />} Check connection</Button><Button variant="ghost" size="icon" aria-label="Remove Telegram connection" onClick={() => remove.mutate()} disabled={remove.isPending} className="text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div>}</div><div className="space-y-4 rounded-2xl border bg-muted/20 p-4"><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-[#638f84]" /><p className="text-sm font-bold">Send a test</p></div><p className="text-xs leading-5 text-muted-foreground">{ready ? `Sending to chat ${status.data?.chatId}. Your Telegram account is connected.` : "Your Telegram chat is not connected yet. Authorize the bot first."}</p><Textarea value={testText} onChange={event => setTestText(event.target.value)} className="min-h-28" maxLength={4096} disabled={!ready} /><Button variant="outline" className="w-full" onClick={() => sendTest.mutate({ text: testText })} disabled={!ready || !testText.trim() || sendTest.isPending}>{sendTest.isPending && <Loader2 className="animate-spin" size={15} />} <Send size={15} /> Send test message</Button></div></div></section>;
 }
 
-function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
+function toolkitLabel(toolkit: "github" | "gmail" | "vercel") {
+  if (toolkit === "github") return "GitHub";
+  if (toolkit === "gmail") return "Gmail";
+  return "Vercel";
+}
+
+function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" | "vercel" }) {
   const utils = trpc.useUtils();
   const status = trpc.composio.status.useQuery(undefined, { retry: false, refetchInterval: 15000 });
   const connect = trpc.composio.connect.useMutation({
     onSuccess: async result => {
       window.open(result.redirectUrl, "_blank", "noopener");
-      toast.success(`${toolkit === "github" ? "GitHub" : "Gmail"} authorization opened. Finish it in the new tab, then check the status here.`);
+      toast.success(`${toolkitLabel(toolkit)} authorization opened. Finish it in the new tab, then check the status here.`);
       await utils.composio.status.invalidate();
     },
     onError: error => toast.error(error.message),
@@ -173,13 +179,17 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
   const connected = entry?.connected ?? false;
   const errored = entry?.status === "error";
   const keyLength = status.data?.keyLength ?? 0;
-  const label = toolkit === "github" ? "GitHub" : "Gmail";
+  const label = toolkitLabel(toolkit);
   const blurb = toolkit === "github"
     ? "Connect GitHub through Composio and Nova can work with your repositories, issues and pull requests straight from chat - starred repos, filed issues, opened PRs."
-    : "Connect Gmail through Composio and Nova can search your inbox, draft, send and reply to email straight from chat.";
+    : toolkit === "gmail"
+      ? "Connect Gmail through Composio and Nova can search your inbox, draft, send and reply to email straight from chat."
+      : "Connect Vercel through Composio and Nova can list your projects and deployments, inspect build logs and check production status straight from chat.";
   const hint = toolkit === "github"
     ? "Try asking Nova to star a repo or file an issue."
-    : "Try asking Nova to search your inbox or send an email.";
+    : toolkit === "gmail"
+      ? "Try asking Nova to search your inbox or send an email."
+      : "Try asking Nova to list your Vercel projects or check the latest deployment.";
   return (
     <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
@@ -190,12 +200,12 @@ function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" }) {
         </div>
         {connected && <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"><Check size={14} /> {label} connected</span>}
         {errored && <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-700 dark:bg-red-500/10 dark:text-red-300"><AlertTriangle size={14} /> Composio rejected the key</span>}
-        {!connected && !errored && configured && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700">{toolkit === "github" ? <Github size={14} /> : <Mail size={14} />} Not connected</span>}
+        {!connected && !errored && configured && <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700">{toolkit === "github" ? <Github size={14} /> : toolkit === "gmail" ? <Mail size={14} /> : <Rocket size={14} />} Not connected</span>}
         {!configured && <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground"><AlertTriangle size={14} /> Composio key missing</span>}
       </div>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-          <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : <Mail className="size-4 text-primary" />}<p className="text-sm font-bold">{connected ? `Disconnect your ${label} account` : `Connect your ${label} account`}</p></div>
+          <div className="flex items-center gap-2">{toolkit === "github" ? <Github className="size-4 text-primary" /> : toolkit === "gmail" ? <Mail className="size-4 text-primary" /> : <Rocket className="size-4 text-primary" />}<p className="text-sm font-bold">{connected ? `Disconnect your ${label} account` : `Connect your ${label} account`}</p></div>
           <p className="text-xs leading-5 text-muted-foreground">
             {errored
               ? `Composio refused this connector key (${keyLength} characters). If it was pasted in its masked form it will be far too short - paste the full key from the Composio API-keys screen.`

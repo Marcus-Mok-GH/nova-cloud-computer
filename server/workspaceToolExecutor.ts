@@ -29,8 +29,10 @@ import {
   GITHUB_OPERATIONS,
   executeComposioTool,
   executeGithubOperation,
+  isComposioToolkit,
   isGithubOperation,
   listComposioTools,
+  toolkitLabel,
 } from "./composio";
 import {
   PERSONALISATION_DETAILS,
@@ -1427,12 +1429,13 @@ export async function executeWorkspaceTool(
     }
     case "list_connector_tools": {
       const connector = str(args.connector);
-      if (connector !== "gmail")
+      if (!isComposioToolkit(connector) || (connector !== "gmail" && connector !== "vercel"))
         return {
           ok: false,
           result:
-            "This catalog tool is only for Gmail. Use the github tool for GitHub.",
+            "This catalog tool is only for Gmail and Vercel. Use the github tool for GitHub.",
         };
+      const label = toolkitLabel(connector);
       const search = str(args.search) || undefined;
       const limitRaw = Number(args.limit);
       const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
@@ -1444,7 +1447,7 @@ export async function executeWorkspaceTool(
         if (!tools.length)
           return {
             ok: true,
-            result: `No Gmail actions matched "${search ?? ""}". Try a broader search.`,
+            result: `No ${label} actions matched "${search ?? ""}". Try a broader search.`,
           };
         const lines = tools
           .map(tool => {
@@ -1459,10 +1462,10 @@ export async function executeWorkspaceTool(
           .join("\n");
         return {
           ok: true,
-          result: "Gmail actions available:\n" + lines,
+          result: `${label} actions available:\n` + lines,
           action: {
             kind: "connector",
-            name: `${tools.length} Gmail actions`,
+            name: `${tools.length} ${label} actions`,
             operation: "listed",
           },
         };
@@ -1480,11 +1483,11 @@ export async function executeWorkspaceTool(
       const connector = str(args.connector);
       const action = str(args.action);
       const params = (args.params ?? {}) as Record<string, unknown>;
-      if (connector !== "gmail")
+      if (!isComposioToolkit(connector) || (connector !== "gmail" && connector !== "vercel"))
         return {
           ok: false,
           result:
-            "This raw action tool is only for Gmail. Use the github tool for GitHub.",
+            "This raw action tool is only for Gmail and Vercel. Use the github tool for GitHub.",
         };
       if (!action) return { ok: false, result: "An action slug is required." };
       try {
@@ -1494,12 +1497,13 @@ export async function executeWorkspaceTool(
           action,
           params
         );
+        const label = toolkitLabel(connector);
         const payload = JSON.stringify(execution.data, null, 2);
         return {
           ok: execution.ok,
           result: execution.ok
-            ? `${connector === "gmail" ? "Gmail" : "GitHub"} action ${action} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
-            : `${connector === "gmail" ? "Gmail" : "GitHub"} action ${action} failed: ${execution.error ?? "unknown error"}. Check the parameters with list_connector_tools and retry.`,
+            ? `${label} action ${action} succeeded.${payload && payload !== "null" ? `\nResult:\n${payload.slice(0, 4000)}` : ""}`
+            : `${label} action ${action} failed: ${execution.error ?? "unknown error"}. Check the parameters with list_connector_tools and retry.`,
           action: { kind: "connector", name: action, operation: "executed" },
         };
       } catch (error) {

@@ -39,6 +39,16 @@ import {
   type TurnRenderItem,
 } from "@/lib/chatMessages";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
@@ -50,6 +60,7 @@ import {
   ImagePlus,
   Mail,
   MessageSquareText,
+  RefreshCw,
   Send,
   Square,
   Volume2,
@@ -143,6 +154,71 @@ function CopyMessageButton({
       )}
       {copied ? "Copied" : "Copy"}
     </button>
+  );
+}
+
+/**
+ * Regenerates the thread from one message. Opens a confirmation first: on
+ * confirm the history from the anchor onwards is permanently removed and
+ * Nova generates a fresh reply.
+ */
+function RegenerateMessageButton({
+  disabled = false,
+  pending = false,
+  className = "",
+  onConfirm,
+}: {
+  disabled?: boolean;
+  pending?: boolean;
+  className?: string;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const handleConfirm = async () => {
+    if (confirming) return;
+    setConfirming(true);
+    try {
+      await onConfirm();
+      setOpen(false);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <button
+        type="button"
+        onClick={() => {
+          if (!disabled && !pending) setOpen(true);
+        }}
+        disabled={disabled || pending}
+        aria-label="Regenerate from here"
+        title="Regenerate from here"
+        className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
+      >
+        <RefreshCw className="size-3" />
+        {pending ? "Working…" : "Regenerate"}
+      </button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Regenerate from here?</AlertDialogTitle>
+          <AlertDialogDescription>
+            History will be reverted until that point. This message and every
+            message after it will be permanently removed, then Nova will
+            generate a new reply. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={confirming}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={confirming} onClick={() => void handleConfirm()}>
+            {confirming ? "Regenerating…" : "Revert & regenerate"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -478,6 +554,7 @@ export default function Workspace() {
     if (!chatId || stopRun.isPending) return;
     stopRun.mutate({ chatId });
   };
+  const revertChat = trpc.chats.revert.useMutation();
   // Connector/Telegram status feeds the home dashboard cards. These hooks
   // MUST run before any early return (React error #300 when the chat view
   // renders fewer hooks than the home view did), so they live up here with the
@@ -741,6 +818,55 @@ export default function Workspace() {
     setComposerAttachments([]);
     await sendMessage(chatId, content, images);
   };
+  /**
+   * Regenerates the thread from one message: reverts history from the anchor
+   * onwards, then resends the anchor's prompt as a fresh turn. An assistant
+   * anchor regenerates from its preceding user message instead.
+   */
+  const handleRegenerate = async (
+    anchorId: number,
+    anchorRole: "user" | "assistant",
+    anchorContent: string
+  ) => {
+    if (!chatId || agentIsWorking || revertChat.isPending) return;
+    const all = savedMessages.data ?? [];
+    let revertFromId = anchorId;
+    let resendContent = anchorContent;
+    if (anchorRole === "assistant") {
+      const previousUser = [...all]
+        .reverse()
+        .find(
+          message =>
+            message.id < anchorId &&
+            message.role === "user" &&
+            !isInternalChatMessage(message.content)
+        );
+      if (!previousUser) {
+        toast.error("There is no earlier message to regenerate from.");
+        return;
+      }
+      revertFromId = previousUser.id;
+      resendContent = previousUser.content;
+    }
+    if (!resendContent.trim()) {
+      toast.error("There is nothing to regenerate here.");
+      return;
+    }
+    try {
+      await revertChat.mutateAsync({ chatId, messageId: revertFromId });
+      await savedMessages.refetch();
+      await sendMessage(chatId, resendContent);
+    } catch (error) {
+      // The revert already happened: put the prompt back in the composer so
+      // a failed regeneration never eats what the user wrote.
+      setDraft(resendContent);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Nova could not regenerate that reply."
+      );
+    }
+  };
   // A chat opened from Settings' "Start guided setup" link begins with the
   // personalisation kickoff, once. The intent is stripped from the URL so a
   // refresh or share does not send it again.
@@ -864,6 +990,7 @@ export default function Workspace() {
         rows.push({
           kind: "user",
           key: `user-${item.message.id}`,
+          messageId: item.message.id,
           content: item.message.content,
           pending: false,
         });
@@ -871,6 +998,7 @@ export default function Workspace() {
         rows.push({
           kind: "reply",
           key: `reply-${item.message.id}`,
+          messageId: item.message.id,
           content: item.message.content,
           live: false,
         });
@@ -1088,6 +1216,19 @@ export default function Workspace() {
                             <div className="flex items-center justify-end gap-1.5">
                               <SpeakMessageButton text={row.content} />
                               <CopyMessageButton text={row.content} />
+                              {!row.pending && row.messageId > 0 && (
+                                <RegenerateMessageButton
+                                  disabled={agentIsWorking}
+                                  pending={revertChat.isPending}
+                                  onConfirm={() =>
+                                    handleRegenerate(
+                                      row.messageId,
+                                      "user",
+                                      row.content
+                                    )
+                                  }
+                                />
+                              )}
                             </div>
                           </div>
                         );
@@ -1149,6 +1290,19 @@ export default function Workspace() {
                                   disabled={streaming}
                                 />
                                 <CopyMessageButton text={row.content} />
+                                {!row.live && row.messageId > 0 && (
+                                  <RegenerateMessageButton
+                                    disabled={agentIsWorking || streaming}
+                                    pending={revertChat.isPending}
+                                    onConfirm={() =>
+                                      handleRegenerate(
+                                        row.messageId,
+                                        "assistant",
+                                        row.content
+                                      )
+                                    }
+                                  />
+                                )}
                               </div>
                             )}
                           </div>

@@ -15,6 +15,15 @@ import {
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import {
+  chunkSpokenText,
+  isSpeechSynthesisSupported,
+  speakChunks,
+  stopAllSpeech,
+  stripMarkdownForSpeech,
+  TTS_START_EVENT,
+  TTS_STOP_EVENT,
+} from "@/lib/speech";
+import {
   appendLiveTextDelta,
   buildTurnItems,
   chatWorkflowMode,
@@ -43,6 +52,7 @@ import {
   MessageSquareText,
   Send,
   Square,
+  Volume2,
   X,
 } from "lucide-react";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
@@ -132,6 +142,99 @@ function CopyMessageButton({
         <Copy className="size-3" />
       )}
       {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+/**
+ * Reads a chat message aloud with the browser's built-in (free) speech
+ * synthesis - no API key or server cost. Toggles to Stop while speaking;
+ * starting another message stops the current one.
+ */
+function SpeakMessageButton({
+  text,
+  disabled = false,
+  className = "",
+}: {
+  text: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [speaking, setSpeaking] = useState(false);
+  const stopRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const handleStart = () => {
+      // A newer speak() call cancels this one; drop the stale stop handle
+      // so unmounting this button cannot cut off the new message.
+      stopRef.current = null;
+      setSpeaking(false);
+    };
+    const handleStop = () => {
+      stopRef.current = null;
+      setSpeaking(false);
+    };
+    window.addEventListener(TTS_START_EVENT, handleStart);
+    window.addEventListener(TTS_STOP_EVENT, handleStop);
+    return () => {
+      window.removeEventListener(TTS_START_EVENT, handleStart);
+      window.removeEventListener(TTS_STOP_EVENT, handleStop);
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopRef.current?.();
+      stopRef.current = null;
+    },
+    []
+  );
+
+  const toggle = () => {
+    if (disabled) return;
+    if (speaking) {
+      stopAllSpeech();
+      stopRef.current = null;
+      setSpeaking(false);
+      return;
+    }
+    if (!isSpeechSynthesisSupported()) {
+      toast.error("Reading aloud is not supported in this browser.");
+      return;
+    }
+    const clean = stripMarkdownForSpeech(text);
+    if (!clean) return;
+    const chunks = chunkSpokenText(clean);
+    if (!chunks.length) return;
+    stopRef.current = speakChunks(chunks, {
+      onEnd: () => {
+        stopRef.current = null;
+        setSpeaking(false);
+      },
+      onError: () => {
+        stopRef.current = null;
+        setSpeaking(false);
+        toast.error("Could not read that message aloud.");
+      },
+    });
+    setSpeaking(true);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={disabled}
+      aria-label={speaking ? "Stop reading" : "Read message aloud"}
+      aria-pressed={speaking}
+      className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
+    >
+      {speaking ? (
+        <Square className="size-3 fill-current" />
+      ) : (
+        <Volume2 className="size-3" />
+      )}
+      {speaking ? "Stop" : "Read aloud"}
     </button>
   );
 }
@@ -261,6 +364,7 @@ export default function Workspace() {
   // chat's settled history as the current turn, and its rows are laid out as a
   // live transcript instead of in place.
   useEffect(() => {
+    stopAllSpeech();
     setComposerAttachments([]);
     setBaselineMessageId(0);
     setPendingUserContent("");
@@ -301,6 +405,7 @@ export default function Workspace() {
   // the server completes the run and the ledger keeps its result.
   useEffect(
     () => () => {
+      stopAllSpeech();
       // Leaving the screen counts as leaving the chat: mark its turn so the
       // chat list can flag it, then drop the connection.
       if (streamAbortRef.current) markChatAway(streamOwnerChatIdRef.current);
@@ -980,7 +1085,10 @@ export default function Workspace() {
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
                               {row.content}
                             </div>
-                            <CopyMessageButton text={row.content} />
+                            <div className="flex items-center justify-end gap-1.5">
+                              <SpeakMessageButton text={row.content} />
+                              <CopyMessageButton text={row.content} />
+                            </div>
                           </div>
                         );
                       const isLast = rows.indexOf(row) === rows.length - 1;
@@ -1035,7 +1143,11 @@ export default function Workspace() {
                             {/* The sanitized error block never offers a copy:
                                 its raw detail stays out of the DOM. */}
                             {!unavailable && (
-                              <div className="mt-1.5 flex justify-end">
+                              <div className="mt-1.5 flex justify-end gap-1.5">
+                                <SpeakMessageButton
+                                  text={row.content}
+                                  disabled={streaming}
+                                />
                                 <CopyMessageButton text={row.content} />
                               </div>
                             )}

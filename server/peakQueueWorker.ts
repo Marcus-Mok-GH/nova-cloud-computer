@@ -18,6 +18,7 @@ import {
 } from "./db";
 import { executeTelegramAgentRun, executeWebAgentRun } from "./agentRuns";
 import { MAX_RUN_BUDGET_MS } from "./workspaceAgent";
+import { recordNovaApiError } from "./novaApiErrors";
 import type { InferenceQueueItem, InferenceQueuePayload } from "../drizzle/schema";
 import { kickPeakQueue } from "./peakQueueScheduler";
 
@@ -102,6 +103,8 @@ async function dispatchInferenceQueueItem(item: InferenceQueueItem): Promise<voi
 
 /** Deferred inference-API call: run it and store the OpenAI-style completion. */
 async function dispatchInferenceApiItem(item: InferenceQueueItem, payload: InferenceQueuePayload): Promise<void> {
+  // Queued payloads without a BYOK selection were admitted as Nova's model.
+  const isNovaModel = payload.customModelId == null;
   try {
     const messages = (payload.messages ?? []) as GatewayChatMessage[];
     const choice = await resolveQueuedApiChoice(item.ownerId, payload);
@@ -114,6 +117,9 @@ async function dispatchInferenceApiItem(item: InferenceQueueItem, payload: Infer
       : await chatWithAiGateway(item.ownerId, messages, {});
     await completeInferenceQueueItem(item.id, buildOpenAiChatCompletion(result, choice.id) as Record<string, unknown>);
   } catch (error) {
+    if (isNovaModel) {
+      void recordNovaApiError({ ownerId: item.ownerId, error, isNovaModel: true }).catch(() => {});
+    }
     await failInferenceQueueItem(item.id, describeQueueError(error));
   }
 }

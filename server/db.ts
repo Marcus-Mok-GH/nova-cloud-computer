@@ -730,6 +730,31 @@ export async function appendChatMessageForUser(ownerId: number, input: { chatId:
   return message;
 }
 
+/**
+ * Reverts a conversation to an earlier message for the regenerate flow.
+ * Deletes every message in the chat with an id at or after `messageId`
+ * (the anchor inclusive), so the caller can resend the anchor's content as
+ * a fresh turn. Returns undefined when the chat or anchor does not belong
+ * to the user.
+ */
+export async function revertChatToMessageForUser(ownerId: number, chatId: string, messageId: number) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  const [anchor] = await db
+    .select()
+    .from(chatMessages)
+    .where(and(eq(chatMessages.chatId, chat.id), eq(chatMessages.id, messageId)))
+    .limit(1);
+  if (!anchor) return undefined;
+  const deleted = await db
+    .delete(chatMessages)
+    .where(and(eq(chatMessages.chatId, chat.id), gte(chatMessages.id, messageId)))
+    .returning({ id: chatMessages.id });
+  await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chat.id));
+  return { anchor, deletedCount: deleted.length };
+}
+
 export async function getWorkspaceComputer(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [folders, files, chatRows, settings] = await Promise.all([

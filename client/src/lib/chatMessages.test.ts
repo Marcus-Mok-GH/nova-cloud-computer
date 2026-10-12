@@ -587,6 +587,29 @@ describe("buildTurnItems", () => {
     });
   });
 
+  it("keeps user rows interleaved with their turns instead of hoisting them to the top", () => {
+    const items = buildTurnItems({
+      messages: [
+        { id: 1, role: "user", content: "First ask" },
+        { id: 2, role: "assistant", content: "First reply" },
+        { id: 3, role: "user", content: "Second ask" },
+        toolRow("t-2", "completed", 4),
+        { id: 5, role: "assistant", content: "Second reply" },
+      ],
+      liveEvents: [],
+      pendingUserContent: "",
+      userCommitted: false,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "user",
+      "toolRun",
+      "reply",
+    ]);
+    expect(items[2]).toMatchObject({ kind: "user", content: "Second ask" });
+  });
+
   it("drops a superseded live segment once the closing reply lands", () => {
     const items = buildTurnItems({
       messages: [

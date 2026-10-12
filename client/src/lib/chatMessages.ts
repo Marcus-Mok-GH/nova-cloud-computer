@@ -407,25 +407,18 @@ export function buildTurnItems({
   const liveItems = groupLiveChatItems(liveEvents);
 
   // The optimistic bubble stands in for the user's row until the server
-  // persists it; afterwards the ledger copy takes that place. A run started
-  // elsewhere (Telegram, a reload) has no optimistic bubble at all.
-  const pendingUser = Boolean(pendingUserContent) && !userCommitted;
-  if (pendingUser)
+  // persists it; afterwards the ledger copy takes its place in the skeleton
+  // below, keeping the user's row interleaved with the tools and replies that
+  // followed it. A run started elsewhere (Telegram, a reload) has no
+  // optimistic bubble at all, so its whole turn - every user row and every
+  // tool run - comes from the ledger in order.
+  if (Boolean(pendingUserContent) && !userCommitted)
     items.push({
       kind: "user",
       key: "user-pending",
       content: pendingUserContent,
       pending: true,
     });
-  else
-    for (const message of messages)
-      if (message.role === "user")
-        items.push({
-          kind: "user",
-          key: `user-${message.id}`,
-          content: message.content,
-          pending: false,
-        });
 
   // Which live text segments the ledger has already recorded. Matched in
   // order, and a mismatch does not advance the pointer: a segment the server
@@ -469,7 +462,14 @@ export function buildTurnItems({
           activity => ledgerActivities.get(activity.id) ?? activity
         ),
       });
-    else if (item.message.role === "assistant")
+    else if (item.message.role === "user")
+      items.push({
+        kind: "user",
+        key: `user-${item.message.id}`,
+        content: item.message.content,
+        pending: false,
+      });
+    else
       items.push({
         kind: "reply",
         key: `reply-${item.message.id}`,

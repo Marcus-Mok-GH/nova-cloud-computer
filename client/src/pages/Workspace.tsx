@@ -13,6 +13,7 @@ import {
   type ChatImageAttachment,
 } from "@/lib/imageAttachments";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
+import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import {
   appendLiveTextDelta,
   buildTurnItems,
@@ -174,10 +175,26 @@ export default function Workspace() {
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
   const [priorityNotice, setPriorityNotice] = useState<string | null>(null);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
+  // Briefly set when the reader opens a chat whose turn ran on while they were
+  // elsewhere, so the finished reply is not silently waiting on screen.
+  const [settledWhileAway, setSettledWhileAway] = useState(false);
   const chatId =
     typeof window === "undefined"
       ? undefined
       : new URLSearchParams(window.location.search).get("chatId") || undefined;
+  // The conversation currently on screen, kept in a ref so an in-flight stream
+  // can tell whether its chat is still the one being viewed. A reader that
+  // navigates to another chat mid-run must not have the previous chat's live
+  // text, tool rows, or queue notices written into the state it renders.
+  const viewedChatIdRef = useRef<string | undefined>(chatId);
+  viewedChatIdRef.current = chatId;
+  // The in-flight stream's abort handle, and the chat that owns it, so leaving
+  // that chat can stop the reader from receiving a turn it no longer shows.
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
+  // Chats left with a turn still running are tracked module-side (not in a ref
+  // here) because the chat list must show the same marker after this component
+  // unmounts; see `@/lib/awayChats`.
   // One-shot flag set by Settings' "Start guided setup" button; the effect
   // below turns it into the opening message of a personalisation session.
   const personaliseIntent =
@@ -238,10 +255,60 @@ export default function Workspace() {
     }
   };
 
-  // Starting a conversation clears any images queued on the previous one.
+  // Opening a different conversation must not carry over the previous one's
+  // turn state. The submission baseline in particular belongs to the thread it
+  // was taken in: leaving it set while viewing another chat misclassifies that
+  // chat's settled history as the current turn, and its rows are laid out as a
+  // live transcript instead of in place.
   useEffect(() => {
     setComposerAttachments([]);
+    setBaselineMessageId(0);
+    setPendingUserContent("");
+    setLiveEvents([]);
+    setIsStreaming(false);
+    setQueueNotice(null);
+    setPriorityNotice(null);
+    setSettledWhileAway(false);
+    // A stream still running for the chat we just left feeds only that view;
+    // abort it so it stops holding a connection open. The run itself continues
+    // on the server and its rows are already being persisted to the ledger.
+    if (streamAbortRef.current && streamOwnerChatIdRef.current !== chatId) {
+      markChatAway(streamOwnerChatIdRef.current);
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
   }, [chatId]);
+
+  // Returning to a chat whose stream we cut short refetches its ledger right
+  // away, so a turn that settled while the reader was away shows up without
+  // waiting for the next poll (or a manual reload).
+  useEffect(() => {
+    if (chatId && consumeChatAway(chatId)) {
+      setSettledWhileAway(true);
+      void utils.chats.messages.invalidate({ chatId });
+    }
+  }, [chatId, utils]);
+
+  // The "updated while you were away" pill is a glance, not a state: it fades
+  // out on its own so it never becomes chrome the reader has to dismiss.
+  useEffect(() => {
+    if (!settledWhileAway) return;
+    const timer = setTimeout(() => setSettledWhileAway(false), 8000);
+    return () => clearTimeout(timer);
+  }, [settledWhileAway]);
+
+  // Leaving the workspace screen aborts any stream still in flight; as above,
+  // the server completes the run and the ledger keeps its result.
+  useEffect(
+    () => () => {
+      // Leaving the screen counts as leaving the chat: mark its turn so the
+      // chat list can flag it, then drop the connection.
+      if (streamAbortRef.current) markChatAway(streamOwnerChatIdRef.current);
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+    },
+    []
+  );
 
   const contentFor = (text: string, attachments: ChatImageAttachment[]) =>
     text.trim() ||
@@ -397,7 +464,11 @@ export default function Workspace() {
       return false;
     }
   };
-  const finalizeStream = async (): Promise<boolean> => {
+  const finalizeStream = async (streamChatId: string): Promise<boolean> => {
+    // The reader left this conversation while its turn was still streaming.
+    // The server's ledger holds the turn and the poller will surface it when
+    // that chat is opened again, so do not touch the state on screen now.
+    if (viewedChatIdRef.current !== streamChatId) return true;
     const refreshed = await refreshMessages();
     setIsStreaming(false);
     if (refreshed) {
@@ -422,6 +493,12 @@ export default function Workspace() {
     images: string[] = []
   ): Promise<boolean> => {
     userScrolledUpRef.current = false;
+    // Supersede any stream still running (a previous send, or one left behind
+    // by the chat we came from) before taking over the view.
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    streamOwnerChatIdRef.current = targetChatId;
     const toPersist = savedMessages.data ?? [];
     setBaselineMessageId(
       toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0
@@ -436,6 +513,7 @@ export default function Workspace() {
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         credentials: "include",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -470,10 +548,14 @@ export default function Workspace() {
           if (line.startsWith("data: ")) {
             const data = line.slice(6).trim();
             if (data === "[DONE]") {
-              await finalizeStream();
+              await finalizeStream(targetChatId);
               await utils.workspace.computer.invalidate();
               return true;
             }
+            // A stream that belongs to a chat the reader has navigated away
+            // from must not write its events into the current view. Skipping
+            // them here is safe: the persisted ledger carries the same rows.
+            if (viewedChatIdRef.current !== targetChatId) continue;
             try {
               const parsed = JSON.parse(data) as {
                 type?: string;
@@ -510,15 +592,33 @@ export default function Workspace() {
             }
           }
       }
-      await finalizeStream();
+      await finalizeStream(targetChatId);
       return true;
     } catch (error) {
+      // Navigating away (or being superseded) aborts the fetch; the run keeps
+      // going on the server and the ledger carries its result, so there is
+      // nothing to report to a view that is no longer showing this chat.
+      if ((error as { name?: string } | null)?.name === "AbortError")
+        return false;
       console.error("Stream error:", error);
-      toast.error(
-        error instanceof Error ? error.message : "Failed to send message"
-      );
-      await finalizeStream();
+      if (viewedChatIdRef.current === targetChatId)
+        toast.error(
+          error instanceof Error ? error.message : "Failed to send message"
+        );
+      await finalizeStream(targetChatId);
       return false;
+    } finally {
+      if (streamAbortRef.current === controller) {
+        // A stream that ends (naturally or aborted) after the reader moved on
+        // must still leave its marker: navigation can update the viewed chat
+        // between the fetch settling and the chat-switch effect running, and
+        // the effect only marks a controller that is still live. Marking here
+        // covers that gap; it is a no-op when the chat is still on screen.
+        if (viewedChatIdRef.current !== targetChatId)
+          markChatAway(targetChatId);
+        streamAbortRef.current = null;
+        streamOwnerChatIdRef.current = undefined;
+      }
     }
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
@@ -753,6 +853,16 @@ export default function Workspace() {
                     <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                       <span className="size-1.5 rounded-full bg-primary animate-pulse" />
                       Working…
+                    </span>
+                  )}
+                  {settledWhileAway && !agentIsWorking && (
+                    <span
+                      data-testid="settled-while-away"
+                      role="status"
+                      className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+                    >
+                      <span className="size-1.5 rounded-full bg-emerald-500" />
+                      Updated while you were away
                     </span>
                   )}
                 </div>

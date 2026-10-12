@@ -1216,19 +1216,6 @@ export default function Workspace() {
                             <div className="flex items-center justify-end gap-1.5">
                               <SpeakMessageButton text={row.content} />
                               <CopyMessageButton text={row.content} />
-                              {!row.pending && row.messageId > 0 && (
-                                <RegenerateMessageButton
-                                  disabled={agentIsWorking}
-                                  pending={revertChat.isPending}
-                                  onConfirm={() =>
-                                    handleRegenerate(
-                                      row.messageId,
-                                      "user",
-                                      row.content
-                                    )
-                                  }
-                                />
-                              )}
                             </div>
                           </div>
                         );

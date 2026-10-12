@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, router } from "./_core/trpc";
 import { countOtherActiveAdmins, deleteUserForAdmin, getAdminOverview, getUserChatsForAdmin, getUserFileContentForAdmin, getUserFilesForAdmin, getUserRoleForAdmin, listUsersForAdmin, setUserBannedForAdmin, setUserRoleForAdmin } from "./admin";
+import { clearNovaApiErrorLogs, listNovaApiErrorLogs } from "./novaApiErrors";
 
 const managedRole = z.enum(["user", "admin"]);
 
@@ -89,4 +90,18 @@ export const adminRouter = router({
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That account is no longer available." });
       return { success: true };
     }),
+
+  /**
+   * Failed Nova-model API requests, newest first. Reached only through
+   * `adminProcedure`, so only admins and developers can read the error logs.
+   */
+  apiErrorLogs: adminProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional())
+    .query(({ input }) => listNovaApiErrorLogs(input?.limit)),
+
+  /** Clears the Nova-model API error log. */
+  clearApiErrorLogs: adminProcedure.mutation(async () => {
+    const cleared = await clearNovaApiErrorLogs();
+    return { success: true, cleared };
+  }),
 });

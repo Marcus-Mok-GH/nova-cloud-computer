@@ -6,6 +6,7 @@ import { activatePriorityWindowForUser, enqueueInferenceQueueItem, getDailyCredi
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { chatWithAiGateway, type GatewayChatMessage, type GatewayChatResult, AiGatewayClientError } from "./aiGateway";
+import { recordNovaApiError } from "./novaApiErrors";
 import type { CustomModel } from "../drizzle/schema";
 
 /**
@@ -300,13 +301,20 @@ inferenceApiRouter.get("/queue/:id", async (req: Request, res: Response) => {
 inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response) => {
   let sseStarted = false;
   let completionId = "";
+  let failedOwnerId: number | null = null;
+  // Defaults to Nova's model: an omitted `model` resolves to `nova-pro`, so a
+  // failure before route resolution still counts as a Nova-model failure.
+  // Resolved BYOK choices flip this to false and skip error logging below.
+  let failedIsNovaModel = (typeof req.body?.model !== "string" || !req.body.model.trim() || req.body.model.trim() === NOVA_PRO_MODEL_ID);
   try {
     const ownerId = await requireApiOwner(req, res);
     if (ownerId === null) return;
+    failedOwnerId = ownerId;
     const { messages, model, stream } = parseInferenceApiMessages(req.body ?? {});
     // The API is BYOK-aware: an active workspace custom model is a callable
     // choice alongside `nova-pro`, and each choice routes to its own backend.
     const choice = resolveInferenceModel(await getActiveCustomModel(ownerId), model);
+    failedIsNovaModel = choice.ownedBy === "nova";
     // A purchased priority window starts on this request, settled before the
     // request is admitted or run.
     const activation = await activatePriorityWindowForUser(ownerId).catch(() => ({ priority: false, justActivated: false, expiresAt: null as Date | null }));
@@ -366,6 +374,11 @@ inferenceApiRouter.post("/chat/completions", async (req: Request, res: Response)
     res.write("data: [DONE]\n\n");
     return res.end();
   } catch (error) {
+    // Persist Nova-model failures for the admin notification tab. BYOK
+    // failures stay with the workspace's own provider and are never logged.
+    if (failedOwnerId !== null && failedIsNovaModel) {
+      void recordNovaApiError({ ownerId: failedOwnerId, error, isNovaModel: true }).catch(() => {});
+    }
     // Once the SSE stream has begun the client is committed to it: surface
     // the failure as an error event instead of a status code.
     if (sseStarted) {

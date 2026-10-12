@@ -45,6 +45,7 @@ import {
   COMPOSIO_TOOLKITS,
   type ComposioToolkit,
   getComposioConnectionStatus,
+  toolkitLabel,
 } from "./composio";
 import {
   isCodeFileName,
@@ -349,15 +350,10 @@ export function emailReplyAllowsTool(name: string): boolean {
 export function connectorStatusLine(connected: ComposioToolkit[]): string {
   if (!connected.length)
     return "no connectors are connected right now, so connector tools are unavailable";
-  const labels: Record<ComposioToolkit, string> = {
-    github: "GitHub",
-    gmail: "Gmail",
-    vercel: "Vercel",
-  };
   const parts = COMPOSIO_TOOLKITS.map(
-    toolkit => `${labels[toolkit]} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
+    toolkit => `${toolkitLabel(toolkit)} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
   );
-  return `${parts.join("; ")}. Only ${connected.map(toolkit => labels[toolkit]).join(" and ")} tools are available`;
+  return `${parts.join("; ")}. Only ${connected.map(toolkit => toolkitLabel(toolkit)).join(" and ")} tools are available`;
 }
 
 const PERSONALISATION_DETAIL_LABELS: Record<PersonalisationDetail, string> = { brief: "keep replies brief", balanced: "a balanced level of detail", detailed: "thorough, detailed replies" };

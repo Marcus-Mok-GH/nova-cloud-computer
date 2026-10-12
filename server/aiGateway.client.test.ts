@@ -18,6 +18,7 @@ const {
   listGatewayModels,
   resetAiGatewayHealthCache,
   TOKENHARBOR_CHAT_MODEL,
+  TOKENHARBOR_FALLBACK_MODEL,
   AiGatewayClientError,
 } = await import("./aiGateway");
 
@@ -118,13 +119,24 @@ describe("AI gateway client", () => {
     expect(claim).toHaveBeenCalledWith(7, null);
   });
 
-  it("does not retry or fall back when the single model is overloaded", async () => {
+  it("falls back to Claude Haiku when the primary model is overloaded", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: TOKENHARBOR_FALLBACK_MODEL }), { status: 200 }));
 
-    await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
-    // One chat attempt only: there is no fallback chain to walk.
+    await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "fallback reply" });
+    // Primary first, then the Haiku fallback; one allowance claim for both.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fall back on permanent client errors", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "bad request" } }), { status: 400 }));
+
+    await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "client_error" });
     expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
   });
@@ -209,12 +221,15 @@ describe("AI gateway client", () => {
   it("keeps 5xx completion failures retryable as unavailable", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "upstream exploded" } }), { status: 502 }));
 
     await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({
       kind: "unavailable",
       message: "upstream exploded",
     });
+    // Both primary and fallback failed; the fallback's error surfaces.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
   });
 
   it("reports a 401 from the health probe as a provider configuration problem", async () => {
@@ -230,9 +245,10 @@ describe("AI gateway client", () => {
     });
   });
 
-  it("exposes exactly the one built-in model", async () => {
+  it("exposes the primary model and the Haiku fallback", async () => {
     await expect(listGatewayModels(true)).resolves.toEqual([
       { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
     ]);
   });
 });

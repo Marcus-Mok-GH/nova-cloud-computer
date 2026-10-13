@@ -41,6 +41,7 @@ import {
   completeWithWorkspaceModel,
   getActiveCustomModel,
 } from "./byokGateway";
+import { recordNovaApiError } from "./novaApiErrors";
 import {
   COMPOSIO_TOOLKITS,
   type ComposioToolkit,
@@ -869,6 +870,11 @@ ${
   // Declared outside the try so the catch below can surface the provider's
   // raw error instead of the built-in service's sanitized notice.
   let byok = false;
+  // Whether the failure that ends the run came from the model call itself
+  // (a gateway round) rather than from a setup, database, or sandbox step.
+  // Only model-call failures are recorded to the admin notification tab -
+  // `!byok` alone would also capture errors like a failed sandbox wake.
+  let modelCallFailed = false;
   const failedAttempts = new Map<
     string,
     { count: number; firstFailure: string }
@@ -1342,6 +1348,7 @@ ${
           // stuck in its running state.
           flushThinking("completed");
           await thinkingEmissions;
+          modelCallFailed = true;
           throw error;
         }
         // A model without vision rejects image parts outright: drop the
@@ -1370,6 +1377,7 @@ ${
             closedByDeadline = true;
             break;
           }
+          modelCallFailed = true;
           throw error;
         }
       }
@@ -1835,6 +1843,14 @@ ${
     return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
     console.error("[Chat] AI gateway chat failed", error);
+    // Record built-in Nova-model failures for the admin notification tab.
+    // Only failures from the model call itself are logged: setup, database
+    // and sandbox errors are not Nova-model failures. BYOK failures stay
+    // with the workspace's own provider and are never logged, matching the
+    // inference API and peak-queue paths.
+    if (!byok && modelCallFailed) {
+      void recordNovaApiError({ ownerId, error, isNovaModel: true }).catch(() => {});
+    }
     const kind =
       error instanceof AiGatewayClientError ? error.kind : "unavailable";
     const failureNote =

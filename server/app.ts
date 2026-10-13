@@ -25,6 +25,7 @@ import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
+import { MAX_SPEECH_REQUEST_CHARS, synthesizeSpeech } from "./speech";
 import { readChatImageAttachments, chatImageAttachmentFileName } from "./chatImages";
 
 /**
@@ -207,3 +208,37 @@ app.post("/api/telegram/webhook/:token", (req, res) => { const token = req.param
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));
 app.get("/api/status", async (req: express.Request, res: express.Response) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await collectServiceStatus(user.id)); } catch (error) { if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message }); console.error("Status endpoint error", error); return res.status(500).json({ error: "Could not collect service status." }); } });
+
+/**
+ * Text-to-speech for the browser's Read aloud button, used whenever the
+ * browser's own speechSynthesis engine has no voice to speak with. The client
+ * asks here instead of calling the free provider itself because the response is
+ * not CORS-enabled and requester IPs get rate limited, so a browser-direct call
+ * would fail on both counts.
+ *
+ * Sessions are required: the endpoint only ever speaks text the caller already
+ * sent in, so it is a convenience proxy for signed-in users, not an open relay.
+ * Returns one playable MP3.
+ */
+app.get("/api/speech", async (req: express.Request, res: express.Response) => {
+  try {
+    const user = await authenticatedUser(req, res);
+    if (!user) return;
+    const text = typeof req.query.text === "string" ? req.query.text : "";
+    if (!text.trim()) return res.status(400).json({ error: "There is nothing to read aloud." });
+    if (text.length > MAX_SPEECH_REQUEST_CHARS) return res.status(400).json({ error: "That message is too long to read aloud." });
+    const audio = await synthesizeSpeech({
+      text,
+      language: typeof req.query.lang === "string" ? req.query.lang : null,
+    });
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", String(audio.length));
+    return res.status(200).send(audio);
+  } catch (error) {
+    // A cleared upstream timeout or a dead connection surfaces as an abort,
+    // which reads as a failure to synthesise rather than a server fault.
+    console.error("Speech synthesis endpoint error", error);
+    if (!res.headersSent) return res.status(502).json({ error: "Nova could not read that message aloud." });
+    return res.end();
+  }
+});

@@ -93,7 +93,11 @@ export class AiGatewayClientError extends Error {
  * credential. The gateway serves a primary model with two free-tier fallbacks:
  * when the primary fails with a transient error (overload / rate limit,
  * upstream 5xx or timeout, empty completion), the same request is retried
- * in order against each fallback before the error surfaces.
+ * in order against each fallback before the error surfaces. A third, last-resort
+ * fallback lives on a different endpoint entirely - SeekAI
+ * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
+ * so a Token Harbor outage (every free pool congested at once) still has
+ * somewhere to send the request.
  */
 const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
 
@@ -128,24 +132,95 @@ export const TOKENHARBOR_FALLBACK_MODEL = "claude-haiku-5.5:free";
  */
 export const TOKENHARBOR_SECOND_FALLBACK_MODEL = "mimo-v2.6-flash:free";
 
+/** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
+const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
+
+/**
+ * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than Token
+ * Harbor, so it keeps working even when Token Harbor itself is unreachable.
+ * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
+ * can serve the agent loop when every Token Harbor model has failed
+ * transiently. Only used when the SEEKAI_API_KEY credential is configured;
+ * without it the chain stops at the two Token Harbor fallbacks, exactly as
+ * before. Override with SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled"
+ * to turn the last-resort hop off.
+ */
+export const SEEKAI_FALLBACK_MODEL = "glm-5.3-flash";
+
+/** True when an env value asks for a chain hop (or the whole chain) to be turned off. */
+function isChainDisabled(raw: string | undefined): boolean {
+  const lowered = raw?.trim().toLowerCase();
+  return lowered === "none" || lowered === "disabled" || lowered === "off";
+}
+
+/** The SeekAI credential. Same placeholder rule as the Token Harbor key. */
+function seekaiToken() {
+  const token = process.env.SEEKAI_API_KEY?.trim();
+  return token && token.length >= 32 ? token : undefined;
+}
+
+/** Optional HTTPS override for SeekAI's base URL (tests, mirrors). */
+function configuredSeekaiUrl() {
+  return httpsBaseUrl(process.env.SEEKAI_GATEWAY_URL?.trim() || SEEKAI_API_BASE_URL);
+}
+
+/** The resolved SeekAI fallback model id (env override, else the built-in default). */
+function seekaiFallbackModel() {
+  return process.env.SEEKAI_FALLBACK_MODEL?.trim() || SEEKAI_FALLBACK_MODEL;
+}
+
+/** One hop of the primary-first chain every built-in inference request walks. */
+export type GatewayChainEntry = {
+  model: string;
+  /** Base URL for this hop; unset means the primary Token Harbor endpoint. */
+  baseUrl?: string;
+  /** Bearer credential for this hop; unset means TOKENHARBOR_API_KEY. */
+  token?: string;
+};
+
 /** Primary-first chain every built-in inference request walks. */
-export function gatewayModelChain(): string[] {
+export function gatewayModelChain(): GatewayChainEntry[] {
   const raw = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim().toLowerCase();
   if (raw === "none" || raw === "disabled" || raw === "off") {
-    return [TOKENHARBOR_CHAT_MODEL];
+    return [{ model: TOKENHARBOR_CHAT_MODEL }];
   }
   const override = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim();
   const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
-  const chain = [TOKENHARBOR_CHAT_MODEL];
-  if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push(fallback);
-  const secondRaw = process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL?.trim();
-  const secondLower = secondRaw?.toLowerCase();
-  if (secondLower === "none" || secondLower === "disabled" || secondLower === "off") {
+  const chain: GatewayChainEntry[] = [{ model: TOKENHARBOR_CHAT_MODEL }];
+  if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push({ model: fallback });
+  const second = isChainDisabled(process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL)
+    ? undefined
+    : process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL?.trim() ||
+      TOKENHARBOR_SECOND_FALLBACK_MODEL;
+  if (
+    second &&
+    second !== TOKENHARBOR_CHAT_MODEL &&
+    second !== fallback
+  ) {
+    chain.push({ model: second });
+  }
+  // The last resort is a different provider, so it needs its own credential;
+  // without one the chain simply stops after the Token Harbor fallbacks.
+  const seekaiTokenValue = seekaiToken();
+  if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
     return chain;
   }
-  const second = secondRaw ? secondRaw : TOKENHARBOR_SECOND_FALLBACK_MODEL;
-  if (second !== TOKENHARBOR_CHAT_MODEL && second !== fallback) chain.push(second);
+  const seekaiUrl = configuredSeekaiUrl();
+  if (!seekaiUrl) return chain;
+  const seekai = seekaiFallbackModel();
+  const alreadyServedHere = chain.some(
+    entry => entry.model === seekai && !entry.baseUrl
+  );
+  if (alreadyServedHere) return chain;
+  chain.push({ model: seekai, baseUrl: seekaiUrl, token: seekaiTokenValue });
   return chain;
+}
+
+/** The endpoint override for a hop, or undefined for the primary gateway. */
+function endpointFor(entry: GatewayChainEntry) {
+  return entry.baseUrl && entry.token
+    ? { baseUrl: entry.baseUrl, token: entry.token }
+    : undefined;
 }
 
 /**
@@ -167,10 +242,8 @@ function tokenHarborToken() {
   return token && token.length >= 32 ? token : undefined;
 }
 
-/** Optional HTTPS override for the Token Harbor base URL (tests, mirrors). */
-function configuredGatewayUrl() {
-  const raw =
-    process.env.TOKENHARBOR_GATEWAY_URL?.trim() || TOKENHARBOR_API_BASE_URL;
+/** Validates an https base URL, returning it without a trailing slash (or undefined). */
+function httpsBaseUrl(raw: string) {
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:") return undefined;
@@ -178,6 +251,13 @@ function configuredGatewayUrl() {
   } catch {
     return undefined;
   }
+}
+
+/** Optional HTTPS override for the Token Harbor base URL (tests, mirrors). */
+function configuredGatewayUrl() {
+  return httpsBaseUrl(
+    process.env.TOKENHARBOR_GATEWAY_URL?.trim() || TOKENHARBOR_API_BASE_URL
+  );
 }
 
 function configuredGatewayToken() {
@@ -287,10 +367,12 @@ async function gatewayFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  /** Endpoint override for a chain hop served by a different gateway. */
+  endpoint?: { baseUrl: string; token: string }
 ) {
-  const baseUrl = configuredGatewayUrl();
-  const token = configuredGatewayToken();
+  const baseUrl = endpoint?.baseUrl ?? configuredGatewayUrl();
+  const token = endpoint?.token ?? configuredGatewayToken();
   if (!baseUrl || !token)
     throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
@@ -342,6 +424,9 @@ export async function getAiGatewayStatus(ownerId: number) {
     model: TOKENHARBOR_CHAT_MODEL,
     fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
     secondFallbackModel: TOKENHARBOR_SECOND_FALLBACK_MODEL,
+    // The last resort lives on a separate credential: without SEEKAI_API_KEY
+    // it is never attempted, so it reports as null rather than a model id.
+    thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -427,17 +512,26 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
  * (Token Harbor's free DeepSeek V4.1 Flash) with Claude Haiku 5.5 (free) as
  * the first transient-failure fallback and Xiaomi's MiMo V2.6 Flash (free) as
  * the second, so the picker and settings validation see all three entries.
+ * SeekAI's GLM-5.3-Flash last resort is listed too, but only while the
+ * SEEKAI_API_KEY credential is configured - an unconfigured hop is never
+ * attempted, so advertising it would be a lie. Listed as text-only because
+ * image support on that endpoint is not assumed.
  * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.
  */
 export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
-  return [
+  const models: AvailableGatewayModel[] = [
     { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
     { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
     { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
   ];
+  const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
+  if (seekai && !models.some(entry => entry.id === seekai)) {
+    models.push({ id: seekai, kind: "text" });
+  }
+  return models;
 }
 
 /**
@@ -588,7 +682,8 @@ export async function completeWithAiGateway(
         onChunk(chunk);
       }
     : undefined;
-  const postPromptCompletion = async (model: string) => {
+  const postPromptCompletion = async (entry: GatewayChainEntry) => {
+  const model = entry.model;
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
     body: JSON.stringify({
@@ -596,7 +691,7 @@ export async function completeWithAiGateway(
       messages: [{ role: "user", content: prompt }],
       ...(trackingOnChunk ? { stream: true } : {}),
     }),
-  }, timeoutMs);
+  }, timeoutMs, undefined, endpointFor(entry));
   if (trackingOnChunk) {
     const completion = await readGatewayStreamedCompletion(response, trackingOnChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -662,9 +757,9 @@ export async function completeWithAiGateway(
   const result = await (async () => {
     let lastError: unknown;
     for (let index = 0; index < chain.length; index += 1) {
-      const model = chain[index];
+      const entry = chain[index];
       try {
-        return await postPromptCompletion(model);
+        return await postPromptCompletion(entry);
       } catch (error) {
         lastError = error;
         const retryable =
@@ -672,7 +767,7 @@ export async function completeWithAiGateway(
           isFallbackRetryableKind(error.kind);
         if (retryable && index + 1 < chain.length) {
           console.warn(
-            `[AI gateway] model ${model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1]}`
+            `[AI gateway] model ${entry.model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1].model}`
           );
           continue;
         }
@@ -1062,14 +1157,14 @@ export async function chatWithAiGateway(
   const attemptOptions = { ...options, ...(trackingOnChunk ? { onChunk: trackingOnChunk } : {}) };
   let lastError: unknown;
   for (let index = 0; index < chain.length; index += 1) {
-    const model = chain[index];
+    const entry = chain[index];
     try {
       const result = await attemptGatewayChat(
         status,
         claim,
         messages,
         attemptOptions,
-        model
+        entry
       );
       await settleGatewayCredit(ownerId, result.model, result.usage);
       return result;
@@ -1080,7 +1175,7 @@ export async function chatWithAiGateway(
         isFallbackRetryableKind(error.kind);
       if (retryable && index + 1 < chain.length) {
         console.warn(
-          `[AI gateway] model ${model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1]}`
+          `[AI gateway] model ${entry.model} failed (${(error as AiGatewayClientError).kind})${streamedBeforeFallback ? " after streaming partial output" : ""}; falling back to ${chain[index + 1].model}`
         );
         continue;
       }
@@ -1106,8 +1201,9 @@ async function attemptGatewayChat(
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   },
-  resolvedModel: string
+  entry: GatewayChainEntry
 ): Promise<GatewayChatResult> {
+  const resolvedModel = entry.model;
   // The gateway occasionally returns a 200 completion with no text and no
   // tool calls (seen on long tool-calling runs). One automatic retry absorbs
   // those transient empties so the user never sees a dead reply; the request
@@ -1132,7 +1228,8 @@ async function attemptGatewayChat(
         }),
       },
       CHAT_REQUEST_TIMEOUT_MS,
-      options.signal
+      options.signal,
+      endpointFor(entry)
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";

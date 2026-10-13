@@ -128,6 +128,9 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
 | `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `claude-haiku-5.5:free`); set to `none`/`disabled` to disable |
 | `TOKENHARBOR_SECOND_FALLBACK_MODEL` | Optional override for the built-in gateway second fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
+| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after both Token Harbor fallbacks fail |
+| `SEEKAI_GATEWAY_URL`         | Optional HTTPS override for the SeekAI base URL (defaults to `https://seekai.cc/v1`) |
+| `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |

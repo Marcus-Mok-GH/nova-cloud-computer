@@ -142,6 +142,7 @@ vi.mock("./db", () => ({
 }));
 
 const completeWithAiGateway = vi.fn();
+const recordNovaApiError = vi.fn(async () => 1);
 // A plain reply no longer ends the run: when the loop sends its end-turn
 // control nudge, this default mock impl answers the way a well-behaved
 // model does - end_turn echoing the last assistant text - so existing
@@ -208,6 +209,8 @@ vi.mock("./aiGateway", () => ({
   getAiGatewayStatus,
   AiGatewayClientError,
 }));
+
+vi.mock("./novaApiErrors", () => ({ recordNovaApiError }));
 
 // startAgentVmRun (imported by workspaceAgent) pulls the E2B client; keep a
 // lightweight mock so the real e2b SDK is never loaded in the test worker.
@@ -4517,6 +4520,41 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toContain("not connected");
     // The gateway's raw error text stays out of the chat.
     expect(result.message.content).not.toContain("no key");
+    // A built-in Nova-model failure is recorded for the admin notification tab.
+    expect(recordNovaApiError).toHaveBeenCalledTimes(1);
+    expect(recordNovaApiError).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerId: 1, isNovaModel: true })
+    );
+  });
+
+  it("does not record a BYOK provider failure to the admin error log", async () => {
+    // The first (BYOK) model lookup makes the run a BYOK run; the helper path
+    // then falls through to the built-in gateway (the once-mock is consumed),
+    // mirroring the existing BYOK surfacing test.
+    getActiveCustomModelForUser.mockResolvedValueOnce({
+      id: 9,
+      workspaceId: 1,
+      name: "Mine",
+      modelId: "gpt-5o",
+      baseUrl: "https://api.example.com/v1",
+      compatibility: "openai",
+      encryptedApiKey: "encrypted",
+      supportsImageInput: false,
+    });
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("Toolnz rate limit", "rate_limit")
+    );
+    await runWorkspaceAgent(1, 3, "hi");
+    expect(recordNovaApiError).not.toHaveBeenCalled();
+  });
+
+  it("does not record a failure that never reached the model call", async () => {
+    // A setup failure (here the workspace sandbox failing to wake) ends the
+    // run before any model call, so it is not a Nova-model failure and must
+    // not land in the admin notification tab.
+    computer.mockRejectedValueOnce(new Error("sandbox wake failed"));
+    await runWorkspaceAgent(1, 3, "hello?");
+    expect(recordNovaApiError).not.toHaveBeenCalled();
   });
 
   it("closes out-of-budget, not with an error, when a transient failure outlasts the deadline", async () => {
@@ -4711,8 +4749,19 @@ describe("connector tool gating", () => {
           properties: Record<string, { enum?: string[] }>;
         }
       ).properties.connector.enum
-    ).toEqual(["gmail"]);
+    ).toEqual(["gmail", "vercel"]);
     expect(tools.find(tool => tool.function.name === "github")).toBeDefined();
+  });
+
+  it("exposes the shared catalog when only Vercel is connected", () => {
+    const tools = workspaceToolsForConnectors(["vercel"]);
+    expect(
+      tools.find(tool => tool.function.name === "list_connector_tools")
+    ).toBeDefined();
+    expect(
+      tools.find(tool => tool.function.name === "use_connector_tool")
+    ).toBeDefined();
+    expect(tools.find(tool => tool.function.name === "github")).toBeUndefined();
   });
 
   it("status failures degrade to no connected toolkits", async () => {
@@ -4729,7 +4778,7 @@ describe("connector tool gating", () => {
       return { connected: true };
     };
     const connected = await getConnectedConnectorToolkits(1, check as never);
-    expect(connected).toEqual(["github"]);
+    expect(connected).toEqual(["github", "vercel"]);
   });
 
   it("reports only connected toolkits", async () => {

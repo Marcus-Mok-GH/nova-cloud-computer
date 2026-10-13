@@ -61,6 +61,7 @@ import {
   Mail,
   MessageSquareText,
   RefreshCw,
+  Rocket,
   Send,
   Square,
   Volume2,
@@ -1476,6 +1477,8 @@ export default function Workspace() {
     connectorStatus.data?.toolkits?.github?.connected ?? false;
   const gmailConnected =
     connectorStatus.data?.toolkits?.gmail?.connected ?? false;
+  const vercelConnected =
+    connectorStatus.data?.toolkits?.vercel?.connected ?? false;
   // The bot token being configured is not "connected": the owner's Telegram
   // chat only counts as Ready once Telegram has actually linked a chat.
   const telegramLinked = Boolean(
@@ -1502,6 +1505,13 @@ export default function Workspace() {
       available: gmailConnected,
       detail:
         "Search, send and reply to email from a task. Connect it in Settings.",
+    },
+    {
+      name: "Vercel",
+      icon: Rocket,
+      available: vercelConnected,
+      detail:
+        "List projects, check deployments and read build logs. Connect it in Settings.",
     },
     {
       name: "More connectors",
@@ -1545,7 +1555,7 @@ export default function Workspace() {
                 Connect only what you need
               </span>
             </div>
-            <div className="grid gap-px overflow-hidden border border-foreground/[0.10] bg-foreground/[0.10] sm:grid-cols-2 lg:grid-cols-4 dark:border-white/[0.10] dark:bg-white/[0.10]">
+            <div className="grid gap-px overflow-hidden border border-foreground/[0.10] bg-foreground/[0.10] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 dark:border-white/[0.10] dark:bg-white/[0.10]">
               {connectors.map(connector => {
                 const ConnectorIcon = connector.icon;
                 const needsSetup =

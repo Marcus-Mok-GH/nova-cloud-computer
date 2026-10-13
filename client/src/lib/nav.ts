@@ -1,7 +1,7 @@
-import { Activity, Bot, Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
+import { Activity, Bell, Bot, Folder, LayoutGrid, MessageSquareText, Rocket, Settings2, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
 
-/** A single entry in Nova's primary dashboard navigation. */
-export type NavItem = { icon: LucideIcon; label: string; path: string; description?: string };
+/** A single entry in Nova's primary dashboard navigation. `badge` renders an optional unread-count pill. */
+export type NavItem = { icon: LucideIcon; label: string; path: string; description?: string; badge?: number };
 
 export const navItems: NavItem[] = [
   { icon: LayoutGrid, label: "Overview", path: "/app", description: "Your Nova workspace and computer" },
@@ -16,3 +16,6 @@ export const navItems: NavItem[] = [
 
 /** Shown in the sidebar only for accounts whose role is `admin`. */
 export const adminNavItem: NavItem = { icon: ShieldCheck, label: "Admin", path: "/app/admin", description: "System health and account management" };
+
+/** Shown in the sidebar only for accounts whose role is `admin` or `developer`. Links straight to the admin console's Notifications tab. */
+export const notificationsNavItem: NavItem = { icon: Bell, label: "Notifications", path: "/app/admin/notifications", description: "Nova-model API error notifications" };

@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Copy, Check, RotateCcw } from "lucide-react";
-import { Component, ReactNode, useState } from "react";
+import { Component, ReactNode, useEffect, useRef, useState } from "react";
 
 interface Props {
   children: ReactNode;
@@ -15,18 +15,39 @@ interface State {
 /** Copies the crash detail to the clipboard with a brief confirmation. */
 function CopyErrorButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    []
+  );
+  const copy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Clipboard API is unavailable (non-secure context, older
+        // browsers): fall back to a temporary selection.
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        document.body.removeChild(area);
+      }
+      setCopied(true);
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable - the detail above stays visible for manual copy */
+    }
+  };
   return (
     <button
-      onClick={() => {
-        try {
-          void navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          });
-        } catch {
-          /* clipboard unavailable */
-        }
-      }}
+      onClick={copy}
       className={cn(
         "mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium",
         "border border-border bg-background text-muted-foreground",

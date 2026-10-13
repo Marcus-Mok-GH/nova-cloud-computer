@@ -15,8 +15,9 @@ import {
   Users as UsersIcon,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { MarkdownText } from "@/lib/markdown";
@@ -372,9 +373,16 @@ export function AdminApiErrorNotifications() {
 export default function Admin() {
   const { loading, user } = useAuth();
   const utils = trpc.useUtils();
+  const [location, setLocation] = useLocation();
   const [pendingUserId, setPendingUserId] = useState<number | null>(null);
   const [inspectingUserId, setInspectingUserId] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"accounts" | "notifications">("accounts");
+  // The active tab follows the URL so the sidebar Notifications entry can link
+  // straight here (and back/forward keeps the tab in sync).
+  const onNotificationsRoute = location.replace(/\/+$/, "") === "/app/admin/notifications";
+  const [activeTab, setActiveTab] = useState<"accounts" | "notifications">(onNotificationsRoute ? "notifications" : "accounts");
+  useEffect(() => {
+    setActiveTab(onNotificationsRoute ? "notifications" : "accounts");
+  }, [onNotificationsRoute]);
   const [pendingAction, setPendingAction] = useState<
     "role" | "ban" | "delete" | null
   >(null);
@@ -549,7 +557,7 @@ export default function Admin() {
           <button
             role="tab"
             aria-selected={activeTab === "accounts"}
-            onClick={() => setActiveTab("accounts")}
+            onClick={() => setLocation("/app/admin")}
             className={`pill-btn px-4 py-2 text-sm ${activeTab === "accounts" ? "pill-btn-primary" : ""}`}
           >
             Accounts
@@ -557,7 +565,7 @@ export default function Admin() {
           <button
             role="tab"
             aria-selected={activeTab === "notifications"}
-            onClick={() => setActiveTab("notifications")}
+            onClick={() => setLocation("/app/admin/notifications")}
             className={`pill-btn flex items-center gap-2 px-4 py-2 text-sm ${activeTab === "notifications" ? "pill-btn-primary" : ""}`}
           >
             <Bell className="size-4" />

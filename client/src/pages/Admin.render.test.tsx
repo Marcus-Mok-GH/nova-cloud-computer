@@ -4,13 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import Admin from "./Admin";
 
 let authState: { loading: boolean; user: { id: number; role: "user" | "admin" } | null };
+let mockPath = "/app/admin";
 
 vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => {} }, innerWidth: 1200, addEventListener: () => {} });
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => authState }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light", toggleTheme: vi.fn(), switchable: true }) }));
 vi.mock("./NotFound", () => ({ default: () => <div>404</div> }));
-vi.mock("wouter", () => ({ useLocation: () => ["/app/admin", vi.fn()], useSearch: () => "", Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
+vi.mock("wouter", () => ({ useLocation: () => [mockPath, vi.fn()], useSearch: () => "", Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
@@ -41,6 +42,7 @@ function setAuth(user: { id: number; role: "user" | "admin" } | null) {
 describe("Admin console page", () => {
   it("renders the overview and account list for an admin", () => {
     setAuth({ id: 1, role: "admin" });
+    mockPath = "/app/admin";
     const markup = renderToStaticMarkup(<Admin />);
     expect(markup).toContain("Admin console");
     expect(markup).toContain("owner@example.com");
@@ -53,9 +55,26 @@ describe("Admin console page", () => {
   });
 
   it("hides the console behind the 404 page for non-admins and signed-out visitors", () => {
+    mockPath = "/app/admin";
     setAuth({ id: 2, role: "user" });
     expect(renderToStaticMarkup(<Admin />)).toContain("404");
     setAuth(null);
     expect(renderToStaticMarkup(<Admin />)).toContain("404");
+  });
+
+  it("opens the notifications tab straight from the /app/admin/notifications route", () => {
+    setAuth({ id: 1, role: "admin" });
+    mockPath = "/app/admin/notifications";
+    const markup = renderToStaticMarkup(<Admin />);
+    expect(markup).toContain('role="tabpanel"');
+    expect(markup).toContain("failed Nova request");
+  });
+
+  it("opens the accounts tab on the plain /app/admin route", () => {
+    setAuth({ id: 1, role: "admin" });
+    mockPath = "/app/admin";
+    const markup = renderToStaticMarkup(<Admin />);
+    expect(markup).not.toContain('role="tabpanel"');
+    expect(markup).toContain("total");
   });
 });

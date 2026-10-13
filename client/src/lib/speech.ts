@@ -284,9 +284,13 @@ export function speakChunks(
   try {
     resumeTimer = setInterval(() => {
       try {
+        // An external stop bumps the generation without touching this
+        // run's timer; self-clear so a superseded run never leaks.
+        if (cancelled || generation !== activeGeneration) {
+          cleanup();
+          return;
+        }
         if (
-          !cancelled &&
-          generation === activeGeneration &&
           synthesis.paused &&
           (synthesis.speaking || synthesis.pending)
         ) {

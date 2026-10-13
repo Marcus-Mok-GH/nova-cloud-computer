@@ -2,26 +2,29 @@ import { ENV } from "./_core/env";
 
 /**
  * Composio connector client. Composio manages the OAuth dance and credential
- * storage for toolkits like GitHub; Nova only ever sees action results.
+ * storage for toolkits like GitHub, Gmail and Vercel; Nova only ever sees
+ * action results.
  *
  * The workspace owner sets COMPOSIO_API_KEY (a Composio project API key) and
- * each Nova user connects their own GitHub account through an auth link
+ * each Nova user connects their own accounts through an auth link
  * session, scoped to a stable per-user Composio user id.
  */
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
 /** Connector toolkits Nova supports through Composio. */
-export const COMPOSIO_TOOLKITS = ["github", "gmail"] as const;
+export const COMPOSIO_TOOLKITS = ["github", "gmail", "vercel"] as const;
 export type ComposioToolkit = (typeof COMPOSIO_TOOLKITS)[number];
 
 export function isComposioToolkit(value: unknown): value is ComposioToolkit {
-  return value === "github" || value === "gmail";
+  return value === "github" || value === "gmail" || value === "vercel";
 }
 
 /** Display name used in user-facing status and error messages. */
 export function toolkitLabel(toolkit: ComposioToolkit) {
-  return toolkit === "github" ? "GitHub" : "Gmail";
+  if (toolkit === "github") return "GitHub";
+  if (toolkit === "gmail") return "Gmail";
+  return "Vercel";
 }
 
 export class ComposioApiError extends Error {
@@ -218,9 +221,9 @@ export async function deleteComposioConnection(
 }
 
 /**
- * Starts an auth link session for GitHub and returns the hosted URL the user
- * should visit to authorize. Composio-managed OAuth configs are addressed via
- * the /connected_accounts/link endpoint.
+ * Starts an auth link session for a toolkit and returns the hosted URL the
+ * user should visit to authorize. Composio-managed OAuth configs are
+ * addressed via the /connected_accounts/link endpoint.
  */
 export async function createComposioConnectionLink(
   ownerId: number,
@@ -252,11 +255,11 @@ export async function createComposioConnectionLink(
     fetchImpl
   );
   if (!link.redirect_url)
-    throw new ComposioApiError("Composio did not return an authorization URL for GitHub.", 502);
+    throw new ComposioApiError(`Composio did not return an authorization URL for ${toolkitLabel(toolkit)}.`, 502);
   return { redirectUrl: link.redirect_url, connectedAccountId: link.connected_account_id ?? null };
 }
 
-/** Searches Composio's GitHub tool catalog and returns slugs plus parameter schemas. */
+/** Searches a Composio toolkit catalog and returns slugs plus parameter schemas. */
 export async function listComposioTools(
   ownerId: number,
   toolkit: ComposioToolkit,
@@ -283,7 +286,7 @@ export async function listComposioTools(
   };
 }
 
-/** Executes a Composio GitHub tool on behalf of the connected user. */
+/** Executes a Composio toolkit tool on behalf of the connected user. */
 export async function executeComposioTool(
   ownerId: number,
   toolkit: ComposioToolkit,

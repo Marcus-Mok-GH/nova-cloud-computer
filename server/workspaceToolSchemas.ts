@@ -658,18 +658,18 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "list_connector_tools",
       description:
-        "Search the Gmail connector catalog and return exact Gmail action slugs and parameter schemas. Use only for Gmail; GitHub has its own github tool.",
+        "Search a connector catalog and return exact action slugs and parameter schemas. Use for Gmail or Vercel; GitHub has its own github tool.",
       parameters: {
         type: "object",
         properties: {
           connector: {
             type: "string",
-            enum: ["gmail"],
-            description: "Must be gmail.",
+            enum: ["gmail", "vercel"],
+            description: "Must be gmail or vercel.",
           },
           search: {
             type: "string",
-            description: "Optional words to filter Gmail actions.",
+            description: "Optional words to filter actions.",
           },
           limit: {
             type: "number",
@@ -685,14 +685,14 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "use_connector_tool",
       description:
-        "Execute a Gmail action on the user's behalf through the connector. The action slug must come from list_connector_tools with exactly the parameters it declares. GitHub uses the dedicated github tool instead.",
+        "Execute a Gmail or Vercel action on the user's behalf through the connector. The action slug must come from list_connector_tools with exactly the parameters it declares. GitHub uses the dedicated github tool instead.",
       parameters: {
         type: "object",
         properties: {
           connector: {
             type: "string",
-            enum: ["gmail"],
-            description: "Must be gmail.",
+            enum: ["gmail", "vercel"],
+            description: "Must be gmail or vercel.",
           },
           action: {
             type: "string",

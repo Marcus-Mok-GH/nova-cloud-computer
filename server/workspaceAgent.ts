@@ -41,10 +41,12 @@ import {
   completeWithWorkspaceModel,
   getActiveCustomModel,
 } from "./byokGateway";
+import { recordNovaApiError } from "./novaApiErrors";
 import {
   COMPOSIO_TOOLKITS,
   type ComposioToolkit,
   getComposioConnectionStatus,
+  toolkitLabel,
 } from "./composio";
 import {
   isCodeFileName,
@@ -310,7 +312,7 @@ export function workspaceToolsForConnectors(
     );
     if (githubTool) connectorTools.push(githubTool);
   }
-  if (connected.includes("gmail")) {
+  if (connected.includes("gmail") || connected.includes("vercel")) {
     connectorTools.push(
       ...WORKSPACE_TOOLS.filter(tool =>
         ["list_connector_tools", "use_connector_tool"].includes(
@@ -350,10 +352,9 @@ export function connectorStatusLine(connected: ComposioToolkit[]): string {
   if (!connected.length)
     return "no connectors are connected right now, so connector tools are unavailable";
   const parts = COMPOSIO_TOOLKITS.map(
-    toolkit =>
-      `${toolkit === "github" ? "GitHub" : "Gmail"} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
+    toolkit => `${toolkitLabel(toolkit)} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
   );
-  return `${parts.join("; ")}. Only ${connected.map(toolkit => (toolkit === "github" ? "GitHub" : "Gmail")).join(" and ")} tools are available`;
+  return `${parts.join("; ")}. Only ${connected.map(toolkit => toolkitLabel(toolkit)).join(" and ")} tools are available`;
 }
 
 const PERSONALISATION_DETAIL_LABELS: Record<PersonalisationDetail, string> = { brief: "keep replies brief", balanced: "a balanced level of detail", detailed: "thorough, detailed replies" };
@@ -405,7 +406,7 @@ Operating principles:
 - Think deeper when the answer is hard. When a problem needs sustained reasoning rather than lookup or computation - weighing a design or strategy decision, planning a multi-step approach, untangling a subtle trade-off, risk or failure mode, analyzing a body of material for what it implies, or checking your own reasoning before committing to it - call thinker. It is a frontier reasoning sub-agent: hand it the complete question and every relevant piece of context, then use its detailed findings to decide your next action. Never delegate simple questions, lookups or arithmetic to thinker - it reasons, it does not act.
 - Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
 - Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor sub-agent writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the editor is not set up on this workspace yet - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
-- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
+- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email; Vercel for projects, deployments and logs. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail and Vercel, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
 - Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that.
 - Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website with the deployment's ID (from the deployment list above - never guess one). When several deployments exist or the request is vague, confirm which one they mean first. Deleting every deployment (all: true) is a two-step sweep: the first call only lists the target deployment IDs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every deployment; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website creates a fresh deployment with a new ID and URL.
 - Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. A 'react' project has NO bundler - React and Babel standalone come from a CDN, so components must be plain global functions (no import/export): expose each component on window in its own file and load it with a text/babel script before the file that uses it, exactly as the scaffold does, or the page renders a blank screen. From there, edit and extend the project with your regular file tools and redeploy to the same deployment ID so its URL stays stable.
@@ -869,6 +870,11 @@ ${
   // Declared outside the try so the catch below can surface the provider's
   // raw error instead of the built-in service's sanitized notice.
   let byok = false;
+  // Whether the failure that ends the run came from the model call itself
+  // (a gateway round) rather than from a setup, database, or sandbox step.
+  // Only model-call failures are recorded to the admin notification tab -
+  // `!byok` alone would also capture errors like a failed sandbox wake.
+  let modelCallFailed = false;
   const failedAttempts = new Map<
     string,
     { count: number; firstFailure: string }
@@ -1342,6 +1348,7 @@ ${
           // stuck in its running state.
           flushThinking("completed");
           await thinkingEmissions;
+          modelCallFailed = true;
           throw error;
         }
         // A model without vision rejects image parts outright: drop the
@@ -1370,6 +1377,7 @@ ${
             closedByDeadline = true;
             break;
           }
+          modelCallFailed = true;
           throw error;
         }
       }
@@ -1835,6 +1843,14 @@ ${
     return { message, actions, outOfBudget: closedByDeadline };
   } catch (error) {
     console.error("[Chat] AI gateway chat failed", error);
+    // Record built-in Nova-model failures for the admin notification tab.
+    // Only failures from the model call itself are logged: setup, database
+    // and sandbox errors are not Nova-model failures. BYOK failures stay
+    // with the workspace's own provider and are never logged, matching the
+    // inference API and peak-queue paths.
+    if (!byok && modelCallFailed) {
+      void recordNovaApiError({ ownerId, error, isNovaModel: true }).catch(() => {});
+    }
     const kind =
       error instanceof AiGatewayClientError ? error.kind : "unavailable";
     const failureNote =

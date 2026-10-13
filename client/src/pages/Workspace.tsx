@@ -15,9 +15,7 @@ import {
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import {
-  chunkSpokenText,
-  isSpeechSynthesisSupported,
-  speakChunks,
+  speakMessage,
   stopAllSpeech,
   stripMarkdownForSpeech,
   TTS_START_EVENT,
@@ -224,9 +222,10 @@ function RegenerateMessageButton({
 }
 
 /**
- * Reads a chat message aloud with the browser's built-in (free) speech
- * synthesis - no API key or server cost. Toggles to Stop while speaking;
- * starting another message stops the current one.
+ * Reads a chat message aloud - the browser's own free speech synthesis when it
+ * has a voice to speak with, otherwise a server-synthesised voice (also free,
+ * no key). Toggles to Stop while speaking; starting another message stops the
+ * current one.
  */
 function SpeakMessageButton({
   text,
@@ -239,15 +238,20 @@ function SpeakMessageButton({
 }) {
   const [speaking, setSpeaking] = useState(false);
   const stopRef = useRef<(() => void) | null>(null);
+  // Bumped by every toggle and by another button starting, so a request that
+  // resolves after its run was superseded never updates this button again.
+  const runIdRef = useRef(0);
 
   useEffect(() => {
     const handleStart = () => {
       // A newer speak() call cancels this one; drop the stale stop handle
       // so unmounting this button cannot cut off the new message.
+      runIdRef.current += 1;
       stopRef.current = null;
       setSpeaking(false);
     };
     const handleStop = () => {
+      runIdRef.current += 1;
       stopRef.current = null;
       setSpeaking(false);
     };
@@ -261,22 +265,20 @@ function SpeakMessageButton({
 
   useEffect(
     () => () => {
+      runIdRef.current += 1;
       stopRef.current?.();
       stopRef.current = null;
     },
     []
   );
 
-  const toggle = () => {
+  const toggle = async () => {
     if (disabled) return;
     if (speaking) {
       stopAllSpeech();
       stopRef.current = null;
+      runIdRef.current += 1;
       setSpeaking(false);
-      return;
-    }
-    if (!isSpeechSynthesisSupported()) {
-      toast.error("Reading aloud is not supported in this browser.");
       return;
     }
     const clean = stripMarkdownForSpeech(text);
@@ -284,23 +286,31 @@ function SpeakMessageButton({
       toast.error("There is nothing to read aloud in that message.");
       return;
     }
-    const chunks = chunkSpokenText(clean);
-    if (!chunks.length) {
-      toast.error("There is nothing to read aloud in that message.");
-      return;
-    }
-    stopRef.current = speakChunks(chunks, {
+    runIdRef.current += 1;
+    const runId = runIdRef.current;
+    setSpeaking(true);
+    // Choosing an engine may wait on the browser's voice list, so the stop
+    // handle arrives asynchronously: a toggle that lands first wins.
+    const stop = await speakMessage(clean, {
       onEnd: () => {
+        if (runId !== runIdRef.current) return;
         stopRef.current = null;
         setSpeaking(false);
       },
       onError: () => {
+        if (runId !== runIdRef.current) return;
         stopRef.current = null;
         setSpeaking(false);
         toast.error("Could not read that message aloud.");
       },
     });
-    setSpeaking(true);
+    if (runId !== runIdRef.current) {
+      // The user stopped, or another button started a message, while the
+      // request was in flight.
+      stop();
+      return;
+    }
+    stopRef.current = stop;
   };
 
   return (

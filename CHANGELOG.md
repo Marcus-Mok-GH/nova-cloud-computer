@@ -1,3 +1,46 @@
+2026-10-13 - A third model in the chain: the gateway's last resort now leaves Token Harbor
+
+Nova's built-in AI gateway walked a primary-first chain of three Token Harbor
+models: deepseek-v4.1-flash:free, then claude-haiku-5.5:free, then
+mimo-v2.6-flash:free on a transient failure (rate limit / overload, upstream
+5xx or timeout, empty completion). All three live behind one base URL and one
+credential, so a Token Harbor outage - every free pool congested at once,
+which the changelog has already recorded happening - took the whole chain down
+with it. The chain now has a fourth, last-resort hop on a different provider
+entirely: SeekAI (https://seekai.cc), whose OpenAI-compatible endpoint serves
+glm-5.3-flash, Zhipu's GLM-family reasoning model with tool calling.
+
+server/aiGateway.ts changes the chain from a list of model ids to a list of
+entries ({ model, baseUrl?, token? }), where an entry without an endpoint keeps
+using the Token Harbor base URL and TOKENHARBOR_API_KEY and the SeekAI entry
+carries its own - so the fallback request authenticates against seekai.cc/v1
+with SEEKAI_API_KEY rather than leaking the Token Harbor key to a second
+provider. gatewayFetch takes an optional endpoint override; the chat path
+(attemptGatewayChat) and the single-prompt path (completeWithAiGateway) both
+walk the same chain and still claim the inference allowance and daily credits
+once per request, so a four-attempt chain is never double-charged.
+
+The SeekAI hop is strictly opt-in. Without a SEEKAI_API_KEY of at least 32
+characters the chain is byte-for-byte what it was: three Token Harbor models,
+no fourth request. SEEKAI_FALLBACK_MODEL overrides the model id (default
+glm-5.3-flash, "none"/"disabled" turns the hop off) and SEEKAI_GATEWAY_URL
+overrides the base URL, mirroring the Token Harbor variables; a SeekAI model id
+already served by Token Harbor is not appended twice. Turning off the Token
+Harbor fallbacks with TOKENHARBOR_FALLBACK_MODEL=none still disables fallback
+altogether. ai.status reports thirdFallbackModel (null while unconfigured) and
+ai.models lists glm-5.3-flash as a text-only fourth entry only while the
+credential is present.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, docs/ai-gateway-contract.md, README.md,
+CHANGELOG.md. Six new gateway tests pin the SeekAI retry on both the chat and
+the complete path, the unconfigured/short-key/disabled skip paths, and the
+conditional catalogue entry; 891 server tests pass, typecheck carries only the
+two pre-existing dependency-duplication errors in appTree.tsx and
+vite.config.ts.
+
+---
+
 2026-10-11 - The Files explorer searches every workspace file by name and content
 
 Nova's files could be browsed but not searched: finding something meant

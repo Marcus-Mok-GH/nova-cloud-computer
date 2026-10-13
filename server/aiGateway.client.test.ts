@@ -20,12 +20,15 @@ const {
   TOKENHARBOR_CHAT_MODEL,
   TOKENHARBOR_FALLBACK_MODEL,
   TOKENHARBOR_SECOND_FALLBACK_MODEL,
+  SEEKAI_FALLBACK_MODEL,
   AiGatewayClientError,
 } = await import("./aiGateway");
 
 const TOKENHARBOR_BASE_URL = "https://tokenharbor.ai/v1";
 const MIRROR_URL = "https://token-harbor-mirror.example.com/v1";
 const API_KEY = "thk_live_" + "k".repeat(40);
+const SEEKAI_URL = "https://seekai.example.com/v1";
+const SEEKAI_KEY = "sk_seekai_" + "s".repeat(40);
 
 /** The chat-completion model ids sent across every fetch call, in order. */
 function postedModels() {
@@ -34,18 +37,30 @@ function postedModels() {
     .map(call => (JSON.parse(String(call[1]?.body)) as { model: string }).model);
 }
 
+/** The fetch calls made against the SeekAI endpoint, in order. */
+function seekaiCalls() {
+  return (globalThis.fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls
+    .filter(call => String(call[0]).startsWith(SEEKAI_URL));
+}
+
 describe("AI gateway client", () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.TOKENHARBOR_API_KEY;
   const originalUrl = process.env.TOKENHARBOR_GATEWAY_URL;
   const originalFallback = process.env.TOKENHARBOR_FALLBACK_MODEL;
   const originalSecondFallback = process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL;
+  const originalSeekaiKey = process.env.SEEKAI_API_KEY;
+  const originalSeekaiUrl = process.env.SEEKAI_GATEWAY_URL;
+  const originalSeekaiFallback = process.env.SEEKAI_FALLBACK_MODEL;
 
   beforeEach(() => {
     delete process.env.TOKENHARBOR_API_KEY;
     delete process.env.TOKENHARBOR_GATEWAY_URL;
     delete process.env.TOKENHARBOR_FALLBACK_MODEL;
     delete process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL;
+    delete process.env.SEEKAI_API_KEY;
+    delete process.env.SEEKAI_GATEWAY_URL;
+    delete process.env.SEEKAI_FALLBACK_MODEL;
     process.env.TOKENHARBOR_API_KEY = API_KEY;
     process.env.TOKENHARBOR_GATEWAY_URL = MIRROR_URL;
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
@@ -60,6 +75,9 @@ describe("AI gateway client", () => {
     if (originalUrl === undefined) delete process.env.TOKENHARBOR_GATEWAY_URL; else process.env.TOKENHARBOR_GATEWAY_URL = originalUrl;
     if (originalFallback === undefined) delete process.env.TOKENHARBOR_FALLBACK_MODEL; else process.env.TOKENHARBOR_FALLBACK_MODEL = originalFallback;
     if (originalSecondFallback === undefined) delete process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL; else process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL = originalSecondFallback;
+    if (originalSeekaiKey === undefined) delete process.env.SEEKAI_API_KEY; else process.env.SEEKAI_API_KEY = originalSeekaiKey;
+    if (originalSeekaiUrl === undefined) delete process.env.SEEKAI_GATEWAY_URL; else process.env.SEEKAI_GATEWAY_URL = originalSeekaiUrl;
+    if (originalSeekaiFallback === undefined) delete process.env.SEEKAI_FALLBACK_MODEL; else process.env.SEEKAI_FALLBACK_MODEL = originalSeekaiFallback;
   });
 
   it("targets Token Harbor's base URL by default", async () => {
@@ -149,6 +167,104 @@ describe("AI gateway client", () => {
     // Primary first, then Haiku, then MiMo; one allowance claim for all three.
     expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  /** A fetch stub that fails every Token Harbor completion and serves SeekAI. */
+  function overloadedTokenHarborThenSeekai() {
+    const overloaded = () =>
+      new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 });
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${MIRROR_URL}/models`) return new Response(null, { status: 200 });
+      if (url.startsWith(SEEKAI_URL)) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "seekai reply" } }],
+            model: SEEKAI_FALLBACK_MODEL,
+          }),
+          { status: 200 }
+        );
+      }
+      return overloaded();
+    });
+  }
+
+  it("falls back to SeekAI's GLM-5.3-Flash when every Token Harbor model fails transiently", async () => {
+    process.env.SEEKAI_API_KEY = SEEKAI_KEY;
+    process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
+    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+
+    await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "seekai reply" });
+    // Primary, Haiku, MiMo, then SeekAI - all four attempts on one allowance claim.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
+    expect(claim).toHaveBeenCalledTimes(1);
+    const [url, init] = seekaiCalls()[0] ?? [];
+    expect(url).toBe(`${SEEKAI_URL}/chat/completions`);
+    expect((init as RequestInit & { headers: Record<string, string> }).headers.Authorization).toBe(`Bearer ${SEEKAI_KEY}`);
+  });
+
+  it("routes the chat path's last resort to SeekAI with its own credential", async () => {
+    process.env.SEEKAI_API_KEY = SEEKAI_KEY;
+    process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
+    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hello" }], {});
+    expect(result).toMatchObject({ text: "seekai reply", model: SEEKAI_FALLBACK_MODEL });
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
+    expect(seekaiCalls()).toHaveLength(1);
+  });
+
+  it("keeps the chain on Token Harbor when no SeekAI credential is configured", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }));
+
+    await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
+    // Three attempts, all against Token Harbor: the SeekAI hop is skipped.
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL]);
+    expect(seekaiCalls()).toHaveLength(0);
+  });
+
+  it("ignores a SeekAI credential that is too short to be a real key", async () => {
+    process.env.SEEKAI_API_KEY = "sk-short";
+    process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }));
+
+    await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
+    expect(seekaiCalls()).toHaveLength(0);
+  });
+
+  it("turns the SeekAI hop off with SEEKAI_FALLBACK_MODEL=disabled", async () => {
+    process.env.SEEKAI_API_KEY = SEEKAI_KEY;
+    process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
+    process.env.SEEKAI_FALLBACK_MODEL = "disabled";
+    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+
+    await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, TOKENHARBOR_SECOND_FALLBACK_MODEL]);
+    expect(seekaiCalls()).toHaveLength(0);
+  });
+
+  it("lists the SeekAI last resort only while its credential is configured", async () => {
+    await expect(listGatewayModels(true)).resolves.toEqual([
+      { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
+    ]);
+
+    process.env.SEEKAI_API_KEY = SEEKAI_KEY;
+    await expect(listGatewayModels(true)).resolves.toEqual([
+      { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
+      { id: SEEKAI_FALLBACK_MODEL, kind: "text" },
+    ]);
   });
 
   it("does not fall back on permanent client errors", async () => {

@@ -40,6 +40,9 @@ beforeEach(() => {
   // Credentials shorter than 32 chars are ignored by tokenHarborToken().
   process.env.TOKENHARBOR_API_KEY = "thk_live_test-gateway-key-0123456789abcdef012345";
   process.env.TOKENHARBOR_GATEWAY_URL = "https://gateway.example.com/v1";
+  // The SeekAI last resort is a different endpoint: keep it out of these
+  // Token Harbor-only stubs even if the developer's shell exports a real key.
+  delete process.env.SEEKAI_API_KEY;
   resetAiGatewayHealthCache();
   vi.useFakeTimers();
 });

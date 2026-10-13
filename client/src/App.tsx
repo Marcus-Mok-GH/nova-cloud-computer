@@ -37,6 +37,7 @@ function Router() {
       <Route path={"/app/status"} component={Status} />
       <Route path={"/app/more"} component={More} />
       <Route path={"/app/admin"} component={Admin} />
+      <Route path={"/app/admin/notifications"} component={Admin} />
       <Route path={"/docs/api"} component={ApiDocs} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />

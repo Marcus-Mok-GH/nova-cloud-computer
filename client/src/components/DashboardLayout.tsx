@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLocation, useSearch } from "wouter";
 import { ChevronsLeft, ChevronsRight, Coins, LogOut, Menu, Moon, Sun, X } from "lucide-react";
-import { adminNavItem, navItems as nav, NavItem } from "@/lib/nav";
+import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/lib/nav";
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -45,12 +45,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const go = (path: string) => { setMobileNavOpen(false); setLocation(path); };
 
   const isConsoleOperator = user?.role === "admin" || user?.role === "developer";
-  const visibleNav: NavItem[] = isConsoleOperator ? [...nav, adminNavItem] : nav;
+  // Error count for the sidebar Notifications entry. The query is admin-gated
+  // server-side, and only console operators ever see the entry.
+  const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 30_000 });
+  const notificationCount = notificationsQuery.data?.length ?? 0;
+  const visibleNav: NavItem[] = isConsoleOperator ? [...nav, adminNavItem, { ...notificationsNavItem, badge: notificationCount }] : nav;
   const navButtons = (onNavigate: () => void, opts?: { collapsed?: boolean }) =>
     visibleNav.map((tab: NavItem) => (
-      <button key={tab.label} onClick={() => { onNavigate(); go(tab.path); }} title={tab.label} aria-label={tab.label} aria-current={isActive(tab.path) ? "page" : undefined}
+      <button key={tab.label} onClick={() => { onNavigate(); go(tab.path); }} title={tab.label} aria-label={typeof tab.badge === "number" && tab.badge > 0 ? `${tab.label}, ${tab.badge} unread` : tab.label} aria-current={isActive(tab.path) ? "page" : undefined}
         className={`flex w-full items-center rounded-xl text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${opts?.collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2.5"} ${isActive(tab.path) ? "bg-card text-foreground shadow-sm dark:bg-card dark:text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}>
         <tab.icon className="size-4 shrink-0" />{!opts?.collapsed && tab.label}
+        {typeof tab.badge === "number" && tab.badge > 0 && (
+          <span aria-hidden="true" className={`${opts?.collapsed ? "" : "ml-auto "}inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white`}>
+            {tab.badge > 99 ? "99+" : tab.badge}
+          </span>
+        )}
       </button>
     ));
 

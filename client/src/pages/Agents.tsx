@@ -459,28 +459,24 @@ export default function Agents() {
     onSuccess: chat => setLocation(`/app?chatId=${chat.id}`),
     onError: error => toast.error(error.message),
   });
-  const decide = (decision: "approve" | "deny") =>
-    decision === "approve"
-      ? trpc.agents.approve.useMutation({
-          onSuccess: result => {
-            toast.success(
-              result.approval.resultSummary ?? "Request approved."
-            );
-            void utils.agents.approvals.invalidate();
-            void utils.agents.list.invalidate();
-            void utils.agents.inbox.invalidate();
-          },
-          onError: error => toast.error(error.message),
-        })
-      : trpc.agents.deny.useMutation({
-          onSuccess: () => {
-            toast.success("Request declined.");
-            void utils.agents.approvals.invalidate();
-          },
-          onError: error => toast.error(error.message),
-        });
-  const approve = decide("approve");
-  const deny = decide("deny");
+  const approve = trpc.agents.approve.useMutation({
+    onSuccess: result => {
+      toast.success(
+        result.approval.resultSummary ?? "Request approved."
+      );
+      void utils.agents.approvals.invalidate();
+      void utils.agents.list.invalidate();
+      void utils.agents.inbox.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const deny = trpc.agents.deny.useMutation({
+    onSuccess: () => {
+      toast.success("Request declined.");
+      void utils.agents.approvals.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
 
   const agentRows = (agents.data ?? []) as AgentRow[];
   const pending = ((approvals.data?.pending ?? []) as ApprovalRow[]).filter(

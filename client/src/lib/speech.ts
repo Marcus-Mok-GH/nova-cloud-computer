@@ -174,18 +174,49 @@ export function speakChunks(
   // handlers in some browsers, and they must already read as stale.
   activeGeneration += 1;
   const generation = activeGeneration;
-  synthesis.cancel();
+  // Chrome drops a speak() issued in the same task as cancel(): the async
+  // cancel clears the just-queued utterance, so playback never starts and
+  // no sound plays. Only cancel when something is actually queued/playing,
+  // and defer the first speak past the cancel when we did cancel.
+  let needsDelay = false;
+  try {
+    needsDelay = synthesis.speaking || synthesis.pending;
+    if (needsDelay) synthesis.cancel();
+  } catch {
+    /* Speech may be unavailable - speak anyway. */
+  }
+  // Chrome can leave synthesis paused across cancel(); queued utterances
+  // then sit silent until resumed.
+  try {
+    if (synthesis.paused) synthesis.resume();
+  } catch {
+    /* ignore */
+  }
   const voice = pickDefaultVoice();
   let cancelled = false;
   let index = 0;
+  let retries = 0;
+  let resumeTimer: ReturnType<typeof setInterval> | null = null;
+  const cleanup = () => {
+    if (resumeTimer) {
+      clearInterval(resumeTimer);
+      resumeTimer = null;
+    }
+  };
   const originalStop = stopAllSpeech;
   const cancelThis = () => {
     cancelled = true;
+    cleanup();
     originalStop();
   };
   const speakNext = () => {
     if (cancelled || generation !== activeGeneration || index >= chunks.length) {
-      if (!cancelled && generation === activeGeneration) options.onEnd?.();
+      if (!cancelled && generation === activeGeneration) {
+        cleanup();
+        options.onEnd?.();
+      } else {
+        cleanup();
+      }
       return;
     }
     const utterance = new window.SpeechSynthesisUtterance(chunks[index]);
@@ -195,13 +226,41 @@ export function speakChunks(
     index += 1;
     utterance.onend = () => {
       if (cancelled || generation !== activeGeneration) return;
-      if (index >= chunks.length) options.onEnd?.();
-      else speakNext();
+      retries = 0;
+      if (index >= chunks.length) {
+        cleanup();
+        options.onEnd?.();
+      } else speakNext();
     };
-    utterance.onerror = () => {
+    utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
       if (cancelled || generation !== activeGeneration) return;
+      // "canceled"/"interrupted" fires for utterances cleared by cancel()
+      // (including the Chrome cancel-then-speak race). It is not a real
+      // playback failure: re-queue the same chunk instead of toasting.
+      const code = (event as SpeechSynthesisErrorEvent | undefined)?.error;
+      if (code === "canceled" || code === "interrupted") {
+        if (retries < 2) {
+          retries += 1;
+          index -= 1;
+          setTimeout(() => {
+            if (!cancelled && generation === activeGeneration) speakNext();
+          }, 80);
+        } else {
+          cleanup();
+          options.onEnd?.();
+        }
+        return;
+      }
+      retries = 0;
+      cleanup();
       options.onError?.();
     };
+    try {
+      // Belt-and-braces: a paused engine queues but never plays.
+      if (synthesis.paused) synthesis.resume();
+    } catch {
+      /* ignore */
+    }
     synthesis.speak(utterance);
   };
   try {
@@ -220,6 +279,39 @@ export function speakChunks(
   } catch {
     /* ignore */
   }
-  speakNext();
+  // Chrome auto-pauses long synthesis (~15s); without a nudge playback goes
+  // silent mid-message with the button stuck on "Stop".
+  try {
+    resumeTimer = setInterval(() => {
+      try {
+        // An external stop bumps the generation without touching this
+        // run's timer; self-clear so a superseded run never leaks.
+        if (cancelled || generation !== activeGeneration) {
+          cleanup();
+          return;
+        }
+        if (
+          synthesis.paused &&
+          (synthesis.speaking || synthesis.pending)
+        ) {
+          synthesis.resume();
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 2000);
+  } catch {
+    /* ignore */
+  }
+  if (needsDelay) {
+    // Let the async cancel() settle before queueing, or Chrome swallows the
+    // first chunk and nothing plays.
+    setTimeout(() => {
+      if (!cancelled && generation === activeGeneration) speakNext();
+      else cleanup();
+    }, 60);
+  } else {
+    speakNext();
+  }
   return cancelThis;
 }

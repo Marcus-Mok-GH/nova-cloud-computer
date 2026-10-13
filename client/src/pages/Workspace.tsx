@@ -280,9 +280,15 @@ function SpeakMessageButton({
       return;
     }
     const clean = stripMarkdownForSpeech(text);
-    if (!clean) return;
+    if (!clean) {
+      toast.error("There is nothing to read aloud in that message.");
+      return;
+    }
     const chunks = chunkSpokenText(clean);
-    if (!chunks.length) return;
+    if (!chunks.length) {
+      toast.error("There is nothing to read aloud in that message.");
+      return;
+    }
     stopRef.current = speakChunks(chunks, {
       onEnd: () => {
         stopRef.current = null;

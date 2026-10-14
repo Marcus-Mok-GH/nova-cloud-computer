@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, getOrCreateWorkspace, getChatForUser, getUserIdentityForUser } from "./db";
 import {
   AgentMailError,
@@ -452,11 +452,11 @@ export async function startAgentChatForUser(
         eq(chats.workspaceId, agent.workspaceId),
         eq(chats.agentId, agent.id),
         // Inbound email opens its own chat per thread, and each of those chats
-        // belongs to its thread. The agent's personal chat is therefore the one
-        // no thread holds: without this the newest email conversation would win
+        // carries its thread id. The agent's personal chat is therefore a chat
+        // with no thread: without this the newest email conversation would win
         // the "most recently updated" lookup and opening a chat with the agent
         // would drop the user inside somebody's email thread.
-        sql`not exists (select 1 from "agent_emails" where "agent_emails"."chatId" = "chats"."id")`
+        isNull(chats.emailThreadId)
       )
     )
     .orderBy(desc(chats.updatedAt))
@@ -494,45 +494,50 @@ export function emailChatTitleFor(subject: string, from: string): string {
 
 /**
  * Resolves the chat one inbound email runs in. The first message of a thread
- * opens a brand-new chat titled with its subject; every later message in the
- * same thread finds that chat through the thread id and keeps talking in it,
- * so one email conversation is one chat instead of a pile of mail dumped into
- * the agent's personal conversation.
+ * opens a brand-new chat titled with its subject; every later message in that
+ * thread finds the same chat again through `chats.emailThreadId`, so one email
+ * conversation is one chat instead of a pile of mail dumped into the agent's
+ * personal conversation.
+ *
+ * `threadKey` identifies the conversation: the provider's thread id, or the
+ * message id when a delivery arrives without one (a thread of exactly one
+ * message, which still gets a chat of its own). The unique index on
+ * (workspaceId, agentId, threadKey) is the serialization point: when two
+ * messages of a brand-new thread arrive at the same instant, one insert wins
+ * and the loser's insert fails, so the retry looks again and reuses the
+ * winner's chat instead of opening a second conversation for one thread. It
+ * has to be a unique constraint doing that work - the runtime talks to Neon
+ * over the HTTP driver, which has no transaction to serialize inside.
  *
  * Returns undefined only when a chat could not be created - the caller then
  * skips the claim, so the mail is never answered in a conversation the user
- * cannot see. `created` tells the caller whether this call opened the chat, so
- * a claim lost to a concurrent delivery can clean up the empty chat it may
- * have just made.
+ * cannot see. `created` says whether this call opened the chat, so a claim
+ * lost to a concurrent delivery can clean up the empty chat it may have made.
  */
 export async function startAgentEmailThreadChat(input: {
   agent: AgentProfileRow;
-  threadId: string;
+  threadKey: string;
   subject: string;
   from: string;
 }): Promise<{ chatId: string; created: boolean } | undefined> {
   const db = await getDb();
   if (!db) return undefined;
-  const { agent, threadId } = input;
-  if (threadId) {
-    const [prior] = await db
-      .select({ chatId: agentEmails.chatId })
-      .from(agentEmails)
-      .where(
-        and(
-          eq(agentEmails.workspaceId, agent.workspaceId),
-          eq(agentEmails.toAgentId, agent.id),
-          eq(agentEmails.threadId, threadId),
-          isNotNull(agentEmails.chatId)
-        )
-      )
-      .orderBy(desc(agentEmails.createdAt))
-      .limit(1);
-    // chatId is a SET NULL foreign key, so a non-null id is a chat that still
-    // exists; a deleted chat has already released its threads to a new one.
-    if (prior?.chatId) return { chatId: prior.chatId, created: false };
-  }
+  const { agent, threadKey } = input;
   for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (threadKey) {
+      const [existing] = await db
+        .select({ id: chats.id })
+        .from(chats)
+        .where(
+          and(
+            eq(chats.workspaceId, agent.workspaceId),
+            eq(chats.agentId, agent.id),
+            eq(chats.emailThreadId, threadKey)
+          )
+        )
+        .limit(1);
+      if (existing?.id) return { chatId: existing.id, created: false };
+    }
     try {
       const [created] = await db
         .insert(chats)
@@ -542,11 +547,15 @@ export async function startAgentEmailThreadChat(input: {
           title: emailChatTitleFor(input.subject, input.from),
           kind: "personal",
           agentId: agent.id,
+          emailThreadId: threadKey || null,
         })
         .returning();
       if (created?.id) return { chatId: created.id, created: true };
       return undefined;
     } catch (error) {
+      // Either this chat's id collided (astronomically unlikely) or another
+      // delivery of the same thread won the race - both are answered the same
+      // way: look once more, and reuse what is now there.
       if (!isUniqueViolation(error)) throw error;
     }
   }
@@ -1547,7 +1556,10 @@ export async function claimInboundAgentEmailForAutoReply(
   // the one already opened for it.
   const chat = await startAgentEmailThreadChat({
     agent,
-    threadId: event.threadId,
+    // A delivery that arrived without a thread id still needs a conversation
+    // identity, and the message id is one nothing else can share: that mail
+    // gets a chat of its own instead of borrowing another message's thread.
+    threadKey: event.threadId || `msg:${event.messageId}`,
     subject: event.subject,
     from: event.from,
   });
@@ -1574,11 +1586,19 @@ export async function claimInboundAgentEmailForAutoReply(
   if (!claimed.length) {
     // A concurrent delivery of the same message won the claim, and this call
     // may have opened a chat for it. The run never starts, so that chat has no
-    // messages and is recorded nowhere - removing it keeps an empty
-    // conversation out of the user's list.
+    // messages of its own - and it is only removed while nothing references
+    // it, since another message of the thread may have claimed the same chat
+    // in the meantime and would lose its history to the delete.
     if (chat.created) {
       try {
-        await db.delete(chats).where(eq(chats.id, chat.chatId));
+        await db
+          .delete(chats)
+          .where(
+            and(
+              eq(chats.id, chat.chatId),
+              sql`not exists (select 1 from "agent_emails" where "agent_emails"."chatId" = "chats"."id")`
+            )
+          );
       } catch (error) {
         console.warn(
           "[AgentMail] Could not clean up a chat for a lost claim:",

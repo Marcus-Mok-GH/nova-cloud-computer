@@ -22,13 +22,18 @@ const UNDISCLOSED_MODEL_ERROR_KINDS = new Set([
  * Credential shapes an upstream error may echo back - `Bearer <token>` lines
  * and key-shaped values (`sk-...`, `key_...`, `token-...`). A provider that
  * rejects a credential often quotes it in its error, and that quote must
- * never reach a chat, a Telegram message or the public inference API.
+ * never reach a chat, a Telegram message or the public inference API. Only
+ * values of at least 8 characters that contain a digit are redacted: real
+ * keys are long and random enough to always qualify, while the hyphenated
+ * words providers write in ordinary prose ("token-harbor", "key-rotation")
+ * are not credentials, and mangling those would obscure the very failure
+ * being disclosed.
  */
 export function redactModelCredentials(text: string): string {
   return text
     .replace(/Bearer\s+\S+/gi, "Bearer [private credential]")
     .replace(
-      /\b(?:sk|key|token|api[-_]?key)[-_=][A-Za-z0-9_=-]{6,}\b/gi,
+      /\b(?:sk|key|token|api[-_]?key)[-_=](?=[A-Za-z0-9_=-]*\d)[A-Za-z0-9_=-]{8,}\b/gi,
       "[private credential]"
     );
 }

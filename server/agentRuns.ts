@@ -324,6 +324,9 @@ export async function executeTelegramAgentRun(
     // chat shows for the same failure. Deployment-internal kinds keep the
     // generic notice.
     const detail = error instanceof Error ? error.message : String(error);
+    // "nova-pro" is the built-in model's public name: the agent's own catch
+    // labels a BYOK run's provider correctly and handles every model failure
+    // this safety net could reach, so only built-in failures are quoted here.
     const modelDetail = modelFailureDetail(error, "", "nova-pro").trim();
     await sendTelegramMessage(
       token,

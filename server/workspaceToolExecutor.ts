@@ -1019,12 +1019,19 @@ export async function executeWorkspaceTool(
         };
       const deploymentKey = str(args.deployment).trim();
       const description = str(args.description).trim();
+      // Environment variables travel as NAMES only: the deployer resolves the
+      // values server-side from the owner's saved set, so the model never
+      // sees or invents a secret value.
+      const environmentVariables = Array.isArray(args.environment_variables)
+        ? args.environment_variables.map(name => String(name).trim()).filter(Boolean)
+        : undefined;
       const outcome = await deployWorkspaceSite(
         ownerId,
         directory === "/" ? null : directory,
         {
           deployment: deploymentKey || undefined,
           description: description || undefined,
+          environmentVariables,
         }
       );
       if (!outcome.ok)
@@ -1036,11 +1043,15 @@ export async function executeWorkspaceTool(
       const fileCount = outcome.deployment.fileCount;
       const fromLine =
         directory === "/" ? "the workspace root" : `/${directory}`;
+      const envLine =
+        outcome.attachedEnvVars.length > 0
+          ? ` Environment variables attached by name: ${outcome.attachedEnvVars.join(", ")} - their values were resolved server-side and stay private.`
+          : "";
       return {
         ok: true,
         result: deploymentKey
-          ? `Deployment ${outcome.deployment.deploymentKey} is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Its URL never changed: redeploying to the same ID always keeps the same URL.`
-          : `A brand-new deployment is live: ID ${outcome.deployment.deploymentKey}, ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Tell the user the URL and the deployment ID - future deploys pass that ID to update this exact deployment, and its description ('${description}') is kept in the deployment registry across chats.`,
+          ? `Deployment ${outcome.deployment.deploymentKey} is live at ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Its URL never changed: redeploying to the same ID always keeps the same URL.${envLine}`
+          : `A brand-new deployment is live: ID ${outcome.deployment.deploymentKey}, ${outcome.deployment.siteUrl} - ${fileCount} file${fileCount === 1 ? "" : "s"} published from ${fromLine}. Tell the user the URL and the deployment ID - future deploys pass that ID to update this exact deployment, and its description ('${description}') is kept in the deployment registry across chats.${envLine}`,
         action: {
           kind: "deployment",
           name: outcome.deployment.siteUrl,

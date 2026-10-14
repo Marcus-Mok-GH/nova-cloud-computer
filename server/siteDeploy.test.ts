@@ -5,6 +5,7 @@ const spies = vi.hoisted(() => ({
   createNetlifySite: vi.fn(async () => ({ id: "site-new", name: "nova-fresh-site", url: "https://nova-fresh-site.netlify.app" })),
   deployFilesToNetlifySite: vi.fn(async () => ({ deployId: "dep-new" })),
   deleteNetlifySite: vi.fn(async () => undefined),
+  setSiteEnvVars: vi.fn(async () => undefined),
   listSiteDeploymentsForUser: vi.fn(async () => []),
   getLatestSiteDeploymentForUser: vi.fn(async () => null),
   listSiteDeploymentRegistryForUser: vi.fn(async () => []),
@@ -14,6 +15,7 @@ const spies = vi.hoisted(() => ({
   markSiteDeploymentsDeletedForUser: vi.fn(async () => 1),
   listWorkspaceFilesForUser: vi.fn(async () => []),
   listWorkspaceFoldersForUser: vi.fn(async () => []),
+  resolveWorkspaceEnvVarsForUser: vi.fn(async (_owner: number, names: string[]) => ({ ok: true as const, vars: names.map(name => ({ name: name.toUpperCase(), value: `secret-${name.toLowerCase()}` })) })),
   recordSiteDeployment: vi.fn(async (_owner: number, input: { siteId: string; deploymentKey?: string; description?: string | null }) => ({
     id: 31, siteId: input.siteId, siteName: "nova-fresh-site", siteUrl: "https://nova-fresh-site.netlify.app",
     deploymentKey: input.deploymentKey ?? null, description: input.description ?? null,
@@ -37,6 +39,7 @@ vi.mock("./db", () => ({
   markSiteDeploymentsDeletedForUser: spies.markSiteDeploymentsDeletedForUser,
   listWorkspaceFilesForUser: spies.listWorkspaceFilesForUser,
   listWorkspaceFoldersForUser: spies.listWorkspaceFoldersForUser,
+  resolveWorkspaceEnvVarsForUser: spies.resolveWorkspaceEnvVarsForUser,
   recordSiteDeployment: spies.recordSiteDeployment,
   updateSiteDeploymentStatusForUser: spies.updateSiteDeploymentStatusForUser,
 }));
@@ -45,6 +48,7 @@ vi.mock("./netlify", () => ({
   createNetlifySite: spies.createNetlifySite,
   deployFilesToNetlifySite: spies.deployFilesToNetlifySite,
   deleteNetlifySite: spies.deleteNetlifySite,
+  setSiteEnvVars: spies.setSiteEnvVars,
 }));
 
 const { deleteWorkspaceSite, deployWorkspaceSite, describeDeploymentsForUser, getDeploymentStatusForUser } = await import("./siteDeploy");
@@ -73,6 +77,8 @@ describe("Workspace website deployer", () => {
     spies.listSiteDeploymentRegistryForUser.mockResolvedValue([]);
     spies.nextSiteDeploymentKeyForUser.mockResolvedValue("d-01");
     spies.deployFilesToNetlifySite.mockResolvedValue({ deployId: "dep-new" });
+    spies.resolveWorkspaceEnvVarsForUser.mockImplementation(async (_owner: number, names: string[]) => ({ ok: true as const, vars: names.map(name => ({ name: name.toUpperCase(), value: `secret-${name.toLowerCase()}` })) }));
+    spies.setSiteEnvVars.mockClear().mockResolvedValue(undefined);
   });
 
   it("refuses to deploy when Netlify is not configured", async () => {
@@ -208,6 +214,59 @@ describe("Workspace website deployer", () => {
     expect(result.ok).toBe(true);
     expect(spies.updateSiteDeploymentDescriptionForUser).toHaveBeenCalledWith(1, "d-01", "new description");
     expect(spies.recordSiteDeployment.mock.calls[0][1]).toMatchObject({ description: "new description" });
+  });
+
+  it("attaches environment variables by name, resolving values server-side before any upload", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.resolveWorkspaceEnvVarsForUser.mockResolvedValue({ ok: true, vars: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }] });
+
+    const result = await deployWorkspaceSite(1, null, { description: "storefront", environmentVariables: ["stripe_api_key"] });
+    expect(result.ok).toBe(true);
+    // The deploy passes names through to the resolver, never values.
+    expect(spies.resolveWorkspaceEnvVarsForUser).toHaveBeenCalledWith(1, ["stripe_api_key"]);
+    // The resolved pair lands on the Netlify site, keyed by name.
+    expect(spies.setSiteEnvVars).toHaveBeenCalledWith("site-new", [{ key: "STRIPE_API_KEY", value: "sk_live_123" }]);
+    // And the result reports which names were attached.
+    if (result.ok) expect(result.attachedEnvVars).toEqual(["STRIPE_API_KEY"]);
+  });
+
+  it("refuses an unknown environment variable name before creating or touching any site", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.resolveWorkspaceEnvVarsForUser.mockResolvedValue({ ok: false, message: "Unknown environment variable name: NOPE - known environment variables: STRIPE_API_KEY. Pass the names exactly as saved; never invent or guess environment variable values." });
+
+    const result = await deployWorkspaceSite(1, null, { description: "storefront", environmentVariables: ["NOPE"] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("Unknown environment variable name: NOPE");
+      expect(result.message).toContain("STRIPE_API_KEY");
+    }
+    expect(spies.createNetlifySite).not.toHaveBeenCalled();
+    expect(spies.setSiteEnvVars).not.toHaveBeenCalled();
+    expect(spies.deployFilesToNetlifySite).not.toHaveBeenCalled();
+    expect(spies.recordSiteDeployment).not.toHaveBeenCalled();
+  });
+
+  it("leaves the site's environment variables untouched on a redeploy without names", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.getSiteDeploymentByKeyForUser.mockResolvedValue(registryEntry());
+
+    const result = await deployWorkspaceSite(1, null, { deployment: "d-01", description: "portfolio site" });
+    expect(result.ok).toBe(true);
+    expect(spies.resolveWorkspaceEnvVarsForUser).not.toHaveBeenCalled();
+    expect(spies.setSiteEnvVars).not.toHaveBeenCalled();
+  });
+
+  it("aborts the deploy when Netlify rejects the env update", async () => {
+    spies.listWorkspaceFilesForUser.mockResolvedValue([indexFile]);
+    spies.resolveWorkspaceEnvVarsForUser.mockResolvedValue({ ok: true, vars: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }] });
+    spies.setSiteEnvVars.mockRejectedValue(new Error("status 403: forbidden"));
+
+    const result = await deployWorkspaceSite(1, null, { description: "storefront", environmentVariables: ["STRIPE_API_KEY"] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("environment variables could not be attached");
+    // Nothing was uploaded and no deployment was recorded.
+    expect(spies.deployFilesToNetlifySite).not.toHaveBeenCalled();
+    expect(spies.recordSiteDeployment).not.toHaveBeenCalled();
   });
 
   it("decodes binary data-URI files into their real bytes", async () => {

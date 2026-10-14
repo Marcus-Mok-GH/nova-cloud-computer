@@ -8,7 +8,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 1, email
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
+    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, environmentVars: { useQuery: () => ({ data: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }], isLoading: false, isError: false, refetch: vi.fn() }) }, setEnvironmentVars: { useMutation: () => mutation }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
     chats: { create: { useMutation: () => mutation } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
     ai: { status: { useQuery: () => ({ data: { model: "chat-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
@@ -18,7 +18,7 @@ vi.mock("@/lib/trpc", () => ({
     apiKeys: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }) }, create: { useMutation: () => mutation }, rename: { useMutation: () => mutation }, revoke: { useMutation: () => mutation } },
     billing: { status: { useQuery: () => ({ data: { priority: false, armed: false, purchasedAt: null, activatedAt: null, expiresAt: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, purchasePriority: { useMutation: () => mutation } },
     composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null }, vercel: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, environmentVars: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -78,6 +78,12 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Add your own provider");
     expect(markup).toContain("Test connection");
     expect(markup).toContain("Tell Nova what to automate");
+    // The environment tab renders its saved variables (values shown to the
+    // owner for editing; the agent only ever sees the names).
+    expect(markup).toContain("Environment</button>");
+    expect(markup).toContain("Variables for your deployments");
+    expect(markup).toContain("STRIPE_API_KEY");
+    expect(markup).toContain("Save environment variables");
     expect(markup).toContain("Disconnect GitHub");
     expect(markup).toContain("Connect Gmail");
     expect(markup).toContain("Vercel");

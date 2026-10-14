@@ -1,1 +1,9 @@
 modules = ["nodejs-24"]
+
+[[ports]]
+localPort = 8891
+externalPort = 80
+
+[[ports]]
+localPort = 8892
+externalPort = 3000

@@ -105,6 +105,9 @@ vi.mock("./db", () => ({
   setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) =>
     style.trim().slice(0, 500)
   ),
+  describeWorkspaceEnvVarsForUser: vi.fn(
+    async () => "STRIPE_API_KEY, MAPBOX_TOKEN"
+  ),
   getPersonalisationForUser: vi.fn(async () => ({
     enabled: false,
     profile: null,
@@ -252,6 +255,7 @@ vi.mock("./memories", () => ({
 
 const deployWebsite = vi.fn(async () => ({
   ok: true,
+  attachedEnvVars: [] as string[],
   deployment: {
     id: 5,
     siteId: "site-1",
@@ -2318,6 +2322,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(deployWebsite).toHaveBeenCalledWith(1, null, {
       deployment: undefined,
       description: undefined,
+      environmentVariables: undefined,
     });
     expect(result.actions).toEqual([
       {
@@ -2902,6 +2907,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(deployWebsite).toHaveBeenCalledWith(1, "my-react-app", {
       deployment: undefined,
       description: "my portfolio app",
+      environmentVariables: undefined,
     });
     expect(result.actions).toEqual([
       {
@@ -2913,6 +2919,70 @@ describe("Nova tool-calling workspace agent", () => {
     const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
     expect(lastToolResult(secondCallMessages)!.content).toContain(
       "published from /my-react-app"
+    );
+  });
+
+  it("passes environment variable names through to the deploy and reports them", async () => {
+    deployWebsite.mockResolvedValueOnce({
+      ok: true,
+      attachedEnvVars: ["STRIPE_API_KEY"],
+      deployment: {
+        id: 5,
+        siteId: "site-1",
+        siteName: "nova-live-site",
+        siteUrl: "https://nova-live-site.netlify.app",
+        deploymentKey: "d-01",
+        description: "storefront",
+        fileCount: 1,
+        status: "live",
+      },
+    } as Awaited<ReturnType<typeof deployWebsite>>);
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "deploy_website",
+              arguments: JSON.stringify({
+                directory: "storefront",
+                description: "storefront site",
+                environment_variables: ["stripe_api_key"],
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "The storefront is live with the Stripe key attached." })
+      );
+    await runWorkspaceAgent(1, 3, "deploy the storefront with the stripe key");
+    // Names only: values are never in the model's hands.
+    expect(deployWebsite).toHaveBeenCalledWith(1, "storefront", {
+      deployment: undefined,
+      description: "storefront site",
+      environmentVariables: ["stripe_api_key"],
+    });
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)!.content).toContain(
+      "Environment variables attached by name: STRIPE_API_KEY"
+    );
+    expect(lastToolResult(secondCallMessages)!.content).toContain(
+      "values were resolved server-side"
+    );
+  });
+
+  it("lists the workspace's environment variable names in the system prompt", async () => {
+    completeWithAiGateway.mockResolvedValueOnce({ text: "Nothing to deploy yet." });
+    await runWorkspaceAgent(1, 3, "what environment variables do I have?");
+    const firstCallMessages = chatWithAiGateway.mock.calls[0][1];
+    const systemMessage = firstCallMessages.find(
+      message => message.role === "system"
+    ) as { content: string } | undefined;
+    expect(systemMessage?.content).toContain("STRIPE_API_KEY, MAPBOX_TOKEN");
+    // The prompt names the variables but must never carry their values.
+    expect(systemMessage?.content).toContain(
+      "You only ever pass names, never values"
     );
   });
 

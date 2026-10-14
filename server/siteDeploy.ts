@@ -19,6 +19,7 @@ import {
   markSiteDeploymentsDeletedForUser,
   nextSiteDeploymentKeyForUser,
   recordSiteDeployment,
+  resolveWorkspaceEnvVarsForUser,
   updateSiteDeploymentDescriptionForUser,
   updateSiteDeploymentStatusForUser,
   listWorkspaceFilesForUser,
@@ -31,6 +32,7 @@ import {
   deleteNetlifySite,
   deployFilesToNetlifySite,
   isNetlifyConfigured,
+  setSiteEnvVars,
   type NetlifyDeployFile,
 } from "./netlify";
 
@@ -41,7 +43,7 @@ export type DeploymentStatus = {
 };
 
 export type DeployResult =
-  | { ok: true; deployment: SiteDeploymentRow }
+  | { ok: true; deployment: SiteDeploymentRow; attachedEnvVars: string[] }
   | { ok: false; message: string };
 
 /** Status for the Deployments page: configuration + live site + recent runs. */
@@ -114,6 +116,10 @@ export type DeployOptions = {
   deployment?: string;
   /** Short description of what this deployment is (required on EVERY deploy - it names the deployment's purpose in the registry). */
   description?: string;
+  /** Environment variable NAMES (saved in Settings) to attach to the site. The
+   *  server resolves the values - the model only ever passes names. Omit to
+   *  leave the site's environment variables untouched on a redeploy. */
+  environmentVariables?: string[];
 };
 
 /** Renders the workspace's deployment registry as one model-ready line for the system prompt. */
@@ -199,6 +205,17 @@ export async function deployWorkspaceSite(
           "A short description of this deployment is required on every deploy (e.g. 'portfolio site', 'bakery landing page') - it names the deployment's purpose, is kept in the workspace's deployment registry across chats, and is how you and the user tell deployments apart. Pass it as description.",
       };
     }
+    // Environment variables are resolved FIRST: the model passes names only,
+    // values are looked up server-side in the owner's saved set. An unknown
+    // name aborts the deploy before any site is created or touched, so the
+    // model can correct itself without leaving an orphan site behind.
+    let attachedEnvVars: { key: string; value: string }[] = [];
+    if (options?.environmentVariables) {
+      const resolved = await resolveWorkspaceEnvVarsForUser(ownerId, options.environmentVariables);
+      if (!resolved.ok) return { ok: false, message: resolved.message };
+      attachedEnvVars = resolved.vars.map(entry => ({ key: entry.name, value: entry.value }));
+    }
+
     let deploymentKey: string;
     let site: { id: string; name: string | null; url: string };
     let previousDescription: string | null = null;
@@ -230,6 +247,17 @@ export async function deployWorkspaceSite(
     }
     if (!site.url) throw new Error("Netlify did not return a URL for the new site.");
 
+    // Write the resolved env vars onto the Netlify site, where they persist
+    // across redeploys. A failure here aborts before any file is uploaded so
+    // the site never goes live half-configured.
+    if (attachedEnvVars.length > 0) {
+      try {
+        await setSiteEnvVars(site.id, attachedEnvVars);
+      } catch (error) {
+        return { ok: false, message: `The environment variables could not be attached to the deployment: ${error instanceof Error ? error.message : "The Netlify env update failed."}` };
+      }
+    }
+
     const deployment = await recordSiteDeployment(ownerId, {
       siteId: site.id,
       siteName: site.name,
@@ -247,7 +275,7 @@ export async function deployWorkspaceSite(
       return { ok: false, message: `The website deployment failed: ${message}${failed ? ` It is recorded in the deployment history.` : ""}` };
     }
     const live = await updateSiteDeploymentStatusForUser(ownerId, deployment.id, "live");
-    return { ok: true, deployment: live ?? deployment };
+    return { ok: true, deployment: live ?? deployment, attachedEnvVars: attachedEnvVars.map(entry => entry.key) };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "The deployment failed unexpectedly." };
   }

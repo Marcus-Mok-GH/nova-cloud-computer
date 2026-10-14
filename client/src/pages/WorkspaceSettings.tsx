@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Rocket, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX } from "lucide-react";
+import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Rocket, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX, Variable } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ const settingsTabs = [
   { id: "personalisation", label: "Personalisation", icon: Brain },
   { id: "ai", label: "AI provider (BYOK)", icon: KeyRound },
   { id: "connections", label: "Connections", icon: Plug },
+  { id: "environment", label: "Environment", icon: Variable },
   { id: "automations", label: "Automations", icon: Sparkles },
   { id: "api", label: "API keys", icon: KeySquare },
   { id: "billing", label: "Billing", icon: CreditCard },
@@ -50,6 +51,7 @@ export default function WorkspaceSettings() {
     <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalisationCard /><MemoryCard /></div>
     <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className={activeTab === "ai" ? "space-y-7" : "hidden"}><ModelProviderCard /></div>
     <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /><ConnectorCard toolkit="vercel" /></div>
+    <div role="tabpanel" id="settings-panel-environment" aria-labelledby="settings-tab-environment" className={activeTab === "environment" ? "space-y-7" : "hidden"}><EnvironmentVarsCard /></div>
     <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
     <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
     <div role="tabpanel" id="settings-panel-billing" aria-labelledby="settings-tab-billing" className={activeTab === "billing" ? "space-y-7" : "hidden"}><BillingCard /></div>
@@ -136,6 +138,55 @@ function ModelProviderCard() {
       {testMessage !== null && <p className={`text-xs font-medium ${testOk ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}`}>{testMessage}</p>}
       <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={testProvider} disabled={testCustom.isPending || !baseUrl.trim() || !apiKey.trim() || !modelId.trim()}>{testCustom.isPending && <Loader2 className="animate-spin" size={15} />} Test connection</Button><Button onClick={submitProvider} disabled={createCustom.isPending || !formComplete}>{createCustom.isPending && <Loader2 className="animate-spin" size={15} />} Add provider</Button></div>
     </div>
+  </section>;
+}
+
+/**
+ * Workspace environment variables the owner defines once and the agent then
+ * attaches to deployments BY NAME (deploy_website's environment_variables
+ * argument). Values are stored encrypted and are never shown to the agent -
+ * the server resolves them privately at deploy time.
+ */
+function EnvironmentVarsCard() {
+  const utils = trpc.useUtils();
+  const vars = trpc.workspace.environmentVars.useQuery(undefined, { retry: false });
+  const [rows, setRows] = useState<Array<{ name: string; value: string }>>(
+    () => (vars.data ?? []).map(entry => ({ name: entry.name, value: entry.value }))
+  );
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (vars.data && !dirty) setRows(vars.data.map(entry => ({ name: entry.name, value: entry.value })));
+  }, [vars.data, dirty]);
+  const updateRow = (index: number, patch: Partial<{ name: string; value: string }>) => {
+    setDirty(true);
+    setRows(previous => previous.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+  const save = trpc.workspace.setEnvironmentVars.useMutation({
+    onSuccess: async saved => {
+      setDirty(false);
+      setRows(saved.map(entry => ({ name: entry.name, value: entry.value })));
+      await Promise.all([utils.workspace.environmentVars.invalidate(), utils.workspace.dashboard.invalidate()]);
+      toast.success("Environment variables saved.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const submit = () => {
+    const cleaned = rows.map(row => ({ name: row.name.trim(), value: row.value })).filter(row => row.name || row.value);
+    const invalid = cleaned.find(row => !row.name || !row.value);
+    if (invalid) { toast.error("Every environment variable needs both a name and a value - or remove the empty row."); return; }
+    const names = cleaned.map(row => row.name.toUpperCase());
+    const duplicate = names.find((name, index) => names.indexOf(name) !== index);
+    if (duplicate) { toast.error(`'${duplicate}' is defined more than once - keep a single entry per name.`); return; }
+    save.mutate({ vars: cleaned.map(row => ({ ...row, name: row.name.trim().toUpperCase() })) });
+  };
+  return <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Environment variables</p><h2 className="mt-1 text-xl font-bold tracking-tight">Variables for your deployments</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Save the keys and config your sites and apps need. Nova attaches them to a deployment by NAME - when you ask to deploy, the agent passes the variable names and the server fills in the values privately. The agent never sees the values.</p></div><div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><Variable size={24} /></div></div>
+    {vars.isLoading ? <div className="mt-6 flex justify-center py-8"><Loader2 className="animate-spin text-muted-foreground" /></div> : <>
+      <div className="mt-6 space-y-3">
+        {rows.map((row, index) => <div key={index} className="flex flex-wrap items-end gap-3 rounded-2xl border bg-muted/20 p-4 sm:flex-nowrap"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-name-${index}`}>Name</Label><Input id={`env-name-${index}`} value={row.name} onChange={event => updateRow(index, { name: event.target.value.replace(/[^A-Za-z0-9_]/g, "") })} placeholder="STRIPE_API_KEY" maxLength={128} autoComplete="off" spellCheck={false} /></div><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-value-${index}`}>Value</Label><Input id={`env-value-${index}`} value={row.value} onChange={event => updateRow(index, { value: event.target.value })} placeholder="sk_live_..." maxLength={4096} autoComplete="off" /></div><Button variant="ghost" size="icon" aria-label={`Remove ${row.name || "environment variable"}`} onClick={() => { setDirty(true); setRows(previous => previous.filter((_, rowIndex) => rowIndex !== index)); }} disabled={save.isPending} className="shrink-0 text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div>)}
+        {rows.length === 0 && <p className="rounded-2xl border border-dashed bg-muted/10 p-4 text-xs text-muted-foreground">No environment variables yet. Add one below - it will be available for Nova to attach to your deployments by name.</p>}
+      </div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={() => { setDirty(true); setRows(previous => [...previous, { name: "", value: "" }]); }}><span className="mr-1.5">+</span> Add variable</Button><Button onClick={submit} disabled={save.isPending || (!dirty && rows.length > 0)}>{save.isPending && <Loader2 size={15} className="animate-spin" />} Save environment variables</Button></div>
+    </>}
   </section>;
 }
 

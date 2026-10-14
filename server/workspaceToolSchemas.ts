@@ -464,7 +464,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "deploy_website",
       description:
-        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting - always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files - pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the deployment target: pass an existing deployment ID (e.g. 'd-01') to publish to that deployment - its URL never changes while the content updates - or omit it to create a brand-new deployment with its own ID and URL. Every deploy must also carry a short description of the deployment's purpose. NEVER overwrite one deployment's content by deploying a different project to it: iterate a site by its ID, and give a separate project its own new deployment. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
+        "Publish a chosen directory of the workspace as a live website on Netlify's free static hosting - always on, with SSL. The directory's contents become the site (its folder structure is kept relative to it) and its index.html is the entry page. You MUST deliberately choose which directory to deploy: the project or build-output folder that holds the site, not unrelated workspace files - pass '/' only when the site genuinely lives at the workspace root. You must also deliberately choose the deployment target: pass an existing deployment ID (e.g. 'd-01') to publish to that deployment - its URL never changes while the content updates - or omit it to create a brand-new deployment with its own ID and URL. Every deploy must also carry a short description of the deployment's purpose. NEVER overwrite one deployment's content by deploying a different project to it: iterate a site by its ID, and give a separate project its own new deployment. When the site needs environment variables (API keys and so on), attach them by NAME with environment_variables - the names available are listed in the system prompt, you only ever pass names, never values. Anything static hosting serves publishes as-is: plain HTML/CSS/JS sites, React apps, statically exported Next.js projects, single-page apps, portfolios, and so on. A deploy can take up to a minute.",
       parameters: {
         type: "object",
         properties: {
@@ -482,6 +482,12 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             description:
               "A short description of what this deployment is, e.g. 'portfolio site' or 'bakery landing page'. Required on EVERY deploy_website call - it names the deployment's purpose and is kept in the workspace's deployment registry across chats. On a redeploy, pass the deployment's current description (or a corrected one when the purpose changed).",
+          },
+          environment_variables: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Environment variable NAMES (never values - you only pass names; the server looks the values up from the user's saved environment variables) to attach to this deployment, e.g. ['STRIPE_API_KEY']. The available names are listed in your system prompt - pass them exactly as saved, never invent one. Omit to leave the site's environment variables as they are on a redeploy.",
           },
         },
         required: ["directory", "description"],

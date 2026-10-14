@@ -620,6 +620,43 @@ describe("Segment chaining inside the runner", () => {
     ).toBe(false);
   });
 
+  it("sends the model's own error text to Telegram when the model call fails", async () => {
+    // A model failure is disclosed instead of the fixed notice: its upstream
+    // text is the one clue the user can act on, and the web chat shows the
+    // same text for the same failure.
+    spies.runWorkspaceAgent.mockRejectedValueOnce(
+      new AiGatewayClientError(
+        "Gateway request failed (upstream returned 503 · HTTP 503)",
+        "unavailable"
+      )
+    );
+    const result = await executeTelegramAgentRun({
+      ownerId: 7,
+      chatId: 3,
+      token: "bot-token",
+      telegramChatId: "42",
+      agentText: "hello?",
+      requestStartedAtMs: Date.now(),
+    });
+    expect(result.runId).toBe(501);
+    expect(
+      await waitFor(() =>
+        spies.sendTelegramMessage.mock.calls.some(
+          call =>
+            typeof call[2] === "string" &&
+            call[2].includes("upstream returned 503")
+        )
+      )
+    ).toBe(true);
+    expect(
+      await waitFor(() =>
+        spies.finishAgentRunForUser.mock.calls.some(
+          call => call[2] === "failed"
+        )
+      )
+    ).toBe(true);
+  });
+
   it("retries scheduling and succeeds on the second attempt", async () => {
     // One dropped self-call between two segments once ended the whole
     // chain; the scheduler now retries before telling the user to resume

@@ -38,7 +38,9 @@ instructions without them ever appearing as something the user wrote. The
 prompt must never reach the ledger on the fallback path either, so the run now
 takes a persistedUserMessage of its own: when the pre-persist fails, the run's
 write carries the mail rather than the instructions built around it, and a
-lost chat row still never costs the user the reply.
+lost chat row still never costs the user the reply. Because history then ends
+with that row, the model-facing prompt replaces it instead of being appended
+after it - the mail is not sent to the model twice.
 
 Because those chats belong to their threads, the agent's personal chat is now
 looked up with chats.emailThreadId IS NULL - otherwise the newest
@@ -53,7 +55,8 @@ drizzle/neon/0049_chat_email_thread.sql, drizzle/neon/meta/0048_snapshot.json,
 drizzle/neon/meta/0049_snapshot.json, drizzle/neon/meta/_journal.json,
 server/agents.ts, server/agents.test.ts, server/agentEmailReplies.ts,
 server/agentEmailReplies.test.ts, server/workspaceAgent.ts,
-server/workspaceAgentTypes.ts, README.md, CHANGELOG.md. 1,237 tests pass
+server/workspaceAgentTypes.ts, server/workspaceAgent.test.ts, README.md,
+CHANGELOG.md. 1,238 tests pass
 (4 skipped); typecheck carries only the two pre-existing
 dependency-duplication errors in appTree.tsx and vite.config.ts.
 

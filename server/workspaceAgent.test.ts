@@ -302,6 +302,11 @@ vi.mock("./thinker", () => ({
   runThinkerTask: runThinkerTaskMock,
 }));
 
+const runResearchMock = vi.hoisted(() => vi.fn());
+vi.mock("./researcher", () => ({
+  runResearch: runResearchMock,
+}));
+
 const runBrowserCommandMock = vi.hoisted(() => vi.fn());
 vi.mock("./agentBrowser", () => ({
   runBrowserCommand: runBrowserCommandMock,
@@ -909,6 +914,62 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
     expect(onChunk).toHaveBeenCalledWith("You get $8.67 back.");
     expect(result.message.content).toBe("You get $8.67 back.");
+  });
+
+  it("lists every source a research call consulted at the bottom of the reply", async () => {
+    runResearchMock.mockReset().mockResolvedValueOnce({
+      report: "Nova is a workspace agent [1].",
+      sources: [
+        { url: "https://nova.example/docs", title: "Nova docs" },
+        { url: "https://exa.ai/blog", title: "Exa blog" },
+      ],
+    });
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-research",
+              name: "research_web",
+              arguments: JSON.stringify({
+                topic: "What is Nova?",
+                difficulty: "deep",
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Nova is a workspace agent." }));
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "what is Nova?", {
+      onChunk,
+    });
+
+    // The report still reaches the model with its own source list attached…
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1])!;
+    expect(toolResult.tool_call_id).toBe("call-research");
+    expect(String(toolResult.content)).toContain(
+      "All sources consulted by the researcher"
+    );
+    // …and the reply the user reads ends with those same sources, once each.
+    expect(result.message.content).toBe(
+      "Nova is a workspace agent.\n\n" +
+        "---\n\n**Sources**\n\n" +
+        "1. [Nova docs](https://nova.example/docs)\n" +
+        "2. [Exa blog](https://exa.ai/blog)"
+    );
+    // Whatever the streaming split was, everything streamed adds up to the
+    // persisted reply - the citation block is never lost or doubled.
+    expect(onChunk.mock.calls.map(call => call[0]).join("")).toBe(
+      result.message.content
+    );
+  });
+
+  it("keeps a reply without any web source exactly as the model wrote it", async () => {
+    chatWithAiGateway.mockResolvedValueOnce(endTurnReply({ reply: "Hello!" }));
+    const result = await runWorkspaceAgent(1, 3, "hi");
+    expect(result.message.content).toBe("Hello!");
+    expect(result.message.content).not.toContain("Sources");
   });
 
   it("delegates a file task to the NIM editor sub-agent, then places the returned code", async () => {
@@ -1780,6 +1841,42 @@ describe("Nova tool-calling workspace agent", () => {
       expect(toolResult.content).toContain("verify the work");
       expect(result.message.content).toBe(
         "Done - the game is in your workspace."
+      );
+    });
+
+    it("cites the page a browse call opened at the bottom of the reply", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runBrowserCommandMock
+        .mockReset()
+        .mockResolvedValueOnce({ ok: true, result: "Docs page text." });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-browse",
+                name: "browse",
+                arguments: JSON.stringify({
+                  command: "open https://example.com/docs",
+                }),
+              },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(chatResult({ text: "The docs confirm it." }));
+      const result = await runWorkspaceAgent(1, 3, "check the docs");
+
+      expect(runBrowserCommandMock).toHaveBeenCalledWith(
+        sandbox,
+        "open https://example.com/docs"
+      );
+      expect(result.message.content).toBe(
+        "The docs confirm it.\n\n" +
+          "---\n\n**Sources**\n\n" +
+          "1. [example.com](https://example.com/docs)"
       );
     });
 

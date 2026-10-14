@@ -91,6 +91,7 @@ import {
 import { describeDeploymentsForUser } from "./siteDeploy";
 import { describeWorkspaceEnvVarsForUser } from "./db";
 import { launchPreparingNextTurn } from "./agentsInit";
+import { RunCitations, citationStyleFor } from "./citations";
 // Re-exported so existing importers of this module keep working.
 export { isCodeFileName, isSubstantialCode, unifiedDiff } from "./workspaceEdits";
 export type {
@@ -1212,6 +1213,10 @@ ${
     let reply = "";
     let streamedReplyChars = 0;
     let recoveredCallCount = 0;
+    // The web sources this run consulted (research reports, pages opened with
+    // browse), collected as the tools run and rendered as one citation list
+    // at the bottom of the reply delivered below.
+    const citations = new RunCitations();
     // Coder-delegation guard: one nudge per run when the agent writes
     // substantial code itself without ever calling the editor.
     let codeTaskUsed = false;
@@ -1672,6 +1677,10 @@ ${
             }`,
           };
         }
+        // Remember the web sources this call consulted so the reply can list
+        // them at the bottom - the research report's own source list and the
+        // page a browse call opened both count, failed calls do not.
+        citations.record(call.name, call.arguments, execution);
         if (execution.action) actions.push(execution.action);
         lastRoundSummaries.push(toolSummary(call, execution));
         if (!execution.ok) {
@@ -1803,6 +1812,15 @@ ${
       // via accept_own_coding, unlocks Nova's own coding).
       await recordSpecialistAcceptance(ownerId, chatId, "pending");
     }
+    // Citations sit at the bottom of the message the reader gets: every web
+    // source this run consulted that the reply does not already link. It is
+    // appended here - after the run has settled - so every way a run can end
+    // (end_turn, a deadline close) delivers the same list, and a reply with
+    // nothing cited stays exactly as the model wrote it.
+    const citationBlock = reply.trim()
+      ? citations.block(reply, citationStyleFor(options.channel))
+      : "";
+    if (citationBlock) reply += citationBlock;
     // A run that closes with no visible reply text no longer gets the canned
     // "I could not complete that request" notice. It repeated on every
     // textless close even though a failed step already gets its own retry
@@ -1815,8 +1833,11 @@ ${
     // and auto-title skips the chat.
     const hasReply = Boolean(reply.trim());
     // The reply already streamed to the client token-by-token: re-sending the
-    // full text would duplicate what the user watched appear.
+    // full text would duplicate what the user watched appear. Only the
+    // citation block is new in that case, so that is all that gets sent.
     if (hasReply && streamedReplyChars === 0) await options.onChunk?.(reply);
+    else if (hasReply && citationBlock && streamedReplyChars > 0)
+      await options.onChunk?.(citationBlock);
     const message = hasReply ? await persistAssistant(reply) : undefined;
     // Preparing the next turn: after a settled run that actually changed the
     // workspace (created/edited/renamed/moved/deleted files or folders), a

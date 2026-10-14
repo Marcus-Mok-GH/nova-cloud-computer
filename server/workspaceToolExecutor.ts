@@ -70,6 +70,7 @@ import {
   slugifyProjectName,
 } from "./projectTemplates";
 import { runResearch } from "./researcher";
+import type { ExaCitation } from "./exa";
 import {
   folderPathOf,
   mirrorWorkspaceOp,
@@ -318,6 +319,13 @@ export type ToolExecution = {
   detail?: string;
   /** Unified diff of the change, surfaced in the edit_file dropdown in the UI. */
   diff?: string;
+  /**
+   * The web sources this call consulted, in structured form so the run can
+   * list them at the bottom of the reply it delivers. Only research_web sets
+   * it - its report's source list would otherwise have to be re-parsed out of
+   * the result text it appends for the model.
+   */
+  citations?: ExaCitation[];
   /**
    * Set when the coding specialist is confirmed unavailable (a non-config
    * error survived the internal retry, or NIM is not configured). The run
@@ -1674,6 +1682,7 @@ export async function executeWorkspaceTool(
           ok: true,
           result: research.report + sourcesBlock,
           detail: research.report + sourcesBlock,
+          citations: research.sources,
           action: {
             kind: "research",
             name: topic.slice(0, 60),

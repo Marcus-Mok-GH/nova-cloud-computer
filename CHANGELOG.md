@@ -15,9 +15,11 @@ persisted ledger, and on Telegram (the run reply, plus the escape-hatch notice
 in server/agentRuns.ts when a model failure somehow throws past the agent's own
 catch). The text is redacted before it is shown - Bearer lines and key-shaped
 values (sk-..., key_..., token-...) become [private credential], because a
-provider that rejects a credential often quotes it - and capped at 600
-characters like the gateway's own upstream cap. BYOK replies, which already
-quoted their provider verbatim, get the same redaction.
+provider that rejects a credential often quotes it; only values of 8+ characters
+that contain a digit count as keys, so ordinary hyphenated prose like
+"token-harbor" survives intact - and capped at 600 characters like the
+gateway's own upstream cap. BYOK replies, which already quoted their provider
+verbatim, get the same redaction.
 
 Two classes of failure still keep the curated generic copy. Deployment-internal
 kinds (a missing or rejected credential, kind "configuration") name the

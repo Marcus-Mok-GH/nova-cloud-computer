@@ -66,4 +66,10 @@ describe("redactModelCredentials", () => {
       "HTTP 503: upstream overloaded"
     );
   });
+
+  it("does not mangle short hyphenated words that only look like keys", () => {
+    expect(
+      redactModelCredentials("token-harbor failed over to key-rotation")
+    ).toBe("token-harbor failed over to key-rotation");
+  });
 });

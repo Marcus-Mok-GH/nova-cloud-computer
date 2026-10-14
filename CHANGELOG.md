@@ -1,3 +1,42 @@
+2026-10-14 - The failure says why: nova-pro errors now reach chat and Telegram
+
+When the built-in nova-pro model failed, the chat got a fixed line - "Nova hit
+an unexpected error and could not finish this reply" - while the one text that
+explained the failure (the provider's own message: overloaded, upstream 503
+body, context length exceeded, invalid model id) stayed in the server log. The
+user saw that the run died but never why, and had to ask an operator to read
+the logs. The same generic notice went out on Telegram, which renders the same
+reply.
+
+server/modelFailureDetail.ts now builds that disclosure: an AiGatewayClientError
+IS the model's own error text, so it is appended to the reply's user-facing
+lead as "Error details (nova-pro, <kind>): <text>" - in the web chat, in the
+persisted ledger, and on Telegram (the run reply, plus the escape-hatch notice
+in server/agentRuns.ts when a model failure somehow throws past the agent's own
+catch). The text is redacted before it is shown - Bearer lines and key-shaped
+values (sk-..., key_..., token-...) become [private credential], because a
+provider that rejects a credential often quotes it; only values of 8+ characters
+that contain a digit count as keys, so ordinary hyphenated prose like
+"token-harbor" survives intact - and capped at 600 characters like the
+gateway's own upstream cap. BYOK replies, which already quoted their provider
+verbatim, get the same redaction.
+
+Two classes of failure still keep the curated generic copy. Deployment-internal
+kinds (a missing or rejected credential, kind "configuration") name the
+workspace's own setup and can quote the configured key, and a /stop abort is a
+user action rather than a failure to report. And an error that never came from
+the model call at all - a drizzle "Failed query" wrapper, a sandbox internal -
+can name Nova internals, so it stays in the server log exactly as before.
+
+Files: server/modelFailureDetail.ts, server/modelFailureDetail.test.ts,
+server/workspaceAgent.ts, server/agentRuns.ts, server/workspaceAgent.test.ts,
+server/agentContinue.test.ts, docs/ai-gateway-contract.md, CHANGELOG.md. New
+tests pin the disclosure, the redaction, the configuration/stop exclusions and
+the Telegram delivery; the four workspace-agent tests that pinned the old
+generic copy now pin the disclosed detail; 901 server tests pass, typecheck
+carries only the two pre-existing dependency-duplication errors in appTree.tsx
+and vite.config.ts.
+
 2026-10-13 - A third model in the chain: the gateway's last resort now leaves Token Harbor
 
 Nova's built-in AI gateway walked a primary-first chain of three Token Harbor

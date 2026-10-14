@@ -4018,6 +4018,42 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).not.toContain("deploymentKey");
   });
 
+  it("shows nova-pro's full error details when the built-in model fails", async () => {
+    // A nova-pro failure is disclosed in full instead of the generic notice:
+    // the upstream error text is the one clue that explains the failure, and
+    // the same reply text is what Telegram delivers.
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError(
+        "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503",
+        "rate_limit"
+      )
+    );
+    const onChunk = vi.fn();
+    const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
+    expect(result.message.content).toContain(
+      "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503"
+    );
+    expect(result.message.content).toContain(
+      "Error details (nova-pro, rate_limit)"
+    );
+    expect(onChunk).toHaveBeenCalledWith(
+      expect.stringContaining("Error details (nova-pro, rate_limit)")
+    );
+    // The lead still explains what happened and what to do.
+    expect(result.message.content).toContain("Too many requests right now");
+  });
+
+  it("keeps a misconfigured gateway's raw text out of the chat", async () => {
+    // A deployment-internal failure names the workspace's own setup (and can
+    // quote the configured credential), so the curated notice stands alone.
+    chatWithAiGateway.mockRejectedValue(
+      new AiGatewayClientError("TOKENHARBOR_API_KEY is missing", "configuration")
+    );
+    const result = await runWorkspaceAgent(1, 3, "hello?");
+    expect(result.message.content).toContain("not connected");
+    expect(result.message.content).not.toContain("TOKENHARBOR_API_KEY");
+  });
+
   it("surfaces the provider's full error when the run is BYOK", async () => {
     // On the user's own provider the upstream error (their key, quota, model
     // id) is the one actionable clue - it reaches the chat verbatim instead
@@ -4430,11 +4466,14 @@ describe("Nova tool-calling workspace agent", () => {
         )
       );
     const result = await runWorkspaceAgent(1, 3, "make me a ph meter site");
-    // The user-facing lead explains the throttle; the raw upstream error text
-    // is kept out of the chat, and the tool steps that failed before the run
-    // died are listed instead of "everything so far" hiding them.
+    // The user-facing lead explains the throttle and the model's own error
+    // text is disclosed below it, and the tool steps that failed before the
+    // run died are listed instead of "everything so far" hiding them.
     expect(result.message.content).toContain("Too many requests right now");
-    expect(result.message.content).not.toContain(
+    expect(result.message.content).toContain(
+      "Error details (nova-pro, rate_limit)"
+    );
+    expect(result.message.content).toContain(
       "The service may be temporarily overloaded"
     );
     expect(result.message.content).toContain(
@@ -4464,10 +4503,12 @@ describe("Nova tool-calling workspace agent", () => {
     // The first attempt plus three retries - each re-walking the gateway's
     // full pool-fallback chain - and only then the throttle is reported.
     expect(chatWithAiGateway).toHaveBeenCalledTimes(4);
-    // The reply explains the throttle in user-facing terms instead of
-    // quoting the upstream provider's raw error text.
+    // The reply explains the throttle in user-facing terms and then discloses
+    // the upstream provider's own error text below it.
     expect(result.message.content).toContain("Too many requests right now");
-    expect(result.message.content).not.toContain("Too Many Requests");
+    expect(result.message.content).toContain(
+      "Error details (nova-pro, rate_limit):\nToo Many Requests"
+    );
     expect(result.message.content).toContain(
       "Everything so far is saved - please try again in a little while."
     );
@@ -4485,8 +4526,11 @@ describe("Nova tool-calling workspace agent", () => {
     // A 4xx rejection cannot succeed by retrying, so the agent stops at once.
     expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     expect(result.message.content).toContain("rejected this request");
-    // The provider's raw error text stays out of the chat.
-    expect(result.message.content).not.toContain("Model not found");
+    // The provider's raw error text is disclosed below the lead: it is the
+    // only clue that names the actual cause (a bad model id, here).
+    expect(result.message.content).toContain(
+      "Error details (nova-pro, client_error):\nModel not found"
+    );
   });
 
   it("retries an upstream 429 instantly, without waiting out a lockout", async () => {
@@ -4622,11 +4666,13 @@ describe("Nova tool-calling workspace agent", () => {
     // gateway dropped - not replaced by a bare error notice.
     expect(result.message.content).toContain("Partial");
     expect(result.message.content).toContain("lost the connection");
-    // The streamed partial is not re-emitted; only the failure note follows.
+    // The streamed partial is not re-emitted; only the failure note and the
+    // model's own error text follow.
     const emitted = onChunk.mock.calls.map(call => call[0]).join("");
     expect(emitted).toBe(
       "Partial " +
-        "\n\nNova lost the connection to its AI service before this reply finished. Everything so far is saved - send another message and I will continue from here."
+        "\n\nNova lost the connection to its AI service before this reply finished. Everything so far is saved - send another message and I will continue from here." +
+        "\n\nError details (nova-pro, unavailable):\nblip"
     );
   });
 

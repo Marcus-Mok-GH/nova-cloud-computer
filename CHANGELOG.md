@@ -1,3 +1,37 @@
+2026-10-14 - The sources travel with the answer: citations now sit at the bottom of the reply
+
+A reply that leaned on the live web carried its evidence somewhere the reader
+had to go looking for it: the research report and its numbered source list
+live inside the collapsed research_web panel, and a model that quoted a page
+left a bare URL (or a bare [1]) in the middle of its prose with no way to
+resolve it back to the source. The answer read as unsupported unless the user
+knew to open the tool activity and hunt for the matching line.
+
+server/citations.ts collects the sources while the run works - a research
+report's own source list, which server/workspaceToolExecutor.ts now returns as
+structured `citations` instead of text that would have to be re-parsed out of
+the result, and the page a browse call opened, read from its `open <url>`
+command (scheme-less hosts are promoted to https, and a workspace file such as
+`open index.html` is not mistaken for one) - and renders them as a single
+numbered list appended to the BOTTOM of the reply the user reads. Sources are
+deduplicated by URL as they arrive, so a report opened twice is cited once,
+and one the reply already links is left out rather than repeated: a citation
+already on screen should complete the list, not double it.
+
+The block is added once, after the run has settled, so every way a run can end
+(end_turn, a deadline close) delivers it, and a reply that cited nothing stays
+exactly as the model wrote it. The web chat renders the list as Markdown links
+under a rule; Telegram is sent without a parse mode, so its copy is plain text
+("Sources:" then "Title - URL"). When the reply text already streamed
+token-by-token, only the citation block is sent as the extra chunk, so the
+ledger row and the live bubble stay identical.
+
+Files: server/citations.ts, server/citations.test.ts,
+server/workspaceToolExecutor.ts, server/workspaceAgent.ts,
+server/workspaceAgent.test.ts, CHANGELOG.md. 1,226 tests pass; typecheck
+carries only the two pre-existing dependency-duplication errors in appTree.tsx
+and vite.config.ts.
+
 2026-10-14 - The failure says why: nova-pro errors now reach chat and Telegram
 
 When the built-in nova-pro model failed, the chat got a fixed line - "Nova hit

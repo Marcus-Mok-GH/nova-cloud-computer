@@ -13,7 +13,7 @@ import { runAutomationForScheduleTask } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getUserAutomation, createUserAutomation, deleteUserAutomation, listUserAutomations, runUserAutomationForScheduleTask, setUserAutomationScheduleTask, updateUserAutomation, USER_AUTOMATION_CRONS } from "./userAutomations";
 import { automationPlannerRouter } from "./automationPlannerRoute";
-import { findWorkspaceOwnerByTelegramLinkCode, findWorkspaceOwnerByTelegramToken, getTelegramCredentialsForUser, deleteChatForUser, listChatsForUser, updateTelegramChatForUser, createChatForUser, createWorkspaceFileForUser, isUserBanned, cancelActiveAgentVmRunsForUser, requestAgentStopForUser, claimTelegramUpdate, claimAgentRunContinuation, enqueueInferenceQueueItem, getInferenceQueuePosition, cancelWaitingInferenceQueueItemsForUser, activatePriorityWindowForUser } from "./db";
+import { findWorkspaceOwnerByTelegramLinkCode, findWorkspaceOwnerByTelegramToken, getTelegramCredentialsForUser, deleteChatForUser, listChatsForUser, updateTelegramChatForUser, createChatForUser, createWorkspaceFileForUser, isUserBanned, cancelActiveAgentVmRunsForUser, requestAgentStopForUser, claimTelegramUpdate, claimAgentRunContinuation, claimRunningProcess, enqueueInferenceQueueItem, getInferenceQueuePosition, cancelWaitingInferenceQueueItemsForUser, activatePriorityWindowForUser } from "./db";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { advancePeakQueue } from "./peakQueueWorker";
@@ -34,6 +34,10 @@ import { readChatImageAttachments, chatImageAttachmentFileName } from "./chatIma
  * of pulling the migrator into the function's own module graph.
  */
 export { ensureDatabaseSchema } from "./migrate";
+// Re-exported so the co-deployed Vercel function can kick the recovery sweep on any API traffic, so processes the platform killed earlier are resumed from the database.
+export { kickRunningProcessRecovery } from "./runningProcesses";
+import { MAX_PROCESS_RESUME_ATTEMPTS, PROCESS_STALE_AFTER_MS, resumeRunningProcess } from "./runningProcesses";
+import type { RunningProcess } from "../drizzle/schema";
 
 const MAX_TELEGRAM_CHATS = 100;
 async function pruneChatsIfNeeded(ownerId: number): Promise<void> { const chats = await listChatsForUser(ownerId); if (chats.length > MAX_TELEGRAM_CHATS) { const toDelete = chats.slice(MAX_TELEGRAM_CHATS); await Promise.all(toDelete.map(c => deleteChatForUser(ownerId, c.id))); console.info(`[Telegram webhook] pruned ${toDelete.length} stale chats for owner ${ownerId}`); } }
@@ -181,6 +185,39 @@ app.post("/api/agent/continue", async (req, res) => {
     ? executeWebAgentRun({ ownerId: claim.ownerId, chatId: claim.chatId, content: CONTINUATION_PROMPT, requestStartedAtMs: Date.now(), continuation: { runId: claim.runId, segment: claim.segment } })
     : executeTelegramAgentRun({ ownerId: claim.ownerId, chatId: claim.chatId, token: claim.token!, telegramChatId: claim.telegramChatId!, agentText: CONTINUATION_PROMPT, requestStartedAtMs: Date.now(), continuation: { runId: claim.runId, segment: claim.segment } });
   trackBackgroundWork(segmentWork.catch(error => console.error("[Agent continue] segment failed", error)));
+});
+
+/**
+ * Resume endpoint for durable running processes. When the platform kills an invocation mid-process (an agent-run segment,
+ * an autonomous editor task), its row stays behind in `running_processes` with a stopped heartbeat; a sweep signs a
+ * self-call here, this endpoint claims the row atomically (one winner per row, one attempt charged), and the resume runs
+ * inside this invocation's waitUntil window with a fresh serverless budget - so an interrupted editor task keeps working
+ * without the main agent recalling it.
+ */
+app.post("/api/agent/process/resume", async (req, res) => {
+  const secret = ENV.agentContinueSecret;
+  if (!secret) return res.status(404).json({ error: "process-resume-disabled" });
+  // The signature covers the exact raw JSON body, so a payload cannot be edited without invalidating the HMAC.
+  const raw = JSON.stringify(req.body ?? {});
+  const received = Buffer.from(String(req.headers["x-nova-signature"] ?? ""));
+  const expected = Buffer.from(`sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`);
+  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return res.status(401).json({ error: "bad-signature" });
+  const processId = Number(req.body?.processId);
+  if (!Number.isInteger(processId) || processId <= 0) return res.status(400).json({ error: "bad-payload" });
+  // The claim is the whole race decision: several sweeps may ask at once, but only one heartbeat bump wins, and only
+  // while the row is genuinely stale and still has resume attempts left.
+  let claim: RunningProcess | undefined;
+  try {
+    claim = await claimRunningProcess(processId, new Date(Date.now() - PROCESS_STALE_AFTER_MS), MAX_PROCESS_RESUME_ATTEMPTS);
+  } catch (error) {
+    console.error("[Process resume] claim failed", error);
+    return res.status(500).json({ error: "claim-failed" });
+  }
+  if (!claim) return res.status(409).json({ error: "claim-failed" });
+  // Ack immediately: the resume runs inside this invocation's waitUntil window, which keeps the full serverless budget
+  // for the recovered work.
+  res.status(202).json({ ok: true, processId: claim.id, kind: claim.kind });
+  trackBackgroundWork(resumeRunningProcess(claim).catch(error => console.error("[Process resume] resume failed", error)));
 });
 
 /**

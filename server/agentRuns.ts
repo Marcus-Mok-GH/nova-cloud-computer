@@ -21,6 +21,10 @@ import { modelFailureDetail } from "./modelFailureDetail";
 import { runTeamChatTurns } from "./agentChats";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
+import {
+  trackAgentRunProcess,
+  type RunningProcessHandle,
+} from "./runningProcesses";
 
 /** The web app that renders each chat's full tool-activity replay. */
 export const NOVA_WEB_APP_URL = "https://nova-cloud-computer.vercel.app";
@@ -151,6 +155,19 @@ export async function executeTelegramAgentRun(
         chatId,
         notifyChatId: telegramChatId,
       }).catch(() => undefined);
+  // Durable ledger: the segment registers BEFORE it starts working, so a
+  // platform kill mid-segment leaves a running-process row behind and the
+  // reaper resumes the run automatically instead of the work being lost.
+  const processHandle = run
+    ? await trackAgentRunProcess({
+        ownerId,
+        chatId,
+        runId: run.id,
+        segment: run.segment,
+        chainable: canChain,
+      }).catch(() => undefined)
+    : undefined;
+  let processStatus: "completed" | "failed" = "completed";
   let streamedText = "";
   /* No "Thinking..." placeholder: a placeholder became a permanent orphan bubble whenever its final edit failed, and streaming edits collided with Telegram's per-second edit limit during long runs. A typing action refreshed until the reply lands keeps the chat clean. */
   const typingTimer = setInterval(() => {
@@ -316,6 +333,10 @@ export async function executeTelegramAgentRun(
         return { delivered: false, reply: streamedText, runId: run.id };
       }
     }
+    // The segment is over for good: the durable row closes with it (a killed
+    // invocation never reaches this line, and its row is what the reaper
+    // later resumes).
+    processStatus = "failed";
     // The raw error (provider, database, or sandbox internals) stays in the
     // server log above and in the run ledger below; the Telegram user only
     // ever gets this fixed, generic notice. A model failure is the exception:
@@ -342,6 +363,9 @@ export async function executeTelegramAgentRun(
     return { delivered: false, reply: streamedText, runId: run?.id };
   } finally {
     clearInterval(typingTimer);
+    // Close the durable row for this segment; a killed invocation never
+    // reaches this line, which is exactly how its row becomes resumable.
+    await processHandle?.finish(processStatus);
   }
 }
 
@@ -400,6 +424,19 @@ export async function executeWebAgentRun(
   // CONTINUATION_PROMPT as a user message). Personal/plain chats chain as
   // before; teams ask the user to send "continue" instead.
   const mayChain = canChain && route.kind !== "team";
+  // Durable ledger: the segment registers BEFORE it starts working, so a
+  // platform kill mid-segment leaves a running-process row behind and the
+  // reaper resumes the run automatically instead of the work being lost.
+  const processHandle = run
+    ? await trackAgentRunProcess({
+        ownerId,
+        chatId,
+        runId: run.id,
+        segment: run.segment,
+        chainable: mayChain,
+      }).catch(() => undefined)
+    : undefined;
+  let processStatus: "completed" | "failed" = "completed";
   try {
     // Agent-aware routing, shared by every web entry point (chats.send, the
     // SSE stream, the peak queue, continuations): a personal-agent chat runs
@@ -486,6 +523,10 @@ export async function executeWebAgentRun(
         return { message: note, actions: [], outOfBudget: true, runId: run.id };
       }
     }
+    // The segment is over for good: the durable row closes with it (a killed
+    // invocation never reaches this line, and its row is what the reaper
+    // later resumes).
+    processStatus = "failed";
     if (run)
       await finishAgentRunForUser(
         ownerId,
@@ -494,6 +535,10 @@ export async function executeWebAgentRun(
         error instanceof Error ? error.message : String(error)
       ).catch(() => {});
     throw error;
+  } finally {
+    // Close the durable row for this segment; a killed invocation never
+    // reaches this line, which is exactly how its row becomes resumable.
+    await processHandle?.finish(processStatus);
   }
 }
 

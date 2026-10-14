@@ -501,14 +501,16 @@ export function emailChatTitleFor(subject: string, from: string): string {
  *
  * Returns undefined only when a chat could not be created - the caller then
  * skips the claim, so the mail is never answered in a conversation the user
- * cannot see.
+ * cannot see. `created` tells the caller whether this call opened the chat, so
+ * a claim lost to a concurrent delivery can clean up the empty chat it may
+ * have just made.
  */
 export async function startAgentEmailThreadChat(input: {
   agent: AgentProfileRow;
   threadId: string;
   subject: string;
   from: string;
-}): Promise<string | undefined> {
+}): Promise<{ chatId: string; created: boolean } | undefined> {
   const db = await getDb();
   if (!db) return undefined;
   const { agent, threadId } = input;
@@ -528,7 +530,7 @@ export async function startAgentEmailThreadChat(input: {
       .limit(1);
     // chatId is a SET NULL foreign key, so a non-null id is a chat that still
     // exists; a deleted chat has already released its threads to a new one.
-    if (prior?.chatId) return prior.chatId;
+    if (prior?.chatId) return { chatId: prior.chatId, created: false };
   }
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
@@ -542,7 +544,7 @@ export async function startAgentEmailThreadChat(input: {
           agentId: agent.id,
         })
         .returning();
-      if (created?.id) return created.id;
+      if (created?.id) return { chatId: created.id, created: true };
       return undefined;
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
@@ -1543,22 +1545,23 @@ export async function claimInboundAgentEmailForAutoReply(
   // created never consumes the one claim and leaves the mail permanently
   // unanswerable. The thread's first message opens a new chat; the rest find
   // the one already opened for it.
-  const chatId = await startAgentEmailThreadChat({
+  const chat = await startAgentEmailThreadChat({
     agent,
     threadId: event.threadId,
     subject: event.subject,
     from: event.from,
   });
-  if (!chatId) return { claimed: false, reason: "no-chat" };
+  if (!chat) return { claimed: false, reason: "no-chat" };
   const claimed = await db
     .update(agentEmails)
     // The chat goes on with the claim, so later messages in this thread know
-    // which conversation to continue, and a row an inbox sync stored before it
-    // knew the thread id is repaired here rather than missed forever.
+    // which conversation to continue, and a row an inbox sync stored without
+    // one is repaired here too - unless this delivery arrived without a thread
+    // id, which never overwrites a stored id.
     .set({
       autoRepliedAt: new Date(),
-      chatId,
-      threadId: event.threadId || null,
+      chatId: chat.chatId,
+      ...(event.threadId ? { threadId: event.threadId } : {}),
     })
     .where(
       and(
@@ -1568,6 +1571,22 @@ export async function claimInboundAgentEmailForAutoReply(
       )
     )
     .returning({ id: agentEmails.id });
-  if (!claimed.length) return { claimed: false, reason: "already-replied" };
-  return { claimed: true, agent, ownerId, event, chatId };
+  if (!claimed.length) {
+    // A concurrent delivery of the same message won the claim, and this call
+    // may have opened a chat for it. The run never starts, so that chat has no
+    // messages and is recorded nowhere - removing it keeps an empty
+    // conversation out of the user's list.
+    if (chat.created) {
+      try {
+        await db.delete(chats).where(eq(chats.id, chat.chatId));
+      } catch (error) {
+        console.warn(
+          "[AgentMail] Could not clean up a chat for a lost claim:",
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+    return { claimed: false, reason: "already-replied" };
+  }
+  return { claimed: true, agent, ownerId, event, chatId: chat.chatId };
 }

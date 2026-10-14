@@ -1566,10 +1566,11 @@ export async function claimInboundAgentEmailForAutoReply(
   if (!chat) return { claimed: false, reason: "no-chat" };
   const claimed = await db
     .update(agentEmails)
-    // The chat goes on with the claim, so later messages in this thread know
-    // which conversation to continue, and a row an inbox sync stored without
-    // one is repaired here too - unless this delivery arrived without a thread
-    // id, which never overwrites a stored id.
+    // Records which chat answered this message - nulled with it if that chat
+    // is deleted - and pins this row to its conversation through the thread id
+    // (later messages resolve through chats.emailThreadId). A row an inbox
+    // sync stored without a thread id is repaired here, unless this delivery
+    // arrived without one, which never overwrites a stored id.
     .set({
       autoRepliedAt: new Date(),
       chatId: chat.chatId,

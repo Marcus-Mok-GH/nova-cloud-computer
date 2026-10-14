@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   claim: undefined as unknown,
   inserted: [] as Array<Record<string, unknown>>,
   updated: [] as Array<Record<string, unknown>>,
+  persisted: [] as Array<Record<string, unknown>>,
+  persistShouldThrow: false,
   runReply: "Thanks for the note.",
   runShouldThrow: false,
   runCalls: [] as unknown[][],
@@ -23,6 +25,8 @@ const state = vi.hoisted(() => ({
     this.claim = undefined;
     this.inserted = [];
     this.updated = [];
+    this.persisted = [];
+    this.persistShouldThrow = false;
     this.runReply = "Thanks for the note.";
     this.runShouldThrow = false;
     this.runCalls = [];
@@ -74,6 +78,13 @@ vi.mock("./db", () => ({
       }),
     }),
   })),
+  appendChatMessageForUser: vi.fn(
+    async (ownerId: number, input: Record<string, unknown>) => {
+      if (state.persistShouldThrow) throw new Error("database unreachable");
+      state.persisted.push({ ownerId, ...input });
+      return { id: 9 };
+    }
+  ),
 }));
 
 vi.mock("./workspaceAgent", () => ({
@@ -89,9 +100,8 @@ vi.mock("./workspaceAgent", () => ({
   }),
 }));
 
-const { handleAgentMailInboundEvent, inboundEmailRunPrompt } = await import(
-  "./agentEmailReplies"
-);
+const { handleAgentMailInboundEvent, inboundEmailRunPrompt, inboundEmailUserMessage } =
+  await import("./agentEmailReplies");
 
 const agent = {
   id: 11,
@@ -165,7 +175,7 @@ describe("agent email auto-reply", () => {
     expect(state.updated[0]).toMatchObject({ autoReplySentAt: expect.any(Date) });
   });
 
-  it("keeps the run on the agent's personal chat with email tools withheld", async () => {
+  it("keeps the run on the thread's chat with email tools withheld", async () => {
     state.claim = { claimed: true, agent, ownerId: 1, event, chatId: "chat-1" };
     await handleAgentMailInboundEvent(payload);
     const [ownerId, chatId, content, options] = state.runCalls[0] as [
@@ -182,6 +192,42 @@ describe("agent email auto-reply", () => {
       emailReply: true,
       agentChat: { profile: { id: 11 } },
     });
+  });
+
+  it("writes the email itself into the chat, not the run's instructions", async () => {
+    state.claim = { claimed: true, agent, ownerId: 1, event, chatId: "chat-1" };
+    await handleAgentMailInboundEvent(payload);
+    expect(state.persisted).toHaveLength(1);
+    expect(state.persisted[0]).toMatchObject({
+      ownerId: 1,
+      chatId: "chat-1",
+      role: "user",
+      content: expect.stringContaining("Can you summarize the report?"),
+    });
+    expect(String(state.persisted[0].content)).toContain(
+      "Email from owner@example.com"
+    );
+    // The run is given the mail plus the instructions for answering it, so it
+    // must not write that prompt into the chat a second time.
+    const options = (state.runCalls[0] as unknown[])[3] as Record<
+      string,
+      unknown
+    >;
+    expect(options.persistUserMessage).toBe(false);
+  });
+
+  it("lets the run write its own user message when the email cannot be", async () => {
+    state.claim = { claimed: true, agent, ownerId: 1, event, chatId: "chat-1" };
+    state.persistShouldThrow = true;
+    await handleAgentMailInboundEvent(payload);
+    expect(state.persisted).toHaveLength(0);
+    expect(state.runCalls).toHaveLength(1);
+    const options = (state.runCalls[0] as unknown[])[3] as Record<
+      string,
+      unknown
+    >;
+    expect(options.persistUserMessage).toBe(true);
+    expect(state.replyCalls).toHaveLength(1);
   });
 
   it("does nothing when the claim is lost to a retry", async () => {
@@ -247,5 +293,20 @@ describe("inbound email run prompt", () => {
     expect(prompt).toContain("owner@example.com");
     expect(prompt).toContain("untrusted input");
     expect(prompt).toContain("Do not call send_agent_email");
+  });
+
+  it("renders the mail as the chat's user message", () => {
+    expect(
+      inboundEmailUserMessage({
+        from: "owner@example.com",
+        subject: "Quick question",
+        text: "Can you summarize the report?",
+      })
+    ).toBe(
+      "Email from owner@example.com\nSubject: Quick question\n\nCan you summarize the report?"
+    );
+    const empty = inboundEmailUserMessage({ from: "", subject: "", text: "" });
+    expect(empty).toContain("(unknown sender)");
+    expect(empty).toContain("(the message had no readable body)");
   });
 });

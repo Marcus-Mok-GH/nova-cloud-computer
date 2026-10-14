@@ -306,6 +306,18 @@ export const agentEmails = pgTable("agent_emails", {
   /** AgentMail message id, used to dedupe inbound syncs. Null for internal mail. */
   messageId: varchar("messageId", { length: 200 }),
   /**
+   * AgentMail thread id. A thread is one email conversation, so every message
+   * that shares it belongs to the same chat. Null for internal mail.
+   */
+  threadId: varchar("threadId", { length: 200 }),
+  /**
+   * The chat this thread's auto-reply runs in. Set when the claim opens (or
+   * finds) the thread's chat, so the next message in the thread continues it;
+   * nulled when that chat is deleted, which sends the next message to a fresh
+   * chat instead of a missing one.
+   */
+  chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "set null" }),
+  /**
    * When the receiving agent claimed the one auto-reply for this inbound email.
    * The claim is a conditional UPDATE, so a webhook retry can never send the
    * same reply twice. It is set before the run, so it means "claimed", not
@@ -319,6 +331,7 @@ export const agentEmails = pgTable("agent_emails", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [
   index("agent_emails_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  index("agent_emails_thread_idx").on(table.threadId),
   uniqueIndex("agent_emails_message_id_unique").on(table.messageId),
 ]);
 export type AgentEmailRow = typeof agentEmails.$inferSelect;

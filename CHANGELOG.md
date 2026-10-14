@@ -1,3 +1,47 @@
+2026-10-14 - Mail gets its own conversation: an email to an agent opens a new chat and is answered in the thread
+
+Mail sent to an agent was answered correctly - the end_turn reply went back
+through AgentMail in the same thread - but the workspace side of that
+conversation was invisible as a conversation: every inbound email ran inside
+the agent's single, personal chat, so messages from different senders about
+different subjects piled into one ever-growing thread that also held everything
+else the user had ever said to that agent. What the chat showed as the user's
+message was not even the mail, but the run's prompt about the mail.
+
+Each email thread is now its own chat. server/agents.ts resolves the run's
+chat through the AgentMail thread id instead of reusing the personal one: the
+thread's first message opens a brand-new chat titled with its subject (the
+usual Re:/Fwd: prefix trimmed, "Email from <sender>" when the subject is empty),
+and every later message in that thread finds the same chat again. The thread id
+and the chat it is held in are stored on the inbound row (agent_emails.threadId
+and agent_emails.chatId, migration 0048), and chatId is a SET NULL foreign key,
+so deleting a chat releases its threads to the next message rather than pointing
+them at nothing. The claim is unchanged and still exactly-once: the chat is
+resolved before the guarded UPDATE, so a chat that cannot be created never
+consumes the one auto-reply.
+
+The reply still goes out by email as before, as a reply to the sender in the
+same thread. What changed on the way is the chat's ledger: server/agentEmailReplies.ts
+writes the email itself - "Email from ...", "Subject: ..." and the body - as
+the user's message, and hands the run its prompt (the mail plus the instructions
+for answering it) with persistUserMessage off, so the model gets the
+instructions without them ever appearing as something the user wrote. If that
+write fails, the run falls back to writing its own copy: a lost chat row must
+never cost the user the reply.
+
+Because those chats belong to their threads, the agent's personal chat is now
+looked up with a NOT EXISTS against agent_emails.chatId - otherwise the newest
+email conversation would win the "most recently updated" lookup and the
+"Chat with <agent>" button on the Agents page would drop the user inside
+somebody's mail.
+
+Files: drizzle/schema.ts, drizzle/neon/0048_agent_email_threads.sql,
+drizzle/neon/meta/0048_snapshot.json, drizzle/neon/meta/_journal.json,
+server/agents.ts, server/agents.test.ts, server/agentEmailReplies.ts,
+server/agentEmailReplies.test.ts, README.md, CHANGELOG.md. 1,233 tests pass
+(4 skipped); typecheck carries only the two pre-existing
+dependency-duplication errors in appTree.tsx and vite.config.ts.
+
 2026-10-14 - The sources travel with the answer: citations now sit at the bottom of the reply
 
 A reply that leaned on the live web carried its evidence somewhere the reader

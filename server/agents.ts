@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { getDb, getOrCreateWorkspace, getChatForUser, getUserIdentityForUser } from "./db";
 import {
   AgentMailError,
@@ -447,7 +447,18 @@ export async function startAgentChatForUser(
   const existing = await db
     .select()
     .from(chats)
-    .where(and(eq(chats.workspaceId, agent.workspaceId), eq(chats.agentId, agent.id)))
+    .where(
+      and(
+        eq(chats.workspaceId, agent.workspaceId),
+        eq(chats.agentId, agent.id),
+        // Inbound email opens its own chat per thread, and each of those chats
+        // belongs to its thread. The agent's personal chat is therefore the one
+        // no thread holds: without this the newest email conversation would win
+        // the "most recently updated" lookup and opening a chat with the agent
+        // would drop the user inside somebody's email thread.
+        sql`not exists (select 1 from "agent_emails" where "agent_emails"."chatId" = "chats"."id")`
+      )
+    )
     .orderBy(desc(chats.updatedAt))
     .limit(1);
   if (existing[0]) return existing[0];
@@ -464,6 +475,75 @@ export async function startAgentChatForUser(
         })
         .returning();
       return created;
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The title an inbound email gives its chat: the subject, with the usual
+ * reply/forward prefix trimmed so a thread's title stays its actual subject,
+ * and a plain "Email from ..." fallback for mail that arrived without one.
+ */
+export function emailChatTitleFor(subject: string, from: string): string {
+  const cleaned = subject.trim().replace(/^(re|fwd?|aw)\s*:\s*/i, "").trim();
+  return (cleaned || `Email from ${from || "someone"}`).slice(0, 160);
+}
+
+/**
+ * Resolves the chat one inbound email runs in. The first message of a thread
+ * opens a brand-new chat titled with its subject; every later message in the
+ * same thread finds that chat through the thread id and keeps talking in it,
+ * so one email conversation is one chat instead of a pile of mail dumped into
+ * the agent's personal conversation.
+ *
+ * Returns undefined only when a chat could not be created - the caller then
+ * skips the claim, so the mail is never answered in a conversation the user
+ * cannot see.
+ */
+export async function startAgentEmailThreadChat(input: {
+  agent: AgentProfileRow;
+  threadId: string;
+  subject: string;
+  from: string;
+}): Promise<string | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const { agent, threadId } = input;
+  if (threadId) {
+    const [prior] = await db
+      .select({ chatId: agentEmails.chatId })
+      .from(agentEmails)
+      .where(
+        and(
+          eq(agentEmails.workspaceId, agent.workspaceId),
+          eq(agentEmails.toAgentId, agent.id),
+          eq(agentEmails.threadId, threadId),
+          isNotNull(agentEmails.chatId)
+        )
+      )
+      .orderBy(desc(agentEmails.createdAt))
+      .limit(1);
+    // chatId is a SET NULL foreign key, so a non-null id is a chat that still
+    // exists; a deleted chat has already released its threads to a new one.
+    if (prior?.chatId) return prior.chatId;
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const [created] = await db
+        .insert(chats)
+        .values({
+          id: newChatId(),
+          workspaceId: agent.workspaceId,
+          title: emailChatTitleFor(input.subject, input.from),
+          kind: "personal",
+          agentId: agent.id,
+        })
+        .returning();
+      if (created?.id) return created.id;
+      return undefined;
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
     }
@@ -1210,6 +1290,7 @@ export async function syncAgentMailInboxForUser(ownerId: number): Promise<void> 
               fromAddress: normalizeEmailAddress(message.from) || null,
               toAddress: agent.agentmailAddress,
               messageId: message.messageId,
+              threadId: message.threadId || null,
               subject: message.subject.slice(0, 240),
               body: body.slice(0, INBOUND_BODY_LIMIT),
             })
@@ -1379,7 +1460,7 @@ export type InboundAgentEmailClaim =
       agent: AgentProfileRow;
       ownerId: number;
       event: AgentMailInboundEvent;
-      /** The workspace chat the run belongs to (the agent's personal chat). */
+      /** The chat this email's thread runs in (a new one per thread). */
       chatId: string;
     }
   | {
@@ -1397,6 +1478,11 @@ export type InboundAgentEmailClaim =
 /**
  * Records an inbound email and, when it is safe to answer, atomically claims
  * the one auto-reply it earns.
+ *
+ * The run gets its own conversation: the first message of a thread opens a new
+ * chat titled with the mail's subject, and every later message in that thread
+ * continues the same chat, so an email exchange never spills into the agent's
+ * personal conversation.
  *
  * The row is inserted first (deduped by provider message id, so the sync and
  * the webhook can race harmlessly) and the claim is a guarded UPDATE on
@@ -1437,6 +1523,7 @@ export async function claimInboundAgentEmailForAutoReply(
       fromAddress: event.from || null,
       toAddress: agent.agentmailAddress,
       messageId: event.messageId,
+      threadId: event.threadId || null,
       subject: event.subject.slice(0, 240),
       body: event.text.slice(0, INBOUND_BODY_LIMIT),
     })
@@ -1452,13 +1539,27 @@ export async function claimInboundAgentEmailForAutoReply(
   if (await hasReachedAutoReplyRateLimit(agent, event.from)) {
     return { claimed: false, reason: "rate-limited" };
   }
-  // Resolve the run's chat before claiming, so a missing chat never consumes
-  // the one claim and leaves the mail permanently unanswerable.
-  const chat = await startAgentChatForUser(ownerId, agent.id);
-  if (!chat) return { claimed: false, reason: "no-chat" };
+  // Resolve the thread's chat before claiming, so a chat that cannot be
+  // created never consumes the one claim and leaves the mail permanently
+  // unanswerable. The thread's first message opens a new chat; the rest find
+  // the one already opened for it.
+  const chatId = await startAgentEmailThreadChat({
+    agent,
+    threadId: event.threadId,
+    subject: event.subject,
+    from: event.from,
+  });
+  if (!chatId) return { claimed: false, reason: "no-chat" };
   const claimed = await db
     .update(agentEmails)
-    .set({ autoRepliedAt: new Date() })
+    // The chat goes on with the claim, so later messages in this thread know
+    // which conversation to continue, and a row an inbox sync stored before it
+    // knew the thread id is repaired here rather than missed forever.
+    .set({
+      autoRepliedAt: new Date(),
+      chatId,
+      threadId: event.threadId || null,
+    })
     .where(
       and(
         eq(agentEmails.messageId, event.messageId),
@@ -1468,5 +1569,5 @@ export async function claimInboundAgentEmailForAutoReply(
     )
     .returning({ id: agentEmails.id });
   if (!claimed.length) return { claimed: false, reason: "already-replied" };
-  return { claimed: true, agent, ownerId, event, chatId: chat.id };
+  return { claimed: true, agent, ownerId, event, chatId };
 }

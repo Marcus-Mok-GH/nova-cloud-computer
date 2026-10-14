@@ -37,6 +37,10 @@ import {
   AiGatewayClientError,
 } from "./aiGateway";
 import {
+  modelFailureDetail,
+  redactModelCredentials,
+} from "./modelFailureDetail";
+import {
   chatWithWorkspaceModel,
   completeWithWorkspaceModel,
   getActiveCustomModel,
@@ -1866,20 +1870,21 @@ ${
           .map((step, index) => `${index + 1}. ${step}`)
           .join("\n")}`
       : "";
-    // Failure replies never blindly quote the built-in gateway's backend
-    // error: raw detail (provider endpoints, database causes, config names)
-    // is for the server logs only - the catch above already console.error'd
-    // it. Each kind keeps an actionable, user-facing lead instead.
-    // On the user's own provider (BYOK) an AiGatewayClientError IS the
-    // provider's own error message - their key, their quota, their model id
-    // - so it is surfaced verbatim: the generic copy would hide the one clue
-    // that explains the failure. Errors that did not come from the provider
-    // path (internal failures such as drizzle query wrappers) keep the
-    // sanitized notice even on a BYOK run: they never name the user's
-    // provider and can expose Nova internals.
+    // Every failure keeps an actionable, user-facing lead (each kind below
+    // says what happened and what to do). On top of the lead, an
+    // AiGatewayClientError IS the model's own error message - nova-pro's
+    // provider error, the user's key, their quota, their model id - so it is
+    // disclosed in full via modelFailureDetail below: the generic copy would
+    // hide the one clue that explains the failure, and the same text is what
+    // Telegram delivers (it renders this reply). Deployment-internal kinds
+    // (a missing or rejected credential) and errors that did not come from
+    // the model path (internal failures such as drizzle query wrappers) keep
+    // the sanitized notice alone: they can expose Nova internals such as
+    // database causes, config names and endpoints, which stay in the server
+    // log the catch above already wrote.
     let reply: string;
     if (byok && error instanceof AiGatewayClientError) {
-      const detail = error.message.trim();
+      const detail = redactModelCredentials(error.message.trim());
       reply = detail
         ? `Your provider returned an error: ${detail}`
         : AI_UNAVAILABLE_PREFIX + "Your provider could not be reached. Please try again shortly.";
@@ -1910,17 +1915,29 @@ ${
         reply =
           "Nova's AI service returned an invalid response. Please try again shortly.";
       } else {
-        // The real error (network failure, upstream 5xx body, database cause)
-        // stays in the server log above; the chat gets a fixed generic notice
-        // instead of an internal service or endpoint name.
+        // Only a failure that never came from the model call lands here
+        // without an error to disclose (a database cause, a sandbox
+        // internal): it stays in the server log above and the chat gets a
+        // fixed generic notice. An AiGatewayClientError still has its own
+        // message appended below, after this lead.
         reply =
           AI_UNAVAILABLE_PREFIX +
           "Nova hit an unexpected error and could not finish this reply. Everything so far is saved - please try again shortly.";
       }
     }
+    // Disclose the model's own error text next to the lead, in the reply the
+    // user actually sees (web stream, chat ledger, Telegram). The BYOK branch
+    // above already quoted its provider's error verbatim, so only the
+    // built-in nova-pro path adds the detail here.
+    const detailNote = byok
+      ? ""
+      : modelFailureDetail(error, reply, "nova-pro");
+    if (detailNote) reply += detailNote;
     // Only emit what the client has not already seen streamed live.
     await options.onChunk?.(
-      streamedRunText.trim() ? failureNote : reply + failedStepsNote
+      streamedRunText.trim()
+        ? failureNote + detailNote
+        : reply + failedStepsNote
     );
     const message = await persistAssistant(reply + failedStepsNote);
     return { message, actions, outOfBudget: false };

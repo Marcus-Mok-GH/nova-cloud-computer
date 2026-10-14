@@ -17,6 +17,7 @@ import {
   MAX_RUN_BUDGET_MS,
 } from "./workspaceAgent";
 import { getAgentChatRoute } from "./agents";
+import { modelFailureDetail } from "./modelFailureDetail";
 import { runTeamChatTurns } from "./agentChats";
 import { sendChatAction, sendTelegramMessage } from "./telegram";
 import { trackBackgroundWork } from "./backgroundWork";
@@ -317,12 +318,19 @@ export async function executeTelegramAgentRun(
     }
     // The raw error (provider, database, or sandbox internals) stays in the
     // server log above and in the run ledger below; the Telegram user only
-    // ever gets this fixed, generic notice.
+    // ever gets this fixed, generic notice. A model failure is the exception:
+    // its own error text (credential-redacted and length-capped) is the one
+    // clue the user can act on, so it is sent instead - matching what the web
+    // chat shows for the same failure. Deployment-internal kinds keep the
+    // generic notice.
     const detail = error instanceof Error ? error.message : String(error);
+    const modelDetail = modelFailureDetail(error, "", "nova-pro").trim();
     await sendTelegramMessage(
       token,
       telegramChatId,
-      "\u26A0\uFE0F Nova hit an unexpected error handling that message. Please try again shortly."
+      modelDetail
+        ? `\u26A0\uFE0F Nova hit an error handling that message.${modelDetail}`
+        : "\u26A0\uFE0F Nova hit an unexpected error handling that message. Please try again shortly."
     ).catch(() => {});
     if (run)
       await finishAgentRunForUser(ownerId, run.id, "failed", detail).catch(

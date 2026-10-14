@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -87,6 +87,58 @@ describe("automatic database schema bootstrap", () => {
           !/IF NOT EXISTS|EXCEPTION WHEN duplicate_object|IF to_regclass/i.test(statement)
       );
     expect(unguarded).toEqual([]);
+  });
+
+  it("creates every table declared in the Drizzle schema", () => {
+    // The crash this prevents: a table added to drizzle/schema.ts without a
+    // committed migration. The runtime bootstrap only replays the migration
+    // folder, so a schema-only table is never created and the first query
+    // against it fails with `relation ... does not exist` in production. This
+    // replays the migration SQL (honoring CREATE / RENAME / DROP) and asserts
+    // every declared table ends up live.
+    const folder = resolveMigrationsFolder();
+    const schema = readFileSync(path.resolve(folder!, "../schema.ts"), "utf8");
+    const declared = [...schema.matchAll(/pgTable\(\s*"([a-zA-Z0-9_]+)"/g)].map(match => match[1]);
+    expect(declared.length).toBeGreaterThan(0);
+
+    const journal = JSON.parse(readFileSync(path.join(folder!, "meta", "_journal.json"), "utf8")) as {
+      entries: Array<{ tag: string }>;
+    };
+    const live = new Set<string>();
+    for (const entry of journal.entries) {
+      const sql = readFileSync(path.join(folder!, `${entry.tag}.sql`), "utf8");
+      for (const match of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"?(?:public\.)?([a-zA-Z0-9_]+)"?/gi))
+        live.add(match[1]);
+      for (const match of sql.matchAll(/ALTER TABLE "([a-zA-Z0-9_]+)" RENAME TO "([a-zA-Z0-9_]+)"/gi)) {
+        live.delete(match[1]);
+        live.add(match[2]);
+      }
+      for (const match of sql.matchAll(/DROP TABLE (?:IF EXISTS )?"?(?:public\.)?([a-zA-Z0-9_]+)"?/gi))
+        live.delete(match[1]);
+    }
+
+    const uncreated = declared.filter(table => !live.has(table));
+    expect(uncreated).toEqual([]);
+  });
+
+  it("keeps the journal, its migration files, and the schema in lockstep", () => {
+    // A journal entry whose .sql file is missing (or a stray .sql not in the
+    // journal) means the bootstrap would silently skip that migration's
+    // statements on a fresh database.
+    const folder = resolveMigrationsFolder();
+    const journal = JSON.parse(readFileSync(path.join(folder!, "meta", "_journal.json"), "utf8")) as {
+      entries: Array<{ tag: string }>;
+    };
+    const tags = new Set(journal.entries.map(entry => entry.tag));
+    const files = readdirSync(folder!).filter(file => file.endsWith(".sql")).map(file => file.replace(/\.sql$/, ""));
+
+    expect(files.filter(file => !tags.has(file))).toEqual([]);
+    expect(journal.entries.filter(entry => !files.includes(entry.tag)).map(entry => entry.tag)).toEqual([]);
+
+    // The journal's `when` stamps must ascend, or the runner's
+    // last-applied watermark could skip a migration that was never applied.
+    const whens = journal.entries.map(entry => Number(entry.when));
+    expect([...whens].sort((a, b) => a - b)).toEqual(whens);
   });
 
   it("skips migrations already recorded by a prior run", async () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { agentApprovals, agentProfiles, agentEmails } from "../drizzle/schema";
+import { agentApprovals, agentProfiles, agentEmails, chats } from "../drizzle/schema";
 
 /**
  * Scripted drizzle stand-in: each select/insert/update shifts the next
@@ -17,12 +17,14 @@ const script = vi.hoisted(() => {
     updates: [] as Row[][],
     insertCalls: [] as Array<{ table: unknown; values: Row }>,
     updateCalls: [] as Array<{ table: unknown; values: Row; condition: unknown }>,
+    selectCalls: [] as unknown[],
     reset() {
       this.selects = [];
       this.inserts = [];
       this.updates = [];
       this.insertCalls = [];
       this.updateCalls = [];
+      this.selectCalls = [];
     },
   };
   const take = (queue: Row[][], fallback: Row[] = []) =>
@@ -32,7 +34,10 @@ const script = vi.hoisted(() => {
       from: () => {
         const rows = take(state.selects);
         const chain: any = {
-          where: () => chain,
+          where: (condition: unknown) => {
+            state.selectCalls.push(condition);
+            return chain;
+          },
           orderBy: () => chain,
           limit: () => Promise.resolve(rows),
           then: (onF: any, onR: any) => Promise.resolve(rows).then(onF, onR),
@@ -129,10 +134,12 @@ const {
   createAgentForUser,
   describeApprovalsForPrompt,
   decideApprovalForUser,
+  emailChatTitleFor,
   findAgentByAgentMailInboxId,
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
   slugifyAgentName,
+  startAgentChatForUser,
   syncAgentMailInboxForUser,
   updateAgentForUser,
   walletRemainingCredits,
@@ -716,15 +723,24 @@ const mira = agentRow({
   agentmailInboxId: "inbox-1",
   agentmailAddress: "mira-4f2a@agentmail.to",
 });
-/** The select queue a claim walks for a sender that passes every guard. */
+/**
+ * The select queue a claim walks for a sender that passes every guard: the
+ * agent, its owner's workspace, the known-agent lookup, the rate limit, and
+ * finally the thread's chat (empty - the thread is new, so the claim opens
+ * one).
+ */
 const passingClaimSelects = () => [
   [mira],
   [{ id: 5, ownerId: 1 }],
   [],
   [],
-  [mira],
-  [{ id: "chat000000000000000001" }],
+  [],
 ];
+/**
+ * The insert queue that claim walks: the inbound mail row first, then the new
+ * chat the thread's first message opens.
+ */
+const passingClaimInserts = () => [[{}], [{ id: "chat000000000000000001" }]];
 
 describe("inbound auto-reply claims", () => {
   it("maps a webhook inbox back to its agent and workspace owner", async () => {
@@ -742,8 +758,9 @@ describe("inbound auto-reply claims", () => {
     expect(await findAgentByAgentMailInboxId("inbox-unknown")).toBeUndefined();
   });
 
-  it("records the inbound mail, claims it once, and returns the personal chat", async () => {
+  it("records the inbound mail, claims it once, and opens the thread's chat", async () => {
     script.state.selects = passingClaimSelects();
+    script.state.inserts = passingClaimInserts();
     script.state.updates = [[{ id: 9 }]];
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
     expect(claim.claimed).toBe(true);
@@ -759,17 +776,59 @@ describe("inbound auto-reply claims", () => {
       fromAddress: "owner@example.com",
       toAddress: "mira-4f2a@agentmail.to",
       messageId: "msg-1",
+      threadId: "thr-1",
       subject: "Quick question",
     });
-    // The claim marks the row, guarded so a retry cannot claim it twice.
+    // The claim marks the row - guarded so a retry cannot claim it twice -
+    // and records which chat the thread now lives in.
     expect(script.state.updateCalls[0].values).toMatchObject({
       autoRepliedAt: expect.any(Date),
+      chatId: "chat000000000000000001",
+      threadId: "thr-1",
     });
     expect(script.state.updateCalls[0].condition).toBeDefined();
+    // The new chat belongs to the agent and is titled with the mail's subject.
+    const chatInsert = script.state.insertCalls.find(call => call.table === chats);
+    expect(chatInsert?.values).toMatchObject({
+      workspaceId: 5,
+      agentId: 11,
+      kind: "personal",
+      title: "Quick question",
+    });
+  });
+
+  it("keeps a continuing thread in the chat it already opened", async () => {
+    script.state.selects = [
+      [mira],
+      [{ id: 5, ownerId: 1 }],
+      [],
+      [],
+      [{ chatId: "chat000000000000000007" }],
+    ];
+    script.state.updates = [[{ id: 9 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim.claimed).toBe(true);
+    if (claim.claimed) expect(claim.chatId).toBe("chat000000000000000007");
+    // The lookup is scoped to this thread, so another conversation's chat can
+    // never be picked up by mistake...
+    expect(sqlText(script.state.selectCalls[4])).toContain("thr-1");
+    // ...and no second chat is opened for a thread that already has one.
+    expect(script.state.insertCalls.filter(call => call.table === chats)).toHaveLength(0);
+  });
+
+  it("does not claim mail when no chat can be created for it", async () => {
+    script.state.selects = passingClaimSelects();
+    // No chat row comes back from the insert, so the claim is skipped rather
+    // than answered in a conversation the user cannot see.
+    script.state.inserts = [[{}], [{}]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim).toEqual({ claimed: false, reason: "no-chat" });
+    expect(script.state.updateCalls).toHaveLength(0);
   });
 
   it("stops a webhook retry once the email is already claimed", async () => {
     script.state.selects = passingClaimSelects();
+    script.state.inserts = passingClaimInserts();
     script.state.updates = [[]];
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
     expect(claim).toEqual({ claimed: false, reason: "already-replied" });
@@ -821,5 +880,36 @@ describe("inbound auto-reply claims", () => {
       inboundEvent({ from: "spammer@example.com" })
     );
     expect(claim).toEqual({ claimed: false, reason: "rate-limited" });
+  });
+});
+
+describe("email thread chats", () => {
+  it("titles a thread's chat with the mail's subject", () => {
+    expect(emailChatTitleFor("Quick question", "owner@example.com")).toBe(
+      "Quick question"
+    );
+    expect(emailChatTitleFor("RE: Quick question", "owner@example.com")).toBe(
+      "Quick question"
+    );
+    expect(emailChatTitleFor("", "owner@example.com")).toBe(
+      "Email from owner@example.com"
+    );
+    expect(emailChatTitleFor("   ", "")).toBe("Email from someone");
+    expect(emailChatTitleFor("a".repeat(300), "owner@example.com")).toHaveLength(
+      160
+    );
+  });
+
+  it("keeps email threads out of the agent's personal chat", async () => {
+    script.state.selects = [[mira], []];
+    const chat = await startAgentChatForUser(1, 11);
+    // Without the exclusion the newest email thread would win the "most
+    // recently updated" lookup, and opening a chat with the agent would land
+    // the user inside somebody else's mail.
+    expect(sqlText(script.state.selectCalls[1])).toContain("agent_emails");
+    expect(
+      script.state.insertCalls.some(call => call.table === chats)
+    ).toBe(true);
+    expect(chat).toBeDefined();
   });
 });

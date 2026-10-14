@@ -1179,7 +1179,16 @@ ${
     // row (a teammate's reply is), so the internal note is added as its own
     // model-visible turn instead of overwriting history; role alternation is
     // kept by folding it into a trailing user row when one exists.
-    if (historyTurns.length && options.persistUserMessage !== false)
+    // A caller that passed `persistedUserMessage` did write this turn's row
+    // itself - an inbound email writes the mail - so history ends with this
+    // turn and the model-facing version replaces it. Appending there would
+    // send the same content twice: the mail row, plus a prompt that already
+    // carries that mail.
+    if (
+      historyTurns.length &&
+      (options.persistUserMessage !== false ||
+        options.persistedUserMessage !== undefined)
+    )
       historyTurns[historyTurns.length - 1] = currentTurn;
     else if (
       historyTurns.length &&

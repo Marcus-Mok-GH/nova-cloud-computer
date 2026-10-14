@@ -63,6 +63,36 @@ export async function deleteNetlifySite(siteId: string) {
   }
 }
 
+/**
+ * Writes environment variables onto a site (create-or-update per key). Netlify
+ * stores them on the site itself, so they persist across redeploys and are
+ * available to the site's build, functions and runtime injection. Keys that do
+ * not exist yet are created; existing keys get their value replaced. Keys not
+ * mentioned here are left untouched.
+ */
+export async function setSiteEnvVars(
+  siteId: string,
+  vars: Array<{ key: string; value: string }>
+): Promise<void> {
+  if (vars.length === 0) return;
+  const existing = await netlifyFetch(`/sites/${encodeURIComponent(siteId)}/env`)
+    .then(r => r.json() as Promise<Array<{ key: string }>>);
+  const existingKeys = new Set((Array.isArray(existing) ? existing : []).map(entry => entry.key));
+  for (const entry of vars) {
+    const body = JSON.stringify({
+      key: entry.key,
+      // "all" makes the value apply to every deploy context.
+      values: [{ value: entry.value, context: "all" }],
+    });
+    const path = `/sites/${encodeURIComponent(siteId)}/env`;
+    await netlifyFetch(existingKeys.has(entry.key) ? `${path}/${encodeURIComponent(entry.key)}` : path, {
+      method: existingKeys.has(entry.key) ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  }
+}
+
 function sha1(content: Buffer) {
   return createHash("sha1").update(content).digest("hex");
 }

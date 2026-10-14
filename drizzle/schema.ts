@@ -19,6 +19,8 @@ export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_c
 export const inferenceQueueStatus = pgEnum("inference_queue_status", ["waiting", "running", "completed", "failed", "cancelled"]);
 /** Lifecycle of an agent action the user must confirm: pending review, executed (approved and carried out), denied (declined), or failed (approved but not carried out, e.g. the wallet ran out of budget). */
 export const agentApprovalStatus = pgEnum("agent_approval_status", ["pending", "executed", "denied", "failed"]);
+/** Lifecycle of a durable background process: alive and beating, closed normally, or dead-lettered once its resume budget is spent. */
+export const runningProcessStatus = pgEnum("running_process_status", ["running", "completed", "failed"]);
 
 export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique() });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
@@ -320,3 +322,48 @@ export const agentEmails = pgTable("agent_emails", {
   uniqueIndex("agent_emails_message_id_unique").on(table.messageId),
 ]);
 export type AgentEmailRow = typeof agentEmails.$inferSelect;
+
+export type RunningProcessPayload = {
+  /** editor: the coding task, its supporting context, and the target language. */
+  task?: string;
+  context?: string;
+  language?: string;
+  /** agent_run: the segmented-run ledger row this segment belongs to, and the segment it was executing. */
+  runId?: number;
+  segment?: number;
+  /** Whether the run may chain continuation segments (plain web/telegram runs yes, team chats no). */
+  chainable?: boolean;
+};
+/**
+ * Durable ledger of background work in flight. Every long-lived process - an
+ * agent-run segment, an autonomous editor (coding specialist) task - registers a
+ * row BEFORE it starts working and beats it while it runs. When Vercel kills the
+ * invocation the heartbeat stops with the process, so a later sweep finds the
+ * orphaned row in the database and resumes the work in a fresh invocation instead
+ * of losing it - an interrupted editor task keeps running on its own, and the
+ * main agent does not have to recall its sub-agents by hand.
+ */
+export const runningProcesses = pgTable("running_processes", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** The conversation the work belongs to: the resume posts its result here, and sibling processes in the same chat defer to each other. */
+  chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "cascade" }),
+  /** "editor" - one autonomous coding-specialist task. "agent_run" - one segment of a segmented agent run. */
+  kind: varchar("kind", { length: 32 }).default("editor").notNull(),
+  status: runningProcessStatus("status").default("running").notNull(),
+  /** Everything a fresh invocation needs to pick the work back up. */
+  payload: jsonb("payload").$type<RunningProcessPayload>().default({}).notNull(),
+  /** Liveness beacon. A row whose beacon stopped while its status is still running is a process the platform killed mid-flight. */
+  heartbeatAt: timestamp("heartbeatAt", { withTimezone: true }).defaultNow().notNull(),
+  /** Resume claims so far; the reaper dead-letters a row once it burns through the cap instead of retrying a doomed task forever. */
+  attempts: integer("attempts").default(0).notNull(),
+  errorMessage: varchar("errorMessage", { length: 1200 }),
+  startedAt: timestamp("startedAt", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completedAt", { withTimezone: true }),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  index("running_processes_status_heartbeat_idx").on(table.status, table.heartbeatAt),
+  index("running_processes_chat_idx").on(table.chatId),
+]);
+export type RunningProcess = typeof runningProcesses.$inferSelect;

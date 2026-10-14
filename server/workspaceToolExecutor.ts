@@ -86,6 +86,7 @@ import {
   presentTelegramFile,
   sendTelegramMessage,
 } from "./telegram";
+import { trackRunningProcess } from "./runningProcesses";
 import { runThinkerTask } from "./thinker";
 import { planFileName } from "./ultraplan";
 import {
@@ -1811,6 +1812,15 @@ export async function executeWorkspaceTool(
       const context = str(args.context) || undefined;
       const language = str(args.language) || undefined;
       const startedAt = Date.now();
+      // Durable ledger: the specialist task registers a running-process row BEFORE it starts, so when the platform
+      // kills this invocation mid-task the reaper reconnects the editor to the same sandbox and finishes the coding
+      // work in a fresh invocation - the sub-agent keeps running on its own instead of the main agent having to recall
+      // it. Only the autonomous (sandbox) shape is resumable; the single-shot call is one bounded request whose result
+      // dies with this invocation by design.
+      const process = sandbox && chatId
+        ? await trackRunningProcess({ workspaceId: computer.workspace.id, chatId, kind: "editor", payload: { task, context, language } }).catch(() => undefined)
+        : undefined;
+      let processStatus: "completed" | "failed" = "completed";
       // One coding task, two possible shapes: with a live sandbox the
       // specialist works autonomously (it lists, reads and writes workspace
       // files and runs commands itself, and its writes sync back into the
@@ -1950,6 +1960,9 @@ export async function executeWorkspaceTool(
           },
         };
       } catch (error) {
+        // The task failed inside this invocation: the durable row closes with it - only a KILLED invocation leaves
+        // its row behind for the reaper.
+        processStatus = "failed";
         const message = specialistError(error);
         return {
           ok: false,
@@ -1971,6 +1984,9 @@ export async function executeWorkspaceTool(
         };
       } finally {
         if (progressTimer) clearInterval(progressTimer);
+        // Close the durable row for this task; a killed invocation never reaches this line, which is exactly how its
+        // row becomes resumable.
+        await process?.finish(processStatus);
       }
     }
     case "run_bash": {

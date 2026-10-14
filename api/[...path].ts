@@ -39,6 +39,19 @@ async function ensureSchemaReady() {
   await getCoDeployedModule().ensureDatabaseSchema();
 }
 
+/**
+ * Any request that reaches the API is a chance to notice processes the platform killed earlier: a throttled,
+ * fire-and-forget sweep reads the durable running-process ledger and resumes the orphans in a fresh invocation, so an
+ * interrupted editor task or agent run keeps going without the user (or the main agent) having to restart it by hand.
+ */
+function kickProcessRecoverySweep() {
+  try {
+    getCoDeployedModule().kickRunningProcessRecovery();
+  } catch {
+    // The sweep is opportunistic: when the ledger (or the bundle) is not ready yet, the next request tries again.
+  }
+}
+
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
 const REQUEST_HEADERS = ["accept", "accept-language", "authorization", "content-type", "cookie", "origin", "referer", "user-agent"] as const;
 
@@ -201,6 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) {
     await ensureSchemaReady();
+    kickProcessRecoverySweep();
     return getCoDeployedApp()(req, res);
   }
 
@@ -208,5 +222,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
   await ensureSchemaReady();
+  kickProcessRecoverySweep();
   return getCoDeployedApp()(req, res);
 }

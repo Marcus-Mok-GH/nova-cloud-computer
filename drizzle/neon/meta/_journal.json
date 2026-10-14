@@ -344,6 +344,13 @@
       "when": 1791982138782,
       "tag": "0048_agent_email_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791986563499,
+      "tag": "0049_chat_email_thread",
+      "breakpoints": true
     }
   ]
 }

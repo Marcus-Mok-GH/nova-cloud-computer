@@ -59,9 +59,17 @@ export const chats = pgTable("chats", {
   agentId: integer("agentId").references((): any => agentProfiles.id, { onDelete: "set null" }),
   /** The shared goal an agent team chat works toward. */
   teamGoal: text("teamGoal"),
+  /**
+   * The email thread this chat holds - set only on chats opened by inbound
+   * mail. Unique per agent, so a thread resolves to exactly one chat even when
+   * two of its messages arrive at the same instant; null on every other chat.
+   */
+  emailThreadId: varchar("emailThreadId", { length: 200 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
-});
+}, table => [
+  uniqueIndex("chats_agent_email_thread_unique").on(table.workspaceId, table.agentId, table.emailThreadId),
+]);
 export const chatMessages = pgTable("chat_messages", { id: serial("id").primaryKey(), chatId: varchar("chatId", { length: 24 }).notNull().references(() => chats.id, { onDelete: "cascade" }), role: chatMessageRole("role").notNull(), content: text("content").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
 export const conversationMemories = pgTable("conversation_memories", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "cascade" }),
   /** The agent this memory belongs to; null = the workspace's shared (default Nova) memory scope. Each personal agent remembers on its own. */
@@ -307,14 +315,15 @@ export const agentEmails = pgTable("agent_emails", {
   messageId: varchar("messageId", { length: 200 }),
   /**
    * AgentMail thread id. A thread is one email conversation, so every message
-   * that shares it belongs to the same chat. Null for internal mail.
+   * that shares it belongs to the same chat; resolution goes through
+   * chats.emailThreadId, which is what makes that mapping race-free. Null for
+   * internal mail.
    */
   threadId: varchar("threadId", { length: 200 }),
   /**
-   * The chat this thread's auto-reply runs in. Set when the claim opens (or
-   * finds) the thread's chat, so the next message in the thread continues it;
-   * nulled when that chat is deleted, which sends the next message to a fresh
-   * chat instead of a missing one.
+   * The chat this message's run happened in, recorded when the claim wins.
+   * Nulled when that chat is deleted (the thread then opens a fresh chat on
+   * its next message).
    */
   chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "set null" }),
   /**

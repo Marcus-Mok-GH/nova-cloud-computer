@@ -94,6 +94,14 @@ export type WorkspaceAgentOptions = {
    */
   persistUserMessage?: boolean;
   /**
+   * What to write into the ledger when the run owns the user-message write.
+   * The model still receives `content` (which may frame that message with
+   * instructions the user never typed), so a caller can persist what the user
+   * actually sent instead of the prompt built around it. Absent falls back to
+   * `content`, the behavior every other run has.
+   */
+  persistedUserMessage?: string;
+  /**
    * True when an inbound email triggered this run. The caller delivers the
    * final end_turn reply as the email reply, so send_agent_email is withheld
    * - otherwise the agent could queue a second, approval-gated copy of a mail

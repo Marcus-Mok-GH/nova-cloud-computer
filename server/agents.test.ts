@@ -51,8 +51,12 @@ const script = vi.hoisted(() => {
       values: (values: Row) => {
         state.insertCalls.push({ table, values });
         const rows = take(state.inserts, [{}]);
+        const failure = rows[0] instanceof Error ? rows[0] : undefined;
         return {
-          returning: async () => rows,
+          returning: async () => {
+            if (failure) throw failure;
+            return rows;
+          },
           onConflictDoNothing: () => ({
             then: (onF: any, onR: any) => Promise.resolve(rows).then(onF, onR),
           }),
@@ -728,6 +732,12 @@ const mira = agentRow({
   agentmailInboxId: "inbox-1",
   agentmailAddress: "mira-4f2a@agentmail.to",
 });
+
+/** A Postgres unique violation, as drizzle surfaces it (SQLSTATE 23505). */
+const uniqueViolation = () =>
+  Object.assign(new Error("duplicate key value violates unique constraint"), {
+    code: "23505",
+  });
 /**
  * The select queue a claim walks for a sender that passes every guard: the
  * agent, its owner's workspace, the known-agent lookup, the rate limit, and
@@ -792,14 +802,40 @@ describe("inbound auto-reply claims", () => {
       threadId: "thr-1",
     });
     expect(script.state.updateCalls[0].condition).toBeDefined();
-    // The new chat belongs to the agent and is titled with the mail's subject.
+    // The new chat belongs to the agent, is titled with the mail's subject,
+    // and is keyed to the thread it holds.
     const chatInsert = script.state.insertCalls.find(call => call.table === chats);
     expect(chatInsert?.values).toMatchObject({
       workspaceId: 5,
       agentId: 11,
       kind: "personal",
       title: "Quick question",
+      emailThreadId: "thr-1",
     });
+  });
+
+  it("reuses the chat a concurrent delivery opened for the same thread", async () => {
+    script.state.selects = [
+      [mira],
+      [{ id: 5, ownerId: 1 }],
+      [],
+      [],
+      // First lookup: nothing yet. Then the winner's chat, which the unique
+      // index guarantees is there by the time this call looks again.
+      [],
+      [{ id: "chat000000000000000009" }],
+    ];
+    script.state.inserts = [[{}], [uniqueViolation()]];
+    script.state.updates = [[{ id: 9 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim.claimed).toBe(true);
+    if (claim.claimed) expect(claim.chatId).toBe("chat000000000000000009");
+    // The insert lost the race before any chat row existed, so there is
+    // nothing of ours left to remove and no second conversation for the thread.
+    expect(script.state.deleteCalls).toHaveLength(0);
+    expect(
+      script.state.insertCalls.filter(call => call.table === chats)
+    ).toHaveLength(1);
   });
 
   it("keeps a continuing thread in the chat it already opened", async () => {
@@ -808,7 +844,7 @@ describe("inbound auto-reply claims", () => {
       [{ id: 5, ownerId: 1 }],
       [],
       [],
-      [{ chatId: "chat000000000000000007" }],
+      [{ id: "chat000000000000000007" }],
     ];
     script.state.updates = [[{ id: 9 }]];
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
@@ -846,10 +882,11 @@ describe("inbound auto-reply claims", () => {
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
     expect(claim).toEqual({ claimed: false, reason: "already-replied" });
     // The run never starts, so a chat this call opened would sit in the user's
-    // list with no messages in it.
-    expect(
-      script.state.deleteCalls.filter(call => call.table === chats)
-    ).toHaveLength(1);
+    // list with no messages in it - and the delete only takes one that no
+    // message has claimed in the meantime.
+    const cleanup = script.state.deleteCalls.find(call => call.table === chats);
+    expect(cleanup).toBeDefined();
+    expect(sqlText(cleanup!.condition)).toContain("agent_emails");
   });
 
   it("keeps a thread's chat when the claim is lost after reusing it", async () => {
@@ -858,7 +895,7 @@ describe("inbound auto-reply claims", () => {
       [{ id: 5, ownerId: 1 }],
       [],
       [],
-      [{ chatId: "chat000000000000000007" }],
+      [{ id: "chat000000000000000007" }],
     ];
     script.state.updates = [[]];
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
@@ -879,6 +916,10 @@ describe("inbound auto-reply claims", () => {
       Date
     );
     expect(script.state.updateCalls[0].values).not.toHaveProperty("threadId");
+    // ...and it opens a conversation keyed to nothing but its own message, so
+    // it neither joins nor pollutes another message's thread.
+    const chatInsert = script.state.insertCalls.find(call => call.table === chats);
+    expect(chatInsert?.values.emailThreadId).toBe("msg:msg-1");
   });
 
   it("never auto-replies to the agent's own address, and does not store it", async () => {
@@ -952,8 +993,9 @@ describe("email thread chats", () => {
     const chat = await startAgentChatForUser(1, 11);
     // Without the exclusion the newest email thread would win the "most
     // recently updated" lookup, and opening a chat with the agent would land
-    // the user inside somebody else's mail.
-    expect(sqlText(script.state.selectCalls[1])).toContain("agent_emails");
+    // the user inside somebody else's mail: only a chat with no email thread
+    // counts as the personal one.
+    expect(sqlText(script.state.selectCalls[1])).toContain("is null");
     expect(
       script.state.insertCalls.some(call => call.table === chats)
     ).toBe(true);

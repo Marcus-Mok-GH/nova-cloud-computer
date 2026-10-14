@@ -109,18 +109,19 @@ export async function handleAgentMailInboundEvent(
   // ledger should show as the user's message; the run's prompt (mail plus the
   // instructions for answering it) is model-facing. A persist that fails only
   // falls back to the run writing its own copy - the reply must not be lost
-  // over a chat row.
+  // over a chat row - and the fallback writes the mail too, never the prompt.
+  const emailUserMessage = inboundEmailUserMessage({
+    from: event.from,
+    subject: event.subject,
+    text: event.text,
+  });
   let emailPersisted = false;
   try {
     emailPersisted = Boolean(
       await appendChatMessageForUser(ownerId, {
         chatId,
         role: "user",
-        content: inboundEmailUserMessage({
-          from: event.from,
-          subject: event.subject,
-          text: event.text,
-        }),
+        content: emailUserMessage,
       })
     );
   } catch (error) {
@@ -146,6 +147,7 @@ export async function handleAgentMailInboundEvent(
         agentChat: { profile: toProfileContext(agent) },
         emailReply: true,
         persistUserMessage: !emailPersisted,
+        persistedUserMessage: emailUserMessage,
         deadlineAtMs: Date.now() + MAX_RUN_BUDGET_MS,
       }
     );

@@ -9,39 +9,51 @@ else the user had ever said to that agent. What the chat showed as the user's
 message was not even the mail, but the run's prompt about the mail.
 
 Each email thread is now its own chat. server/agents.ts resolves the run's
-chat through the AgentMail thread id instead of reusing the personal one: the
-thread's first message opens a brand-new chat titled with its subject (the
-usual Re:/Fwd: prefix trimmed, "Email from <sender>" when the subject is empty),
-and every later message in that thread finds the same chat again. The thread id
-and the chat it is held in are stored on the inbound row (agent_emails.threadId
-and agent_emails.chatId, migration 0048), and chatId is a SET NULL foreign key,
-so deleting a chat releases its threads to the next message rather than pointing
-them at nothing. The claim is unchanged and still exactly-once: the chat is
-resolved before the guarded UPDATE, so a chat that cannot be created never
-consumes the one auto-reply. Two races are cleaned up rather than papered
-over - a claim lost to a concurrent delivery removes the empty chat it opened
-(it has no messages and is recorded nowhere), and a delivery that arrived
-without a thread id never overwrites one that is stored.
+chat through chats.emailThreadId (migration 0049) instead of reusing the
+personal one: the thread's first message opens a brand-new chat titled with
+its subject (the usual Re:/Fwd: prefix trimmed, "Email from <sender>" when the
+subject is empty), and every later message in that thread finds the same chat
+again. A unique index on (workspaceId, agentId, emailThreadId) is what holds
+one thread to one chat - when two messages of a brand-new thread arrive at the
+same instant, one insert wins and the loser reuses the winner's chat instead
+of opening a second conversation for the same thread. The constraint is doing
+that work on purpose: the runtime reaches Neon over the HTTP driver, which has
+no transaction to serialize inside. The inbound row still records where each
+message was answered (agent_emails.threadId and agent_emails.chatId, migration
+0048), and chatId is a SET NULL foreign key, so deleting a chat releases its
+messages rather than pointing them at nothing. The claim is unchanged and
+still exactly-once: the chat is resolved before the guarded UPDATE, so a chat
+that cannot be created never consumes the one auto-reply. Two smaller races
+are cleaned up rather than papered over - a claim lost to a concurrent
+delivery removes the empty chat it opened (it has no messages and is recorded
+nowhere), and a delivery that arrived without a thread id never overwrites one
+that is stored.
 
 The reply still goes out by email as before, as a reply to the sender in the
 same thread. What changed on the way is the chat's ledger: server/agentEmailReplies.ts
 writes the email itself - "Email from ...", "Subject: ..." and the body - as
 the user's message, and hands the run its prompt (the mail plus the instructions
 for answering it) with persistUserMessage off, so the model gets the
-instructions without them ever appearing as something the user wrote. If that
-write fails, the run falls back to writing its own copy: a lost chat row must
-never cost the user the reply.
+instructions without them ever appearing as something the user wrote. The
+prompt must never reach the ledger on the fallback path either, so the run now
+takes a persistedUserMessage of its own: when the pre-persist fails, the run's
+write carries the mail rather than the instructions built around it, and a
+lost chat row still never costs the user the reply.
 
 Because those chats belong to their threads, the agent's personal chat is now
-looked up with a NOT EXISTS against agent_emails.chatId - otherwise the newest
+looked up with chats.emailThreadId IS NULL - otherwise the newest
 email conversation would win the "most recently updated" lookup and the
 "Chat with <agent>" button on the Agents page would drop the user inside
-somebody's mail.
+somebody's mail. A mail that arrives with no thread id gets a key nothing else
+can share (its own message id), so it still has a conversation of its own
+instead of borrowing - or contaminating - somebody else's.
 
 Files: drizzle/schema.ts, drizzle/neon/0048_agent_email_threads.sql,
-drizzle/neon/meta/0048_snapshot.json, drizzle/neon/meta/_journal.json,
+drizzle/neon/0049_chat_email_thread.sql, drizzle/neon/meta/0048_snapshot.json,
+drizzle/neon/meta/0049_snapshot.json, drizzle/neon/meta/_journal.json,
 server/agents.ts, server/agents.test.ts, server/agentEmailReplies.ts,
-server/agentEmailReplies.test.ts, README.md, CHANGELOG.md. 1,236 tests pass
+server/agentEmailReplies.test.ts, server/workspaceAgent.ts,
+server/workspaceAgentTypes.ts, README.md, CHANGELOG.md. 1,237 tests pass
 (4 skipped); typecheck carries only the two pre-existing
 dependency-duplication errors in appTree.tsx and vite.config.ts.
 

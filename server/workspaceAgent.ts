@@ -889,8 +889,16 @@ ${
 
   // A team hand-off turn is context for the next teammate only: the user's
   // real message was already persisted by the first teammate's run.
+  // `persistedUserMessage` is the mirror case: the run does own the write, but
+  // the caller has already framed `content` with instructions the user never
+  // typed (an inbound email), so the ledger gets what was actually sent while
+  // the model still reads the framed version.
   if (options.persistUserMessage !== false) {
-    await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+    await appendChatMessageForUser(ownerId, {
+      chatId,
+      role: "user",
+      content: options.persistedUserMessage ?? content,
+    });
   }
 
   // `/ultraplan <task>` turns this turn into a deep, planning-only pass. The

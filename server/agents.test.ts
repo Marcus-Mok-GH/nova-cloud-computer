@@ -17,6 +17,7 @@ const script = vi.hoisted(() => {
     updates: [] as Row[][],
     insertCalls: [] as Array<{ table: unknown; values: Row }>,
     updateCalls: [] as Array<{ table: unknown; values: Row; condition: unknown }>,
+    deleteCalls: [] as Array<{ table: unknown; condition: unknown }>,
     selectCalls: [] as unknown[],
     reset() {
       this.selects = [];
@@ -24,6 +25,7 @@ const script = vi.hoisted(() => {
       this.updates = [];
       this.insertCalls = [];
       this.updateCalls = [];
+      this.deleteCalls = [];
       this.selectCalls = [];
     },
   };
@@ -67,8 +69,11 @@ const script = vi.hoisted(() => {
         },
       }),
     }),
-    delete: () => ({
-      where: () => ({ returning: async () => [{ id: 1 }] }),
+    delete: (table: unknown) => ({
+      where: (condition: unknown) => {
+        state.deleteCalls.push({ table, condition });
+        return { returning: async () => [{ id: 1 }] };
+      },
     }),
   };
   return { state, fakeDb };
@@ -832,6 +837,48 @@ describe("inbound auto-reply claims", () => {
     script.state.updates = [[]];
     const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
     expect(claim).toEqual({ claimed: false, reason: "already-replied" });
+  });
+
+  it("removes the chat it opened when the claim is lost to a race", async () => {
+    script.state.selects = passingClaimSelects();
+    script.state.inserts = passingClaimInserts();
+    script.state.updates = [[]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim).toEqual({ claimed: false, reason: "already-replied" });
+    // The run never starts, so a chat this call opened would sit in the user's
+    // list with no messages in it.
+    expect(
+      script.state.deleteCalls.filter(call => call.table === chats)
+    ).toHaveLength(1);
+  });
+
+  it("keeps a thread's chat when the claim is lost after reusing it", async () => {
+    script.state.selects = [
+      [mira],
+      [{ id: 5, ownerId: 1 }],
+      [],
+      [],
+      [{ chatId: "chat000000000000000007" }],
+    ];
+    script.state.updates = [[]];
+    const claim = await claimInboundAgentEmailForAutoReply(inboundEvent());
+    expect(claim).toEqual({ claimed: false, reason: "already-replied" });
+    // That chat already holds an earlier message of the same thread.
+    expect(script.state.deleteCalls).toHaveLength(0);
+  });
+
+  it("never overwrites a stored thread id with a delivery that has none", async () => {
+    script.state.selects = passingClaimSelects();
+    script.state.inserts = passingClaimInserts();
+    script.state.updates = [[{ id: 9 }]];
+    const claim = await claimInboundAgentEmailForAutoReply(
+      inboundEvent({ threadId: "" })
+    );
+    expect(claim.claimed).toBe(true);
+    expect(script.state.updateCalls[0].values.autoRepliedAt).toBeInstanceOf(
+      Date
+    );
+    expect(script.state.updateCalls[0].values).not.toHaveProperty("threadId");
   });
 
   it("never auto-replies to the agent's own address, and does not store it", async () => {

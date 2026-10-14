@@ -18,7 +18,10 @@ and agent_emails.chatId, migration 0048), and chatId is a SET NULL foreign key,
 so deleting a chat releases its threads to the next message rather than pointing
 them at nothing. The claim is unchanged and still exactly-once: the chat is
 resolved before the guarded UPDATE, so a chat that cannot be created never
-consumes the one auto-reply.
+consumes the one auto-reply. Two races are cleaned up rather than papered
+over - a claim lost to a concurrent delivery removes the empty chat it opened
+(it has no messages and is recorded nowhere), and a delivery that arrived
+without a thread id never overwrites one that is stored.
 
 The reply still goes out by email as before, as a reply to the sender in the
 same thread. What changed on the way is the chat's ledger: server/agentEmailReplies.ts
@@ -38,7 +41,7 @@ somebody's mail.
 Files: drizzle/schema.ts, drizzle/neon/0048_agent_email_threads.sql,
 drizzle/neon/meta/0048_snapshot.json, drizzle/neon/meta/_journal.json,
 server/agents.ts, server/agents.test.ts, server/agentEmailReplies.ts,
-server/agentEmailReplies.test.ts, README.md, CHANGELOG.md. 1,233 tests pass
+server/agentEmailReplies.test.ts, README.md, CHANGELOG.md. 1,236 tests pass
 (4 skipped); typecheck carries only the two pre-existing
 dependency-duplication errors in appTree.tsx and vite.config.ts.
 

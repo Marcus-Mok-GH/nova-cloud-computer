@@ -323,6 +323,13 @@
       "when": 1791796639953,
       "tag": "0045_nova_api_error_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791803295045,
+      "tag": "0046_workspace_env_vars",
+      "breakpoints": true
     }
   ]
 }

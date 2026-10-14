@@ -25,6 +25,8 @@ import {
   getDailyCreditStatusForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
+  listWorkspaceEnvVarsForUser,
+  saveWorkspaceEnvVarsForUser,
   getWorkspaceDashboard,
   listChatMessagesForUser,
   revertChatToMessageForUser,
@@ -281,6 +283,24 @@ export const appRouter = router({
       if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
     }),
+    /** The workspace's environment variables (Settings > Environment). The
+     *  agent only ever sees their names; values come back here so the owner
+     *  can edit what they saved. */
+    environmentVars: protectedProcedure.query(({ ctx }) => listWorkspaceEnvVarsForUser(ctx.user.id)),
+    /** Replaces the workspace's full environment-variable set with the
+     *  submitted list (save semantics: anything omitted is removed). */
+    setEnvironmentVars: protectedProcedure
+      .input(z.object({
+        vars: z.array(z.object({
+          name: z.string().trim().min(1, "A name is required.").max(128),
+          value: z.string().trim().min(1, "A value is required.").max(4096),
+        })).max(100),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const invalid = input.vars.find(entry => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name.trim()));
+        if (invalid) throw new TRPCError({ code: "BAD_REQUEST", message: `'${invalid.name}' is not a valid environment variable name - use letters, digits and underscores, starting with a letter or underscore (e.g. STRIPE_API_KEY).` });
+        return saveWorkspaceEnvVarsForUser(ctx.user.id, input.vars);
+      }),
     /** Factory reset: deletes every workspace file and folder and replaces
      *  the persistent VM with a fresh machine. Guarded by a typed confirm. */
     factoryReset: protectedProcedure.input(z.object({ confirm: z.string().trim().min(1, "Type RESET to confirm.") })).mutation(async ({ ctx, input }) => {

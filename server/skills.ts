@@ -10,7 +10,7 @@
  * prompt on its own - read_skill loads it, which is what keeps a library of
  * skills free until one of them is actually used.
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { workspaceSkills, type WorkspaceSkill } from "../drizzle/schema";
 import { getDb } from "./db";
 
@@ -77,7 +77,7 @@ export async function getSkillForUser(
   const rows = await db
     .select()
     .from(workspaceSkills)
-    .where(eq(workspaceSkills.id, skillId))
+    .where(and(eq(workspaceSkills.id, skillId), eq(workspaceSkills.ownerId, ownerId)))
     .limit(1);
   const row = rows[0];
   return row && row.ownerId === ownerId ? row : null;
@@ -96,10 +96,12 @@ export async function getSkillByNameForUser(
   if (!db) return null;
   const key = name.trim().toLowerCase();
   if (!key) return null;
+  // The owner is part of the lookup, not a follow-up check: names are unique
+  // per owner, so another user's same-named skill must never occupy the row.
   const rows = await db
     .select()
     .from(workspaceSkills)
-    .where(eq(workspaceSkills.name, key))
+    .where(and(eq(workspaceSkills.name, key), eq(workspaceSkills.ownerId, ownerId)))
     .limit(1);
   const row = rows[0];
   return row && row.ownerId === ownerId ? row : null;

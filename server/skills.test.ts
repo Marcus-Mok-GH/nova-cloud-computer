@@ -17,7 +17,6 @@ import {
   renderSkillMarkdown,
   skillDescriptionError,
   skillNameError,
-  skillNameFromTitle,
 } from "@shared/skills";
 
 vi.mock("./db", () => ({ getDb: vi.fn() }));
@@ -233,17 +232,6 @@ describe("Agent Skills format rules", () => {
     ).toBeNull();
     expect(skillDescriptionError("")).toMatch(/Describe/);
     expect(skillDescriptionError("uses <b> tags")).toMatch(/markup/);
-  });
-
-  it("slugifies a human title into a valid skill name", () => {
-    expect(skillNameFromTitle("Weekly Status Report")).toBe(
-      "weekly-status-report"
-    );
-    expect(skillNameFromTitle("  Deploy! (v2)  ")).toBe("deploy-v2");
-    expect(skillNameFromTitle("!!!")).toBe("");
-    expect(skillNameFromTitle("a".repeat(80))).toHaveLength(
-      SKILL_NAME_MAX_LENGTH
-    );
   });
 
   it("renders SKILL.md with frontmatter before the instructions", () => {

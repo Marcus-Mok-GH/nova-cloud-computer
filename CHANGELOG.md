@@ -16,8 +16,8 @@ inputs in server/routers.ts, and the SKILL.md rendering used for export
 cannot drift apart. Skills are stored per user in workspace_skills
 (migration 0050), unique on (ownerId, name), so one user's skills are
 invisible to another and a duplicate name is a CONFLICT rather than a second
-copy. A name that is empty or mistyped is derived from the title the user
-typed, and every validation message says what to change.
+copy. Every validation message says what to change: an empty name, a
+mistyped name, or an over-long field never reaches the store silently.
 
 Nova's agent reads skills but cannot write them. The system prompt carries
 only each skill's name and description - the progressive-disclosure model the

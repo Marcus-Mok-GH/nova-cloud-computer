@@ -34,16 +34,6 @@ export type SkillFields = {
   body?: string | null;
 };
 
-/** Returns a spec-valid skill name for a human title, or "" when nothing usable is left. */
-export function skillNameFromTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, SKILL_NAME_MAX_LENGTH)
-    .replace(/-+$/g, "");
-}
-
 /** Validation for one field: an error message, or null when it is acceptable. */
 export function skillNameError(name: string): string | null {
   const value = name.trim();

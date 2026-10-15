@@ -253,6 +253,24 @@ vi.mock("./memories", () => ({
   deleteMemoryForUser,
 }));
 
+// Skills: the discovery line in the prompt and read_skill's body lookup are
+// mocked here so the run flow can be tested without the skill store; the store
+// itself is covered by skills.test.ts.
+const listSkillsForPrompt = vi.fn(async () => "none yet");
+const getSkillByNameForUser = vi.fn(async () => null);
+vi.mock("./skills", () => ({
+  listSkillsForPrompt,
+  getSkillByNameForUser,
+  formatSkillsForPrompt: vi.fn(async () => "none yet"),
+  listSkillsForUser: vi.fn(async () => []),
+  getSkillForUser: vi.fn(async () => null),
+  createSkillForUser: vi.fn(async () => null),
+  updateSkillForUser: vi.fn(async () => null),
+  deleteSkillForUser: vi.fn(async () => false),
+  SkillNameTakenError: class SkillNameTakenError extends Error {},
+  SkillStorageError: class SkillStorageError extends Error {},
+}));
+
 const deployWebsite = vi.fn(async () => ({
   ok: true,
   attachedEnvVars: [] as string[],
@@ -458,6 +476,32 @@ describe("Nova tool-calling workspace agent", () => {
       expect.arrayContaining([{ role: "user", content: "hi" }])
     );
     expect(computer).toHaveBeenCalled();
+  });
+
+  it("surfaces installed skills as name plus description and offers read_skill", async () => {
+    listSkillsForPrompt.mockResolvedValueOnce(
+      "- weekly-report: Writes the weekly status report. Use when the user asks for the weekly update."
+    );
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({ text: "Here is how that report is written." })
+    );
+    await runWorkspaceAgent(1, 3, "how do I write the weekly report?");
+    const [owner, messages, options] = chatWithAiGateway.mock.calls[0];
+    expect(owner).toBe(1);
+    const system = messages.find(
+      (message: { role: string }) => message.role === "system"
+    ) as { content: string };
+    expect(system.content).toContain("Installed skills");
+    expect(system.content).toContain(
+      "- weekly-report: Writes the weekly status report."
+    );
+    // Discovery only: the skill's instructions are loaded on demand.
+    expect(system.content).toContain("read_skill");
+    const toolNames = options.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toContain("read_skill");
+    expect(toolNames).not.toContain("create_skill");
   });
 
   it("turns a /ultraplan message into a planning-only turn", async () => {
@@ -5112,6 +5156,77 @@ describe("connector tool gating", () => {
           ),
         }),
       ])
+    );
+  });
+
+  it("loads a skill's full instructions through read_skill", async () => {
+    chatWithAiGateway.mockReset();
+    getSkillByNameForUser.mockClear();
+    getSkillByNameForUser.mockResolvedValueOnce({
+      id: 11,
+      ownerId: 1,
+      name: "weekly-report",
+      description: "Writes the weekly status report.",
+      body: "1. Read the shipped changes.\n2. Summarize in five bullets.",
+      createdAt: new Date("2026-10-01T09:00:00Z"),
+      updatedAt: new Date("2026-10-02T09:00:00Z"),
+    } as never);
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-skill",
+              name: "read_skill",
+              arguments: JSON.stringify({ name: "weekly-report" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(chatResult({ text: "Here is the procedure." }))
+      .mockResolvedValueOnce(endTurnReply({ reply: "Here is the procedure." }));
+    await runWorkspaceAgent(1, 3, "write the weekly report");
+    expect(getSkillByNameForUser).toHaveBeenCalledWith(1, "weekly-report");
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call-skill",
+          content: expect.stringContaining("Skill weekly-report -"),
+        }),
+      ])
+    );
+    expect(lastToolResult(secondCallMessages)!.content).toContain(
+      "1. Read the shipped changes."
+    );
+  });
+
+  it("tells the model when the named skill does not exist instead of inventing one", async () => {
+    chatWithAiGateway.mockReset();
+    getSkillByNameForUser.mockClear();
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-skill",
+              name: "read_skill",
+              arguments: JSON.stringify({ name: "made-up-procedure" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        chatResult({ text: "That skill is not installed." })
+      )
+      .mockResolvedValueOnce(
+        endTurnReply({ reply: "That skill is not installed." })
+      );
+    await runWorkspaceAgent(1, 3, "use the made-up-procedure skill");
+    const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
+    expect(lastToolResult(secondCallMessages)!.content).toContain(
+      'No skill named "made-up-procedure"'
     );
   });
 

@@ -1,3 +1,37 @@
+2026-10-15 - Skills: user-authored procedures the agent loads when a task matches one
+
+Nova's agent behaviour was shaped in two places only: the fixed system prompt
+and whatever the user re-typed in chat. Anything reusable - how to write the
+weekly report, how a deploy is verified, the house style for triage - had to
+be pasted into every chat or buried in a memory that competes with every
+other memory for prompt space. Skills give that repeatable know-how a proper
+home in the Agent Skills format (agentskills.io): a kebab-case name, a
+one-line description of when to use it, and a markdown body of instructions.
+
+A new Skills destination (/app/skills) lets the user create, edit, and delete
+skills. The format rules live once in shared/skills.ts - name pattern
+(lowercase letters, numbers, and hyphens, up to 64 characters), description
+up to 1024 characters, body up to 100,000 - so the client form, the zod
+inputs in server/routers.ts, and the SKILL.md rendering used for export
+cannot drift apart. Skills are stored per user in workspace_skills
+(migration 0050), unique on (ownerId, name), so one user's skills are
+invisible to another and a duplicate name is a CONFLICT rather than a second
+copy. A name that is empty or mistyped is derived from the title the user
+typed, and every validation message says what to change.
+
+Nova's agent reads skills but cannot write them. The system prompt carries
+only each skill's name and description - the progressive-disclosure model the
+format is built on - and a read_skill tool loads the body of one skill when
+its description matches the task at hand. read_skill joins the chat-mode and
+ultraplan read-only allowlists; it is deliberately not in the inbound-email
+allowlist, where a mail-triggered run should not fan out into loading
+arbitrary procedure files. The helper that builds the prompt's skill list
+never throws: a skills outage degrades the prompt, it does not fail the chat.
+
+2026-10-14 - Mail gets its own conversation: an email to an agent opens a new chat and is answered in the thread
+
+Mail sent to an agent was answered correctly - the end_turn reply went back
+through AgentMail in the same thread - but the workspace side of that
 2026-10-14 - Mail gets its own conversation: an email to an agent opens a new chat and is answered in the thread
 
 Mail sent to an agent was answered correctly - the end_turn reply went back

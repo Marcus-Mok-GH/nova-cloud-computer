@@ -199,3 +199,11 @@
 - [x] Wire skills into the agent: a name-and-description prompt block plus a read_skill tool in the chat-mode and ultraplan read-only allowlists.
 - [x] Build the Skills destination: list, create/edit dialog with SKILL.md preview, delete confirmation, and loading, empty, and error states.
 - [x] Verify typecheck and the full test suite (store, router, agent, allowlist, and render tests).
+
+# Desktop GUI Browse Tool
+
+- [x] Research the E2B Desktop SDK and its `desktop` template (Ubuntu + XFCE + Chrome for Testing, VNC optional) before changing the tool.
+- [x] Replace the headless agent-browser CLI with a persistent `desktop` sandbox of its own, recorded on the workspace row (migration 0051) and destroyed by the factory reset.
+- [x] Open the Chrome app in that desktop and answer every browse command with a screenshot of the screen, fed back to the model as vision input and saved into the workspace.
+- [x] Verify typecheck and the full test suite (18 new desktop tests plus workspace-agent, citations, and activity-line updates).
+- [ ] Verify the desktop template end to end on a live E2B key: the first browse call boots the machine, Chrome opens the page, and the capture comes back.

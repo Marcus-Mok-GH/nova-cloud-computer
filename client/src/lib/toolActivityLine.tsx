@@ -268,8 +268,8 @@ export function toolLineText(activity: ToolActivity): string {
     case "thinking":
       return "Thinking";
     case "browse": {
-      const cleaned = s("command").replace(/^agent-browser\s+/, "");
-      return cleaned ? `Browse: ${brief(cleaned)}` : "Browse";
+      const command = s("command");
+      return command ? `Browse: ${brief(command)}` : "Browse";
     }
     default:
       return activity.name;

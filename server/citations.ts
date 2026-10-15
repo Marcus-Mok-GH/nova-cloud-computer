@@ -29,8 +29,8 @@ export type Citation = ExaCitation;
 /** Longest title kept whole, so one page title cannot bury the rest. */
 const MAX_TITLE_LENGTH = 120;
 
-/** `open <target>`, with or without the CLI name the model sometimes keeps. */
-const OPEN_COMMAND = /^(?:agent-browser\s+)?open\s+(.+)$/i;
+/** `open <target>` - the browse tool's one command that names a web page. */
+const OPEN_COMMAND = /^open\s+(.+)$/i;
 
 /**
  * Extensions that mark a scheme-less `open` target as a workspace file rather

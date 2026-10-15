@@ -872,14 +872,14 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "browse",
       description:
-        "Drive a real headless Chrome browser in the workspace sandbox through the agent-browser CLI - open pages, read rendered text, click, fill forms, scroll, screenshot pages into workspace files, and take the accessibility snapshot with element refs. Give the agent-browser command WITHOUT the binary name, e.g. 'open https://example.com', 'snapshot', 'read', 'click @e2', 'fill @e3 \"test@example.com\"', 'screenshot page.png'. If the browser is not installed yet, the call starts a one-time background install and asks you to retry in about 2-3 minutes; once installed, calls are fast. Prefer research_web for deep open-ended research; use browse when you need to interact with a specific page.",
+        "Open and operate a real GUI browser: a full Linux desktop with the Chrome app in it, running in the workspace's own desktop sandbox. Every action answers with a screenshot of that screen which you can see, so you steer by looking at pixels instead of guessing at refs: 'open <url>' shows a page in Chrome, then 'click <x> <y>', 'double-click [x y]', 'right-click [x y]', 'move <x> <y>', 'scroll up|down [n]', 'type \"text\"' (click the field first), 'press enter' / 'press ctrl+l', 'wait <ms>', 'screenshot' to look again without acting, 'launch <app>', and 'windows' to list what is open. Coordinates are pixels in the 1280x800 screenshot you were just shown, so read it before clicking. Each capture is also saved into the workspace as a PNG file you can show the user. The first browse call in a workspace boots the desktop machine (a few seconds); later calls reuse the same session, including its logins. Prefer research_web for deep open-ended research; use browse when you need to see or operate a specific page.",
       parameters: {
         type: "object",
         properties: {
           command: {
             type: "string",
             description:
-              "The agent-browser command to run, without the binary, e.g. 'open https://example.com' or 'snapshot'.",
+              "The desktop command to run, e.g. 'open https://example.com', 'screenshot', 'click 420 260', or 'press enter'.",
           },
         },
         required: ["command"],

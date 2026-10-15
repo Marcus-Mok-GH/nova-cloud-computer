@@ -1,3 +1,30 @@
+2026-10-15 - Sandbox wake runs alongside the agent, not in front of it
+
+Every agent run opened the same way: wake the workspace sandbox, wait for E2B
+to connect or boot the machine and restore the durable store into it, persist
+the `wake_sandbox` activity row, and only then build the prompt and start the
+first model round. On a cold or paused machine that put the sandbox's whole
+startup latency in front of the user's first token - on every run, including
+the many that never touch the sandbox (a chat question, a research turn).
+
+`runWorkspaceAgent` (server/workspaceAgent.ts) now starts the wake as a
+promise the moment the workspace is loaded and never awaits it on the run's
+critical path: prompt building and the first model rounds run while E2B is
+still coming up. The wake is awaited exactly where it is needed - before the
+first tool executes, so a tool never sees a half-restored machine, and in the
+finally block, so a wake that outlives its run is still synced back into the
+durable store and paused instead of leaking a running machine. A failed wake
+resolves to undefined and degrades to direct database tools exactly as
+before. The `wake_sandbox` activity row now streams as running when the run
+starts and flips to completed (or failed) when the machine lands, instead of
+appearing only after the wake had already blocked the run.
+
+Files: server/workspaceAgent.ts, server/workspaceAgent.test.ts, CHANGELOG.md.
+Tests: three new workspace-agent tests (the first model round starts while
+the wake is gated behind a held E2B step, a tool parks on the wake and then
+runs on the live machine, a failed wake reports on the row and the run stays
+on direct storage); suite 1278 passed.
+
 2026-10-15 - Browse tool: a real desktop GUI with the Chrome app, not a headless CLI
 
 The browse tool drove a headless Chrome through the agent-browser CLI, and

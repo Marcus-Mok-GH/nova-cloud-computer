@@ -371,6 +371,10 @@ export default function Workspace() {
   const [queueNotice, setQueueNotice] = useState<string | null>(null);
   const [priorityNotice, setPriorityNotice] = useState<string | null>(null);
   const [baselineMessageId, setBaselineMessageId] = useState(0);
+  // While a stop is being carried out, the ledger is held at the rows the
+  // reader could already see: rows the server persists as it winds the run
+  // down must not make the transcript grow after the button was pressed.
+  const [stopLedgerCutoffId, setStopLedgerCutoffId] = useState(0);
   // Briefly set when the reader opens a chat whose turn ran on while they were
   // elsewhere, so the finished reply is not silently waiting on screen.
   const [settledWhileAway, setSettledWhileAway] = useState(false);
@@ -388,6 +392,10 @@ export default function Workspace() {
   // that chat can stop the reader from receiving a turn it no longer shows.
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
+  // Set the moment Stop is pressed. Deltas that arrive while the server winds
+  // the run down are dropped, so the view stops growing the instant the button
+  // is hit instead of when the cancel round-trip finally lands.
+  const stopRequestedRef = useRef(false);
   // Chats left with a turn still running are tracked module-side (not in a ref
   // here) because the chat list must show the same marker after this component
   // unmounts; see `@/lib/awayChats`.
@@ -458,6 +466,8 @@ export default function Workspace() {
   // live transcript instead of in place.
   useEffect(() => {
     stopAllSpeech();
+    stopRequestedRef.current = false;
+    setStopLedgerCutoffId(0);
     setComposerAttachments([]);
     setBaselineMessageId(0);
     setPendingUserContent("");
@@ -560,17 +570,49 @@ export default function Workspace() {
       setQueueNotice(null);
       void runStatus.refetch();
     },
-    onError: error =>
+    onError: error => {
+      // A failed stop leaves the run going: resume applying its stream and
+      // release the held ledger.
+      stopRequestedRef.current = false;
+      setStopLedgerCutoffId(0);
       toast.error(
         error instanceof Error
           ? error.message
           : "Nova could not be stopped. Please try again."
-      ),
+      );
+    },
   });
   const handleStopRun = () => {
     if (!chatId || stopRun.isPending) return;
+    // Freeze the transcript immediately: the run's remaining deltas are
+    // dropped on arrival, so the text - and any thinking/tool updates - stop
+    // growing the moment the button is pressed, however slow the cancel
+    // round-trip (or a cold serverless instance) turns out to be. A queued
+    // turn keeps its notice until the mutation confirms the cancel, so a
+    // failed stop can still be retried.
+    stopRequestedRef.current = true;
+    // Hold the ledger at what is already on screen: rows the server persists
+    // while it winds the run down (a finished tool, a flushed thinking block)
+    // must not appear after the button was pressed. Zero means the chat has no
+    // rows yet, so there is nothing to hold.
+    setStopLedgerCutoffId(current =>
+      current > 0
+        ? current
+        : (savedMessages.data ?? []).reduce(
+            (max, message) => Math.max(max, message.id),
+            0
+          )
+    );
     stopRun.mutate({ chatId });
   };
+  // A stop pressed on work this browser is not streaming - a queued turn, or a
+  // run started elsewhere - has no stream end to release the held ledger, so
+  // release it (and the freeze) the moment the run is no longer active.
+  useEffect(() => {
+    if (agentIsWorking || stopLedgerCutoffId === 0) return;
+    stopRequestedRef.current = false;
+    setStopLedgerCutoffId(0);
+  }, [agentIsWorking, stopLedgerCutoffId]);
   const revertChat = trpc.chats.revert.useMutation();
   // Connector/Telegram status feeds the home dashboard cards. These hooks
   // MUST run before any early return (React error #300 when the chat view
@@ -664,6 +706,11 @@ export default function Workspace() {
     }
   };
   const finalizeStream = async (streamChatId: string): Promise<boolean> => {
+    // The stream has ended: release the stop hold and show the ledger it was
+    // holding back (the run's rows, including the stopped-reply notice, are
+    // persisted by the time the stream closes).
+    stopRequestedRef.current = false;
+    setStopLedgerCutoffId(0);
     // The reader left this conversation while its turn was still streaming.
     // The server's ledger holds the turn and the poller will surface it when
     // that chat is opened again, so do not touch the state on screen now.
@@ -706,6 +753,8 @@ export default function Workspace() {
     setLiveEvents([]);
     setQueueNotice(null);
     setPriorityNotice(null);
+    stopRequestedRef.current = false;
+    setStopLedgerCutoffId(0);
     setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -755,6 +804,10 @@ export default function Workspace() {
             // from must not write its events into the current view. Skipping
             // them here is safe: the persisted ledger carries the same rows.
             if (viewedChatIdRef.current !== targetChatId) continue;
+            // Stop was pressed: freeze the view. Whatever the run streams
+            // while the server winds it down (including the "Stopped" notice
+            // itself) is dropped here and arrives through the ledger refresh.
+            if (stopRequestedRef.current) continue;
             try {
               const parsed = JSON.parse(data) as {
                 type?: string;
@@ -963,7 +1016,14 @@ export default function Workspace() {
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) {
-    const persisted = savedMessages.data ?? [];
+    const ledgerRows = savedMessages.data ?? [];
+    // While a stop is being carried out, hold the ledger at the rows that were
+    // on screen when the button was pressed: rows the server persists while it
+    // winds the run down must not make the transcript grow under the reader.
+    const persisted =
+      stopLedgerCutoffId > 0
+        ? ledgerRows.filter(message => message.id <= stopLedgerCutoffId)
+        : ledgerRows;
     // Internal bookkeeping rows (tool activity is rendered separately,
     // acceptance markers never) stay out of the visible bubble list.
     const visibleMessages = dedupeToolActivityMessages(

@@ -19,7 +19,6 @@ import {
   SKILL_BODY_MAX_LENGTH,
   SKILL_DESCRIPTION_MAX_LENGTH,
   SKILL_NAME_MAX_LENGTH,
-  renderSkillMarkdown,
   skillDescriptionError,
   skillNameError,
 } from "@shared/skills";
@@ -28,10 +27,10 @@ import {
  * The Skills destination: reusable procedures Nova follows on demand, in the
  * open Agent Skills format (name + description + markdown instructions).
  *
- * The library is deliberately discovery-shaped: the agent's prompt carries
- * only each skill's name and description, and it loads a skill's instructions
- * with read_skill when a task matches - so everything a user writes here is
- * reachable from a chat without ever being pasted into every conversation.
+ * The page keeps that three-field shape but hides the format itself: the name
+ * is formatted for the user as they type, hints only appear when something
+ * actually needs fixing, and there is nothing to configure beyond the fields
+ * themselves.
  */
 
 type SkillRow = {
@@ -47,8 +46,21 @@ const cardClass =
   "rounded-2xl border border-border bg-card p-4 dark:border-white/10 dark:bg-card";
 
 /**
- * The whole form's validation, exported so the rule that decides whether the
- * save button is enabled is also the rule the tests exercise.
+ * Whatever the user types becomes a valid skill id, so nobody has to know the
+ * naming rules: "Weekly Report" is quietly saved as "weekly-report".
+ */
+export function formatSkillName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, SKILL_NAME_MAX_LENGTH);
+}
+
+/**
+ * The whole form's validation, exported so the rule that decides whether a
+ * save is accepted is also the rule the tests exercise.
  */
 export function skillFormError(fields: {
   name: string;
@@ -64,7 +76,7 @@ export function skillFormError(fields: {
   );
 }
 
-/** Create/edit dialog: the spec's three fields plus the SKILL.md it becomes. */
+/** Create/edit dialog: the spec's three fields and nothing else. */
 function SkillDialog({
   skill,
   open,
@@ -96,14 +108,21 @@ function SkillDialog({
     onError: error => toast.error(error.message),
   });
 
-  const fields = { name, description, body };
-  const error = skillFormError(fields);
+  // A trailing hyphen while typing ("weekly-report-") is not worth a red
+  // warning: it is dropped on save.
+  const nameValue = name.replace(/-+$/, "");
+  const error = skillFormError({
+    name: nameValue,
+    description: description.trim(),
+    body: body.trim(),
+  });
   // Live hints only once the user has typed something: an untouched field
   // should not glow red the moment the dialog opens.
-  const nameHint = name ? skillNameError(name) : null;
+  const nameHint = nameValue ? skillNameError(nameValue) : null;
   const descriptionHint = description
     ? skillDescriptionError(description)
     : null;
+  const bodyHint = body.trim() ? null : "One step per line. Markdown is fine.";
 
   const save = () => {
     if (error) {
@@ -113,13 +132,13 @@ function SkillDialog({
     if (skill) {
       updateSkill.mutate({
         id: skill.id,
-        name: name.trim(),
+        name: nameValue.trim(),
         description: description.trim(),
         body: body.trim(),
       });
     } else {
       createSkill.mutate({
-        name: name.trim(),
+        name: nameValue.trim(),
         description: description.trim(),
         body: body.trim(),
       });
@@ -127,11 +146,6 @@ function SkillDialog({
   };
 
   const pending = createSkill.isPending || updateSkill.isPending;
-  const frontmatter = renderSkillMarkdown({
-    name: name.trim() || "skill-name",
-    description: description.trim(),
-    body: "",
-  });
 
   return (
     <Dialog
@@ -147,8 +161,8 @@ function SkillDialog({
           </DialogTitle>
           <DialogDescription className="text-left leading-6">
             {skill
-              ? "Update the name, when Nova should use this skill, and the instructions it follows."
-              : "Describe a procedure you repeat. Nova sees the name and description, and loads the instructions when a task matches."}
+              ? "Change the name, when Nova should use it, or the steps it follows."
+              : "What it is called, when Nova should use it, and the steps to follow."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -157,17 +171,12 @@ function SkillDialog({
             <Input
               id="skill-name"
               value={name}
-              onChange={event => setName(event.target.value)}
+              onChange={event => setName(formatSkillName(event.target.value))}
               placeholder="e.g. weekly-report"
               maxLength={SKILL_NAME_MAX_LENGTH}
               autoFocus
             />
-            <p
-              className={`text-xs ${nameHint ? "text-destructive" : "text-muted-foreground"}`}
-            >
-              {nameHint ??
-                "Lowercase letters, numbers, and single hyphens - this is the skill's id."}
-            </p>
+            <Hint error={nameHint} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="skill-description">When to use it</Label>
@@ -175,16 +184,11 @@ function SkillDialog({
               id="skill-description"
               value={description}
               onChange={event => setDescription(event.target.value)}
-              placeholder="What the skill does and when Nova should reach for it - name the situations that should trigger it."
-              rows={3}
+              placeholder="e.g. Writes the weekly report. Use when I ask for the weekly update."
+              rows={2}
               maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
             />
-            <p
-              className={`text-xs ${descriptionHint ? "text-destructive" : "text-muted-foreground"}`}
-            >
-              {descriptionHint ??
-                `${description.trim().length}/${SKILL_DESCRIPTION_MAX_LENGTH} characters. This line is what Nova matches a request against.`}
-            </p>
+            <Hint error={descriptionHint} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="skill-body">Instructions</Label>
@@ -195,36 +199,18 @@ function SkillDialog({
               placeholder={
                 "Step by step, exactly how the task is done...\n1. ...\n2. ..."
               }
-              rows={10}
+              rows={8}
               maxLength={SKILL_BODY_MAX_LENGTH}
               className="font-mono text-sm"
             />
-            <p className="text-xs text-muted-foreground">
-              Markdown. Nova loads this only when the skill triggers, so long
-              reference detail is free until then.
-            </p>
-          </div>
-          <div className="rounded-xl border border-border bg-muted/40 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-              SKILL.md frontmatter
-            </p>
-            <pre
-              data-testid="skill-frontmatter"
-              className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground"
-            >
-              {frontmatter}
-            </pre>
+            <Hint error={null}>{bodyHint}</Hint>
           </div>
         </div>
         <DialogFooter className="flex-row gap-2">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            onClick={save}
-            disabled={pending || Boolean(error)}
-            className="gap-2"
-          >
+          <Button onClick={save} disabled={pending} className="gap-2">
             {pending && <Loader2 className="size-4 animate-spin" />}
             {skill ? "Save changes" : "Create skill"}
           </Button>
@@ -232,6 +218,19 @@ function SkillDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** One line under a field: red when something is wrong, muted otherwise. */
+function Hint({
+  error,
+  children,
+}: {
+  error: string | null;
+  children?: React.ReactNode;
+}) {
+  if (error) return <p className="text-xs text-destructive">{error}</p>;
+  if (!children) return null;
+  return <p className="text-xs text-muted-foreground">{children}</p>;
 }
 
 export default function Skills() {
@@ -274,9 +273,9 @@ export default function Skills() {
               Skills
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-              Procedures Nova follows when a task matches one. Each skill is
-              name, description, and instructions - Nova sees the first two and
-              loads the instructions only when it needs them.
+              Teach Nova how you like something done once. Nova sees the name
+              and description, and loads the instructions only when it needs
+              them.
             </p>
           </div>
           <Button

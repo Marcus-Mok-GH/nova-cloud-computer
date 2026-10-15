@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Skills, { skillFormError } from "./Skills";
+import Skills, { formatSkillName, skillFormError } from "./Skills";
 
 type SkillRow = {
   id: number;
@@ -154,5 +154,24 @@ describe("skill form validation", () => {
   it("requires instructions for Nova to follow", () => {
     expect(skillFormError({ ...valid, body: "" })).toMatch(/instructions/i);
     expect(skillFormError({ ...valid, body: "   " })).toMatch(/instructions/i);
+  });
+});
+
+describe("skill name formatting", () => {
+  it("turns plain wording into a valid skill id", () => {
+    expect(formatSkillName("Weekly Report")).toBe("weekly-report");
+    expect(formatSkillName("Weekly  Report 2026")).toBe("weekly-report-2026");
+    expect(formatSkillName("Weekly--Report")).toBe("weekly-report");
+  });
+
+  it("formats the name to something the form accepts", () => {
+    expect(
+      skillFormError({
+        name: formatSkillName("Weekly Report"),
+        description:
+          "Writes the weekly status report. Use when the user asks for the weekly update.",
+        body: "1. Read the shipped changes.",
+      })
+    ).toBeNull();
   });
 });

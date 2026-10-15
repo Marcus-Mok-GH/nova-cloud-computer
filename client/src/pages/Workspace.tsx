@@ -388,6 +388,10 @@ export default function Workspace() {
   // that chat can stop the reader from receiving a turn it no longer shows.
   const streamAbortRef = useRef<AbortController | null>(null);
   const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
+  // Set the moment Stop is pressed. Deltas that arrive while the server winds
+  // the run down are dropped, so the view stops growing the instant the button
+  // is hit instead of when the cancel round-trip finally lands.
+  const stopRequestedRef = useRef(false);
   // Chats left with a turn still running are tracked module-side (not in a ref
   // here) because the chat list must show the same marker after this component
   // unmounts; see `@/lib/awayChats`.
@@ -458,6 +462,7 @@ export default function Workspace() {
   // live transcript instead of in place.
   useEffect(() => {
     stopAllSpeech();
+    stopRequestedRef.current = false;
     setComposerAttachments([]);
     setBaselineMessageId(0);
     setPendingUserContent("");
@@ -560,15 +565,24 @@ export default function Workspace() {
       setQueueNotice(null);
       void runStatus.refetch();
     },
-    onError: error =>
+    onError: error => {
+      // A failed stop leaves the run going: resume applying its stream.
+      stopRequestedRef.current = false;
       toast.error(
         error instanceof Error
           ? error.message
           : "Nova could not be stopped. Please try again."
-      ),
+      );
+    },
   });
   const handleStopRun = () => {
     if (!chatId || stopRun.isPending) return;
+    // Freeze the transcript immediately: the run's remaining deltas are
+    // dropped on arrival, so the text - and any thinking/tool updates - stop
+    // growing the moment the button is pressed, however slow the cancel
+    // round-trip (or a cold serverless instance) turns out to be.
+    stopRequestedRef.current = true;
+    setQueueNotice(null);
     stopRun.mutate({ chatId });
   };
   const revertChat = trpc.chats.revert.useMutation();
@@ -706,6 +720,7 @@ export default function Workspace() {
     setLiveEvents([]);
     setQueueNotice(null);
     setPriorityNotice(null);
+    stopRequestedRef.current = false;
     setIsStreaming(true);
     try {
       const token = await getNeonAccessToken().catch(() => null);
@@ -755,6 +770,10 @@ export default function Workspace() {
             // from must not write its events into the current view. Skipping
             // them here is safe: the persisted ledger carries the same rows.
             if (viewedChatIdRef.current !== targetChatId) continue;
+            // Stop was pressed: freeze the view. Whatever the run streams
+            // while the server winds it down (including the "Stopped" notice
+            // itself) is dropped here and arrives through the ledger refresh.
+            if (stopRequestedRef.current) continue;
             try {
               const parsed = JSON.parse(data) as {
                 type?: string;

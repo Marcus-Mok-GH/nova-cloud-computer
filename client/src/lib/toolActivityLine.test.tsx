@@ -115,8 +115,11 @@ describe("toolLineText", () => {
       toolLineText(activity("browse", '{"command":"open https://example.com"}'))
     ).toBe("Browse: open https://example.com");
     expect(
-      toolLineText(activity("browse", '{"command":"agent-browser snapshot"}'))
-    ).toBe("Browse: snapshot");
+      toolLineText(activity("browse", '{"command":"screenshot"}'))
+    ).toBe("Browse: screenshot");
+    expect(
+      toolLineText(activity("browse", '{"command":"click 420 260"}'))
+    ).toBe("Browse: click 420 260");
     expect(toolLineText(activity("browse", "{}"))).toBe("Browse");
   });
 

@@ -1,3 +1,47 @@
+2026-10-15 - Browse tool: a real desktop GUI with the Chrome app, not a headless CLI
+
+The browse tool drove a headless Chrome through the agent-browser CLI, and
+paid for it on every new sandbox: the CLI and a ~500 MB Chrome for Testing
+download had to be installed before the first page could open, and what came
+back was an accessibility snapshot - text. It worked, but the agent could not
+see the page it was operating.
+
+browse now runs a full Linux desktop: E2B's `desktop` template (Ubuntu, XFCE,
+and Chrome for Testing already installed), the same image E2B's own
+computer-use SDK creates. The desktop gets a sandbox of its own, recorded on
+the workspace row as `browserSandboxId` (migration 0051), never the workspace
+VM - the VM runs the bare `base` template with no X server, no window manager
+and no Chrome, and installing that stack inside an agent run is the exact
+failure this replaces. The machine boots in seconds, pauses rather than dies
+when idle (memory kept, auto-resume), and is revived in place when a resume
+comes back without its display; only a session that cannot be revived costs a
+new machine. A factory reset destroys it along with the VM, so "start from
+scratch" does not leave a logged-in browser behind.
+
+Every command answers with a screenshot of that screen, and the screenshot
+goes back to the model: the run loop attaches the round's freshest capture as
+vision input on the next turn, so a click is chosen by reading pixels instead
+of guessing at an element ref. The command surface keeps the shape it had -
+`open <url>`, `screenshot [name.png]` - and adds the pointer work a GUI needs:
+`click`/`double-click`/`right-click <x> <y>`, `move`, `scroll up|down [n]`,
+`type "text"`, `press ctrl+l` (mapped to xdotool key names), `wait <ms>`,
+`launch <app>`, and `windows`. Captures are saved into the workspace as
+image/png files as well. A model that rejects images loses the attachment for
+the rest of the run instead of failing every later round; the file is still
+saved and the tool says so.
+
+`server/desktopBrowser.ts` replaces `server/agentBrowser.ts` and its one-time
+install, and `warmBrowserInBackground` is gone with it. The desktop commands
+are the ones `@e2b/desktop` itself issues (Xvfb + startxfce4 for the session,
+gtk-launch for apps, scrot for captures, xdotool for input), driven through
+Nova's existing E2B client so the project keeps one E2B client and one pinned
+`e2b` version. Tests: 18 new desktopBrowser tests (command parsing, session
+reuse/revive/replace, capture attach limits, the Chrome launcher fallback,
+the sandbox-creation cap, transport failures) plus updated workspace-agent,
+citations, and activity-line tests; suite 1275 passed. The desktop template
+itself is not verified against a live E2B key - this environment has none - so
+that check is recorded as outstanding.
+
 2026-10-15 - Skills: user-authored procedures the agent loads when a task matches one
 
 Nova's agent behaviour was shaped in two places only: the fixed system prompt

@@ -112,6 +112,7 @@ describe("ultraplanAllowsTool", () => {
       "read_file",
       "search_memories",
       "read_memory",
+      "read_skill",
       "solve_equation",
       "research_web",
       "thinker",

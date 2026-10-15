@@ -42,6 +42,10 @@ const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   "read_file",
   "search_memories",
   "read_memory",
+  // A skill's instructions are read-only research: reading one changes
+  // nothing, and chat mode should be able to answer "how do we do X?" from
+  // the procedure the workspace saved for it.
+  "read_skill",
   "solve_equation",
   "research_web",
   "thinker",

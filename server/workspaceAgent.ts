@@ -1,5 +1,5 @@
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
-import type { E2BSandboxLike } from "./e2b";
+import { isE2BConfigured, type E2BSandboxLike } from "./e2b";
 import {
   pauseAgentSandbox,
   prepareAgentSandbox,
@@ -914,10 +914,15 @@ ${
     ? null
     : parseUltraplanCommand(content);
 
-  // The workspace sandbox wakes with every run: state is shared with the
-  // finally block below, which syncs the live sandbox filesystem back into
-  // the durable Neon/S3 store no matter how the run ends.
-  let agentSandbox: E2BSandboxLike | undefined;
+  // The workspace sandbox wakes in parallel with every run: `sandboxWake`
+  // resolves to the live machine (or undefined when E2B is not configured or
+  // the wake failed). It stays a resolved-undefined promise until the wake is
+  // actually kicked off, so an early return (a usage answer, an unreachable
+  // gateway) shares the same binding as the finally block below, which awaits
+  // it before syncing the live filesystem back into the durable Neon/S3 store
+  // and pausing the machine, no matter how the run ends.
+  let sandboxWake: Promise<E2BSandboxLike | undefined> =
+    Promise.resolve(undefined);
   let sandboxWorkspaceId: number | undefined;
 
   try {
@@ -962,21 +967,43 @@ ${
     }
 
     let computer = await getWorkspaceComputer(ownerId);
-    // The sandbox wakes before the first tool runs: the durable store's files
-    // and folders sync into it, every file/folder tool mirrors onto it, and
-    // bash commands execute on it directly. A failed wake degrades the run to
-    // direct database tools instead of breaking it.
-    sandboxWorkspaceId = computer.workspace.id;
-    agentSandbox = await prepareAgentSandbox(ownerId, computer);
-    if (agentSandbox) {
+    // The sandbox wake is started here but never awaited on the run's
+    // critical path: E2B connects (or boots) the machine and the durable
+    // store's files sync into it while the prompt is built and the first
+    // model round streams, so a slow wake can no longer delay the reply's
+    // first tokens. Any tool that needs the live filesystem awaits the
+    // promise first (see the tool loop below); the finally block awaits it
+    // before syncing and pausing, so a wake that outlives its run still
+    // settles and never leaks a machine. A failed wake resolves to undefined
+    // and degrades the run to direct database tools, exactly as before.
+    const wakeComputer = computer;
+    sandboxWorkspaceId = wakeComputer.workspace.id;
+    sandboxWake = (async () => {
+      if (!isE2BConfigured()) return undefined;
+      // Start the wake before the activity row: the row is bookkeeping and
+      // must not stand between the run and E2B.
+      const wake = prepareAgentSandbox(ownerId, wakeComputer);
       await emitTool({
         id: "sandbox-wake",
         name: "wake_sandbox",
-        state: "completed",
+        state: "running",
         args: {},
-        summary: "Woke the workspace sandbox and synced the files into it.",
       });
-    }
+      const sandbox = await wake;
+      // Flip the row as soon as the wake lands, wherever the run has got to
+      // by then: completed with the live machine, failed when the run fell
+      // back to direct database tools.
+      await emitTool({
+        id: "sandbox-wake",
+        name: "wake_sandbox",
+        state: sandbox ? "completed" : "failed",
+        args: {},
+        summary: sandbox
+          ? "Woke the workspace sandbox and synced the files into it."
+          : "The workspace sandbox could not be woken this run; continuing with direct workspace storage.",
+      });
+      return sandbox;
+    })();
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
@@ -1657,42 +1684,46 @@ ${
         });
         let execution: ToolExecution;
         try {
-          execution = await raceToolDeadline(
-            () =>
-              executeWorkspaceTool(
-                ownerId,
-                computer,
-                call,
-                detail => {
-                  // Progress updates stream live to the open chat only - they are
-                  // not persisted, so long research runs don't flood the archive.
-                  Promise.resolve(
-                    options.onEvent?.({
-                      type: "tool",
-                      tool: {
-                        id: call.id,
-                        name: call.name,
-                        state: "running",
-                        args: { arguments: call.arguments.slice(0, 500) },
-                        detail,
-                      },
-                    })
-                  ).catch(() => {});
-                },
-                agentSandbox,
-                ownCodingGate,
-                options.channel,
-                deadlineAtMs,
-                chatId,
-                // The editor specialist's own tool calls stream as real
-                // activity rows: emitted live to the open chat AND persisted
-                // through emitTool, so they read back from the ledger exactly
-                // like the agent's own tool calls.
-                subTool => emitTool(subTool),
-                options.agentChat
-              ),
-            deadlineAtMs
-          );
+          execution = await raceToolDeadline(async () => {
+            // The wake has been running in parallel since the run started:
+            // wait for it only now, when a tool actually needs the live
+            // filesystem, so a slow E2B boot never delays the reply. A
+            // failed wake resolves to undefined and the tool degrades to
+            // direct database execution.
+            const sandbox = await sandboxWake;
+            return executeWorkspaceTool(
+              ownerId,
+              computer,
+              call,
+              detail => {
+                // Progress updates stream live to the open chat only - they are
+                // not persisted, so long research runs don't flood the archive.
+                Promise.resolve(
+                  options.onEvent?.({
+                    type: "tool",
+                    tool: {
+                      id: call.id,
+                      name: call.name,
+                      state: "running",
+                      args: { arguments: call.arguments.slice(0, 500) },
+                      detail,
+                    },
+                  })
+                ).catch(() => {});
+              },
+              sandbox,
+              ownCodingGate,
+              options.channel,
+              deadlineAtMs,
+              chatId,
+              // The editor specialist's own tool calls stream as real
+              // activity rows: emitted live to the open chat AND persisted
+              // through emitTool, so they read back from the ledger exactly
+              // like the agent's own tool calls.
+              subTool => emitTool(subTool),
+              options.agentChat
+            );
+          }, deadlineAtMs);
         } catch (error) {
           if (error instanceof RunDeadlineExceeded) {
             // A VM task or deploy outlasted the request budget between the
@@ -1934,7 +1965,7 @@ ${
       await launchPreparingNextTurn({
         ownerId,
         chatId,
-        sandbox: agentSandbox,
+        sandbox: await sandboxWake,
         workspaceId: sandboxWorkspaceId,
         deadlineAtMs,
         // The run's persisting emitter: the preparing_next_turn rows are
@@ -2047,14 +2078,19 @@ ${
     // sync the live sandbox filesystem - files created or changed by bash,
     // VM tasks, or mirrored tool ops - back into the durable Neon/S3 store,
     // then pause the persistent machine so it is not billed while idle.
-    if (agentSandbox && sandboxWorkspaceId !== undefined) {
-      await syncAgentSandbox(ownerId, sandboxWorkspaceId, agentSandbox);
+    // A run that ended before any tool needed the sandbox (a text-only
+    // reply, an early stop) may still have the wake in flight: settle it
+    // first so the machine lands in the same synced-and-paused state
+    // instead of being left running.
+    const sandbox = await sandboxWake;
+    if (sandbox && sandboxWorkspaceId !== undefined) {
+      await syncAgentSandbox(ownerId, sandboxWorkspaceId, sandbox);
       // A run chaining straight into its next segment resumes within seconds:
       // pausing it would add a cold resume to every continuation, so it is
       // left warm. Every other exit path pauses. The next run reconnects and
       // E2B auto-resumes the paused machine.
       if (!options.continuationPlanned)
-        await pauseAgentSandbox(ownerId, sandboxWorkspaceId, agentSandbox);
+        await pauseAgentSandbox(ownerId, sandboxWorkspaceId, sandbox);
     }
   }
 }

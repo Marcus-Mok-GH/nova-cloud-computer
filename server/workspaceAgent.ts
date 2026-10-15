@@ -5,7 +5,6 @@ import {
   prepareAgentSandbox,
   syncAgentSandbox,
 } from "./sandboxWorkspace";
-import { warmBrowserInBackground } from "./agentBrowser";
 import { getDatabaseTime, hasAgentStopAfter } from "./db";
 import {
   appendConversationTurn,
@@ -33,10 +32,12 @@ import {
 import {
   getAiGatewayStatus,
   type GatewayChatMessage,
+  type GatewayChatMessageContentPart,
   type GatewayToolCall,
   type GatewayToolDefinition,
   AiGatewayClientError,
 } from "./aiGateway";
+import type { DesktopCapture } from "./desktopBrowser";
 import {
   modelFailureDetail,
   redactModelCredentials,
@@ -408,7 +409,7 @@ Operating principles:
 - Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
 - Never do math or data work in your head. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Any real data work - counting, filtering, aggregating, sorting, converting, extracting or transforming content - goes through run_vm_task: write a short script, run it, read the output. Eyeballing numbers or transformations is the fastest way to give the user a confidently wrong answer; one tool call costs a fraction of a second.
 - Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
-- Use browse whenever you need a real browser: pages that render with JavaScript, logging in or filling forms, clicking through a UI, saving a page screenshot as a workspace file. Drive it like a person: 'open <url>' first, then 'snapshot' to get element refs (@e1, @e2...), act with 'click @e2' or 'fill @e3 "text"', then 'snapshot' again to see what changed, and 'read' for the rendered text of the current page. Chrome installs itself once per sandbox in the background (it usually finishes before you need it); if a browse call reports that the one-time install is still running, tell the user, wait about 2-3 minutes, and retry the same command - do not start another install. Screenshots saved into the workspace appear as regular workspace files. Keep research_web for deep multi-source research and browse for interacting with specific pages.
+- Use browse whenever you need a real browser or a GUI: pages that render with JavaScript, logging in or filling forms, clicking through a UI, or reading a page's rendered content. browse drives a full Linux desktop with the Chrome app in it, and every action answers with a screenshot of that screen that you can see - so you steer it by looking: 'open <url>' shows a page in Chrome, then read the screenshot and click the pixel position you want ('click 420 260', 'double-click', 'right-click'), scroll ('scroll down 3'), type ('click' the field first, then 'type "text"'), press keys ('press ctrl+l', 'press enter'), or 'wait <ms>' for a page to settle. 'screenshot' looks again without acting, and 'windows' lists what is open. The screen is 1280x800 and coordinates are screenshot pixels. Captures are saved into the workspace as PNG files you can hand to the user, and the desktop is a persistent machine of its own: the first call in a workspace takes a few seconds to boot it, later calls reuse the same session (so logins persist). If a browse call fails outright, tell the user the desktop browser is unavailable rather than retrying forever. Keep research_web for deep multi-source research and browse for seeing and operating a specific page.
 - Research when facts matter. For user-specific facts, check workspace files and records; for supported procedures, check installed skills; for live state, use dedicated tools; for current or external facts you do not know for certain, use research_web - it returns a full, cited research report from Exa AI's deep research models. Before every research_web call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
 - Think deeper when the answer is hard. When a problem needs sustained reasoning rather than lookup or computation - weighing a design or strategy decision, planning a multi-step approach, untangling a subtle trade-off, risk or failure mode, analyzing a body of material for what it implies, or checking your own reasoning before committing to it - call thinker. It is a frontier reasoning sub-agent: hand it the complete question and every relevant piece of context, then use its detailed findings to decide your next action. Never delegate simple questions, lookups or arithmetic to thinker - it reasons, it does not act.
 - Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
@@ -968,10 +969,6 @@ ${
     sandboxWorkspaceId = computer.workspace.id;
     agentSandbox = await prepareAgentSandbox(ownerId, computer);
     if (agentSandbox) {
-      // Fire-and-forget: start the one-time browser install (if the sandbox
-      // has not done it yet) so Chrome is usually ready before browse is
-      // first needed. It runs detached in the sandbox and never blocks.
-      void warmBrowserInBackground(agentSandbox);
       await emitTool({
         id: "sandbox-wake",
         name: "wake_sandbox",
@@ -1123,6 +1120,10 @@ ${
       uri.startsWith("data:image/")
     );
     let visionActive = imageParts.length > 0;
+    // False once a model has rejected images: the browse tool then stops
+    // attaching its desktop screenshots, and the workspace files it saves
+    // become the only record of what the agent saw.
+    let visionSupported = true;
     // The model sees the attachment note; the persisted user bubble keeps the
     // clean text the user actually typed (Telegram concatenates its note into
     // the text instead, which is fine there since the user turn is not shown).
@@ -1290,6 +1291,9 @@ ${
         break;
       }
       let streamedThisRound = 0;
+      // The desktop captures this round's browse calls took, attached to the
+      // model's next round as vision input.
+      const screenshotsThisRound: DesktopCapture[] = [];
       const emitChunk = options.onChunk
         ? (chunk: string) => {
             streamedThisRound += chunk.length;
@@ -1397,16 +1401,31 @@ ${
         }
         // A model without vision rejects image parts outright: drop the
         // attachment instead of failing the run, and let the model say so.
+        // Nothing more may be attached for the rest of the run either - a
+        // browse screenshot the model cannot read would just fail every
+        // later round the same way.
         visionActive = false;
-        // The current turn's user message is not necessarily messages[1]
-        // any more - prior chat history can add earlier "user" rows before
-        // it, so target the *last* user turn, not the first.
-        const userIndex = messages.findLastIndex(m => m.role === "user");
-        if (userIndex >= 0)
+        visionSupported = false;
+        // The message carrying the images is not necessarily messages[1] any
+        // more - prior chat history adds earlier "user" rows, and a browse
+        // capture rides in as a user turn of its own - so target the *last*
+        // user turn that actually has content parts. Rewriting a plain text
+        // turn here would throw away a nudge instead of an image.
+        const userIndex = messages.findLastIndex(
+          m => m.role === "user" && Array.isArray(m.content)
+        );
+        if (userIndex >= 0) {
+          const parts = messages[userIndex]
+            .content as GatewayChatMessageContentPart[];
+          const text = parts
+            .filter(part => part.type === "text")
+            .map(part => part.text)
+            .join("\n\n");
           messages[userIndex] = {
             role: "user",
-            content: `${modelContent}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
+            content: `${text || modelContent}\n\n⚠️ (This model cannot view image attachments, so the uploaded image is not visible here - it is still saved in the workspace. Say so plainly and work from what the user says.)`,
           };
+        }
         try {
           result =
             round === 0 && deadlineAtMs - Date.now() <= 0
@@ -1743,6 +1762,7 @@ ${
           tool_call_id: call.id,
           content: execution.result,
         });
+        if (execution.screenshot) screenshotsThisRound.push(execution.screenshot);
         // Coder-delegation guard: remember specialist use, and flag a round
         // where the agent wrote substantial code itself without it. The
         // nudge is queued and delivered once, after the round's tool
@@ -1823,6 +1843,31 @@ ${
       ) {
         failureNudgeSent = true;
         messages.push({ role: "user", content: failureNudgeFor(failedSteps) });
+      }
+      // The browse tool's desktop screenshot. A GUI agent steers by looking,
+      // so the freshest capture of the round rides back as vision input - and
+      // only the freshest one, since it is the current state of the screen and
+      // a round that browsed repeatedly would otherwise pay for every
+      // intermediate frame. Never on the closing or end_turn exits, where no
+      // further round will read it.
+      if (
+        screenshotsThisRound.length > 0 &&
+        visionSupported &&
+        !closedByDeadline &&
+        !endTurnCalled
+      ) {
+        const latest = screenshotsThisRound[screenshotsThisRound.length - 1];
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "text" as const,
+              text: "Screenshot of the browser desktop, taken right after your last browse command: this is the screen as it is now. Read the positions you need off it for your next click, scroll or keypress, and tell the user in words what the page shows - they cannot see this image.",
+            },
+            { type: "image_url" as const, image_url: { url: latest.dataUri } },
+          ],
+        });
+        visionActive = true;
       }
       // The deadline hit mid-tool: the closing reply is already set - leave
       // the round loop without refreshing state or starting a new round.

@@ -231,12 +231,17 @@ export async function factoryResetWorkspaceForUser(ownerId: number) {
     .returning({ id: workspaceFolders.id });
 
   // Destroy the old machine, then detach its id so the next VM access
-  // provisions a fresh one from the base template.
+  // provisions a fresh one from the base template. The browse tool's desktop
+  // sandbox is a second machine with its own Chrome session, so it goes too -
+  // otherwise "start from scratch" would leave the user's logged-in browser
+  // sitting there.
   const previousSandboxId = workspace.persistentSandboxId ?? null;
   if (previousSandboxId) await destroyPersistentSandbox(previousSandboxId);
+  if (workspace.browserSandboxId)
+    await destroyPersistentSandbox(workspace.browserSandboxId);
   await db
     .update(workspaces)
-    .set({ persistentSandboxId: null })
+    .set({ persistentSandboxId: null, browserSandboxId: null })
     .where(eq(workspaces.id, workspace.id));
 
   const sandboxId = await initWorkspacePersistentVm(workspace.id, ownerId, null);
@@ -253,6 +258,13 @@ export async function factoryResetWorkspaceForUser(ownerId: number) {
 export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {
   const db = await requireDb();
   await db.update(workspaces).set({ persistentSandboxId: sandboxId }).where(eq(workspaces.id, workspaceId));
+}
+
+/** Records (or clears) the workspace's desktop-GUI sandbox - the browse tool's
+ *  Chrome machine - so later calls reconnect to the same desktop session. */
+export async function updateWorkspaceBrowserSandbox(workspaceId: number, sandboxId: string | null) {
+  const db = await requireDb();
+  await db.update(workspaces).set({ browserSandboxId: sandboxId }).where(eq(workspaces.id, workspaceId));
 }
 
 export async function getOrCreateWorkspace(ownerId: number) {

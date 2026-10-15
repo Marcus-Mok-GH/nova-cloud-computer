@@ -4,8 +4,11 @@
  * needs. Split out of workspaceAgent.ts so the run loop and the tool
  * implementations can be read and changed independently.
  */
-import { runBrowserCommand } from "./agentBrowser";
 import { startAgentVmRun } from "./agentVm";
+import {
+  runDesktopBrowseCommand,
+  type DesktopCapture,
+} from "./desktopBrowser";
 import {
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
@@ -46,6 +49,7 @@ import {
   getWorkspaceComputer,
   setCommunicationStyleForUser,
   setPersonalisationForUser,
+  updateWorkspaceBrowserSandbox,
   updateWorkspaceFileForUser,
   updateWorkspaceFolderForUser,
   type PersonalisationDetail,
@@ -54,6 +58,7 @@ import {
   type PersonalisationProactiveness,
 } from "./db";
 import {
+  getE2BClient,
   type E2BSandboxLike,
 } from "./e2b";
 import {
@@ -335,6 +340,13 @@ export type ToolExecution = {
    * disclosed it to the user as the failure policy requires.
    */
   specialistDown?: boolean;
+  /**
+   * The desktop screenshot a browse call took, so the run loop can hand it
+   * back to the model as vision input: seeing the screen is how the agent
+   * decides where to click. Absent when the tool did not capture anything, or
+   * when the capture was too large to attach.
+   */
+  screenshot?: DesktopCapture;
 };
 
 /** Formats a numeric mathjs result for the agent: clean integers, readable decimals. */
@@ -365,6 +377,57 @@ const SPECIALIST_DOWN_BLOCK_RESULT =
   "ask whether to proceed with Nova's own attempt, and end your turn. Only in a later conversation turn, " +
   "once the user has explicitly accepted, call the accept_own_coding tool to record it - then you may write " +
   "the code yourself, saying plainly it is Nova's own work without the specialist.";
+
+/**
+ * Saves a desktop capture into the workspace as a PNG file, so the user can
+ * open what the agent was looking at. The content is the base64 data URI, the
+ * same shape chat image attachments use.
+ */
+async function saveBrowseCapture(ownerId: number, capture: DesktopCapture) {
+  const attempt = async (name: string) => {
+    const created = await createWorkspaceFileForUser(ownerId, {
+      name,
+      content: capture.dataUri,
+      mimeType: "image/png",
+    });
+    return created
+      ? `Saved to the workspace as "${created.name}" (file id ${created.id}).`
+      : "";
+  };
+  const saved = await attempt(browseCaptureFileName(capture.suggestedName));
+  if (saved) return saved;
+  // A second capture in the same second under the same name: retry once with a
+  // unique suffix rather than reporting a failure for work that did happen.
+  const unique = await attempt(
+    browseCaptureFileName(capture.suggestedName, Date.now(), true)
+  );
+  return (
+    unique ||
+    "The screenshot could not be saved to the workspace - tell the user it is not among their files."
+  );
+}
+
+/**
+ * `desktop-20261015143210.png`, or the name the model asked for with its
+ * extension normalized and made filesystem-safe. Timestamped so successive
+ * captures of the same page do not collide.
+ */
+function browseCaptureFileName(
+  suggested: string | undefined,
+  atMs = Date.now(),
+  unique = false
+) {
+  const stamp = new Date(atMs).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const base =
+    (suggested ?? "desktop")
+      .replace(/\.png$/i, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, "")
+      .slice(0, 60) || "desktop";
+  return `${base}-${stamp}${
+    unique ? `-${Math.random().toString(36).slice(2, 7)}` : ""
+  }.png`;
+}
 
 /** Executes a single model-requested tool call against the workspace. */
 export async function executeWorkspaceTool(
@@ -2050,27 +2113,44 @@ export async function executeWorkspaceTool(
     case "browse": {
       const command = str(args.command);
       if (!command)
-        return { ok: false, result: "An agent-browser command is required." };
-      if (!sandbox)
         return {
           ok: false,
           result:
-            "The workspace sandbox is not available right now - it either failed to wake or it is not set up on this workspace yet, and the browser runs inside that sandbox. Tell the user the sandbox needs to be set up first.",
+            "A desktop command is required, e.g. 'open https://example.com', 'screenshot', or 'click 420 260'.",
+        };
+      // The desktop GUI runs in its own sandbox, not the workspace VM, so this
+      // works even on a run whose VM failed to wake.
+      const browserClient = getE2BClient();
+      if (!browserClient)
+        return {
+          ok: false,
+          result:
+            "The desktop browser is not set up on this workspace (E2B is not configured), so nothing was opened. Tell the user the browser needs the workspace's E2B sandbox configured first.",
           action: { kind: "browser", name: "browser", operation: "disabled" },
         };
-      const browse = await runBrowserCommand(sandbox, command);
+      const browse = await runDesktopBrowseCommand({
+        client: browserClient,
+        ownerId,
+        workspaceId: computer.workspace.id,
+        command,
+        sandboxId: computer.workspace.browserSandboxId,
+        onSandboxCreated: sandboxId =>
+          updateWorkspaceBrowserSandbox(computer.workspace.id, sandboxId),
+      });
+      const saved = browse.screenshot
+        ? await saveBrowseCapture(ownerId, browse.screenshot)
+        : "";
+      const result = [browse.result, saved].filter(Boolean).join("\n\n");
       return {
         ok: browse.ok,
-        result: browse.result,
-        detail: browse.result.slice(0, 16000),
+        result,
+        detail: result.slice(0, 16000),
+        ...(browse.screenshot?.attachable
+          ? { screenshot: browse.screenshot }
+          : {}),
         action: {
           kind: "browser",
-          name:
-            command
-              .trim()
-              .replace(/^agent-browser\s+/, "")
-              .split(/\s+/)[0]
-              .slice(0, 45) || "browser",
+          name: command.trim().split(/\s+/)[0].slice(0, 45) || "browser",
           operation: browse.ok ? "completed" : "failed",
         },
       };

@@ -4147,6 +4147,41 @@ describe("Nova tool-calling workspace agent", () => {
     hasAgentStopAfter.mockReset();
   });
 
+  it("aborts a reasoning-only stream mid-response when /stop arrives", async () => {
+    // A thinking model can stream reasoning for a long time before any reply
+    // text exists; the stop poll must run on that stream too, not only on
+    // text chunks, so the run cannot keep generating past a stop press.
+    chatWithAiGateway.mockReset().mockImplementation(
+      (
+        _ownerId: number,
+        _messages: unknown,
+        gatewayOptions: {
+          onReasoning?: (chunk: string) => void;
+          signal?: AbortSignal;
+        }
+      ) =>
+        new Promise((_resolve, reject) => {
+          const emit = () => {
+            gatewayOptions?.onReasoning?.("weighing the next step");
+            if (gatewayOptions?.signal?.aborted) {
+              reject(new Error("request aborted"));
+              return;
+            }
+            setTimeout(emit, 1);
+          };
+          emit();
+        })
+    );
+    hasAgentStopAfter.mockReset().mockImplementation(async () => true);
+
+    // No onChunk: when the stop lands this run has streamed only thinking.
+    const result = await runWorkspaceAgent(1, 3, "reason for a long time", {});
+    expect(result.message.content).toContain("\u23f9\ufe0f Stopped");
+    expect(result.message.content).toContain("at your request");
+    chatWithAiGateway.mockReset().mockImplementation(endTurnEchoOnNudge);
+    hasAgentStopAfter.mockReset();
+  });
+
   it("stops between tool calls so a long research run cannot continue", async () => {
     chatWithAiGateway.mockReset().mockImplementation(() =>
       Promise.resolve(

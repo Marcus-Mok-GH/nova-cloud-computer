@@ -9,14 +9,16 @@ import {
   claimInboundAgentEmailForAutoReply,
   toProfileContext,
 } from "./agents";
-import { getDb } from "./db";
+import { getDb, appendChatMessageForUser } from "./db";
 import { agentEmails } from "../drizzle/schema";
 import { MAX_RUN_BUDGET_MS, runWorkspaceAgent } from "./workspaceAgent";
 
 /**
  * Inbound auto-reply: when AgentMail delivers a `message.received` webhook for
  * one of an agent's inboxes, the agent runs on the email and its end_turn
- * reply is sent back through AgentMail in the same thread.
+ * reply is sent back through AgentMail in the same thread. The run happens in
+ * the thread's own chat - opened by the claim on the thread's first message -
+ * so the exchange is a conversation the owner can open and continue in the app.
  *
  * The reply is exactly-once: `claimInboundAgentEmailForAutoReply` marks the
  * inbound row before any work starts, so a webhook retry (or a duplicate
@@ -64,6 +66,25 @@ function replySubjectFor(subject: string): string {
 }
 
 /**
+ * The email as the new chat's user message. The run itself is given
+ * `inboundEmailRunPrompt` (the mail plus the instructions for answering it),
+ * which is not something the user wrote - so the chat shows the mail, and the
+ * prompt stays model-facing.
+ */
+export function inboundEmailUserMessage(event: {
+  from: string;
+  subject: string;
+  text: string;
+}): string {
+  return [
+    `Email from ${event.from || "(unknown sender)"}`,
+    `Subject: ${event.subject}`,
+    "",
+    event.text || "(the message had no readable body)",
+  ].join("\n");
+}
+
+/**
  * Handles one verified AgentMail webhook payload. Best-effort by design: the
  * HTTP route acks first and runs this in the background, so a provider or
  * gateway failure is logged rather than retried at the webhook layer. The
@@ -84,6 +105,32 @@ export async function handleAgentMailInboundEvent(
 
   const { agent, ownerId, chatId } = claim;
   const agentAddress = agentAddressFor(agent);
+  // The thread's chat belongs to this email, so the mail itself is what its
+  // ledger should show as the user's message; the run's prompt (mail plus the
+  // instructions for answering it) is model-facing. A persist that fails only
+  // falls back to the run writing its own copy - the reply must not be lost
+  // over a chat row - and the fallback writes the mail too, never the prompt.
+  const emailUserMessage = inboundEmailUserMessage({
+    from: event.from,
+    subject: event.subject,
+    text: event.text,
+  });
+  let emailPersisted = false;
+  try {
+    emailPersisted = Boolean(
+      await appendChatMessageForUser(ownerId, {
+        chatId,
+        role: "user",
+        content: emailUserMessage,
+      })
+    );
+  } catch (error) {
+    console.error(
+      "[AgentMail] Could not persist the inbound email into",
+      chatId,
+      error instanceof Error ? error.message : error
+    );
+  }
   let reply = "";
   try {
     const result = await runWorkspaceAgent(
@@ -99,6 +146,8 @@ export async function handleAgentMailInboundEvent(
         channel: "web",
         agentChat: { profile: toProfileContext(agent) },
         emailReply: true,
+        persistUserMessage: !emailPersisted,
+        persistedUserMessage: emailUserMessage,
         deadlineAtMs: Date.now() + MAX_RUN_BUDGET_MS,
       }
     );

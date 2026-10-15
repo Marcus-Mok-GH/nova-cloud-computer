@@ -889,8 +889,16 @@ ${
 
   // A team hand-off turn is context for the next teammate only: the user's
   // real message was already persisted by the first teammate's run.
+  // `persistedUserMessage` is the mirror case: the run does own the write, but
+  // the caller has already framed `content` with instructions the user never
+  // typed (an inbound email), so the ledger gets what was actually sent while
+  // the model still reads the framed version.
   if (options.persistUserMessage !== false) {
-    await appendChatMessageForUser(ownerId, { chatId, role: "user", content });
+    await appendChatMessageForUser(ownerId, {
+      chatId,
+      role: "user",
+      content: options.persistedUserMessage ?? content,
+    });
   }
 
   // `/ultraplan <task>` turns this turn into a deep, planning-only pass. The
@@ -1171,7 +1179,16 @@ ${
     // row (a teammate's reply is), so the internal note is added as its own
     // model-visible turn instead of overwriting history; role alternation is
     // kept by folding it into a trailing user row when one exists.
-    if (historyTurns.length && options.persistUserMessage !== false)
+    // A caller that passed `persistedUserMessage` did write this turn's row
+    // itself - an inbound email writes the mail - so history ends with this
+    // turn and the model-facing version replaces it. Appending there would
+    // send the same content twice: the mail row, plus a prompt that already
+    // carries that mail.
+    if (
+      historyTurns.length &&
+      (options.persistUserMessage !== false ||
+        options.persistedUserMessage !== undefined)
+    )
       historyTurns[historyTurns.length - 1] = currentTurn;
     else if (
       historyTurns.length &&

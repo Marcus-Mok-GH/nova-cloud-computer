@@ -45,7 +45,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 ```
 
 - **Client** - React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
-- **Server** - Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, and an inbound Telegram webhook that lets users message their Nova agent from Telegram.
+- **Server** - Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, an inbound Telegram webhook that lets users message their Nova agent from Telegram, and an inbound AgentMail webhook that opens a new chat for a mail sent to the agent's inbox and answers it in the same email thread.
 - **Database** - Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
 - **Agent** - Conversational workspace work and automation planning run through the AI gateway.
 - **Inference** - A server-to-server AI gateway provides AI-agent inference.
@@ -105,8 +105,8 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 
 - **workspaces** - one per user; holds model settings, persistent sandbox ID, Telegram settings.
 - **users / sessions** - authentication.
-- **chats / chat_messages** - conversations with the AI agent.
-- **agent_profiles / chat_agents / agent_approvals / agent_emails** - personal agents with an identity (a real AgentMail inbox when `AGENTMAIL_API_KEY` is set, plus a virtual phone handle), a spending wallet, team chats, and approval-gated actions (purchases, outbound email).
+- **chats / chat_messages** - conversations with the AI agent. A chat opened by inbound mail carries its email thread id (`emailThreadId`, unique per agent), which is what keeps one email conversation in one chat even when two of its messages arrive together.
+- **agent_profiles / chat_agents / agent_approvals / agent_emails** - personal agents with an identity (a real AgentMail inbox when `AGENTMAIL_API_KEY` is set, plus a virtual phone handle), a spending wallet, team chats, and approval-gated actions (purchases, outbound email). Inbound mail is stored with its AgentMail thread id and the chat that answered it, so one email conversation is one chat.
 - **folders / files** - the user's workspace file tree.
 - **automations / automation_runs** - scheduled tasks.
 - **projects / tasks** - project & task management.

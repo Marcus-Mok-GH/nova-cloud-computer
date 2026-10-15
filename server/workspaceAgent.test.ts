@@ -1842,12 +1842,145 @@ describe("Nova tool-calling workspace agent", () => {
       vi.mocked(ensurePersistentSandbox).mockResolvedValue(sandbox as never);
     };
 
+    // Holds the wake at the E2B step so a test can observe the run while the
+    // machine is still coming up; the returned release() lets it finish.
+    const gateSandboxWake = (sandbox: ReturnType<typeof fakeSandbox>) => {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      vi.mocked(ensurePersistentSandbox).mockImplementation(async () => {
+        await gate;
+        return sandbox as never;
+      });
+      return release;
+    };
+
+    // The run is promise-only up to the model call, so letting microtasks
+    // drain is enough to reach a point worth asserting on.
+    const waitUntil = async (condition: () => boolean) => {
+      for (let i = 0; i < 200 && !condition(); i += 1)
+        await new Promise(resolve => setImmediate(resolve));
+      expect(condition()).toBe(true);
+    };
+
+    const sandboxWakeRows = () =>
+      append.mock.calls
+        .map(callArgs => callArgs[1] as { content: string })
+        .filter(input => input.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX))
+        .map(input =>
+          JSON.parse(input.content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
+        )
+        .filter(
+          (row: { id?: string; state: string }) => row.id === "sandbox-wake"
+        );
+
     beforeEach(() => {
       vi.mocked(ensurePersistentSandbox).mockReset();
       vi.mocked(restoreWorkspaceToE2B).mockReset();
       vi.mocked(restoreWorkspaceToE2B).mockResolvedValue(1);
       vi.mocked(persistE2BWorkspace).mockReset();
       vi.mocked(persistE2BWorkspace).mockResolvedValue(0);
+    });
+
+    it("starts the first model round while the sandbox is still waking", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      const releaseWake = gateSandboxWake(sandbox);
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "Hello - I am here." }));
+
+      const run = runWorkspaceAgent(1, 3, "hi");
+      try {
+        await waitUntil(() => chatWithAiGateway.mock.calls.length > 0);
+        // The model answered while E2B had not even reached the restore step:
+        // the wake is background work, never a gate in front of the reply.
+        expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      } finally {
+        releaseWake();
+      }
+      const result = await run;
+
+      expect(result.message.content).toBe("Hello - I am here.");
+      // The activity row flipped from running to completed once the machine
+      // came up, even though the tool-less run was already done.
+      expect(sandboxWakeRows().map(row => row.state)).toEqual([
+        "running",
+        "completed",
+      ]);
+      // The wake that outlived the run was still synced and paused.
+      expect(persistE2BWorkspace).toHaveBeenCalledWith(1, sandbox);
+      expect(sandbox.pause).toHaveBeenCalled();
+    });
+
+    it("holds a tool until the parallel wake lands, then runs it on the live machine", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      const releaseWake = gateSandboxWake(sandbox);
+      sandbox.commands.run.mockResolvedValue({
+        exitCode: 0,
+        stdout: "welcome.md",
+        stderr: "",
+      });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wait",
+                name: "run_bash",
+                arguments: JSON.stringify({ command: "ls" }),
+              },
+            ],
+          })
+        );
+
+      const run = runWorkspaceAgent(1, 3, "list my files with bash");
+      try {
+        await waitUntil(() => chatWithAiGateway.mock.calls.length > 0);
+        await new Promise(resolve => setImmediate(resolve));
+        // The call is parked on the wake: it never touches a half-restored
+        // machine.
+        expect(sandbox.commands.run).not.toHaveBeenCalled();
+      } finally {
+        releaseWake();
+      }
+      const result = await run;
+
+      expect(sandbox.commands.run).toHaveBeenCalledWith(
+        "ls",
+        expect.objectContaining({ cwd: "/home/user/workspace" })
+      );
+      expect(result.actions).toEqual([
+        { kind: "vm", name: "bash", operation: "completed" },
+      ]);
+    });
+
+    it("reports a failed wake on the activity row and keeps the run on direct storage", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      vi.mocked(ensurePersistentSandbox).mockRejectedValue(
+        new Error("no capacity right now")
+      );
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(chatResult({ text: "Still here." }));
+
+      const result = await runWorkspaceAgent(1, 3, "hi");
+
+      expect(result.message.content).toBe("Still here.");
+      expect(sandboxWakeRows().map(row => row.state)).toEqual([
+        "running",
+        "failed",
+      ]);
+      // No live machine, so there is nothing to sync and nothing to pause.
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+      expect(sandbox.pause).not.toHaveBeenCalled();
     });
 
     it("runs the editor autonomously when the sandbox is awake, syncing writes back into the workspace", async () => {

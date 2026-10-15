@@ -351,6 +351,13 @@
       "when": 1791986563499,
       "tag": "0049_chat_email_thread",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792037277325,
+      "tag": "0050_workspace_skills",
+      "breakpoints": true
     }
   ]
 }

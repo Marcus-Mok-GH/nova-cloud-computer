@@ -189,3 +189,13 @@
 - [x] Add the protected agents tRPC router (list/create/update/delete, startChat, createTeam, chats, approvals, approve, deny, inbox).
 - [x] Build the Agents sidebar destination: agent cards with identity chips and wallet bar, create/edit dialogs, team builder, pending-approval controls, recent decisions, and the agent inbox.
 - [x] Verify typecheck, the full test suite (new agent, team, and render tests), and the production build.
+
+# Skills
+
+- [x] Research the Agent Skills format and competitor precedent, and agree the Nova scope: user-authored skills in the standard format, stored per user, visible to the agent but not writable by it.
+- [x] Add workspace_skills storage with a re-runnable migration, unique on (ownerId, name).
+- [x] Put the shared format rules (name, description, and body limits with their messages) in shared/skills.ts so the client form, zod inputs, and SKILL.md rendering cannot drift.
+- [x] Add the skills tRPC router: list, create, update, and delete, with duplicate names surfaced as conflicts and an unreachable store as a precondition failure.
+- [x] Wire skills into the agent: a name-and-description prompt block plus a read_skill tool in the chat-mode and ultraplan read-only allowlists.
+- [x] Build the Skills destination: list, create/edit dialog with SKILL.md preview, delete confirmation, and loading, empty, and error states.
+- [x] Verify typecheck and the full test suite (store, router, agent, allowlist, and render tests).

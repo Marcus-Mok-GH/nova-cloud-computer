@@ -59,7 +59,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 .
 ├── api/                  # Vercel serverless entry (api/[...path].ts) - mounts the Express app
 ├── client/src/           # React SPA
-│   ├── pages/            # Home, SignIn, Workspace, Files, Chats, Deployments, Settings
+│   ├── pages/            # Home, SignIn, Workspace, Files, Chats, Deployments, Skills, Settings
 │   ├── components/       # DashboardLayout, NovaMark, ui/ (Radix + shadcn)
 │   ├── contexts/         # ThemeContext
 │   ├── hooks/            # useComposition, usePersistFn
@@ -68,7 +68,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 │   ├── _core/            # env, context, sdk, llm, cookies, trpc, etc.
 │   ├── app.ts            # Express app, route mounting
 │   ├── index.ts          # HTTP server bootstrap + static SPA fallback
-│   ├── routers.ts        # tRPC router (auth, workspace, telegram, ai, agentVm, automations, files, chats, models, projects, tasks)
+│   ├── routers.ts        # tRPC router (auth, workspace, telegram, ai, agentVm, automations, files, chats, models, projects, tasks, skills)
 │   ├── db.ts             # Data-access layer
 │   ├── telegram.ts       # Telegram bot helpers
 │   ├── agentVm.ts        # E2B agent VM orchestration
@@ -110,6 +110,7 @@ Core Drizzle tables (see `drizzle/schema.ts`):
 - **folders / files** - the user's workspace file tree.
 - **automations / automation_runs** - scheduled tasks.
 - **projects / tasks** - project & task management.
+- **workspace_skills** - per-user agent skills in the Agent Skills format (name, description, instructions); the agent sees each skill's name and description in its prompt and loads one skill's instructions on demand.
 - **model_provider / model_secrets** - per-workspace LLM configuration.
 
 ---

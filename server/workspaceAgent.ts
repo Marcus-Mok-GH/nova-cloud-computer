@@ -11,6 +11,7 @@ import {
   appendConversationTurn,
   listRecentMemoriesForPrompt,
 } from "./memories";
+import { listSkillsForPrompt } from "./skills";
 import {
   agentAddressFor,
   describeApprovalsForPrompt,
@@ -438,6 +439,9 @@ The user you are helping: {{user}}. Address them by that name or username natura
 {{style}}
 {{personalisation}}
 This request arrived via: {{channel}}.
+
+Installed skills - the workspace's reusable procedures, listed as name: description. This list is discovery only: call read_skill with a skill's name to load its full instructions, then follow them for that task.
+{{skills}}
 
 Recent memories (search_memories finds more, read_memory returns the full record; list_workspace lists every file and folder):
 {{memories}}`;
@@ -1060,6 +1064,10 @@ ${
       8,
       options.agentChat ? { agentId: options.agentChat.profile.id } : undefined
     );
+    // Skills by name and description only - the body of a skill stays out of
+    // the prompt and is loaded on demand through read_skill, so a library of
+    // a dozen skills costs a dozen short lines until one is actually needed.
+    const skillsLine = await listSkillsForPrompt(ownerId);
     // Personal agents see their own approval state (what of theirs is still
     // waiting on the user, and how the last few were decided) and get the
     // identity block; the default assistant's prompt stays unchanged.
@@ -1076,6 +1084,7 @@ ${
       return {
         role: "system",
         content: WORKSPACE_AGENT_PROMPT.replace("{{memories}}", memoriesLine)
+          .replace("{{skills}}", skillsLine)
           .replace("{{agent_identity}}", agentIdentityLine)
           .replace(
             "{{mode}}",

@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
+import { SKILL_BODY_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH, SKILL_DESCRIPTION_MESSAGE, SKILL_NAME_MAX_LENGTH, SKILL_NAME_MESSAGE, SKILL_NAME_PATTERN } from "@shared/skills";
 import { z } from "zod";
 import {
   createChatForUser,
@@ -82,6 +83,7 @@ import {
 } from "./agents";
 import { executeWebAgentRun } from "./agentRuns";
 import { clearMemoriesForUser, deleteOwnedMemoryForUser, listMemoriesForUser } from "./memories";
+import { SkillNameTakenError, SkillStorageError, createSkillForUser, deleteSkillForUser, listSkillsForUser, updateSkillForUser } from "./skills";
 import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { ENV } from "./_core/env";
@@ -116,6 +118,12 @@ const folderInput = z.object({ name: z.string().trim().min(1, "A folder needs a 
 const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "parentId"]), { message: "Provide a folder change." });
 const fileInput = z.object({ name: z.string().trim().min(1, "A file needs a name.").max(240), content: z.string().max(200000).optional(), mimeType: z.string().trim().min(1).max(120).optional(), folderId: z.number().int().positive().nullable().optional() });
 const fileUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(240).optional(), content: z.string().max(200000).optional(), folderId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "content", "folderId"]), { message: "Provide at least one file change." });
+/** Agent Skills format rules, shared with the Skills page so a skill the form accepts is a skill the API accepts (and the other way around). */
+const skillName = z.string().trim().min(1, "A skill needs a name.").max(SKILL_NAME_MAX_LENGTH, `Names are at most ${SKILL_NAME_MAX_LENGTH} characters.`).regex(SKILL_NAME_PATTERN, SKILL_NAME_MESSAGE);
+const skillDescription = z.string().trim().min(1, "Describe what the skill does and when to use it.").max(SKILL_DESCRIPTION_MAX_LENGTH, `Descriptions are at most ${SKILL_DESCRIPTION_MAX_LENGTH} characters.`).refine(value => !(value.includes("<") && value.includes(">")), { message: "Descriptions cannot contain < > markup." });
+const skillBody = z.string().trim().min(1, "Write the instructions Nova should follow.").max(SKILL_BODY_MAX_LENGTH, `Instructions are at most ${SKILL_BODY_MAX_LENGTH} characters.`);
+const skillInput = z.object({ name: skillName, description: skillDescription, body: skillBody.optional() });
+const skillUpdateInput = z.object({ id: z.number().int().positive(), name: skillName.optional(), description: skillDescription.optional(), body: skillBody.optional() }).refine(atLeastOneOf(["name", "description", "body"]), { message: "Provide at least one skill change." });
 const agentVmRunInput = z.object({ task: z.string().trim().min(3, "Describe the VM task.").max(1600), code: z.string().max(12000).optional() });
 const terminalSizeInput = z.object({ cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) });
 /** Only classified TerminalError messages reach the client; anything else is
@@ -137,6 +145,13 @@ const teamCreateInput = z.object({ name: z.string().trim().min(1, "A team needs 
 const agentRouteError = (error: unknown, fallback: string): never => {
   if (error instanceof AgentNameTakenError) throw new TRPCError({ code: "CONFLICT", message: error.message });
   console.warn("[Agents] mutation failed:", error instanceof Error ? error.message : error);
+  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
+};
+/** Skill mutations surface a duplicate name as a conflict and an unreachable store as a precondition; anything else stays a generic failure. */
+const skillRouteError = (error: unknown, fallback: string): never => {
+  if (error instanceof SkillNameTakenError) throw new TRPCError({ code: "CONFLICT", message: error.message });
+  if (error instanceof SkillStorageError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+  console.warn("[Skills] mutation failed:", error instanceof Error ? error.message : error);
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
 };
 
@@ -427,6 +442,13 @@ export const appRouter = router({
         if ("error" in result) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
         return result.matches;
       }),
+  }),
+  /** The workspace's skills: reusable procedures in the Agent Skills format, listed on the Skills page and read by the agent through read_skill. */
+  skills: router({
+    list: protectedProcedure.query(({ ctx }) => listSkillsForUser(ctx.user.id)),
+    create: protectedProcedure.input(skillInput).mutation(async ({ ctx, input }) => { try { return await createSkillForUser(ctx.user.id, input); } catch (error) { throw skillRouteError(error, "Nova could not save that skill."); } }),
+    update: protectedProcedure.input(skillUpdateInput).mutation(async ({ ctx, input }) => { try { const skill = await updateSkillForUser(ctx.user.id, input.id, input); throwIfNotFound(skill, "skill"); return skill; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not update that skill."); } }),
+    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { const deleted = await deleteSkillForUser(ctx.user.id, input.id); throwIfNotFound(deleted, "skill"); return { success: true as const }; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not delete that skill."); } }),
   }),
   chats: router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),

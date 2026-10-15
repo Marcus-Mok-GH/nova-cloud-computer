@@ -62,6 +62,7 @@ import {
   saveMemoryForUser,
   searchMemoriesForUser,
 } from "./memories";
+import { getSkillByNameForUser } from "./skills";
 import { NimConfigError } from "./nim";
 import {
   PROJECT_TEMPLATE_KEYS,
@@ -526,6 +527,32 @@ export async function executeWorkspaceTool(
         ok: true,
         result: `Deleted memory ${id}.`,
         action: { kind: "tool", name: `memory ${id}`, operation: "deleted" },
+      };
+    }
+    case "read_skill": {
+      const name = str(args.name);
+      const skill = name ? await getSkillByNameForUser(ownerId, name) : null;
+      if (!skill)
+        return {
+          ok: false,
+          result: `No skill named "${name || "(empty)"}" - the skills block in the system prompt lists the installed names.`,
+          action: {
+            kind: "tool",
+            name: name.slice(0, 60) || "read_skill",
+            operation: "failed",
+          },
+        };
+      return {
+        ok: true,
+        result: `Skill ${skill.name} - ${skill.description}\n\n${
+          skill.body.trim() ||
+          "(This skill has no instructions yet - ask the user to fill them in on Nova's Skills page.)"
+        }`,
+        action: {
+          kind: "tool",
+          name: skill.name.slice(0, 60),
+          operation: "listed",
+        },
       };
     }
     case "request_purchase": {

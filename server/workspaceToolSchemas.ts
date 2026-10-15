@@ -990,4 +990,23 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "read_skill",
+      description:
+        "Load one installed skill's full instructions by name. The system prompt lists only each skill's name and description (discovery), so call this before following a skill's procedure - it returns the skill's complete markdown instructions.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description:
+              "The skill name exactly as listed in the system prompt's skills block, e.g. weekly-report.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ];

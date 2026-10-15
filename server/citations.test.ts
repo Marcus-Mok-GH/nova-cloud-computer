@@ -13,8 +13,8 @@ describe("browseOpenUrl", () => {
     expect(browseOpenUrl("open https://example.com/docs")).toBe(
       "https://example.com/docs"
     );
-    expect(browseOpenUrl("agent-browser open https://example.com")).toBe(
-      "https://example.com"
+    expect(browseOpenUrl('open "https://example.com/a b"')).toBe(
+      "https://example.com/a"
     );
   });
 
@@ -26,9 +26,9 @@ describe("browseOpenUrl", () => {
   });
 
   it("ignores commands that do not open a web page", () => {
-    expect(browseOpenUrl("snapshot")).toBeUndefined();
-    expect(browseOpenUrl("click @e2")).toBeUndefined();
-    expect(browseOpenUrl("read")).toBeUndefined();
+    expect(browseOpenUrl("screenshot")).toBeUndefined();
+    expect(browseOpenUrl("click 420 260")).toBeUndefined();
+    expect(browseOpenUrl("type \"hello\"")).toBeUndefined();
     expect(browseOpenUrl("open index.html")).toBeUndefined();
     expect(browseOpenUrl("open /workspace/notes.md")).toBeUndefined();
     expect(browseOpenUrl("")).toBeUndefined();

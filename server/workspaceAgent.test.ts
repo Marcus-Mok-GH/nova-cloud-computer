@@ -89,6 +89,7 @@ vi.mock("./db", () => ({
   listChatMessagesForUser: chatMessages,
   renameChatIfDefaultForUser: renameChat,
   createWorkspaceFileForUser: createFile,
+  updateWorkspaceBrowserSandbox: vi.fn(async () => undefined),
   createWorkspaceFolderForUser: createFolder,
   getWorkspaceComputer: computer,
   updateWorkspaceFolderForUser: updateFolder,
@@ -325,10 +326,9 @@ vi.mock("./researcher", () => ({
   runResearch: runResearchMock,
 }));
 
-const runBrowserCommandMock = vi.hoisted(() => vi.fn());
-vi.mock("./agentBrowser", () => ({
-  runBrowserCommand: runBrowserCommandMock,
-  warmBrowserInBackground: vi.fn(async () => undefined),
+const runDesktopBrowseCommandMock = vi.hoisted(() => vi.fn());
+vi.mock("./desktopBrowser", () => ({
+  runDesktopBrowseCommand: runDesktopBrowseCommandMock,
 }));
 
 vi.mock("./workspaceSync", () => ({
@@ -1936,9 +1936,12 @@ describe("Nova tool-calling workspace agent", () => {
     it("cites the page a browse call opened at the bottom of the reply", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
-      runBrowserCommandMock
+      runDesktopBrowseCommandMock
         .mockReset()
-        .mockResolvedValueOnce({ ok: true, result: "Docs page text." });
+        .mockResolvedValueOnce({
+          ok: true,
+          result: "Opened https://example.com/docs in the Chrome app.",
+        });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
@@ -1958,9 +1961,8 @@ describe("Nova tool-calling workspace agent", () => {
         .mockResolvedValueOnce(chatResult({ text: "The docs confirm it." }));
       const result = await runWorkspaceAgent(1, 3, "check the docs");
 
-      expect(runBrowserCommandMock).toHaveBeenCalledWith(
-        sandbox,
-        "open https://example.com/docs"
+      expect(runDesktopBrowseCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining({ command: "open https://example.com/docs" })
       );
       expect(result.message.content).toBe(
         "The docs confirm it.\n\n" +
@@ -2161,13 +2163,17 @@ describe("Nova tool-calling workspace agent", () => {
       expect(fedBack.content).toContain("stdout:\nwelcome.md");
     });
 
-    it("drives the sandbox browser via browse and feeds the output back to the model", async () => {
+    it("drives the desktop browser via browse and feeds the capture back to the model", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
-      runBrowserCommandMock.mockReset();
-      runBrowserCommandMock.mockResolvedValue({
+      runDesktopBrowseCommandMock.mockReset();
+      runDesktopBrowseCommandMock.mockResolvedValue({
         ok: true,
-        result: "Exit code 0.\n\nstdout:\npage loaded",
+        result: "Opened https://example.com in the Chrome app (screen 1280x800).",
+        screenshot: {
+          dataUri: "data:image/png;base64,AAAA",
+          attachable: true,
+        },
       });
       chatWithAiGateway
         .mockReset()
@@ -2190,9 +2196,11 @@ describe("Nova tool-calling workspace agent", () => {
         3,
         "open example.com in a browser"
       );
-      expect(runBrowserCommandMock).toHaveBeenCalledWith(
-        sandbox,
-        "open https://example.com"
+      expect(runDesktopBrowseCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerId: 1,
+          command: "open https://example.com",
+        })
       );
       expect(result.actions).toEqual([
         { kind: "browser", name: "open", operation: "completed" },
@@ -2202,11 +2210,32 @@ describe("Nova tool-calling workspace agent", () => {
         (m: { role: string; tool_call_id?: string }) =>
           m.role === "tool" && m.tool_call_id === "call-browse"
       );
-      expect(fedBack.content).toContain("page loaded");
+      expect(fedBack.content).toContain("Opened https://example.com");
+      // The screen the command left behind rides back as vision input: that is
+      // how the model decides where to click next.
+      const visionTurn = secondCallMessages.find(
+        (m: { role: string; content?: unknown }) =>
+          m.role === "user" &&
+          Array.isArray(m.content) &&
+          m.content.some(
+            (part: { type?: string }) => part.type === "image_url"
+          )
+      );
+      expect(visionTurn).toBeDefined();
+      expect(visionTurn?.content).toEqual(
+        expect.arrayContaining([
+          {
+            type: "image_url",
+            image_url: { url: "data:image/png;base64,AAAA" },
+          },
+        ])
+      );
     });
 
-    it("browse without a live sandbox reports the fallback to the model", async () => {
+    it("browse without E2B configured reports the fallback to the model", async () => {
       vi.mocked(isE2BConfigured).mockReturnValue(false);
+      vi.mocked(getE2BClient).mockReturnValue(undefined as never);
+      runDesktopBrowseCommandMock.mockReset();
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
@@ -2216,12 +2245,13 @@ describe("Nova tool-calling workspace agent", () => {
               {
                 id: "call-browse-off",
                 name: "browse",
-                arguments: JSON.stringify({ command: "snapshot" }),
+                arguments: JSON.stringify({ command: "screenshot" }),
               },
             ],
           })
         );
       const result = await runWorkspaceAgent(1, 3, "browse example.com");
+      expect(runDesktopBrowseCommandMock).not.toHaveBeenCalled();
       expect(result.actions).toEqual([
         { kind: "browser", name: "browser", operation: "disabled" },
       ]);
@@ -2230,7 +2260,6 @@ describe("Nova tool-calling workspace agent", () => {
         (m: { role: string; tool_call_id?: string }) =>
           m.role === "tool" && m.tool_call_id === "call-browse-off"
       );
-      expect(fedBack.content).toContain("sandbox is not available");
       expect(fedBack.content).toContain("not set up on this workspace");
     });
 

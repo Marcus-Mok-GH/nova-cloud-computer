@@ -324,6 +324,46 @@ export function persistentSandboxConfig(workspaceId: number, ownerId: number) {
   };
 }
 
+/**
+ * The `desktop` template: Ubuntu with an XFCE session and Chrome for Testing
+ * already installed - the same image E2B's own computer-use SDK creates (it
+ * defaults to this template name too). The workspace VM runs the bare `base`
+ * template, which has no display server at all, so the browse tool gets a
+ * sandbox of its own from here instead of a several-hundred-megabyte GUI
+ * install inside an agent run.
+ */
+export const DESKTOP_SANDBOX_TEMPLATE = "desktop";
+/** The X display the desktop session runs on; the browse commands and Chrome
+ *  both read it, so it is set for every command the sandbox runs. */
+export const DESKTOP_DISPLAY = ":0";
+const DESKTOP_SANDBOX_TIMEOUT_MS = 3_600_000;
+
+/**
+ * The desktop GUI sandbox config. It mirrors the persistent VM's lifecycle -
+ * pause instead of kill on timeout, resume on the next call - so the Chrome
+ * window the user was looking at is still there next time, and it carries the
+ * same owner/workspace metadata plus a `nova.browser` marker so Nova's
+ * sandboxes stay distinguishable in the E2B dashboard.
+ */
+export function desktopSandboxConfig(workspaceId: number, ownerId: number) {
+  return {
+    template: DESKTOP_SANDBOX_TEMPLATE,
+    envs: { DISPLAY: DESKTOP_DISPLAY },
+    metadata: {
+      "nova.owner": String(ownerId),
+      "nova.workspace": String(workspaceId),
+      "nova.browser": "true",
+    },
+    timeoutMs: DESKTOP_SANDBOX_TIMEOUT_MS,
+    lifecycle: { onTimeout: "pause" as const, autoResume: true },
+    allowInternetAccess: true,
+  };
+}
+
+export function desktopSandboxTimeoutMs() {
+  return DESKTOP_SANDBOX_TIMEOUT_MS;
+}
+
 const persistentSandboxInFlight = new Map<string, Promise<E2BSandboxLike>>();
 
 async function runCommand(

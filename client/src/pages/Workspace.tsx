@@ -580,9 +580,10 @@ export default function Workspace() {
     // Freeze the transcript immediately: the run's remaining deltas are
     // dropped on arrival, so the text - and any thinking/tool updates - stop
     // growing the moment the button is pressed, however slow the cancel
-    // round-trip (or a cold serverless instance) turns out to be.
+    // round-trip (or a cold serverless instance) turns out to be. A queued
+    // turn keeps its notice until the mutation confirms the cancel, so a
+    // failed stop can still be retried.
     stopRequestedRef.current = true;
-    setQueueNotice(null);
     stopRun.mutate({ chatId });
   };
   const revertChat = trpc.chats.revert.useMutation();

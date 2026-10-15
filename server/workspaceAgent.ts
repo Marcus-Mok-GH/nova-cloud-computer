@@ -1340,6 +1340,10 @@ ${
       const onReasoning = (chunk: string) => {
         reasoningThisRound += chunk;
         flushThinking("running");
+        // Thinking is streamed generation too: poll here as well, so a stop
+        // pressed during a long reasoning phase ends it just as promptly as
+        // one pressed mid-reply.
+        checkStopMidStream();
       };
       const runChatRound = () =>
         chatWithGatewayRetry(ownerId, messages, {

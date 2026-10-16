@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check, CreditCard, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -47,25 +48,26 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
  */
 export default function BillingCard() {
   const utils = trpc.useUtils();
+  const { t, locale } = useTranslation();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });
   const purchase = trpc.billing.purchasePriority.useMutation({
     onSuccess: async result => {
       await utils.billing.status.invalidate();
       if (result.armed) {
-        toast.success("Priority purchased. Your hour starts with your next message.");
+        toast.success(t("settings.billing.buy.success"));
       } else {
-        toast.error("Nova could not record that purchase.");
+        toast.error(t("settings.billing.buy.error"));
       }
     },
     onError: error =>
-      toast.error(error.message || "Nova could not record that purchase."),
+      toast.error(error.message || t("settings.billing.buy.error")),
   });
   const priority = status.data?.priority ?? false;
   const armed = status.data?.armed ?? false;
   const expiresAt = status.data?.expiresAt ? new Date(status.data.expiresAt) : null;
   const expiresAtMs = expiresAt ? expiresAt.getTime() : null;
   const expiresLabel = expiresAt
-    ? expiresAt.toLocaleString(undefined, {
+    ? expiresAt.toLocaleString(locale, {
         month: "short",
         day: "numeric",
         hour: "numeric",
@@ -94,13 +96,11 @@ export default function BillingCard() {
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-            Billing
+            {t("settings.billing.eyebrow")}
           </p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight">Priority requests</h2>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.billing.title")}</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            During peak hours Nova serves requests through a queue. A one-time
-            purchase of priority moves your requests ahead of standard ones for
-            one hour, counting from the first message you send afterwards.
+            {t("settings.billing.body")}
           </p>
         </div>
         <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -110,21 +110,21 @@ export default function BillingCard() {
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-muted/20 p-5">
         <div>
-          <p className="text-sm font-bold">Priority</p>
+          <p className="text-sm font-bold">{t("settings.billing.priority.title")}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {active
               ? expiresLabel
-                ? `Priority active for another ${formatPriorityRemaining(remainingMs!)} (until ${expiresLabel}). Your requests are served first during peak hours.`
-                : `Priority active for another ${formatPriorityRemaining(remainingMs!)}. Your requests are served first during peak hours.`
+                ? t("settings.billing.priority.activeUntil", { remaining: formatPriorityRemaining(remainingMs!), until: expiresLabel })
+                : t("settings.billing.priority.active", { remaining: formatPriorityRemaining(remainingMs!) })
               : armed
-                ? "Priority armed - the one-hour countdown starts with your next message."
-                : "Not active - your requests join the queue in arrival order."}
+                ? t("settings.billing.priority.armed")
+                : t("settings.billing.priority.inactive")}
           </p>
           {active && (
             <div
               data-testid="priority-countdown"
               role="progressbar"
-              aria-label="Remaining priority time"
+              aria-label={t("settings.billing.countdown.aria")}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(progress)}
@@ -139,15 +139,15 @@ export default function BillingCard() {
         </div>
         {active ? (
           <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold tabular-nums text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-            <Check size={14} /> Priority active · {formatPriorityRemaining(remainingMs!)}
+            <Check size={14} /> {t("settings.billing.badge.active", { remaining: formatPriorityRemaining(remainingMs!) })}
           </span>
         ) : armed ? (
           <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-            <Sparkles size={14} /> Armed
+            <Sparkles size={14} /> {t("settings.billing.badge.armed")}
           </span>
         ) : (
           <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">
-            Standard
+            {t("settings.billing.badge.standard")}
           </span>
         )}
       </div>
@@ -156,12 +156,10 @@ export default function BillingCard() {
         <div className="mt-4 rounded-2xl border bg-muted/20 p-5">
           <div className="flex items-center gap-2">
             <Sparkles className="size-4 text-primary" />
-            <p className="text-sm font-bold">Buy 1 hour of priority</p>
+            <p className="text-sm font-bold">{t("settings.billing.buy.title")}</p>
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Testing mode: payment is disabled, so clicking the button records the
-            purchase immediately. Your hour begins when you send your next
-            message, and starts over each time you buy again.
+            {t("settings.billing.buy.body")}
           </p>
           <Button
             className="mt-4"
@@ -169,7 +167,7 @@ export default function BillingCard() {
             disabled={purchase.isPending || status.isLoading}
           >
             {purchase.isPending && <Loader2 className="animate-spin" size={15} />}
-            Buy priority
+            {t("settings.billing.buy.button")}
           </Button>
         </div>
       )}

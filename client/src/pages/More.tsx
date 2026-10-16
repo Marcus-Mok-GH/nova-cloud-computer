@@ -1,10 +1,12 @@
 import { Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useTranslation } from "@/contexts/LanguageContext";
 import { navItems } from "@/lib/nav";
 
 export default function More() {
   const [, setLocation] = useLocation();
+  const { t } = useTranslation();
 
   return (
     <DashboardLayout>
@@ -14,8 +16,8 @@ export default function More() {
             <Sparkles className="size-5" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">More</h1>
-            <p className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground">Everything in your Nova workspace.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">{t("more.title")}</h1>
+            <p className="mt-1 text-sm text-muted-foreground dark:text-muted-foreground">{t("more.subtitle")}</p>
           </div>
         </div>
 
@@ -30,8 +32,8 @@ export default function More() {
                 <item.icon className="size-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">{item.label}</p>
-                <p className="mt-1 truncate text-sm text-muted-foreground dark:text-muted-foreground">{item.description}</p>
+                <p className="font-semibold">{t(item.labelKey)}</p>
+                <p className="mt-1 truncate text-sm text-muted-foreground dark:text-muted-foreground">{item.descriptionKey ? t(item.descriptionKey) : null}</p>
               </div>
             </button>
           ))}

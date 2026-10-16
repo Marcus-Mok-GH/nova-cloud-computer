@@ -1,5 +1,6 @@
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { AppTree, createAppQueryClient, createAppTrpcClient } from "./appTree";
+import { beginLanguageHydrationPass } from "./contexts/LanguageContext";
 import { beginHydrationPass } from "./contexts/ThemeContext";
 import "./index.css";
 
@@ -25,8 +26,10 @@ if (root.hasChildNodes()) {
   // The landing page arrives server-rendered (client/src/entry-server.tsx)
   // with data-ssr on #root: adopt that markup instead of rebuilding it. The
   // first render must reproduce the server's markup exactly, so the theme
-  // context defers reading the stored theme until hydration has committed.
+  // and language contexts defer reading stored preferences until hydration
+  // has committed.
   beginHydrationPass();
+  beginLanguageHydrationPass();
   hydrateRoot(root, tree);
 } else {
   // Every other route gets the empty SPA shell and renders here on the client.

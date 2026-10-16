@@ -20,6 +20,7 @@ const probe = {
   session: "pgrep -x xfce4-session",
   chromeWindow: "xdotool search --onlyvisible",
   chromeRunning: "pgrep -f google-chrome",
+  chromeStop: "pgrep -f [c]hrome",
   scrot: "scrot --pointer",
 };
 
@@ -52,6 +53,9 @@ function fakeSandbox(options: FakeOptions = {}) {
         readyChecks += 1;
         return readyChecks <= (options.failReadyTimes ?? 0) ? failed() : ok();
       }
+      if (command.includes("pkill")) chromeStarted = false;
+      if (command.includes(probe.chromeStop))
+        return chrome && chromeStarted ? ok() : failed();
       if (command.includes(probe.display)) return ok();
       if (command.includes(probe.session)) return ok();
       if (command.includes(probe.chromeRunning))
@@ -168,6 +172,13 @@ describe("parseDesktopCommand", () => {
       ms: 2500,
     });
     expect(parseDesktopCommand("windows").kind).toBe("windows");
+    expect(parseDesktopCommand("close")).toMatchObject({
+      kind: "close",
+      summary: "Closed every open browser tab",
+    });
+    // Trailing words the model may add are ignored: this verb is all tabs.
+    expect(parseDesktopCommand("close browser").kind).toBe("close");
+    expect(parseDesktopCommand("close all tabs").kind).toBe("close");
     expect(parseDesktopCommand("launch firefox example.com")).toMatchObject({
       kind: "launch",
       application: "firefox",
@@ -374,6 +385,108 @@ describe("runDesktopBrowseCommand", () => {
     expect(
       commandsOf(commands).some(command => command.includes(probe.scrot))
     ).toBe(false);
+  });
+
+  it("stops Chrome in the workspace's desktop sandbox without touching it first", async () => {
+    const { sandbox, commands } = fakeSandbox();
+    const connect = vi.fn(async () => sandbox);
+    const create = vi.fn();
+    const { client } = fakeClient({ connect, create });
+
+    const result = await runDesktopBrowseCommand({
+      client,
+      workspaceId: 7,
+      ownerId: 1,
+      command: "close",
+      sandboxId: "sbx-chrome",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(connect).toHaveBeenCalledTimes(1);
+    // Closing must never boot a second desktop, and never relaunch the app it
+    // was asked to stop.
+    expect(create).not.toHaveBeenCalled();
+    const issued = commandsOf(commands);
+    expect(issued).toContainEqual(expect.stringContaining("pkill -f [c]hrome"));
+    expect(issued.some(command => command.includes("gtk-launch"))).toBe(false);
+    expect(issued.some(command => command.includes(probe.readiness))).toBe(false);
+    // The report is text, so no capture rides along with it.
+    expect(issued.some(command => command.includes(probe.scrot))).toBe(false);
+    expect(result.screenshot).toBeUndefined();
+    expect(result.result).toContain("Closed every open browser tab");
+    expect(result.result).toContain("open <url>");
+  });
+
+  it("forces Chrome out when the term signal does not close it", async () => {
+    const { sandbox, commands, run } = fakeSandbox();
+    run.mockImplementation(async (command: string, runOptions?: Record<string, unknown>) => {
+      commands.push({ command, options: runOptions });
+      // Chrome answers every probe: the graceful kill never lands.
+      if (command.includes("pkill")) return ok();
+      if (command.includes(probe.chromeStop)) return ok();
+      return ok();
+    });
+    const connect = vi.fn(async () => sandbox);
+    const create = vi.fn();
+    const { client } = fakeClient({ connect, create });
+    vi.useFakeTimers();
+    try {
+      const pending = runDesktopBrowseCommand({
+        client,
+        workspaceId: 7,
+        ownerId: 1,
+        command: "close",
+        sandboxId: "sbx-chrome",
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(result.result).toContain("Chrome did not stop");
+      expect(result.result).toContain("Run 'close' once more");
+      expect(commandsOf(commands)).toContainEqual(
+        expect.stringContaining("pkill -9 -f [c]hrome")
+      );
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not provision a desktop just to close a browser that was never opened", async () => {
+    const { client, create, connect } = fakeClient();
+
+    const result = await runDesktopBrowseCommand({
+      client,
+      workspaceId: 7,
+      ownerId: 1,
+      command: "close",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toContain("nothing to close");
+    expect(connect).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("reports a desktop machine that has already gone as closed", async () => {
+    const connect = vi.fn(async () => {
+      throw new Error("sandbox not found");
+    });
+    const create = vi.fn();
+    const { client } = fakeClient({ connect, create });
+
+    const result = await runDesktopBrowseCommand({
+      client,
+      workspaceId: 7,
+      ownerId: 1,
+      command: "close",
+      sandboxId: "sbx-gone",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toContain("no tabs were left behind");
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("retries Chrome from the binary and reports when it never appears", async () => {

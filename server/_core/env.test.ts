@@ -146,12 +146,12 @@ describe("resolveCoderConfig", () => {
     }
   });
 
-  it("defaults the editor to Pollinations serving deepseek/deepseek-v4.1-flash", () => {
+  it("defaults the editor to Pollinations serving glm 5.3 flash", () => {
     process.env.POLLINATIONS_API_KEY = "sk-poll";
     expect(resolveCoderConfig()).toEqual({
       nimCoderApiUrl: "https://gen.pollinations.ai/v1",
       nimCoderApiKey: "sk-poll",
-      nimCoderModel: "deepseek/deepseek-v4.1-flash",
+      nimCoderModel: "z-ai/glm-5.3-flash",
     });
   });
 

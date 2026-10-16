@@ -77,14 +77,14 @@ describe("runNimChat", () => {
     await runNimChat({
       prompt: "p",
       systemPrompt: "s",
-      model: "deepseek/deepseek-v4.1-flash",
+      model: "z-ai/glm-5.3-flash",
       apiUrl: "https://gen.pollinations.ai/v1",
       apiKey: "sk-poll",
     });
     const [url, init] = fetchStub.mock.calls[0];
     expect(url.href).toBe("https://gen.pollinations.ai/v1/chat/completions");
     expect(init.headers.authorization).toBe("Bearer sk-poll");
-    expect(JSON.parse(init.body).model).toBe("deepseek/deepseek-v4.1-flash");
+    expect(JSON.parse(init.body).model).toBe("z-ai/glm-5.3-flash");
   });
 
   it("counts a request with its own key as configured even without the shared NIM key", async () => {

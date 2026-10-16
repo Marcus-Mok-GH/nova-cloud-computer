@@ -1,3 +1,34 @@
+2026-10-16 - browse learns `close`, so tabs stop stacking up in the desktop machine
+
+Every `open` adds a tab to the one running Chrome session in the desktop
+sandbox, and nothing ever took those tabs away. A workspace that browsed
+often ended up with dozens of windows and their renderer processes still
+alive between calls - memory the paused-when-idle machine keeps, and the
+slow, then unresponsive, desktop that follows.
+
+`browse` now takes `close` (`close`, `close browser`, `close all tabs`,
+trailing words ignored): it stops the Chrome app outright, so every tab goes
+with it. The kill is `pkill -f` on a bracketed `[c]hrome` pattern - the
+brackets keep the shell running the command from matching its own command
+line - with a ten-second grace period on the term signal, then SIGKILL for
+anything still alive, and a probe that reports back whether Chrome is really
+gone rather than assuming it. The verb deliberately never boots, revives or
+replaces a desktop: a machine that is not there has no tabs to close, and
+waking one just to shut it down would defeat the purpose, so a workspace that
+never browsed (or whose machine expired) gets "nothing to close" instead of a
+fresh sandbox, and a dead machine is reported as closed because its Chrome
+died with it. `open <url>` relaunches Chrome on the next call and the profile
+on disk - logins included - is untouched. The tool description and the
+agent's browse guidance now both tell the model when to reach for it.
+
+Files: server/desktopBrowser.ts, server/workspaceToolSchemas.ts,
+server/workspaceAgent.ts, server/desktopBrowser.test.ts, CHANGELOG.md.
+Tests: four new desktop-browser tests (close stops Chrome in the existing
+sandbox while never launching it or taking a capture, a Chrome that ignores
+the term signal is forced out, no desktop is provisioned for a close with
+nothing to close, a vanished machine reports as closed) plus parser coverage
+for the new verb; suite 1282 passed.
+
 2026-10-15 - Sandbox wake runs alongside the agent, not in front of it
 
 Every agent run opened the same way: wake the workspace sandbox, wait for E2B

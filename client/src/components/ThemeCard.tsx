@@ -2,6 +2,8 @@
 import React from "react";
 import { Check, Moon, Palette, Sun } from "lucide-react";
 import { useTheme, type ThemeOption } from "@/contexts/ThemeContext";
+import { useTranslation } from "@/contexts/LanguageContext";
+import type { TranslationKey } from "@/i18n";
 
 /**
  * A miniature of the palette. `data-theme` scopes the CSS variables to this
@@ -25,6 +27,7 @@ function ThemeSwatch({ theme }: { theme: ThemeOption }) {
 
 function ThemeGroup({ title, icon, options }: { title: string; icon: React.ReactNode; options: ThemeOption[] }) {
   const { themeName, setThemeName } = useTheme();
+  const { t } = useTranslation();
   return (
     <div className="mt-6">
       <div className="flex items-center gap-2 text-muted-foreground">
@@ -45,9 +48,9 @@ function ThemeGroup({ title, icon, options }: { title: string; icon: React.React
               <ThemeSwatch theme={theme} />
               <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
                 <span className="text-sm font-bold">{theme.label}</span>
-                {active && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary"><Check size={13} /> Active</span>}
+                {active && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary"><Check size={13} /> {t("common.active")}</span>}
               </div>
-              <p className="px-0.5 text-xs leading-5 text-muted-foreground">{theme.description}</p>
+              <p className="px-0.5 text-xs leading-5 text-muted-foreground">{t(`settings.theme.desc.${theme.id}` as TranslationKey)}</p>
             </button>
           );
         })}
@@ -58,20 +61,21 @@ function ThemeGroup({ title, icon, options }: { title: string; icon: React.React
 
 export default function ThemeCard() {
   const { themes } = useTheme();
+  const { t } = useTranslation();
   const light = themes.filter(theme => theme.mode === "light");
   const dark = themes.filter(theme => theme.mode === "dark");
   return (
     <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Appearance</p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight">Theme</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Pick a palette for your workspace. Every light and dark theme is tuned for readable contrast, and your choice is remembered on this device.</p>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.theme.eyebrow")}</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.theme.title")}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.theme.body")}</p>
         </div>
         <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><Palette size={24} /></div>
       </div>
-      <ThemeGroup title="Light" icon={<Sun className="size-3.5" />} options={light} />
-      <ThemeGroup title="Dark" icon={<Moon className="size-3.5" />} options={dark} />
+      <ThemeGroup title={t("settings.theme.light")} icon={<Sun className="size-3.5" />} options={light} />
+      <ThemeGroup title={t("settings.theme.dark")} icon={<Moon className="size-3.5" />} options={dark} />
     </section>
   );
 }

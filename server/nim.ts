@@ -195,7 +195,7 @@ function nimChatEndpoint(target: NimRequestTarget): URL {
   }
   if (!target.model) {
     throw new NimConfigError(
-      "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one (e.g. 'deepseek/deepseek-v4.1-flash')."
+      "A model ID is required when this workspace uses a custom model endpoint - ask the workspace owner to set one (e.g. 'z-ai/glm-5.3-flash')."
     );
   }
   const endpoint = new URL(`${target.apiUrl.replace(/\/+$/, "")}/chat/completions`);

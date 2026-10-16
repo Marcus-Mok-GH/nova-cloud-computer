@@ -87,6 +87,7 @@ export type DesktopAction =
   | { kind: "press"; keys: string; summary: string }
   | { kind: "wait"; ms: number; summary: string }
   | { kind: "launch"; application: string; url?: string; summary: string }
+  | { kind: "close"; summary: string }
   | { kind: "windows"; summary: string };
 
 type CommandOutcome = { exitCode: number; stdout: string; stderr: string };
@@ -287,6 +288,10 @@ export function parseDesktopCommand(
         summary: `Launched ${application}${url ? ` on ${url}` : ""}`,
       };
     }
+    case "close":
+      // Trailing words ("close browser", "close all tabs") are just the model
+      // talking to itself: this verb always means every tab, every window.
+      return { kind: "close", summary: "Closed every open browser tab" };
     case "windows":
       return { kind: "windows", summary: "Listed the desktop's windows" };
     case "snapshot":
@@ -303,7 +308,7 @@ export function parseDesktopCommand(
       };
     default:
       return {
-        error: `Unknown desktop command '${tokens[0]}'. Use open <url>, screenshot, click <x> <y>, double-click, right-click, move <x> <y>, scroll up|down [n], type "text", press <key>, wait <ms>, launch <app>, or windows.`,
+        error: `Unknown desktop command '${tokens[0]}'. Use open <url>, screenshot, click <x> <y>, double-click, right-click, move <x> <y>, scroll up|down [n], type "text", press <key>, wait <ms>, launch <app>, windows, or close.`,
       };
   }
 }
@@ -424,6 +429,18 @@ const CHROME_WINDOW_PROBE = [
   "exit 1",
 ].join("\n");
 
+/**
+ * Chrome, as a process pattern. The name is wrapped in brackets so the shell
+ * that runs `pkill` - whose own command line carries this very pattern - does
+ * not match itself and die with the browser it was asked to stop.
+ */
+const CHROME_MATCH = "[c]hrome";
+const CHROME_KILL = `pkill -f ${CHROME_MATCH}`;
+const CHROME_KILL_FORCE = `pkill -9 -f ${CHROME_MATCH}`;
+const CHROME_PROBE = `pgrep -f ${CHROME_MATCH} >/dev/null 2>&1`;
+/** Chrome's grace period on the term signal before it is forced out. */
+const CHROME_STOP_TIMEOUT_MS = 10_000;
+
 /** The launcher form, which is what the desktop's own application menu runs. */
 function chromeLauncherCommand(url?: string) {
   return `gtk-launch ${CHROME_APP}${url ? ` ${shellQuote(url)}` : ""}`;
@@ -472,6 +489,25 @@ async function activeWindowTitle(sandbox: E2BSandboxLike): Promise<string> {
     "xdotool getactivewindow getwindowname 2>/dev/null || true"
   );
   return (outcome.stdout.split("\n")[0] ?? "").trim().slice(0, 120);
+}
+
+/**
+ * Stops the Chrome app, which closes every tab it holds. `pkill` gets the term
+ * signal first; anything still alive when the grace period runs out is forced,
+ * because the whole point of this verb is to give the memory back. Returns
+ * false only when Chrome is still there after both.
+ */
+async function stopChrome(sandbox: E2BSandboxLike): Promise<boolean> {
+  await runCommand(sandbox, CHROME_KILL);
+  const deadline = Date.now() + CHROME_STOP_TIMEOUT_MS;
+  for (;;) {
+    if ((await runCommand(sandbox, CHROME_PROBE)).exitCode !== 0) return true;
+    if (Date.now() >= deadline) break;
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  await runCommand(sandbox, CHROME_KILL_FORCE);
+  await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+  return (await runCommand(sandbox, CHROME_PROBE)).exitCode !== 0;
 }
 
 /** Lists the desktop's visible windows, so the model can tell what is open. */
@@ -539,6 +575,7 @@ async function performAction(sandbox: E2BSandboxLike, action: DesktopAction) {
   switch (action.kind) {
     case "open":
     case "capture":
+    case "close":
     case "windows":
       return;
     case "launch":
@@ -628,6 +665,57 @@ async function openDesktopSession(input: {
 }
 
 /**
+ * `close`: stop the Chrome app so its tabs cannot pile up between calls and
+ * sit on the desktop machine's memory. It deliberately never boots, revives
+ * or replaces a desktop - a machine that is not there has no tabs to close,
+ * and waking one just to shut it down would be the opposite of the point. A
+ * dead session is reported as closed for the same reason: its Chrome died
+ * with it.
+ */
+async function closeBrowserSession(input: {
+  client: E2BClientLike;
+  sandboxId?: string | null;
+}): Promise<DesktopBrowseOutcome> {
+  if (!input.sandboxId)
+    return {
+      ok: true,
+      result:
+        "Closed every open browser tab: no desktop browser was running on this workspace, so there was nothing to close.",
+    };
+
+  let sandbox: E2BSandboxLike;
+  try {
+    sandbox = await input.client.connect(input.sandboxId, {
+      timeoutMs: desktopSandboxTimeoutMs(),
+    });
+  } catch {
+    // The machine expired or was killed behind us: its tabs went with it.
+    return {
+      ok: true,
+      result:
+        "Closed every open browser tab: the desktop machine is no longer running, so no tabs were left behind.",
+    };
+  }
+
+  const stopped = await stopChrome(sandbox);
+  if (!stopped)
+    return {
+      ok: false,
+      result: [
+        "Chrome did not stop in the desktop machine, so its tabs are still open.",
+        "Run 'close' once more; if it keeps running, tell the user the desktop browser is not releasing its tabs instead of retrying forever.",
+      ].join("\n\n"),
+    };
+  return {
+    ok: true,
+    result: [
+      "Closed every open browser tab - the Chrome app is stopped, so no windows are held open between browse calls.",
+      "The desktop machine and your logins are untouched: 'open <url>' starts Chrome again for the next page.",
+    ].join("\n\n"),
+  };
+}
+
+/**
  * Runs one browse command against the workspace's desktop GUI sandbox and
  * returns what happened plus the capture taken afterwards. Never throws: every
  * failure comes back as text the model can act on.
@@ -646,6 +734,9 @@ export async function runDesktopBrowseCommand(input: {
   if ("error" in action) return { ok: false, result: action.error };
 
   try {
+    // `close` answers for itself: it needs no Chrome launch, no revive and no
+    // capture, only a machine to stop Chrome on when there is one.
+    if (action.kind === "close") return closeBrowserSession(input);
     const session = await openDesktopSession(input);
     const sandbox = session.sandbox;
     // Chrome first: the Chrome app on screen is what makes the capture a

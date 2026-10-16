@@ -72,7 +72,7 @@ vi.mock("./db", () => ({
   claimAgentRunContinuation: spies.claimAgentRunContinuation,
 }));
 
-vi.mock("./workspaceAgent", () => ({
+vi.mock("./workspace/workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
   runWorkspaceAgent: spies.runWorkspaceAgent,
   autoTitleChatForUser: spies.autoTitleChatForUser,

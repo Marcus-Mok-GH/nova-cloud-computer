@@ -100,7 +100,7 @@ vi.mock("./db", () => ({
   getWorkspaceComputer: vi.fn(async () => ({ workspace: { id: 3, persistentSandboxId: "sbx-live" } })),
 }));
 
-vi.mock("./workspaceSync", () => ({
+vi.mock("./workspace/workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async (ownerId: number) => {
     state.persisted += 1;
     return { ownerId, imported: 4 };

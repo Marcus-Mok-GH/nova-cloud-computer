@@ -3,11 +3,11 @@
  * workspace agent. They live here rather than in workspaceAgent.ts so the
  * run loop and the tool executor can both depend on them without a cycle.
  */
-import type { AgentProfileContext } from "./agents";
+import type { AgentProfileContext } from "../agents";
 import {
   appendChatMessageForUser,
   listChatMessagesForUser,
-} from "./db";
+} from "../db";
 
 export type AgentAction = {
   kind:

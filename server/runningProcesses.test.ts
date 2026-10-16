@@ -69,7 +69,7 @@ vi.mock("./e2b", () => ({
   ensurePersistentSandbox: hoisted.ensurePersistentSandbox,
   getE2BClient: hoisted.getE2BClient,
 }));
-vi.mock("./workspaceAgent", () => ({ MAX_RUN_BUDGET_MS: 285_000 }));
+vi.mock("./workspace/workspaceAgent", () => ({ MAX_RUN_BUDGET_MS: 285_000 }));
 vi.mock("./agentRuns", () => ({
   scheduleContinuation: hoisted.scheduleContinuation,
 }));

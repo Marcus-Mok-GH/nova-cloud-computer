@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wouldCreateWorkspaceFolderCycle } from "./workspaceFolderTree";
+import { wouldCreateWorkspaceFolderCycle } from "./workspace/workspaceFolderTree";
 
 describe("wouldCreateWorkspaceFolderCycle", () => {
   const folders = [

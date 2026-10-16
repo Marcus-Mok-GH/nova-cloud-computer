@@ -1,5 +1,5 @@
 import { getWorkspaceComputer } from "../db";
-import type { AgentAction } from "../workspaceAgentTypes";
+import type { AgentAction } from "../workspace/workspaceAgentTypes";
 import type { ExaCitation } from "../exa";
 import type { DesktopCapture } from "../desktopBrowser";
 import type { SandboxOp } from "../sandboxWorkspace";

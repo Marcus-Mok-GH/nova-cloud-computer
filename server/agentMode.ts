@@ -1,6 +1,6 @@
 import { appendChatMessageForUser } from "./db";
 import { planFileName } from "./ultraplan";
-import type { WorkspaceAgentOptions } from "./workspaceAgentTypes";
+import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
 
 /**
  * The workflow modes a conversation moves through: chat is the default for a

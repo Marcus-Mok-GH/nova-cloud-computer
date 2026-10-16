@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { ensurePersistentSandbox, getE2BClient, isE2BConfigured } from "./e2b";
-import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
+import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
 import { FOLLOW_UP_MESSAGE_PREFIX } from "./followUps";
 
 const append = vi.fn(
@@ -342,7 +342,7 @@ vi.mock("./desktopBrowser", () => ({
   runDesktopBrowseCommand: runDesktopBrowseCommandMock,
 }));
 
-vi.mock("./workspaceSync", () => ({
+vi.mock("./workspace/workspaceSync", () => ({
   persistE2BWorkspace: vi.fn(async () => 0),
   restoreWorkspaceToE2B: vi.fn(async () => 0),
 }));
@@ -369,7 +369,7 @@ const {
   isSubstantialCode,
   emailReplyAllowsTool,
   unifiedDiff,
-} = await import("./workspaceAgent");
+} = await import("./workspace/workspaceAgent");
 
 // A well-formed end_turn tool call carrying the final reply.
 const endTurnCall = (reply: string) => ({

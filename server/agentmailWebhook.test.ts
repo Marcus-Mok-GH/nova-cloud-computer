@@ -43,7 +43,7 @@ vi.mock("./db", () => ({
   })),
 }));
 
-vi.mock("./workspaceAgent", () => ({
+vi.mock("./workspace/workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
   autoTitleChatForUser: vi.fn(async () => true),
   runWorkspaceAgent: vi.fn(),

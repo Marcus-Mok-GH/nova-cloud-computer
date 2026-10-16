@@ -1,5 +1,5 @@
-import type { GatewayToolDefinition } from "./aiGateway";
-import { GITHUB_OPERATIONS } from "./composio";
+import type { GatewayToolDefinition } from "../aiGateway";
+import { GITHUB_OPERATIONS } from "../composio";
 
 /**
  * The tool schemas advertised to the model on every workspace-agent run.

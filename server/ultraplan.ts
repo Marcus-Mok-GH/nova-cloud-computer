@@ -1,4 +1,4 @@
-import type { WorkspaceAgentOptions } from "./workspaceAgentTypes";
+import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
 
 /**
  * The `/ultraplan` command: a deep, planning-only pass over a task. Unlike an

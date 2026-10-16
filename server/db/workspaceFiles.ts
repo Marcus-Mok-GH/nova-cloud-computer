@@ -1,6 +1,6 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { workspaceFiles, workspaceFolders } from "../../drizzle/schema";
-import { wouldCreateWorkspaceFolderCycle } from "../workspaceFolderTree";
+import { wouldCreateWorkspaceFolderCycle } from "../workspace/workspaceFolderTree";
 import { searchWorkspaceFiles, type FileSearchOptions } from "../fileSearch";
 import { isUniqueViolation, requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";

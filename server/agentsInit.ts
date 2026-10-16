@@ -23,7 +23,7 @@ import { ENV } from "./_core/env";
 import type {
   WorkspaceAgentOptions,
   WorkspaceToolActivity,
-} from "./workspaceAgentTypes";
+} from "./workspace/workspaceAgentTypes";
 
 /**
  * Nova's /init prompt - opencode's built-in `initialize.txt` with every

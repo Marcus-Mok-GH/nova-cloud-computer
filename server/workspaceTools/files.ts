@@ -9,7 +9,7 @@ import {
   updateWorkspaceFileForUser,
 } from "../db";
 import { folderPathOf, workspaceRelativePathOf } from "../sandboxWorkspace";
-import { isCodeFileName, isSubstantialCode, unifiedDiff } from "../workspaceEdits";
+import { isCodeFileName, isSubstantialCode, unifiedDiff } from "../workspace/workspaceEdits";
 import {
   fileNotFoundResult,
   folderNotFound,

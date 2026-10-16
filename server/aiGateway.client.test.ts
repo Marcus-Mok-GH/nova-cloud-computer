@@ -133,6 +133,22 @@ describe("AI gateway client", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(`${MIRROR_URL}/models`, expect.anything());
   });
 
+  it("keeps the allowance ledger read off the inference hot path", async () => {
+    // Chat and completion calls claim their allowance atomically, so reading
+    // the ledger first would be a wasted database round-trip per model call;
+    // the status endpoint remains the ledger's only reader.
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "hi" } }] }), { status: 200 }));
+
+    await chatWithAiGateway(7, [{ role: "user", content: "hi" }]);
+    expect(getAllowance).not.toHaveBeenCalled();
+    expect(claim).toHaveBeenCalledTimes(1);
+
+    await getAiGatewayStatus(7);
+    expect(getAllowance).toHaveBeenCalledTimes(1);
+  });
+
   it("posts the single model with the bearer key on complete", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))

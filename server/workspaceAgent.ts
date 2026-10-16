@@ -31,6 +31,7 @@ import {
 } from "./db";
 import {
   getAiGatewayStatus,
+  chatWithAiGateway,
   type GatewayChatMessage,
   type GatewayChatMessageContentPart,
   type GatewayToolCall,
@@ -43,10 +44,11 @@ import {
   redactModelCredentials,
 } from "./modelFailureDetail";
 import {
-  chatWithWorkspaceModel,
+  chatWithCustomModel,
   completeWithWorkspaceModel,
   getActiveCustomModel,
 } from "./byokGateway";
+import type { CustomModel } from "../drizzle/schema";
 import { recordNovaApiError } from "./novaApiErrors";
 import {
   COMPOSIO_TOOLKITS,
@@ -673,31 +675,46 @@ async function chatWithGatewayRetry(
      * cannot take.
      */
     visionActive?: boolean;
+    /**
+     * The run's model route, resolved once by runWorkspaceAgent (null = the
+     * built-in gateway). Reusing it keeps every round - and every transient
+     * retry - from re-reading the active custom model from the database, and
+     * a run can no longer switch providers mid-conversation when the
+     * workspace's settings change between rounds. Undefined keeps the legacy
+     * per-call lookup for direct callers of this helper.
+     */
+    customModel?: CustomModel | null;
   }
 ) {
+  const gatewayOptions = (streamedChars: { count: number }) => ({
+    tools: options.tools,
+    ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.onChunk
+      ? {
+          onChunk: (chunk: string) => {
+            streamedChars.count += chunk.length;
+            options.onChunk!(chunk);
+          },
+        }
+      : {}),
+  });
   let transientAttempts = 0;
   for (;;) {
-    let streamedChars = 0;
-    const emit = options.onChunk;
+    const streamedChars = { count: 0 };
     try {
-      return await chatWithWorkspaceModel(ownerId, messages, {
-        tools: options.tools,
-        ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(emit
-          ? {
-              onChunk: (chunk: string) => {
-                streamedChars += chunk.length;
-                emit(chunk);
-              },
-            }
-          : {}),
-      });
+      const route =
+        options.customModel === undefined
+          ? await getActiveCustomModel(ownerId)
+          : options.customModel;
+      return await (route
+        ? chatWithCustomModel(route, messages, gatewayOptions(streamedChars))
+        : chatWithAiGateway(ownerId, messages, gatewayOptions(streamedChars)));
     } catch (error) {
       // A user-requested stop aborts the in-flight request: never retry it.
       if (options.signal?.aborted) throw error;
       // A round that already streamed text is never retried.
-      if (streamedChars > 0) throw error;
+      if (streamedChars.count > 0) throw error;
       const kind =
         error instanceof AiGatewayClientError ? error.kind : undefined;
       // Upstream 429: a fixed three immediate retries, and only then the
@@ -1453,6 +1470,9 @@ ${
           deadlineAtMs,
           retryState,
           ...(visionActive ? { visionActive: true } : {}),
+          // The route was resolved once before the loop: rounds and retries
+          // reuse it instead of hitting the database again.
+          customModel,
         });
       // Rounds after the first are raced against the deadline: a slow LLM
       // round can take up to the client's own 120s timeout, which used to

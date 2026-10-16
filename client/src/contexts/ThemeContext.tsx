@@ -1,27 +1,30 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { TranslationKey } from "@/i18n";
 
 export type ThemeMode = "light" | "dark";
 
 export interface ThemeOption {
   /** Matches a `[data-theme="..."]` palette block in index.css. */
   id: string;
-  label: string;
+  /** Translation key for the palette's name. */
+  labelKey: TranslationKey;
   mode: ThemeMode;
-  description: string;
+  /** Translation key for the palette's one-line description. */
+  descriptionKey: TranslationKey;
 }
 
 /** Every selectable theme. Keep in sync with the palettes in index.css. */
 export const themes: ThemeOption[] = [
-  { id: "daylight", label: "Daylight", mode: "light", description: "Warm neutral with orange accents" },
-  { id: "ocean", label: "Ocean", mode: "light", description: "Cool blue, calm and clear" },
-  { id: "meadow", label: "Meadow", mode: "light", description: "Fresh green and natural" },
-  { id: "blossom", label: "Blossom", mode: "light", description: "Soft rose and plum" },
-  { id: "sandstone", label: "Sandstone", mode: "light", description: "Earthy amber and clay" },
-  { id: "midnight", label: "Midnight", mode: "dark", description: "Neutral black with orange accents" },
-  { id: "deepsea", label: "Deep sea", mode: "dark", description: "Deep navy and glacier blue" },
-  { id: "pine", label: "Pine", mode: "dark", description: "Forest green after dark" },
-  { id: "nebula", label: "Nebula", mode: "dark", description: "Violet cosmic glow" },
-  { id: "ember", label: "Ember", mode: "dark", description: "Warm charcoal and firelight" },
+  { id: "daylight", labelKey: "settings.theme.name.daylight", mode: "light", descriptionKey: "settings.theme.desc.daylight" },
+  { id: "ocean", labelKey: "settings.theme.name.ocean", mode: "light", descriptionKey: "settings.theme.desc.ocean" },
+  { id: "meadow", labelKey: "settings.theme.name.meadow", mode: "light", descriptionKey: "settings.theme.desc.meadow" },
+  { id: "blossom", labelKey: "settings.theme.name.blossom", mode: "light", descriptionKey: "settings.theme.desc.blossom" },
+  { id: "sandstone", labelKey: "settings.theme.name.sandstone", mode: "light", descriptionKey: "settings.theme.desc.sandstone" },
+  { id: "midnight", labelKey: "settings.theme.name.midnight", mode: "dark", descriptionKey: "settings.theme.desc.midnight" },
+  { id: "deepsea", labelKey: "settings.theme.name.deepsea", mode: "dark", descriptionKey: "settings.theme.desc.deepsea" },
+  { id: "pine", labelKey: "settings.theme.name.pine", mode: "dark", descriptionKey: "settings.theme.desc.pine" },
+  { id: "nebula", labelKey: "settings.theme.name.nebula", mode: "dark", descriptionKey: "settings.theme.desc.nebula" },
+  { id: "ember", labelKey: "settings.theme.name.ember", mode: "dark", descriptionKey: "settings.theme.desc.ember" },
 ];
 
 export const DEFAULT_LIGHT_THEME = "daylight";

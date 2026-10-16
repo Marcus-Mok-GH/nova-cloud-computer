@@ -215,6 +215,16 @@ vi.mock("./aiGateway", () => ({
   AiGatewayClientError,
 }));
 
+// The run resolves its model route once (BYOK or built-in) and then calls the
+// matching chat function directly: the custom-model chat is mocked here so a
+// BYOK run's rounds never touch the network. The rest of the module (route
+// lookup, prompt completions) stays real.
+const chatWithCustomModel = vi.fn();
+vi.mock("./byokGateway", async importOriginal => {
+  const actual = await importOriginal<typeof import("./byokGateway")>();
+  return { ...actual, chatWithCustomModel };
+});
+
 vi.mock("./novaApiErrors", () => ({ recordNovaApiError }));
 
 // startAgentVmRun (imported by workspaceAgent) pulls the E2B client; keep a
@@ -4528,7 +4538,7 @@ describe("Nova tool-calling workspace agent", () => {
       encryptedApiKey: "encrypted",
       supportsImageInput: false,
     });
-    chatWithAiGateway.mockRejectedValue(
+    chatWithCustomModel.mockRejectedValue(
       new AiGatewayClientError(
         "Toolnz rate limit: your key exceeded requests per minute",
         "rate_limit"
@@ -4542,6 +4552,7 @@ describe("Nova tool-calling workspace agent", () => {
       "Too many requests right now"
     );
     expect(getAiGatewayStatus).not.toHaveBeenCalled();
+    expect(chatWithAiGateway).not.toHaveBeenCalled();
   });
 
   it("keeps internal errors sanitized even when the run is BYOK", async () => {
@@ -4560,7 +4571,7 @@ describe("Nova tool-calling workspace agent", () => {
       supportsImageInput: false,
     });
     const wrapped = new Error('Failed query: select "deploymentKey" from "site_deployments"');
-    chatWithAiGateway.mockRejectedValue(wrapped);
+    chatWithCustomModel.mockRejectedValue(wrapped);
     const result = await runWorkspaceAgent(1, 3, "hi");
     expect(result.message.content).toContain(AI_UNAVAILABLE_PREFIX);
     expect(result.message.content).not.toContain("deploymentKey");
@@ -5032,9 +5043,8 @@ describe("Nova tool-calling workspace agent", () => {
   });
 
   it("does not record a BYOK provider failure to the admin error log", async () => {
-    // The first (BYOK) model lookup makes the run a BYOK run; the helper path
-    // then falls through to the built-in gateway (the once-mock is consumed),
-    // mirroring the existing BYOK surfacing test.
+    // The run resolves the workspace's custom model once, so its rounds fail
+    // on the user's own provider - a BYOK failure is not a Nova-model failure.
     getActiveCustomModelForUser.mockResolvedValueOnce({
       id: 9,
       workspaceId: 1,
@@ -5045,7 +5055,7 @@ describe("Nova tool-calling workspace agent", () => {
       encryptedApiKey: "encrypted",
       supportsImageInput: false,
     });
-    chatWithAiGateway.mockRejectedValue(
+    chatWithCustomModel.mockRejectedValue(
       new AiGatewayClientError("Toolnz rate limit", "rate_limit")
     );
     await runWorkspaceAgent(1, 3, "hi");

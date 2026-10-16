@@ -2,7 +2,7 @@
  *
  * The heavy lifting is done by a frontier coding model served by the editor's
  * own provider - Pollinations' unified API (https://gen.pollinations.ai),
- * whose deepseek/deepseek-v4.1-flash is the default: a coding model with tool
+ * whose z-ai/glm-5.3-flash is the default: a coding model with tool
  * calling and a 1M-token context (see ENV.nimCoderApiUrl / nimCoderModel). The
  * calling agent describes the coding task and supplies any existing code or
  * errors as context; the specialist either returns complete, working code the agent

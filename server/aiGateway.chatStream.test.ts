@@ -12,7 +12,7 @@ vi.mock("./db", () => ({
   claimInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
 }));
 
-import { chatWithAiGateway, reasoningParamsForModel, resetAiGatewayHealthCache } from "./aiGateway";
+import { chatWithAiGateway, completeWithAiGateway, reasoningParamsForModel, resetAiGatewayHealthCache } from "./aiGateway";
 
 const ORIGINAL_FETCH = global.fetch;
 
@@ -43,6 +43,8 @@ beforeEach(() => {
   // The SeekAI last resort is a different endpoint: keep it out of these
   // Token Harbor-only stubs even if the developer's shell exports a real key.
   delete process.env.SEEKAI_API_KEY;
+  // Same for the reasoning-effort lever: the default "max" is asserted below.
+  delete process.env.TOKENHARBOR_REASONING_EFFORT;
   resetAiGatewayHealthCache();
   vi.useFakeTimers();
 });
@@ -52,6 +54,7 @@ afterEach(() => {
   global.fetch = ORIGINAL_FETCH;
   delete process.env.TOKENHARBOR_API_KEY;
   delete process.env.TOKENHARBOR_GATEWAY_URL;
+  delete process.env.TOKENHARBOR_REASONING_EFFORT;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -315,6 +318,28 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
   });
 
+  it("honors TOKENHARBOR_REASONING_EFFORT as the GLM-5.2+ effort lever", () => {
+    process.env.TOKENHARBOR_REASONING_EFFORT = "low";
+    expect(reasoningParamsForModel("glm-5.3-flash")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "low",
+    });
+    process.env.TOKENHARBOR_REASONING_EFFORT = "HIGH";
+    expect(reasoningParamsForModel("glm-5.2")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+    });
+    // An unrecognized value keeps the default deepest effort.
+    process.env.TOKENHARBOR_REASONING_EFFORT = "extreme";
+    expect(reasoningParamsForModel("glm-5.2")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    // GLM-4.x models take no effort field at all, whatever the override says.
+    process.env.TOKENHARBOR_REASONING_EFFORT = "low";
+    expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
+  });
+
   it("falls back to the Haiku model when the primary chat model is rate-limited", async () => {
     let calls = 0;
     const fetchImpl = gatewayFetchStub(path => {
@@ -357,5 +382,139 @@ describe("AI gateway chat stream handling", () => {
     // DeepSeek is not in the GLM family, so no thinking fields are added.
     expect(requestBody.thinking).toBeUndefined();
     expect(requestBody.reasoning_effort).toBeUndefined();
+  });
+
+  it("abandons a wedged streamed primary after the header timeout and falls back", async () => {
+    // A streamed request gets its headers before generation starts, so a hop
+    // that has sent nothing for 45s is wedged, not thinking: with a fallback
+    // waiting behind it, the reply must not stall for the full 120s chat
+    // timeout.
+    let calls = 0;
+    const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/models")) return Promise.resolve(modelsResponse());
+      calls += 1;
+      if (calls === 1) {
+        // The primary never responds; reject when the hop's abort fires.
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("This operation was aborted", "AbortError"))
+          );
+        });
+      }
+      return Promise.resolve(
+        sseResponse([
+          `data: ${JSON.stringify({ model: "claude-haiku-5.5:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ])
+      );
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    let settled: unknown;
+    const attempt = chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
+      onChunk: () => {},
+    }).then(
+      value => {
+        settled = { ok: value };
+      },
+      error => {
+        settled = { error };
+      }
+    );
+    await vi.advanceTimersByTimeAsync(45_000);
+    await attempt;
+    expect(settled).toMatchObject({
+      ok: { text: "Fallback reply.", model: "claude-haiku-5.5:free" },
+    });
+    expect(calls).toBe(2);
+  });
+
+  it("keeps the patient chat timeout on the final streamed hop", async () => {
+    // The 45s header budget only applies while a fallback waits behind the
+    // hop: the last model in the chain gets the full 120s, since a wedged
+    // last resort has nowhere else to go.
+    let calls = 0;
+    const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/models")) return Promise.resolve(modelsResponse());
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { message: "overloaded" } }), {
+            status: 429,
+            headers: { "content-type": "application/json" },
+          })
+        );
+      }
+      // Both fallbacks never respond; reject when each hop's abort fires.
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("This operation was aborted", "AbortError"))
+        );
+      });
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    let settled: unknown;
+    const attempt = chatWithAiGateway(1, [{ role: "user", content: "hi" }], {
+      onChunk: () => {},
+    }).then(
+      value => {
+        settled = { ok: value };
+      },
+      error => {
+        settled = { error };
+      }
+    );
+    // 45s: the rate-limited primary has failed and the first fallback (itself
+    // a non-final hop) has just hit its own header timeout.
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(calls).toBe(3);
+    // 119s into the final hop's patient window: still waiting.
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settled).toBeUndefined();
+    // Past 120s: the final hop gives up as unavailable.
+    await vi.advanceTimersByTimeAsync(2_000);
+    await attempt;
+    expect(settled).toMatchObject({
+      error: expect.objectContaining({ kind: "unavailable" }),
+    });
+  });
+
+  it("abandons a wedged streamed completion hop quickly while a fallback waits", async () => {
+    // completeWithAiGateway shares the chain: a streamed prompt completion
+    // gets the same fast header budget on non-final hops.
+    let calls = 0;
+    const fetchImpl = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/models")) return Promise.resolve(modelsResponse());
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("This operation was aborted", "AbortError"))
+          );
+        });
+      }
+      return Promise.resolve(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "Recovered." } }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ])
+      );
+    });
+    global.fetch = fetchImpl as unknown as typeof fetch;
+    let settled: unknown;
+    const attempt = completeWithAiGateway(1, "Draft a summary", undefined, () => {}).then(
+      value => {
+        settled = { ok: value };
+      },
+      error => {
+        settled = { error };
+      }
+    );
+    await vi.advanceTimersByTimeAsync(45_000);
+    await attempt;
+    expect(settled).toMatchObject({ ok: { text: "Recovered." } });
+    expect(calls).toBe(2);
   });
 });

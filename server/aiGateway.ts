@@ -16,6 +16,12 @@ const CHAT_REQUEST_TIMEOUT_MS = 120_000;
 // A stream that delivers nothing for this long is treated as dead instead of
 // hanging the agent loop (and the Telegram webhook behind it) indefinitely.
 const STREAM_STALL_TIMEOUT_MS = 120_000;
+// A streamed request gets its response headers before generation starts, so a
+// hop that has sent nothing by this point is wedged, not thinking. When a
+// fallback model waits behind it, abandon the hop this quickly instead of
+// stalling the reply for the full patient chat timeout; the final hop keeps
+// CHAT_REQUEST_TIMEOUT_MS because there is nowhere left to fall back to.
+const STREAMED_FALLBACK_HEADERS_TIMEOUT_MS = 45_000;
 /** Patient timeout for long single-shot completions (e.g. automation planning). */
 export const LONG_COMPLETION_TIMEOUT_MS = CHAT_REQUEST_TIMEOUT_MS;
 const ERROR_MESSAGE_LIMIT = 600;
@@ -413,6 +419,78 @@ export function isAiGatewayConfigured() {
   return !!(configuredGatewayUrl() && configuredGatewayToken());
 }
 
+/**
+ * The gateway's health flags from the environment and the cached /models
+ * probe - no database round-trip. The provider has no dedicated health route:
+ * a successful /models round-trip proves both reachability and that the API
+ * key is accepted.
+ */
+async function probeAiGatewayHealth(): Promise<GatewayHealthFlags> {
+  if (!isAiGatewayConfigured()) {
+    return {
+      configured: false,
+      reachable: false,
+      providerConfigured: false,
+      providerConfigurationKnown: false,
+    };
+  }
+  const cacheKey = `${configuredGatewayUrl()}|${configuredGatewayToken()}`;
+  if (
+    gatewayHealthCache?.key === cacheKey &&
+    gatewayHealthCache.expiresAt > Date.now()
+  ) {
+    return gatewayHealthCache.flags;
+  }
+  try {
+    const response = await gatewayFetch("/models");
+    const flags: GatewayHealthFlags = {
+      configured: true,
+      reachable: response.ok,
+      providerConfigured: response.ok,
+      providerConfigurationKnown: true,
+    };
+    gatewayHealthCache = {
+      key: cacheKey,
+      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
+      flags,
+    };
+    return flags;
+  } catch {
+    const flags: GatewayHealthFlags = {
+      configured: true,
+      reachable: false,
+      providerConfigured: false,
+      providerConfigurationKnown: false,
+    };
+    gatewayHealthCache = {
+      key: cacheKey,
+      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
+      flags,
+    };
+    return flags;
+  }
+}
+
+/**
+ * The inference hot path's readiness gate. Chat and completion calls re-claim
+ * their allowance below on every call, so reading the allowance ledger here
+ * would be a wasted database round-trip per model call - the gate is the
+ * environment configuration plus the (cached) health probe only.
+ */
+async function assertAiGatewayReady() {
+  const flags = await probeAiGatewayHealth();
+  if (
+    !flags.configured ||
+    !flags.reachable ||
+    (flags.providerConfigurationKnown && !flags.providerConfigured)
+  ) {
+    throw new AiGatewayClientError(
+      "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
+      "configuration"
+    );
+  }
+}
+
 /** Returns cached or freshly-probed gateway health flags and the user's current allowance. */
 export async function getAiGatewayStatus(ownerId: number) {
   const allowance = await getInferenceAllowanceForUser(ownerId);
@@ -437,52 +515,22 @@ export async function getAiGatewayStatus(ownerId: number) {
       exhausted: maxRequests !== null && allowance.usedRequests >= maxRequests,
     },
   };
-  if (!isAiGatewayConfigured()) {
-    return {
-      ...base,
-      configured: false as const,
-      reachable: false as const,
-      providerConfigured: false as const,
-      providerConfigurationKnown: false as const,
-    };
-  }
-  const cacheKey = `${configuredGatewayUrl()}|${configuredGatewayToken()}`;
-  if (
-    gatewayHealthCache?.key === cacheKey &&
-    gatewayHealthCache.expiresAt > Date.now()
-  ) {
-    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...gatewayHealthCache.flags };
-  }
-  try {
-    const response = await gatewayFetch("/models");
-    // The provider has no dedicated health route: a successful /models round-trip proves
-    // both reachability and that the API key is accepted.
-    const flags: GatewayHealthFlags = {
-      configured: true,
-      reachable: response.ok,
-      providerConfigured: response.ok,
-      providerConfigurationKnown: true,
-    };
-    gatewayHealthCache = {
-      key: cacheKey,
-      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
-      flags,
-    };
-    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
-  } catch {
-    const flags: GatewayHealthFlags = {
-      configured: true,
-      reachable: false,
-      providerConfigured: false,
-      providerConfigurationKnown: false,
-    };
-    gatewayHealthCache = {
-      key: cacheKey,
-      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
-      flags,
-    };
-    return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
-  }
+  const flags = await probeAiGatewayHealth();
+  return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
+}
+
+/**
+ * The reasoning effort requested of GLM-5.2+ models. "max" (the default) is
+ * the deepest reasoning the gateway serves; TOKENHARBOR_REASONING_EFFORT
+ * (low | medium | high | max) trades answer depth for lower latency and
+ * provider cost - a lever for deployments where the GLM fallbacks serve
+ * high-frequency traffic. Applies to BYOK GLM-family models too.
+ */
+function configuredReasoningEffort(): string {
+  const raw = process.env.TOKENHARBOR_REASONING_EFFORT?.trim().toLowerCase();
+  return raw === "low" || raw === "medium" || raw === "high" || raw === "max"
+    ? raw
+    : "max";
 }
 
 /**
@@ -503,7 +551,8 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
   const thinks = major > 4 || (major === 4 && minor >= 5);
   if (!thinks) return {};
   const params: Record<string, unknown> = { thinking: { type: "enabled" } };
-  if (major > 5 || (major === 5 && minor >= 2)) params.reasoning_effort = "max";
+  if (major > 5 || (major === 5 && minor >= 2))
+    params.reasoning_effort = configuredReasoningEffort();
   return params;
 }
 
@@ -645,22 +694,10 @@ export async function completeWithAiGateway(
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
-  const status = await getAiGatewayStatus(ownerId);
-  if (
-    !status.configured ||
-    !status.reachable ||
-    (status.providerConfigurationKnown && !status.providerConfigured)
-  ) {
-    throw new AiGatewayClientError(
-      "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
-      "configuration"
-    );
-  }
+  await assertAiGatewayReady();
   await claimDailyCreditOrThrow(ownerId);
-  const claim = await claimInferenceRequestForUser(
-    ownerId,
-    status.allowance.maxRequests
-  );
+  const maxRequests = getMaxRequests();
+  const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
     throw new AiGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
@@ -682,7 +719,10 @@ export async function completeWithAiGateway(
         onChunk(chunk);
       }
     : undefined;
-  const postPromptCompletion = async (entry: GatewayChainEntry) => {
+  const postPromptCompletion = async (
+    entry: GatewayChainEntry,
+    hopTimeoutMs: number
+  ) => {
   const model = entry.model;
   const response = await gatewayFetch("/chat/completions", {
     method: "POST",
@@ -691,7 +731,7 @@ export async function completeWithAiGateway(
       messages: [{ role: "user", content: prompt }],
       ...(trackingOnChunk ? { stream: true } : {}),
     }),
-  }, timeoutMs, undefined, endpointFor(entry));
+  }, hopTimeoutMs, undefined, endpointFor(entry));
   if (trackingOnChunk) {
     const completion = await readGatewayStreamedCompletion(response, trackingOnChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -705,10 +745,7 @@ export async function completeWithAiGateway(
       text,
       model: completion.model ?? model,
       usage: completion.usage ?? null,
-      allowance: allowanceSummary(
-        status.allowance.maxRequests,
-        claim.usedRequests
-      ),
+      allowance: allowanceSummary(maxRequests, claim.usedRequests),
     };
   }
   const payload = (await response.json().catch(() => undefined)) as
@@ -748,18 +785,22 @@ export async function completeWithAiGateway(
     text: bufferedText,
     model: completion?.model ?? model,
     usage: completion?.usage ?? null,
-    allowance: allowanceSummary(
-      status.allowance.maxRequests,
-      claim.usedRequests
-    ),
+    allowance: allowanceSummary(maxRequests, claim.usedRequests),
   };
   };
   const result = await (async () => {
     let lastError: unknown;
     for (let index = 0; index < chain.length; index += 1) {
       const entry = chain[index];
+      // A streamed hop sends response headers before generation starts, so a
+      // wedged hop that never responds is abandoned quickly while a fallback
+      // waits behind it; the final hop keeps the caller's full timeout.
+      const hopTimeoutMs =
+        trackingOnChunk && index + 1 < chain.length
+          ? Math.min(timeoutMs, STREAMED_FALLBACK_HEADERS_TIMEOUT_MS)
+          : timeoutMs;
       try {
-        return await postPromptCompletion(entry);
+        return await postPromptCompletion(entry, hopTimeoutMs);
       } catch (error) {
         lastError = error;
         const retryable =
@@ -1121,22 +1162,10 @@ export async function chatWithAiGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
-  const status = await getAiGatewayStatus(ownerId);
-  if (
-    !status.configured ||
-    !status.reachable ||
-    (status.providerConfigurationKnown && !status.providerConfigured)
-  ) {
-    throw new AiGatewayClientError(
-      "Nova’s AI service is not connected yet. Please try again after the gateway configuration is complete.",
-      "configuration"
-    );
-  }
+  await assertAiGatewayReady();
   await claimDailyCreditOrThrow(ownerId);
-  const claim = await claimInferenceRequestForUser(
-    ownerId,
-    status.allowance.maxRequests
-  );
+  const maxRequests = getMaxRequests();
+  const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
     throw new AiGatewayClientError(
       "This workspace has reached Nova’s configured AI request allowance. New inference requests are blocked until an administrator explicitly raises the cap.",
@@ -1158,13 +1187,21 @@ export async function chatWithAiGateway(
   let lastError: unknown;
   for (let index = 0; index < chain.length; index += 1) {
     const entry = chain[index];
+    // A streamed hop sends response headers before generation starts, so a
+    // wedged hop that never responds is abandoned quickly while a fallback
+    // waits behind it; the final hop keeps the patient chat timeout.
+    const requestTimeoutMs =
+      options.onChunk && index + 1 < chain.length
+        ? Math.min(CHAT_REQUEST_TIMEOUT_MS, STREAMED_FALLBACK_HEADERS_TIMEOUT_MS)
+        : CHAT_REQUEST_TIMEOUT_MS;
     try {
       const result = await attemptGatewayChat(
-        status,
         claim,
+        maxRequests,
         messages,
         attemptOptions,
-        entry
+        entry,
+        requestTimeoutMs
       );
       await settleGatewayCredit(ownerId, result.model, result.usage);
       return result;
@@ -1190,10 +1227,10 @@ export async function chatWithAiGateway(
  * buffered. The request's inference allowance was already claimed by the caller.
  */
 async function attemptGatewayChat(
-  status: Awaited<ReturnType<typeof getAiGatewayStatus>>,
   claim: NonNullable<
     Awaited<ReturnType<typeof claimInferenceRequestForUser>>
   >,
+  maxRequests: number | null,
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
@@ -1201,7 +1238,8 @@ async function attemptGatewayChat(
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
   },
-  entry: GatewayChainEntry
+  entry: GatewayChainEntry,
+  requestTimeoutMs: number
 ): Promise<GatewayChatResult> {
   const resolvedModel = entry.model;
   // The gateway occasionally returns a 200 completion with no text and no
@@ -1227,7 +1265,7 @@ async function attemptGatewayChat(
           ...(options.onChunk ? { stream: true } : {}),
         }),
       },
-      CHAT_REQUEST_TIMEOUT_MS,
+      requestTimeoutMs,
       options.signal,
       endpointFor(entry)
     );
@@ -1297,10 +1335,7 @@ async function attemptGatewayChat(
       ...(streamed.reasoning ? { reasoning: streamed.reasoning } : {}),
       model: streamed.model ?? resolvedModel,
       usage: streamed.usage,
-      allowance: allowanceSummary(
-        status.allowance.maxRequests,
-        claim.usedRequests
-      ),
+      allowance: allowanceSummary(maxRequests, claim.usedRequests),
     };
   }
   let buffered: {
@@ -1413,10 +1448,7 @@ async function attemptGatewayChat(
     usage:
       (buffered.payload as { usage?: GatewayCompletion["usage"] } | undefined)
         ?.usage ?? null,
-    allowance: allowanceSummary(
-      status.allowance.maxRequests,
-      claim.usedRequests
-    ),
+    allowance: allowanceSummary(maxRequests, claim.usedRequests),
   };
 
 }

@@ -11,7 +11,7 @@ import {
 } from "./agents";
 import { getDb, appendChatMessageForUser } from "./db";
 import { agentEmails } from "../drizzle/schema";
-import { MAX_RUN_BUDGET_MS, runWorkspaceAgent } from "./workspaceAgent";
+import { MAX_RUN_BUDGET_MS, runWorkspaceAgent } from "./workspace/workspaceAgent";
 
 /**
  * Inbound auto-reply: when AgentMail delivers a `message.received` webhook for

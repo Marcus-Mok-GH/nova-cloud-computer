@@ -3,9 +3,9 @@ import {
   createWorkspaceFolderForUser,
   getWorkspaceComputer,
   updateWorkspaceFileForUser,
-} from "./db";
+} from "../db";
 import { requireWorkspaceOwner } from "./workspaceSecurity";
-import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
+import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from "../e2b";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;

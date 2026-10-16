@@ -8,7 +8,7 @@
 import { createWorkspaceFileForUser, updateWorkspaceFileForUser } from "../db";
 import { planFileName } from "../ultraplan";
 import { workspaceRelativePathOf } from "../sandboxWorkspace";
-import { unifiedDiff } from "../workspaceEdits";
+import { unifiedDiff } from "../workspace/workspaceEdits";
 import { type ToolCtx, type ToolExecution } from "./types";
 
 export async function toolCreatePlan(ctx: ToolCtx): Promise<ToolExecution> {

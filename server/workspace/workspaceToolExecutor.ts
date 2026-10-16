@@ -8,50 +8,50 @@
  * single-file executor so the run loop and each tool family can be read and
  * changed independently.
  */
-import { startAgentVmRun } from "./agentVm";
-import { runDesktopBrowseCommand } from "./desktopBrowser";
+import { startAgentVmRun } from "../agentVm";
+import { runDesktopBrowseCommand } from "../desktopBrowser";
 import {
   requestAgentEmailApproval,
   requestWalletPurchaseApproval,
-} from "./agents";
+} from "../agents";
 import {
   type GatewayToolCall,
-} from "./aiGateway";
+} from "../aiGateway";
 import {
   decodeBase44Text,
   encodeBase44Text,
-} from "./base44";
+} from "../base44";
 import {
   MIN_CALL_RESERVE_MS,
   runAutonomousCoderTask,
   runCoderTask,
   type CoderOutcome,
   type CoderToolActivity,
-} from "./coder";
+} from "../coder";
 import {
   updateWorkspaceBrowserSandbox,
-} from "./db";
+} from "../db";
 import {
   getE2BClient,
   type E2BSandboxLike,
-} from "./e2b";
+} from "../e2b";
 import {
   deleteMemoryForUser,
   readMemoryForUser,
   saveMemoryForUser,
   searchMemoriesForUser,
-} from "./memories";
-import { getSkillByNameForUser } from "./skills";
-import { NimConfigError } from "./nim";
-import { runResearch } from "./researcher";
+} from "../memories";
+import { getSkillByNameForUser } from "../skills";
+import { NimConfigError } from "../nim";
+import { runResearch } from "../researcher";
 import {
   mirrorWorkspaceOp,
   runBashOnSandbox,
   syncAgentSandbox,
   type SandboxOp,
-} from "./sandboxWorkspace";
-import { trackRunningProcess } from "./runningProcesses";
-import { runThinkerTask } from "./thinker";
+} from "../sandboxWorkspace";
+import { trackRunningProcess } from "../runningProcesses";
+import { runThinkerTask } from "../thinker";
 import { evaluate } from "mathjs";
 
 import {
@@ -59,21 +59,21 @@ import {
   type WorkspaceToolActivity,
   recordSpecialistAcceptance,
 } from "./workspaceAgentTypes";
-import { describeWorkspace } from "./workspaceTools/resolve";
-import { saveBrowseCapture } from "./workspaceTools/capture";
-import { toolCreateFile, toolReadFile, toolEditFile, toolRenameFile, toolMoveFile, toolDeleteFile } from "./workspaceTools/files";
-import { toolCreateFolder, toolRenameFolder, toolMoveFolder, toolDeleteFolder } from "./workspaceTools/folders";
-import { toolCreatePlan, toolEditPlan } from "./workspaceTools/plans";
-import { toolDeployWebsite, toolDeleteWebsite, toolCreateProjectTemplate } from "./workspaceTools/deploy";
-import { toolSendTelegramMessage, toolSendProgressUpdate, toolPresentFile } from "./workspaceTools/telegram";
-import { toolSetCommunicationStyle, toolSetPersonalisation } from "./workspaceTools/personalisation";
-import { toolGithub, toolListConnectorTools, toolUseConnectorTool } from "./workspaceTools/connectors";
+import { describeWorkspace } from "../workspaceTools/resolve";
+import { saveBrowseCapture } from "../workspaceTools/capture";
+import { toolCreateFile, toolReadFile, toolEditFile, toolRenameFile, toolMoveFile, toolDeleteFile } from "../workspaceTools/files";
+import { toolCreateFolder, toolRenameFolder, toolMoveFolder, toolDeleteFolder } from "../workspaceTools/folders";
+import { toolCreatePlan, toolEditPlan } from "../workspaceTools/plans";
+import { toolDeployWebsite, toolDeleteWebsite, toolCreateProjectTemplate } from "../workspaceTools/deploy";
+import { toolSendTelegramMessage, toolSendProgressUpdate, toolPresentFile } from "../workspaceTools/telegram";
+import { toolSetCommunicationStyle, toolSetPersonalisation } from "../workspaceTools/personalisation";
+import { toolGithub, toolListConnectorTools, toolUseConnectorTool } from "../workspaceTools/connectors";
 import {
   type Computer,
   type ToolCtx,
   type ToolExecution,
   type OwnCodingGate,
-} from "./workspaceTools/types";
+} from "../workspaceTools/types";
 
 export type { OwnCodingGate, ToolExecution };
 

@@ -5,7 +5,7 @@ import {
   getE2BClient,
 } from "./e2b";
 import { getWorkspaceComputer } from "./db";
-import { persistE2BWorkspace } from "./workspaceSync";
+import { persistE2BWorkspace } from "./workspace/workspaceSync";
 import { pauseAgentSandbox } from "./sandboxWorkspace";
 
 /**

@@ -87,7 +87,7 @@ vi.mock("./db", () => ({
   ),
 }));
 
-vi.mock("./workspaceAgent", () => ({
+vi.mock("./workspace/workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
   runWorkspaceAgent: vi.fn(async (...args: unknown[]) => {
     state.runCalls.push(args);

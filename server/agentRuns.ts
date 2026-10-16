@@ -15,7 +15,7 @@ import {
   autoTitleChatForUser,
   runWorkspaceAgent,
   MAX_RUN_BUDGET_MS,
-} from "./workspaceAgent";
+} from "./workspace/workspaceAgent";
 import { getAgentChatRoute } from "./agents";
 import { modelFailureDetail } from "./modelFailureDetail";
 import { runTeamChatTurns } from "./agentChats";

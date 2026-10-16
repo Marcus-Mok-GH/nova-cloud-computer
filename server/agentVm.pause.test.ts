@@ -37,7 +37,7 @@ vi.mock("./e2b", () => ({
   buildE2BWorkspaceBundle: vi.fn(() => ({ manifest: [], uploads: [] })),
 }));
 
-vi.mock("./workspaceSync", () => ({
+vi.mock("./workspace/workspaceSync", () => ({
   restoreWorkspaceToE2B: vi.fn(async () => 1),
   persistE2BWorkspace: vi.fn(async () => {
     if (state.failPersist) throw new Error("sync failed");

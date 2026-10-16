@@ -1,4 +1,4 @@
-import { getOrCreateWorkspace } from "./db";
+import { getOrCreateWorkspace } from "../db";
 
 /** Defense-in-depth boundary for private workspace data. */
 export async function requireWorkspaceOwner(ownerId: number, workspaceId: number) {

@@ -1,20 +1,20 @@
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
-import { isE2BConfigured, type E2BSandboxLike } from "./e2b";
+import { isE2BConfigured, type E2BSandboxLike } from "../e2b";
 import {
   pauseAgentSandbox,
   prepareAgentSandbox,
   syncAgentSandbox,
-} from "./sandboxWorkspace";
-import { getDatabaseTime, hasAgentStopAfter } from "./db";
+} from "../sandboxWorkspace";
+import { getDatabaseTime, hasAgentStopAfter } from "../db";
 import {
   appendConversationTurn,
   listRecentMemoriesForPrompt,
-} from "./memories";
-import { listSkillsForPrompt } from "./skills";
+} from "../memories";
+import { listSkillsForPrompt } from "../skills";
 import {
   agentAddressFor,
   describeApprovalsForPrompt,
-} from "./agents";
+} from "../agents";
 import {
   appendChatMessageForUser,
   getChatForUser,
@@ -28,7 +28,7 @@ import {
   type PersonalisationExpertise,
   type PersonalisationProactiveness,
   type PersonalisationSettings,
-} from "./db";
+} from "../db";
 import {
   getAiGatewayStatus,
   chatWithAiGateway,
@@ -37,25 +37,25 @@ import {
   type GatewayToolCall,
   type GatewayToolDefinition,
   AiGatewayClientError,
-} from "./aiGateway";
-import type { DesktopCapture } from "./desktopBrowser";
+} from "../aiGateway";
+import type { DesktopCapture } from "../desktopBrowser";
 import {
   modelFailureDetail,
   redactModelCredentials,
-} from "./modelFailureDetail";
+} from "../modelFailureDetail";
 import {
   chatWithCustomModel,
   completeWithWorkspaceModel,
   getActiveCustomModel,
-} from "./byokGateway";
-import type { CustomModel } from "../drizzle/schema";
-import { recordNovaApiError } from "./novaApiErrors";
+} from "../byokGateway";
+import type { CustomModel } from "../../drizzle/schema";
+import { recordNovaApiError } from "../novaApiErrors";
 import {
   COMPOSIO_TOOLKITS,
   type ComposioToolkit,
   getComposioConnectionStatus,
   toolkitLabel,
-} from "./composio";
+} from "../composio";
 import {
   isCodeFileName,
   isSubstantialCode,
@@ -64,7 +64,7 @@ import {
   FOLLOW_UP_MESSAGE_PREFIX,
   buildFollowUpMessage,
   normalizeFollowUps,
-} from "./followUps";
+} from "../followUps";
 import { WORKSPACE_TOOLS } from "./workspaceToolSchemas";
 import {
   buildUltraplanInstruction,
@@ -72,7 +72,7 @@ import {
   parseUltraplanCommand,
   ultraplanAllowsTool,
   ULTRAPLAN_USAGE,
-} from "./ultraplan";
+} from "../ultraplan";
 import {
   AGENT_MODE_MESSAGE_PREFIX,
   START_PLANNING_TOOL,
@@ -82,7 +82,7 @@ import {
   chatModeAllowsTool,
   recordAgentMode,
   resolveAgentMode,
-} from "./agentMode";
+} from "../agentMode";
 import {
   type AgentAction,
   type AgentChatRunOptions,
@@ -97,10 +97,10 @@ import {
   type ToolExecution,
   executeWorkspaceTool,
 } from "./workspaceToolExecutor";
-import { describeDeploymentsForUser } from "./siteDeploy";
-import { describeWorkspaceEnvVarsForUser } from "./db";
-import { launchPreparingNextTurn } from "./agentsInit";
-import { RunCitations, citationStyleFor } from "./citations";
+import { describeDeploymentsForUser } from "../siteDeploy";
+import { describeWorkspaceEnvVarsForUser } from "../db";
+import { launchPreparingNextTurn } from "../agentsInit";
+import { RunCitations, citationStyleFor } from "../citations";
 // Re-exported so existing importers of this module keep working.
 export { isCodeFileName, isSubstantialCode, unifiedDiff } from "./workspaceEdits";
 export type {
@@ -110,7 +110,7 @@ export type {
   WorkspaceToolActivity,
 } from "./workspaceAgentTypes";
 export { SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX } from "./workspaceAgentTypes";
-export { AGENT_MODE_MESSAGE_PREFIX, START_PLANNING_TOOL } from "./agentMode";
+export { AGENT_MODE_MESSAGE_PREFIX, START_PLANNING_TOOL } from "../agentMode";
 
 
 /** Identity + team context for one personal-agent run. */

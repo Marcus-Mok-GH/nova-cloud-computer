@@ -17,7 +17,7 @@ import { findWorkspaceOwnerByTelegramLinkCode, findWorkspaceOwnerByTelegramToken
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { advancePeakQueue } from "./peakQueueWorker";
-import { autoTitleChatForUser } from "./workspaceAgent";
+import { autoTitleChatForUser } from "./workspace/workspaceAgent";
 import { handleAgentMailInboundEvent } from "./agentEmailReplies";
 import { verifyAgentMailWebhookSignature } from "./agentmail";
 import { executeTelegramAgentRun, executeWebAgentRun, CONTINUATION_PROMPT, NOVA_WEB_APP_URL } from "./agentRuns";

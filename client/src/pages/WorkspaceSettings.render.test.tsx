@@ -30,10 +30,10 @@ vi.mock("@/contexts/ThemeContext", () => ({
     switchable: true,
     setThemeName: vi.fn(),
     themes: [
-      { id: "daylight", label: "Daylight", mode: "light", description: "Warm neutral with orange accents" },
-      { id: "ocean", label: "Ocean", mode: "light", description: "Cool blue, calm and clear" },
-      { id: "midnight", label: "Midnight", mode: "dark", description: "Neutral black with orange accents" },
-      { id: "deepsea", label: "Deep sea", mode: "dark", description: "Deep navy and glacier blue" },
+      { id: "daylight", labelKey: "settings.theme.name.daylight", mode: "light", descriptionKey: "settings.theme.desc.daylight" },
+      { id: "ocean", labelKey: "settings.theme.name.ocean", mode: "light", descriptionKey: "settings.theme.desc.ocean" },
+      { id: "midnight", labelKey: "settings.theme.name.midnight", mode: "dark", descriptionKey: "settings.theme.desc.midnight" },
+      { id: "deepsea", labelKey: "settings.theme.name.deepsea", mode: "dark", descriptionKey: "settings.theme.desc.deepsea" },
     ],
   }),
 }));

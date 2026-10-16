@@ -47,6 +47,20 @@ Every chat turn - text, tool-calling, or with image attachments - first tries th
 
 > Token Harbor's free-tier route requires an account and a Universal Key, and its free-route privacy terms apply to requests served on `:free`. The route is never billed to the workspace's Token Harbor balance. [1]
 
+## Audio input (planned)
+
+Today the gateway's request content parts are `text` and `image_url` only: audio reaches the model as text. Telegram speech is transcribed by `server/transcription.ts` (Whisper-compatible `/audio/transcriptions`, Pollinations by default) and the transcript becomes the user's turn, so the agent acts on what was said but never hears tone, pauses, or non-speech sound.
+
+The native-audio path - an audio decoder rather than an STT step - is designed but not built. The pieces:
+
+| Concern | Decision |
+| --- | --- |
+| Content part | Add `{ type: "input_audio", input_audio: { data, format } }` to `GatewayChatMessageContentPart` (OpenAI-compatible shape), alongside the existing text and image parts. |
+| Capability routing | The chain is not uniformly audio-capable: the DeepSeek primary, the Claude Haiku first fallback, and SeekAI's GLM take text and images only; only the Xiaomi MiMo second fallback is omnimodal (text, image, audio, video). `AvailableGatewayModel.kind` (`"text" \| "vision"`) gains `"audio"`, and an audio-bearing turn is routed to a hop flagged `audio`, skipping the rest. |
+| Degrade path | A transient failure on the audio-capable hop cannot retry the same body against a text-only hop, so the retry degrades to the existing STT transcript - the transcript is the universal fallback content, which keeps the primary-first chain's semantics intact. One allowance and one credit claim per attempt, as today. |
+| Bounds | Telegram uploads cap at 20 MB; audio parts are capped (roughly 48 s / ~1 MB base64) and longer recordings go straight to STT, which already carries a 60-second provider timeout. |
+| Rollout | STT stays the default because it is provider-agnostic and already wired; native audio is opt-in once a hop is verified to accept `input_audio` on the free-tier route. |
+
 ## Non-goals
 
 The gateway does not proxy arbitrary upstream paths, forward uploaded files verbatim, provide a public OpenAI-compatible endpoint, or let Nova users supply provider keys. Users who want their own provider use the separate BYOK path (`server/byokGateway.ts`), which bypasses the built-in allowance.

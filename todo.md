@@ -207,3 +207,10 @@
 - [x] Open the Chrome app in that desktop and answer every browse command with a screenshot of the screen, fed back to the model as vision input and saved into the workspace.
 - [x] Verify typecheck and the full test suite (18 new desktop tests plus workspace-agent, citations, and activity-line updates).
 - [ ] Verify the desktop template end to end on a live E2B key: the first browse call boots the machine, Chrome opens the page, and the capture comes back.
+
+# Telegram audio
+
+- [x] Transcribe every speech-bearing Telegram upload - voice notes, audio files, round video notes, and audio shared as a document - so no recording is silently dropped, and guess the provider media type from the filename when Telegram sends a generic mime type.
+- [ ] Add an `input_audio` content part to the gateway chat message and an `audio` capability flag to the model catalogue so a speech turn can be routed to an omnimodal hop instead of transcribing it first (design in docs/ai-gateway-contract.md).
+- [ ] Define the degrade path for an audio-bearing turn whose audio-capable hop fails transiently: fall back to the STT transcript so the text-only hops can still answer, and pin the size/duration bounds that force STT.
+- [ ] Verify a free-tier hop actually accepts `input_audio` end to end before making native audio the default for Telegram recordings.

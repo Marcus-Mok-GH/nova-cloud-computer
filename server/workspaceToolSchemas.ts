@@ -28,6 +28,26 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "follow_up",
+      description:
+        "Propose up to three suggested follow-ups the user can tap to keep the work moving. Call it once when your work is done - in the final round, before or with end_turn - whenever the finished task naturally opens onto concrete next steps. Each entry is a short, specific action phrased as a request the user would send next (e.g. 'Deploy the site to Netlify', 'Add a contact form'), because tapping one sends it as the user's next message. The suggestions appear as buttons under your final reply, so only propose things you can actually do next, keep them short, and never use them to ask a clarifying question, restate what you just did, or replace the end_turn reply. Three is the maximum - one or two is fine, and if nothing genuinely follows, skip this tool entirely. Calling it does not end the turn; finish normally with end_turn.",
+      parameters: {
+        type: "object",
+        properties: {
+          follow_ups: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "One to three short follow-up actions, each written as a request the user would send next.",
+          },
+        },
+        required: ["follow_ups"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "request_purchase",
       description:
         "Request a purchase from your agent wallet (personal agents only). The credits are NOT spent by this call: it records a request that only the user can confirm, in Nova's Agents page. Use it for anything that costs wallet credits; an amount over the remaining budget is rejected immediately. After calling it, tell the user the purchase is waiting for their approval, then end your turn.",

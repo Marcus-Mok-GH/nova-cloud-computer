@@ -56,6 +56,12 @@ describe("toolLineText", () => {
     );
   });
 
+  it("labels the follow-up suggestion call", () => {
+    expect(
+      toolLineText(activity("follow_up", '{"follow_ups":["Deploy the site"]}'))
+    ).toBe("Suggested Follow-ups");
+  });
+
   it("formats folder and rename/move one-liners", () => {
     expect(toolLineText(activity("create_folder", '{"name":"Projects"}'))).toBe(
       "Create Folder Projects"

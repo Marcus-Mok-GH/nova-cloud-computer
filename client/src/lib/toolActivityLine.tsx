@@ -267,6 +267,8 @@ export function toolLineText(activity: ToolActivity): string {
     }
     case "thinking":
       return "Thinking";
+    case "follow_up":
+      return "Suggested Follow-ups";
     case "browse": {
       const command = s("command");
       return command ? `Browse: ${brief(command)}` : "Browse";

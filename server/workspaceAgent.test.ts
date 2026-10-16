@@ -3,6 +3,7 @@ import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { presentTelegramFile, sendTelegramMessage } from "./telegram";
 import { ensurePersistentSandbox, getE2BClient, isE2BConfigured } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
+import { FOLLOW_UP_MESSAGE_PREFIX } from "./followUps";
 
 const append = vi.fn(
   async (_owner: number, input: { role: string; content: string }) => ({
@@ -535,6 +536,9 @@ describe("Nova tool-calling workspace agent", () => {
     // The plan document's own tools are the only writes exposed.
     expect(toolNames).toContain("create_plan");
     expect(toolNames).toContain("edit_plan");
+    // Suggesting next actions is a local control call, not a write, so the
+    // planning turn can offer follow-up chips too.
+    expect(toolNames).toContain("follow_up");
     expect(toolNames).not.toContain("create_file");
     expect(toolNames).not.toContain("edit_file");
     expect(toolNames).not.toContain("run_bash");
@@ -580,6 +584,9 @@ describe("Nova tool-calling workspace agent", () => {
     expect(toolNames).toContain("research_web");
     expect(toolNames).toContain("read_file");
     expect(toolNames).toContain("start_planning");
+    // Suggesting next actions changes nothing either, so chat mode may offer
+    // follow-up chips.
+    expect(toolNames).toContain("follow_up");
     expect(toolNames).not.toContain("create_file");
     expect(toolNames).not.toContain("edit_file");
     expect(toolNames).not.toContain("run_bash");
@@ -5161,6 +5168,232 @@ describe("Nova tool-calling workspace agent", () => {
     const streamed = onChunk.mock.calls.map(call => call[0]).join("");
     expect(streamed).not.toContain("lost the connection");
     expect(streamed).not.toContain("invalid response");
+  });
+
+  it("persists follow_up suggestions as an internal row directly beneath the reply", async () => {
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-follow",
+              name: "follow_up",
+              arguments: JSON.stringify({
+                follow_ups: ["Deploy the site", "Add a contact form"],
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(endTurnReply({ reply: "The site is built." }));
+    await runWorkspaceAgent(1, 3, "build my site");
+    // The call is answered for the model like any other tool, so the run
+    // continues to end_turn normally.
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1]);
+    expect(toolResult?.tool_call_id).toBe("call-follow");
+    expect(String(toolResult?.content)).toContain(
+      "Stored these follow-up suggestions"
+    );
+    // The activity row reads as a completed suggestion, not a failure.
+    const followUpActivity = append.mock.calls
+      .map(call => call[1] as { content: string })
+      .filter(row => row.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX))
+      .map(row =>
+        JSON.parse(row.content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length))
+      )
+      .find(activity => activity.name === "follow_up");
+    expect(followUpActivity?.state).toBe("completed");
+    expect(followUpActivity?.summary).toContain("Suggested 2 follow-ups");
+    // The ledger holds the internal marker row directly beneath the reply row
+    // it belongs to, and the row round-trips to the exact suggestions.
+    const rows = append.mock.calls.map(call => call[1] as { content: string });
+    const replyIndex = rows.findIndex(
+      row => row.content === "The site is built."
+    );
+    const markerIndex = rows.findIndex(row =>
+      row.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
+    );
+    expect(replyIndex).toBeGreaterThanOrEqual(0);
+    expect(markerIndex).toBeGreaterThan(replyIndex);
+    expect(rows[markerIndex]?.content).toBe(
+      `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify([
+        "Deploy the site",
+        "Add a contact form",
+      ])}`
+    );
+  });
+
+  it("honors a follow_up call written after end_turn in the same round", async () => {
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          endTurnCall("The report is ready."),
+          {
+            id: "call-follow",
+            name: "follow_up",
+            arguments: JSON.stringify({
+              follow_ups: ["Email the report to my team"],
+            }),
+          },
+        ],
+      })
+    );
+    await runWorkspaceAgent(1, 3, "finish the report");
+    // end_turn ends the run in one round...
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
+    // ...but the trailing follow_up is still recorded and persisted, so the
+    // order the model wrote its calls in cannot drop the suggestions.
+    const marker = append.mock.calls
+      .map(call => call[1] as { content: string })
+      .find(row => row.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX));
+    expect(marker?.content).toBe(
+      `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify([
+        "Email the report to my team",
+      ])}`
+    );
+  });
+
+  it("normalizes follow_up suggestions: trims, de-dupes and caps them at three", async () => {
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-follow",
+              name: "follow_up",
+              arguments: JSON.stringify({
+                follow_ups: [
+                  "  Fix the typo ",
+                  "fix the TYPO",
+                  "",
+                  "Ship it",
+                  "Rename the folder",
+                  "Delete the draft",
+                ],
+              }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(endTurnReply({ reply: "Docs touched up." }));
+    await runWorkspaceAgent(1, 3, "touch up the docs");
+    const marker = append.mock.calls
+      .map(call => call[1] as { content: string })
+      .find(row => row.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX));
+    expect(marker?.content).toBe(
+      `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify([
+        "Fix the typo",
+        "Ship it",
+        "Rename the folder",
+      ])}`
+    );
+  });
+
+  it("answers a follow_up call with nothing usable with a correction instead of an empty marker", async () => {
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-follow",
+              name: "follow_up",
+              arguments: JSON.stringify({ follow_ups: [] }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(endTurnReply({ reply: "All set." }));
+    await runWorkspaceAgent(1, 3, "wrap up");
+    const toolResult = lastToolResult(chatWithAiGateway.mock.calls[1][1]);
+    expect(String(toolResult?.content)).toContain(
+      "No follow-up suggestions were stored"
+    );
+    expect(
+      append.mock.calls
+        .map(call => call[1] as { content: string })
+        .some(row => row.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX))
+    ).toBe(false);
+  });
+
+  it("withholds the follow_up tool from Telegram runs and offers it on the web", async () => {
+    chatWithAiGateway
+      .mockResolvedValueOnce(endTurnReply({ reply: "Hi." }))
+      .mockResolvedValueOnce(endTurnReply({ reply: "Hi." }));
+    await runWorkspaceAgent(1, 3, "hi", { channel: "web" });
+    await runWorkspaceAgent(1, 3, "hi", { channel: "telegram" });
+    const toolNames = (callIndex: number) =>
+      chatWithAiGateway.mock.calls[callIndex][2].tools.map(
+        (tool: { function: { name: string } }) => tool.function.name
+      );
+    expect(toolNames(0)).toContain("follow_up");
+    // Follow-up chips are a web-only affordance: over Telegram the tool is
+    // never offered, so the model cannot call it.
+    expect(toolNames(1)).not.toContain("follow_up");
+  });
+
+  it("keeps the follow-up marker row out of the model's conversation history", async () => {
+    chatMessages.mockResolvedValueOnce([
+      { id: 1, role: "user", content: "build the site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify(["Deploy it"])}`,
+      },
+      { id: 4, role: "user", content: "now add a contact form" },
+    ]);
+    chatWithAiGateway.mockResolvedValueOnce(endTurnReply({ reply: "Added." }));
+    await runWorkspaceAgent(1, 3, "now add a contact form");
+    const messages = chatWithAiGateway.mock.calls[0][1];
+    // The internal row is bookkeeping, not a turn the model should read.
+    expect(
+      messages.some(
+        (message: { content?: unknown }) =>
+          typeof message.content === "string" &&
+          message.content.includes(FOLLOW_UP_MESSAGE_PREFIX)
+      )
+    ).toBe(false);
+    // The real conversation around it still reaches the model.
+    expect(
+      messages.some(
+        (message: { content?: unknown }) =>
+          message.content === "The site is built."
+      )
+    ).toBe(true);
+  });
+
+  it("drops recorded suggestions when the run closes out of budget", async () => {
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          {
+            id: "call-follow",
+            name: "follow_up",
+            arguments: JSON.stringify({ follow_ups: ["Finish the deploy"] }),
+          },
+          {
+            id: "call-1",
+            name: "deploy_website",
+            arguments: JSON.stringify({ directory: "/" }),
+          },
+        ],
+      })
+    );
+    completeWithAiGateway.mockResolvedValueOnce({
+      text: 'I ran out of time before the deploy could start. Send "continue" and I will pick up right where I left off.',
+    });
+    const result = await runWorkspaceAgent(1, 3, "publish my site", {
+      deadlineAtMs: Date.now() - 1_000,
+    });
+    expect(result.outOfBudget).toBe(true);
+    expect(deployWebsite).not.toHaveBeenCalled();
+    // A deadline close is not a settled turn - the continuation runs next -
+    // so the suggestions are dropped with the closing status.
+    expect(
+      append.mock.calls
+        .map(call => call[1] as { content: string })
+        .some(row => row.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX))
+    ).toBe(false);
   });
 });
 

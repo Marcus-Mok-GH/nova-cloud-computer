@@ -498,4 +498,123 @@ describe("Telegram upload webhook (full handler)", () => {
     expect(agentContent).toContain("voice transcription is not configured");
     expect(agentContent).toContain("voice message");
   });
+
+  it("transcribes an audio file the user sends, not only voice notes", async () => {
+    spies.transcribeAudio.mockResolvedValue("stand up and stretch for a minute");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "music/memo.mp3" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const { status } = await postUpdate({
+      update_id: 508,
+      message: {
+        message_id: 17,
+        chat: { id: 42 },
+        audio: { file_id: "audio-1", mime_type: "audio/mpeg", file_name: "memo.mp3", duration: 9 },
+      },
+    });
+    expect(status).toBe(200);
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    const [bytes, mimeType, fileName] = spies.transcribeAudio.mock.calls[0] as [Buffer, string, string];
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(mimeType).toBe("audio/mpeg");
+    expect(fileName).toBe("memo.mp3");
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent.startsWith("stand up and stretch for a minute")).toBe(true);
+    expect(agentContent).toContain("audio file");
+  });
+
+  it("transcribes a round video note, which carries speech too", async () => {
+    spies.transcribeAudio.mockResolvedValue("the door code is four one two");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "video_notes/note.mp4" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([4, 5, 6]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await postUpdate({
+      update_id: 509,
+      message: {
+        message_id: 18,
+        chat: { id: 42 },
+        video_note: { file_id: "vnote-1", mime_type: "video/mp4", duration: 7 },
+      },
+    });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    const [bytes, mimeType] = spies.transcribeAudio.mock.calls[0] as [Buffer, string, string];
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(mimeType).toBe("video/mp4");
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent.startsWith("the door code is four one two")).toBe(true);
+    expect(agentContent).toContain("video note");
+  });
+
+  it("transcribes an audio file shared as a document, judged by its mime type", async () => {
+    spies.transcribeAudio.mockResolvedValue("ship the release today");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "documents/briefing.m4a" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([7, 8, 9]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await postUpdate({
+      update_id: 510,
+      message: {
+        message_id: 19,
+        chat: { id: 42 },
+        document: { file_id: "doc-audio", file_name: "briefing.m4a", mime_type: "audio/mp4" },
+      },
+    });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    const [bytes, mimeType, fileName] = spies.transcribeAudio.mock.calls[0] as [Buffer, string, string];
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(mimeType).toBe("audio/mp4");
+    expect(fileName).toBe("briefing.m4a");
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent.startsWith("ship the release today")).toBe(true);
+    expect(agentContent).toContain("audio file");
+  });
+
+  it("guesses the transcription mime type from the filename when Telegram sends a generic one", async () => {
+    spies.transcribeAudio.mockResolvedValue("call the vendor back");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/getFile"))
+        return new Response(JSON.stringify({ ok: true, result: { file_path: "audio/voice-memo.mp3" } }), { status: 200 });
+      if (url.includes("/file/bot"))
+        return new Response(new Uint8Array([10, 11, 12]), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await postUpdate({
+      update_id: 511,
+      message: {
+        message_id: 20,
+        chat: { id: 42 },
+        audio: { file_id: "audio-2", file_name: "voice-memo.mp3", duration: 5 },
+      },
+    });
+    await waitFor(() => spies.runWorkspaceAgent.mock.calls.length > 0);
+
+    const [bytes, mimeType, fileName] = spies.transcribeAudio.mock.calls[0] as [Buffer, string, string];
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(mimeType).toBe("audio/mpeg");
+    expect(fileName).toBe("voice-memo.mp3");
+    const [, , agentContent] = spies.runWorkspaceAgent.mock.calls[0] as [number, number, string, unknown];
+    expect(agentContent).toContain("audio file");
+  });
 });

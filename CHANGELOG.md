@@ -1,3 +1,35 @@
+2026-10-16 - every Telegram recording is transcribed, not only voice notes
+
+Voice notes already became the user's turn through the transcription
+provider, but only when Telegram labelled the upload `voice`. An audio file,
+a round video note, or audio shared as a document fell through to the generic
+attachment branch, which tells the model to parse the bytes with a Python
+run - advice no recording can satisfy - so those uploads were silently
+useless.
+
+Every speech-bearing upload now crosses the same transcription boundary:
+`voice`, `audio`, `video_note`, and any document whose mime type is `audio/*`
+are decoded, sent to the provider, and the transcript replaces the user's
+text, with the unconfigured and failed paths still telling the model to ask
+the user to type instead. Regular video files keep the generic path - a full
+video is not a spoken request and would blow the 60-second transcription
+timeout. When an upload carries a generic mime type
+(`application/octet-stream`), the media type sent to the provider is guessed
+from the filename extension, so a `.mp3` shared without a mime type still
+arrives as `audio/mpeg`.
+
+Native audio input - sending the recording itself to an omnimodal model
+instead of transcribing it - stays a designed follow-up rather than part of
+this change; the content-part, capability-routing, and degrade-to-transcript
+decisions are written down in docs/ai-gateway-contract.md.
+
+Files: server/app.ts, server/telegramUploadWebhook.test.ts,
+docs/ai-gateway-contract.md, todo.md, CHANGELOG.md.
+Tests: four new webhook tests (audio file, round video note, audio document
+by mime type, extension-based mime guess) - 1327 tests total, all passing;
+the two typecheck errors in client/src/appTree.tsx and vite.config.ts are
+pre-existing duplicate-dependency type clashes, unchanged by this work.
+
 2026-10-16 - the agent proposes tappable follow-ups when a turn settles
 
 A finished task now opens onto its next steps right in the chat: when a run

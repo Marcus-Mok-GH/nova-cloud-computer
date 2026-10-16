@@ -23,6 +23,7 @@ import { trpc } from "@/lib/trpc";
 import { MarkdownText } from "@/lib/markdown";
 import {
   AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   parsePersistedToolActivity,
 } from "@/lib/chatMessages";
@@ -111,7 +112,9 @@ export function AdminUserContent({ userId }: { userId: number }) {
                 message =>
                   !message.content.startsWith(
                     SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX
-                  ) && !message.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
+                  ) &&
+                  !message.content.startsWith(AGENT_MODE_MESSAGE_PREFIX) &&
+                  !message.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
               );
               return (
                 <details

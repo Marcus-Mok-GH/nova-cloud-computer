@@ -58,6 +58,11 @@ import {
   isCodeFileName,
   isSubstantialCode,
 } from "./workspaceEdits";
+import {
+  FOLLOW_UP_MESSAGE_PREFIX,
+  buildFollowUpMessage,
+  normalizeFollowUps,
+} from "./followUps";
 import { WORKSPACE_TOOLS } from "./workspaceToolSchemas";
 import {
   buildUltraplanInstruction,
@@ -199,7 +204,8 @@ export async function autoTitleChatForUser(
         m.role === "assistant" &&
         !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
         !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
-        !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
+        !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX) &&
+        !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
     );
     if (!firstUser || !lastAssistant) return;
     const prompt = [
@@ -421,7 +427,7 @@ Operating principles:
 - Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue - but never repeat the identical failing call unchanged, the same outcome is guaranteed. When something is impossible with the tools available, say exactly what you would need to do it.
 - Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
 - Report briefly, including failures. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn. Any step that failed during the run and was not fully recovered MUST be stated in that summary with its actual error text and what you did instead - a summary that hides a failed step is a false report of the work.
-- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text.
+- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text. When the finished work naturally opens onto concrete next steps, also call follow_up once - before or with end_turn - to offer the user up to three short next actions as tappable suggestions under your reply; skip it when there is nothing real to suggest.
 {{progress_updates}}
 - Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
 - Personalisation: when the user asks to set up, tune, or change how you work with them, run a short personalisation session - ask one focused question at a time about their role and goals, how they like your replies, how much you should act on your own, and how familiar they are with the tools, waiting for each answer before asking the next, then read the saved profile back in one short paragraph. Save each thing you learn with set_personalisation as you go, and set enabled: true. Outside a session, when the user states a lasting preference about how you should work, save it with set_personalisation too - but only when the personalisation block above states that the mode is ON; if it states OFF, or there is no block at all (the mode was never enabled and nothing is saved), offer to turn the mode on instead of saving. Never invent preferences the user has not expressed.
@@ -1042,7 +1048,14 @@ ${
     if (modesEnabled && resolvedMode.fromPlan)
       await recordAgentMode(ownerId, chatId, "build");
 
-    const allTools = workspaceToolsForConnectors(connectedConnectors);
+    // Follow-up chips are a web-app affordance: follow_up proposes tappable
+    // next actions that sit under the reply, which Telegram cannot render, so
+    // the tool is withheld from every Telegram run (mode allowlists included).
+    // Inbound-email runs drop it through their own strict allowlist below.
+    const allTools = workspaceToolsForConnectors(connectedConnectors).filter(
+      tool =>
+        !(options.channel === "telegram" && tool.function.name === "follow_up")
+    );
     // The full toolkit an ordinary build turn gets: everything the previous
     // filter allowed, minus the plan-writing tools and the chat transition tool.
     const buildTools = allTools.filter(tool => {
@@ -1200,7 +1213,8 @@ ${
         m =>
           !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
           !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
-          !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX)
+          !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX) &&
+          !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
       )
       .slice(-MAX_HISTORY_MESSAGES)) {
       const turn: GatewayChatMessage = {
@@ -1267,6 +1281,10 @@ ${
     let reply = "";
     let streamedReplyChars = 0;
     let recoveredCallCount = 0;
+    // The follow_up tool's accepted suggestions for this run - the latest
+    // call wins. They are persisted beneath the closing reply further down
+    // as an internal ledger row the web client renders as tappable chips.
+    let suggestedFollowUps: string[] = [];
     // The web sources this run consulted (research reports, pages opened with
     // browse), collected as the tools run and rendered as one citation list
     // at the bottom of the reply delivered below.
@@ -1296,6 +1314,56 @@ ${
     // Set when a tool call outlasts the deadline mid-round: the round loop
     // must stop without refreshing state or starting another gateway round.
     let closedByDeadline = false;
+    // follow_up call ids already processed this run: end_turn breaks the call
+    // loop, and the scan after it re-walks the round's calls, so a call must
+    // never be recorded twice.
+    const handledFollowUps = new Set<string>();
+    /**
+     * Handles a follow_up call: normalizes the proposed next actions and
+     * stores them to be persisted under the closing reply. Like end_turn it
+     * is a local control call - no side effects and no budget cost. A call
+     * with nothing usable is answered with a correction instead of storing
+     * an empty list, and the latest usable call of the run wins.
+     */
+    const recordFollowUps = async (call: GatewayToolCall) => {
+      if (call.name !== "follow_up" || handledFollowUps.has(call.id)) return;
+      handledFollowUps.add(call.id);
+      let followUps: string[] = [];
+      try {
+        const parsed = JSON.parse(call.arguments || "{}") as {
+          follow_ups?: unknown;
+        };
+        followUps = normalizeFollowUps(parsed?.follow_ups);
+      } catch {
+        // Malformed arguments propose nothing.
+      }
+      if (!followUps.length) {
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content:
+            "No follow-up suggestions were stored from this call: follow_ups was empty or unusable. Call follow_up again with one to three short next actions, or skip it and finish with end_turn.",
+        });
+        return;
+      }
+      suggestedFollowUps = followUps;
+      await emitTool({
+        id: call.id,
+        name: call.name,
+        state: "completed",
+        args: { arguments: call.arguments.slice(0, 500) },
+        summary: `Suggested ${followUps.length} follow-up${
+          followUps.length === 1 ? "" : "s"
+        } for the user to tap.`,
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: `Stored these follow-up suggestions to show as tappable buttons under your reply: ${followUps.join(
+          "; "
+        )}. Do not list them again in your end_turn reply.`,
+      });
+    };
     for (let round = 0; ; round += 1) {
       if (round > 0 && (await hasAgentStopAfter(ownerId, chatId, runStartedAt)))
         return stopRun();
@@ -1574,6 +1642,13 @@ ${
           endTurnCalled = true;
           break;
         }
+        // The model proposes the next actions to show under its reply. A
+        // local control call like end_turn: no side effects and no budget
+        // cost, so it is honored even when the run budget is gone.
+        if (call.name === "follow_up") {
+          await recordFollowUps(call);
+          continue;
+        }
         // The chat-mode model hands an action request over to planning. This is
         // a local control call like end_turn: no side effects and no budget
         // cost. It records the task, flips the rest of this run into planning
@@ -1848,6 +1923,12 @@ ${
           }
         }
       }
+      // end_turn breaks the call loop above, so a follow_up call the model
+      // wrote after it in the same round never reached its branch. Re-walk
+      // the round's calls so the order the model wrote them in cannot decide
+      // whether the suggestions appear (handled calls are skipped inside).
+      if (endTurnCalled)
+        for (const call of calls) await recordFollowUps(call);
       // Coder-delegation guard: deliver the queued nudge once, only when the
       // run is continuing anyway - never on the closing or end_turn exits.
       // With the specialist confirmed down, self-coding is disclosed
@@ -1945,6 +2026,22 @@ ${
     else if (hasReply && citationBlock && streamedReplyChars > 0)
       await options.onChunk?.(citationBlock);
     const message = hasReply ? await persistAssistant(reply) : undefined;
+    // The turn's follow-up suggestions ride directly beneath the reply they
+    // belong to as an internal ledger row the web client renders as tappable
+    // chips. A deadline close is not a settled turn - the continuation runs
+    // next - so its suggestions are dropped with the closing status. A
+    // persistence failure must not break the run: the reply is already saved.
+    if (hasReply && !closedByDeadline && suggestedFollowUps.length > 0) {
+      try {
+        await appendChatMessageForUser(ownerId, {
+          chatId,
+          role: "assistant",
+          content: buildFollowUpMessage(suggestedFollowUps),
+        });
+      } catch (error) {
+        console.error("[Chat] failed to persist follow-up suggestions", error);
+      }
+    }
     // Preparing the next turn: after a settled run that actually changed the
     // workspace (created/edited/renamed/moved/deleted files or folders), a
     // background subagent spins up with the /init prompt and keeps AGENTS.md

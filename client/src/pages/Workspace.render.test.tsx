@@ -594,6 +594,102 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Sorted both files.");
   });
 
+  it("renders the newest reply's follow-up suggestions as tappable chips", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `__nova_follow_ups__:${JSON.stringify([
+          "Deploy the site",
+          "Add a contact form",
+        ])}`,
+      },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="follow-up-suggestions"');
+    expect(markup).toContain("Deploy the site");
+    expect(markup).toContain("Add a contact form");
+    // The internal ledger row itself is bookkeeping, never chat text.
+    expect(markup).not.toContain("__nova_follow_ups__");
+  });
+
+  it("renders follow-up chips when a tool run lands after the marker", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `__nova_follow_ups__:${JSON.stringify(["Deploy the site"])}`,
+      },
+      {
+        id: 4,
+        role: "assistant",
+        content: `__nova_tool_activity__:${JSON.stringify({
+          id: "prep-1",
+          name: "read_file",
+          state: "completed",
+          args: {},
+        })}`,
+      },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="follow-up-suggestions"');
+    expect(markup).toContain("Deploy the site");
+  });
+
+  it("hides follow-up chips once the user has replied again", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `__nova_follow_ups__:${JSON.stringify(["Deploy the site"])}`,
+      },
+      { id: 4, role: "user", content: "Actually, change the colors" },
+    ];
+    const markup = renderChat();
+    expect(markup).not.toContain('data-testid="follow-up-suggestions"');
+    expect(markup).not.toContain("Deploy the site");
+  });
+
+  it("does not re-show the previous turn's chips under a newer reply that offered none", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `__nova_follow_ups__:${JSON.stringify(["Deploy the site"])}`,
+      },
+      { id: 4, role: "user", content: "Now tweak the header" },
+      { id: 5, role: "assistant", content: "Header tweaked." },
+    ];
+    const markup = renderChat();
+    expect(markup).not.toContain('data-testid="follow-up-suggestions"');
+  });
+
+  it("hides follow-up chips while a run is in flight", () => {
+    // The ledger can already hold the reply + marker while the stream is
+    // still closing; the chips must wait for the settled run.
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      { id: 2, role: "assistant", content: "The site is built." },
+      {
+        id: 3,
+        role: "assistant",
+        content: `__nova_follow_ups__:${JSON.stringify(["Deploy the site"])}`,
+      },
+    ];
+    state.agentRunStatus = { active: true };
+    const markup = renderChat();
+    expect(markup).not.toContain("Deploy the site");
+    expect(markup).not.toContain('data-testid="follow-up-suggestions"');
+  });
+
   it("shows active work from the backend run ledger after a refresh", () => {
     state.chatMessages = [
       { id: 1, role: "user", content: "Handle this task" },

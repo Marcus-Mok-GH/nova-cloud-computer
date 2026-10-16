@@ -28,6 +28,7 @@ import {
   dedupeToolActivityMessages,
   groupPersistedChatItems,
   isInternalChatMessage,
+  latestFollowUpSuggestions,
   parsePersistedToolActivity,
   reconcileChatMessages,
   upsertLiveToolEvent,
@@ -1024,6 +1025,13 @@ export default function Workspace() {
       stopLedgerCutoffId > 0
         ? ledgerRows.filter(message => message.id <= stopLedgerCutoffId)
         : ledgerRows;
+    // The newest reply's follow-up chips, read from the ledger so a reload
+    // shows the same suggestions. They are hidden while a run is in flight -
+    // the suggestions describe a settled turn, and a tap mid-run would only
+    // queue behind it - and they go stale the moment the reader replies.
+    const followUpSuggestions = agentIsWorking
+      ? []
+      : latestFollowUpSuggestions(persisted);
     // Internal bookkeeping rows (tool activity is rendered separately,
     // acceptance markers never) stay out of the visible bubble list.
     const visibleMessages = dedupeToolActivityMessages(
@@ -1098,6 +1106,11 @@ export default function Workspace() {
     const showTyping = agentIsWorking && !hasLiveRow;
     const typingLabel =
       rows.length === 0 || rows[rows.length - 1].kind === "user";
+    // The newest reply, which carries the follow-up chips. Not necessarily
+    // the last row: a preparing-next-turn activity run renders after it.
+    let lastReplyIndex = -1;
+    for (let index = 0; index < rows.length; index += 1)
+      if (rows[index].kind === "reply") lastReplyIndex = index;
     const persistedToolRuns = visibleMessages.filter(message =>
       parsePersistedToolActivity(message.content)
     ).length;
@@ -1369,6 +1382,31 @@ export default function Workspace() {
                                 )}
                               </div>
                             )}
+                            {/* Tappable next actions the newest reply offered:
+                                one tap sends the suggestion as the user's
+                                next message. Only the newest reply carries
+                                them, and a settled one at that. */}
+                            {index === lastReplyIndex &&
+                              !row.live &&
+                              followUpSuggestions.length > 0 && (
+                                <div
+                                  data-testid="follow-up-suggestions"
+                                  className="mt-3 flex flex-wrap gap-2"
+                                >
+                                  {followUpSuggestions.map(suggestion => (
+                                    <button
+                                      key={suggestion}
+                                      type="button"
+                                      onClick={() =>
+                                        void sendMessage(chatId, suggestion)
+                                      }
+                                      className="border border-primary/35 bg-primary/[0.06] px-3.5 py-2 text-left text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12]"
+                                    >
+                                      {suggestion}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                           </div>
                         </div>
                       );

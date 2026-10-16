@@ -1,3 +1,48 @@
+2026-10-16 - the agent proposes tappable follow-ups when a turn settles
+
+A finished task now opens onto its next steps right in the chat: when a run
+ends, the newest reply can carry up to three tappable suggestion chips -
+"Deploy the site", "Add a contact form" - and one tap sends that text as the
+user's next message, exactly as if they had typed it. The suggestions come
+from the model itself through a new `follow_up` tool rather than a canned UI
+list, so they reflect the work that just happened.
+
+The tool is a local control call like `end_turn`: it records the proposal,
+answers the call for the model, costs no run budget, and is honored whether
+it arrives before or with `end_turn` (a trailing call in the same round is
+picked up too). Proposals are normalized server-side - strings only, trimmed,
+case-insensitive de-dupes, capped at three entries of at most 200 characters -
+and a call with nothing usable is answered with a correction instead of
+storing an empty list. The accepted list is persisted directly beneath the
+reply as an internal ledger row (`__nova_follow_ups__:[...]`, no schema
+change), never captured into conversation memory and never shown as chat
+text.
+
+The web client renders the marker row as chips under the newest reply only:
+they are hidden while a run is in flight, go stale the moment the reader
+replies, and never leak from an older turn onto a newer reply that offered
+none (a preparing-next-turn activity run can land after the marker, so the
+chip row is found by walking back from the end of the ledger rather than
+assuming it is the last row). Telegram runs are not offered the tool at all -
+chips are a web affordance - and inbound-email runs drop it through their
+strict allowlist; chat mode and ultraplan include it, so a drafted plan can
+offer its own approval one tap away.
+
+Files: server/followUps.ts, server/workspaceToolSchemas.ts,
+server/workspaceAgent.ts, server/agentMode.ts, server/ultraplan.ts,
+client/src/lib/chatMessages.ts, client/src/pages/Workspace.tsx,
+client/src/pages/Admin.tsx, client/src/lib/toolActivityLine.tsx,
+server/followUps.test.ts, server/workspaceAgent.test.ts,
+client/src/lib/chatMessages.test.ts,
+client/src/pages/Workspace.render.test.tsx, CHANGELOG.md.
+Tests: eight new follow-up module tests (normalization caps, de-dupes and
+blanks, row round-trip, broken payload rejection), seven new agent-run tests
+(marker persisted under the reply, trailing call after end_turn,
+normalization, empty-list correction, Telegram withholding, history
+exclusion, dropped on a budget close) and client coverage for parsing,
+newest-turn selection, chip rendering and the activity label; suite 1314
+passed.
+
 2026-10-16 - browse learns `close`, so tabs stop stacking up in the desktop machine
 
 Every `open` adds a tab to the one running Chrome session in the desktop

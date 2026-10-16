@@ -9,7 +9,11 @@ import {
   reconcileChatMessages,
   chatWorkflowMode,
   AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  isInternalChatMessage,
+  latestFollowUpSuggestions,
+  parseFollowUpMessage,
   type LiveChatEvent,
   type PersistedChatMessage,
   type ToolActivity,
@@ -837,5 +841,144 @@ describe("groupPersistedChatItems", () => {
     expect(items).toEqual([
       { kind: "message", message: { id: 1, role: "assistant", content: "Hi" } },
     ]);
+  });
+});
+
+describe("parseFollowUpMessage", () => {
+  const row = (payload: unknown) =>
+    `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify(payload)}`;
+
+  it("parses a valid marker row back into its suggestions", () => {
+    expect(parseFollowUpMessage(row(["Deploy the site"]))).toEqual([
+      "Deploy the site",
+    ]);
+    expect(
+      parseFollowUpMessage(row(["Deploy the site", "Add a contact form"]))
+    ).toEqual(["Deploy the site", "Add a contact form"]);
+  });
+
+  it("returns null for other rows and broken payloads", () => {
+    expect(parseFollowUpMessage("hello")).toBeNull();
+    expect(parseFollowUpMessage(`${FOLLOW_UP_MESSAGE_PREFIX}not json`)).toBeNull();
+    expect(parseFollowUpMessage(row({ suggestions: ["x"] }))).toBeNull();
+    expect(parseFollowUpMessage(row([]))).toBeNull();
+    expect(parseFollowUpMessage(row(["   ", ""]))).toBeNull();
+  });
+
+  it("mirrors the server normalization: trims, de-dupes and caps at three", () => {
+    expect(
+      parseFollowUpMessage(
+        row(["  Deploy the site ", "deploy the SITE", "", "Ship it", "A", "B"])
+      )
+    ).toEqual(["Deploy the site", "Ship it", "A"]);
+  });
+});
+
+describe("latestFollowUpSuggestions", () => {
+  const followUpRow = (
+    id: number,
+    suggestions: string[]
+  ): PersistedChatMessage => ({
+    id,
+    role: "assistant",
+    content: `${FOLLOW_UP_MESSAGE_PREFIX}${JSON.stringify(suggestions)}`,
+  });
+
+  it("returns the newest reply's suggestions", () => {
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "Build my site" },
+        { id: 2, role: "assistant", content: "The site is built." },
+        followUpRow(3, ["Deploy the site", "Add a contact form"]),
+      ])
+    ).toEqual(["Deploy the site", "Add a contact form"]);
+  });
+
+  it("skips internal rows that land after the marker", () => {
+    // The preparing-next-turn activity run is persisted after the marker.
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "Build my site" },
+        { id: 2, role: "assistant", content: "The site is built." },
+        followUpRow(3, ["Deploy the site"]),
+        {
+          id: 4,
+          role: "assistant",
+          content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+            id: "prep-1",
+            name: "preparing_next_turn",
+            state: "completed",
+            args: {},
+          })}`,
+        },
+      ])
+    ).toEqual(["Deploy the site"]);
+  });
+
+  it("goes stale the moment the user replies again", () => {
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "Build my site" },
+        { id: 2, role: "assistant", content: "The site is built." },
+        followUpRow(3, ["Deploy the site"]),
+        { id: 4, role: "user", content: "Actually, change the colors" },
+      ])
+    ).toEqual([]);
+  });
+
+  it("treats a user message that looks like a marker row as a reply too", () => {
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "Build my site" },
+        { id: 2, role: "assistant", content: "The site is built." },
+        followUpRow(3, ["Deploy the site"]),
+        {
+          id: 4,
+          role: "user",
+          content: `${FOLLOW_UP_MESSAGE_PREFIX}["sneaky"]`,
+        },
+      ])
+    ).toEqual([]);
+  });
+
+  it("does not borrow an older turn's suggestions for a newer reply", () => {
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "Build my site" },
+        { id: 2, role: "assistant", content: "The site is built." },
+        followUpRow(3, ["Deploy the site"]),
+        { id: 4, role: "user", content: "Now tweak the header" },
+        { id: 5, role: "assistant", content: "Header tweaked." },
+      ])
+    ).toEqual([]);
+  });
+
+  it("returns nothing for an empty or marker-less ledger", () => {
+    expect(latestFollowUpSuggestions([])).toEqual([]);
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "hi" },
+        { id: 2, role: "assistant", content: "hello" },
+      ])
+    ).toEqual([]);
+  });
+
+  it("ignores malformed marker rows", () => {
+    expect(
+      latestFollowUpSuggestions([
+        { id: 1, role: "user", content: "hi" },
+        { id: 2, role: "assistant", content: "hello" },
+        { id: 3, role: "assistant", content: `${FOLLOW_UP_MESSAGE_PREFIX}[]` },
+      ])
+    ).toEqual([]);
+  });
+});
+
+describe("isInternalChatMessage", () => {
+  it("treats follow-up marker rows as internal", () => {
+    expect(
+      isInternalChatMessage(`${FOLLOW_UP_MESSAGE_PREFIX}["Deploy it"]`)
+    ).toBe(true);
+    expect(isInternalChatMessage("Deploy it")).toBe(false);
   });
 });

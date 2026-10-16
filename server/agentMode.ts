@@ -38,6 +38,9 @@ export const START_PLANNING_TOOL = "start_planning";
  */
 const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   "end_turn",
+  // Suggesting next actions changes nothing - it only records chips for the
+  // web client to show under the reply.
+  "follow_up",
   "list_workspace",
   "read_file",
   "search_memories",

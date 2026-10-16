@@ -48,6 +48,9 @@ export function parseUltraplanCommand(
  */
 const ULTRAPLAN_TOOL_ALLOWLIST = new Set([
   "end_turn",
+  // Proposing next actions (e.g. "Build the plan") is a local control call
+  // that changes nothing and keeps the approval step one tap away.
+  "follow_up",
   "list_workspace",
   "read_file",
   "search_memories",

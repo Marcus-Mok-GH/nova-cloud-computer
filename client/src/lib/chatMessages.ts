@@ -4,12 +4,19 @@ export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
   "__nova_specialist_acceptance__:";
 /** Internal bookkeeping rows (the conversation's workflow mode) - never rendered. */
 export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
+/**
+ * Internal rows holding one turn's tappable follow-up suggestions. The web
+ * chat renders them as chips under the newest reply; the raw row itself is
+ * never shown.
+ */
+export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
 
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>
   content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) ||
   content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) ||
-  content.startsWith(AGENT_MODE_MESSAGE_PREFIX);
+  content.startsWith(AGENT_MODE_MESSAGE_PREFIX) ||
+  content.startsWith(FOLLOW_UP_MESSAGE_PREFIX);
 
 export type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {
@@ -41,6 +48,67 @@ export function chatWorkflowMode(
     ? "build"
     : "chat";
 }
+
+/** The most chips one turn may show; the tool schema promises the same. */
+const MAX_FOLLOW_UPS = 3;
+/** Mirrors the server's per-suggestion cap so a hand-edited row cannot bloat the UI. */
+const MAX_FOLLOW_UP_CHARS = 200;
+
+/**
+ * Parses an internal follow-up row back into its suggestions; null when the
+ * row is not a usable one. Mirrors the server's normalization (strings only,
+ * trimmed, de-duplicated, capped) so a malformed ledger row can never render
+ * blank or oversized chips.
+ */
+export function parseFollowUpMessage(content: string): string[] | null {
+  if (!content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(
+      content.slice(FOLLOW_UP_MESSAGE_PREFIX.length)
+    ) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const seen = new Set<string>();
+    const followUps: string[] = [];
+    for (const item of parsed) {
+      if (typeof item !== "string") continue;
+      const text = item.trim().slice(0, MAX_FOLLOW_UP_CHARS);
+      const key = text.toLowerCase();
+      if (!text || seen.has(key)) continue;
+      seen.add(key);
+      followUps.push(text);
+      if (followUps.length >= MAX_FOLLOW_UPS) break;
+    }
+    return followUps.length ? followUps : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The follow-up suggestions to show under the newest reply, or [] when there
+ * are none. A marker row belongs to the reply written just above it, so the
+ * walk starts at the end of the ledger: it skips the internal rows that can
+ * land after the marker (the preparing-next-turn activity run), stops at the
+ * first real message - the newest reply, or the user's next message - and
+ * treats anything older as a previous turn. That is what makes chips go stale
+ * the moment the reader replies, and keeps a reply that never offered
+ * suggestions from borrowing the previous turn's.
+ */
+export function latestFollowUpSuggestions(
+  messages: PersistedChatMessage[]
+): string[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    // The user's next message invalidates the previous turn's chips no matter
+    // what it says, even text that looks like an internal marker row.
+    if (message.role === "user" || !isInternalChatMessage(message.content))
+      return [];
+    const followUps = parseFollowUpMessage(message.content);
+    if (followUps) return followUps;
+  }
+  return [];
+}
+
 export type ToolActivity = {
   id: string;
   name: string;

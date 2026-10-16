@@ -3,7 +3,6 @@ import React from "react";
 import { Check, Moon, Palette, Sun } from "lucide-react";
 import { useTheme, type ThemeOption } from "@/contexts/ThemeContext";
 import { useTranslation } from "@/contexts/LanguageContext";
-import type { TranslationKey } from "@/i18n";
 
 /**
  * A miniature of the palette. `data-theme` scopes the CSS variables to this
@@ -47,10 +46,10 @@ function ThemeGroup({ title, icon, options }: { title: string; icon: React.React
             >
               <ThemeSwatch theme={theme} />
               <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
-                <span className="text-sm font-bold">{theme.label}</span>
+                <span className="text-sm font-bold">{t(theme.labelKey)}</span>
                 {active && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary"><Check size={13} /> {t("common.active")}</span>}
               </div>
-              <p className="px-0.5 text-xs leading-5 text-muted-foreground">{t(`settings.theme.desc.${theme.id}` as TranslationKey)}</p>
+              <p className="px-0.5 text-xs leading-5 text-muted-foreground">{t(theme.descriptionKey)}</p>
             </button>
           );
         })}

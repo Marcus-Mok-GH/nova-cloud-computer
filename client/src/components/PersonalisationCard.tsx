@@ -7,23 +7,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "@/contexts/LanguageContext";
+import type { TranslationKey } from "@/i18n";
 import { trpc } from "@/lib/trpc";
 
 const DETAIL_OPTIONS = [
-  { value: "brief", label: "Brief - just the essentials" },
-  { value: "balanced", label: "Balanced - context where it helps" },
-  { value: "detailed", label: "Detailed - explain the reasoning" },
-] as const;
+  { value: "brief", labelKey: "settings.personalisation.detail.brief" },
+  { value: "balanced", labelKey: "settings.personalisation.detail.balanced" },
+  { value: "detailed", labelKey: "settings.personalisation.detail.detailed" },
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TranslationKey }>;
 const PROACTIVENESS_OPTIONS = [
-  { value: "ask_first", label: "Ask me before acting" },
-  { value: "act_and_tell", label: "Act, then tell me what you did" },
-  { value: "autonomous", label: "Work fully autonomously" },
-] as const;
+  { value: "ask_first", labelKey: "settings.personalisation.collab.askFirst" },
+  { value: "act_and_tell", labelKey: "settings.personalisation.collab.actAndTell" },
+  { value: "autonomous", labelKey: "settings.personalisation.collab.autonomous" },
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TranslationKey }>;
 const EXPERTISE_OPTIONS = [
-  { value: "new", label: "New to this - explain as you go" },
-  { value: "some", label: "Familiar - skip the basics" },
-  { value: "expert", label: "Expert - keep it terse" },
-] as const;
+  { value: "new", labelKey: "settings.personalisation.expertise.new" },
+  { value: "some", labelKey: "settings.personalisation.expertise.some" },
+  { value: "expert", labelKey: "settings.personalisation.expertise.expert" },
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TranslationKey }>;
 
 type Detail = (typeof DETAIL_OPTIONS)[number]["value"];
 type Proactiveness = (typeof PROACTIVENESS_OPTIONS)[number]["value"];
@@ -39,6 +41,7 @@ const selectClass =
  */
 export default function PersonalisationCard() {
   const utils = trpc.useUtils();
+  const { t } = useTranslation();
   const settings = trpc.workspace.modelSettings.useQuery(undefined, {
     retry: false,
   });
@@ -66,7 +69,7 @@ export default function PersonalisationCard() {
   const save = trpc.workspace.updateSettings.useMutation({
     onSuccess: async () => {
       await utils.workspace.modelSettings.invalidate();
-      toast.success("Personalisation saved.");
+      toast.success(t("settings.personalisation.saved"));
     },
     onError: error => toast.error(error.message),
   });
@@ -95,14 +98,14 @@ export default function PersonalisationCard() {
         personalisationExpertise: expertise || null,
       });
       const chat = await createChat.mutateAsync({
-        title: "Personalisation setup",
+        title: t("settings.personalisation.setupChatTitle"),
       });
       window.location.assign(`/app?chatId=${chat.id}&personalise=1`);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Nova could not start the setup chat."
+          : t("settings.personalisation.setupError")
       );
     }
   };
@@ -112,14 +115,13 @@ export default function PersonalisationCard() {
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-            Personalisation
+            {t("settings.personalisation.eyebrow")}
           </p>
           <h2 className="mt-1 text-xl font-bold tracking-tight">
-            Tune Nova to how you work
+            {t("settings.personalisation.title")}
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Tell Nova what you want and it learns the rest. Set your preferences
-            below, or let Nova interview you and build your profile for you.
+            {t("settings.personalisation.body")}
           </p>
         </div>
         <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -129,48 +131,47 @@ export default function PersonalisationCard() {
 
       <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border bg-muted/20 p-4">
         <div>
-          <p className="text-sm font-bold">Personalisation mode</p>
+          <p className="text-sm font-bold">{t("settings.personalisation.mode.title")}</p>
           <p className="text-xs text-muted-foreground">
-            Let Nova notice lasting preferences while you work and save them, so
-            every future reply fits you better.
+            {t("settings.personalisation.mode.body")}
           </p>
         </div>
         <Switch
           checked={enabled}
           onCheckedChange={setEnabled}
-          aria-label="Personalisation mode"
+          aria-label={t("settings.personalisation.mode.title")}
         />
       </div>
 
       <div className="mt-6 grid gap-5 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="personalisation-tone">Preferred tone</Label>
+          <Label htmlFor="personalisation-tone">{t("settings.personalisation.tone.label")}</Label>
           <Input
             id="personalisation-tone"
             value={tone}
             onChange={event => setTone(event.target.value)}
-            placeholder="e.g. warm and encouraging"
+            placeholder={t("settings.personalisation.tone.placeholder")}
             maxLength={60}
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="personalisation-detail">Reply length</Label>
+          <Label htmlFor="personalisation-detail">{t("settings.personalisation.detail.label")}</Label>
           <select
             id="personalisation-detail"
             className={selectClass}
             value={detail}
             onChange={event => setDetail(event.target.value as Detail | "")}
           >
-            <option value="">No preference</option>
+            <option value="">{t("settings.personalisation.noPreference")}</option>
             {DETAIL_OPTIONS.map(option => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="personalisation-proactiveness">Collaboration style</Label>
+          <Label htmlFor="personalisation-proactiveness">{t("settings.personalisation.collab.label")}</Label>
           <select
             id="personalisation-proactiveness"
             className={selectClass}
@@ -179,16 +180,16 @@ export default function PersonalisationCard() {
               setProactiveness(event.target.value as Proactiveness | "")
             }
           >
-            <option value="">No preference</option>
+            <option value="">{t("settings.personalisation.noPreference")}</option>
             {PROACTIVENESS_OPTIONS.map(option => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="personalisation-expertise">Your expertise</Label>
+          <Label htmlFor="personalisation-expertise">{t("settings.personalisation.expertise.label")}</Label>
           <select
             id="personalisation-expertise"
             className={selectClass}
@@ -197,10 +198,10 @@ export default function PersonalisationCard() {
               setExpertise(event.target.value as Expertise | "")
             }
           >
-            <option value="">No preference</option>
+            <option value="">{t("settings.personalisation.noPreference")}</option>
             {EXPERTISE_OPTIONS.map(option => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </option>
             ))}
           </select>
@@ -209,14 +210,14 @@ export default function PersonalisationCard() {
 
       <div className="mt-5 space-y-2">
         <Label htmlFor="personalisation-profile">
-          What Nova knows about you
+          {t("settings.personalisation.profile.label")}
         </Label>
         <Textarea
           id="personalisation-profile"
           className="min-h-32 resize-y"
           value={profile}
           onChange={event => setProfile(event.target.value)}
-          placeholder="Nova fills this in during a guided setup, or you can write it yourself - your role, goals, and what matters to you."
+          placeholder={t("settings.personalisation.profile.placeholder")}
           maxLength={2000}
         />
       </div>
@@ -224,7 +225,7 @@ export default function PersonalisationCard() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button onClick={savePreferences} disabled={save.isPending}>
           {save.isPending && <Loader2 size={15} className="animate-spin" />}
-          Save preferences
+          {t("settings.personalisation.save")}
         </Button>
         <Button
           variant="outline"
@@ -236,7 +237,7 @@ export default function PersonalisationCard() {
           ) : (
             <MessagesSquare size={15} />
           )}
-          Start guided setup
+          {t("settings.personalisation.guided")}
         </Button>
       </div>
 
@@ -244,9 +245,7 @@ export default function PersonalisationCard() {
         <Sparkles size={14} className="mt-0.5 shrink-0 text-primary" />
         <span>
           <Wand2 size={12} className="mr-1 inline" />
-          Guided setup opens a real chat where Nova asks a few questions, saves
-          what it learns, and turns personalisation mode on. You can revise
-          anything here afterwards.
+          {t("settings.personalisation.guided.hint")}
         </span>
       </div>
     </section>

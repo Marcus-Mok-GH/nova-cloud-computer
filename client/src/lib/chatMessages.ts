@@ -243,6 +243,37 @@ export type LiveChatItem =
   | { kind: "toolRun"; activities: ToolActivity[] };
 
 /**
+ * Shared run/flush fold behind both groupers: consecutive tool activities
+ * collapse into one `toolRun` item; everything else passes through in order.
+ */
+function groupActivityRuns<TInput, TItem>(
+  inputs: TInput[],
+  toActivity: (input: TInput) => ToolActivity | null,
+  toItem: (input: TInput) => TItem
+): Array<TItem | { kind: "toolRun"; activities: ToolActivity[] }> {
+  const items: Array<TItem | { kind: "toolRun"; activities: ToolActivity[] }> =
+    [];
+  let run: ToolActivity[] = [];
+  const flushRun = () => {
+    if (run.length > 0) {
+      items.push({ kind: "toolRun", activities: run });
+      run = [];
+    }
+  };
+  for (const input of inputs) {
+    const activity = toActivity(input);
+    if (activity) {
+      run.push(activity);
+      continue;
+    }
+    flushRun();
+    items.push(toItem(input));
+  }
+  flushRun();
+  return items;
+}
+
+/**
  * Folds the ordered live events into render items: each streamed text segment
  * stays exactly where it happened, and each consecutive stretch of tool events
  * collapses into one run so the live view keeps a single compact card per
@@ -251,24 +282,14 @@ export type LiveChatItem =
  * left behind below them once those tools arrive.
  */
 export function groupLiveChatItems(events: LiveChatEvent[]): LiveChatItem[] {
-  const items: LiveChatItem[] = [];
-  let run: ToolActivity[] = [];
-  const flushRun = () => {
-    if (run.length > 0) {
-      items.push({ kind: "toolRun", activities: run });
-      run = [];
-    }
-  };
-  for (const event of events) {
-    if (event.kind === "tool") {
-      run.push(event.activity);
-      continue;
-    }
-    flushRun();
-    items.push({ kind: "text", content: event.content });
-  }
-  flushRun();
-  return items;
+  return groupActivityRuns(
+    events,
+    event => (event.kind === "tool" ? event.activity : null),
+    event => ({
+      kind: "text" as const,
+      content: event.kind === "text" ? event.content : "",
+    })
+  );
 }
 
 export function parsePersistedToolActivity(
@@ -379,7 +400,7 @@ export type ChatListItem =
  */
 const TEAM_REPLY_ATTRIBUTION = /^\[[^\]\n]{1,80}\]\s+/;
 
-export function stripReplyAttribution(content: string): string {
+function stripReplyAttribution(content: string): string {
   return content.replace(TEAM_REPLY_ATTRIBUTION, "").trim();
 }
 
@@ -392,25 +413,11 @@ export function stripReplyAttribution(content: string): string {
 export function groupPersistedChatItems(
   messages: PersistedChatMessage[]
 ): ChatListItem[] {
-  const items: ChatListItem[] = [];
-  let run: ToolActivity[] = [];
-  const flushRun = () => {
-    if (run.length > 0) {
-      items.push({ kind: "toolRun", activities: run });
-      run = [];
-    }
-  };
-  for (const message of messages) {
-    const activity = parsePersistedToolActivity(message.content);
-    if (activity) {
-      run.push(activity);
-      continue;
-    }
-    flushRun();
-    items.push({ kind: "message", message });
-  }
-  flushRun();
-  return items;
+  return groupActivityRuns(
+    messages,
+    message => parsePersistedToolActivity(message.content),
+    message => ({ kind: "message" as const, message })
+  );
 }
 
 /**

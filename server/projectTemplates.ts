@@ -47,9 +47,50 @@ const CSS_MIME = "text/css";
 const JS_MIME = "text/javascript";
 const JSON_MIME = "application/json";
 
+/** Humanizes the project name for titles: "cool-app_v2" -> "Cool App V2". */
+function templateTitle(name: string, fallback: string): string {
+  return name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || fallback;
+}
+
+/** The card layout every template styles the same way. */
+const CARD_LAYOUT_CSS = `* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f6f7fb;
+  color: #191b22;
+}
+.card {
+  background: #fff;
+  padding: 2.5rem 3rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(15, 15, 25, 0.08);
+  text-align: center;
+  max-width: 26rem;
+}
+h1 { margin: 0 0 0.75rem; font-size: 1.75rem; }
+`;
+
+/** Paragraph spacing plus the button styling only the static/react pages use. */
+const INTERACTIVE_CSS = `p { color: #5b5f6b; line-height: 1.6; margin: 0 0 1.5rem; }
+button {
+  border: 0;
+  background: #4f46e5;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.65rem 1.4rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+button:hover { background: #4338ca; }
+`;
+
 /** Plain HTML/CSS/JS site: an index.html at the project root, deployed as-is. */
 function staticTemplate(name: string): RenderedProjectTemplate {
-  const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Site";
+  const title = templateTitle(name, "My Site");
   return {
     deployRoot: ".",
     summary:
@@ -80,37 +121,7 @@ function staticTemplate(name: string): RenderedProjectTemplate {
       {
         path: "styles.css",
         mimeType: CSS_MIME,
-        content: `* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f6f7fb;
-  color: #191b22;
-}
-.card {
-  background: #fff;
-  padding: 2.5rem 3rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(15, 15, 25, 0.08);
-  text-align: center;
-  max-width: 26rem;
-}
-h1 { margin: 0 0 0.75rem; font-size: 1.75rem; }
-p { color: #5b5f6b; line-height: 1.6; margin: 0 0 1.5rem; }
-button {
-  border: 0;
-  background: #4f46e5;
-  color: #fff;
-  font-weight: 600;
-  padding: 0.65rem 1.4rem;
-  border-radius: 10px;
-  cursor: pointer;
-}
-button:hover { background: #4338ca; }
-`,
+        content: CARD_LAYOUT_CSS + INTERACTIVE_CSS,
       },
       {
         path: "script.js",
@@ -131,7 +142,7 @@ button.addEventListener("click", () => {
 /** React SPA with no build step: global-function components loaded in DOM
  * order, React from a CDN and JSX compiled by Babel standalone, deployed as-is. */
 function reactTemplate(name: string): RenderedProjectTemplate {
-  const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My React App";
+  const title = templateTitle(name, "My React App");
   return {
     deployRoot: ".",
     summary:
@@ -194,37 +205,7 @@ createRoot(document.getElementById("root")).render(<App />);
       {
         path: "src/styles.css",
         mimeType: CSS_MIME,
-        content: `* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f6f7fb;
-  color: #191b22;
-}
-.card {
-  background: #fff;
-  padding: 2.5rem 3rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(15, 15, 25, 0.08);
-  text-align: center;
-  max-width: 26rem;
-}
-h1 { margin: 0 0 0.75rem; font-size: 1.75rem; }
-p { color: #5b5f6b; line-height: 1.6; margin: 0 0 1.5rem; }
-button {
-  border: 0;
-  background: #4f46e5;
-  color: #fff;
-  font-weight: 600;
-  padding: 0.65rem 1.4rem;
-  border-radius: 10px;
-  cursor: pointer;
-}
-button:hover { background: #4338ca; }
-`,
+        content: CARD_LAYOUT_CSS + INTERACTIVE_CSS,
       },
     ],
   };
@@ -234,7 +215,7 @@ button:hover { background: #4338ca; }
  * agent VM produces the out/ folder that deploy_website publishes. */
 function nextTemplate(name: string): RenderedProjectTemplate {
   const slug = slugifyProjectName(name);
-  const title = name.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "My Next App";
+  const title = templateTitle(name, "My Next App");
   return {
     deployRoot: "out",
     summary:
@@ -317,27 +298,8 @@ export default function RootLayout({ children }) {
       {
         path: "app/globals.css",
         mimeType: CSS_MIME,
-        content: `* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f6f7fb;
-  color: #191b22;
-}
-.card {
-  background: #fff;
-  padding: 2.5rem 3rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(15, 15, 25, 0.08);
-  text-align: center;
-  max-width: 26rem;
-}
-h1 { margin: 0 0 0.75rem; font-size: 1.75rem; }
-p { color: #5b5f6b; line-height: 1.6; margin: 0; }
-`,
+        // Next has no button on its landing page, so no button styles.
+        content: CARD_LAYOUT_CSS + "p { color: #5b5f6b; line-height: 1.6; margin: 0; }\n",
       },
       {
         path: "README.md",

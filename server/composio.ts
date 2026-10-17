@@ -356,6 +356,17 @@ function optionalString(input: GithubOperationInput, name: string): string | und
   return value || undefined;
 }
 
+/** Builds a one-key args spread, omitting blank optional strings entirely. */
+function withOptionalString(input: GithubOperationInput, name: string): Record<string, unknown> {
+  const value = optionalString(input, name);
+  return value ? { [name]: value } : {};
+}
+
+/** Reads per_page, falling back when the model did not pass a number. */
+function perPageOr(input: GithubOperationInput, fallback: number): number {
+  return typeof input.per_page === "number" ? input.per_page : fallback;
+}
+
 /** Reads a string argument without modifying file content whitespace. */
 function rawString(input: GithubOperationInput, name: string): string {
   const value = input[name];
@@ -372,6 +383,7 @@ export function githubOperationRequest(
   operation: GithubOperation,
   input: GithubOperationInput
 ): { action: string; args: Record<string, unknown> } {
+  const action = GITHUB_OPERATION_ACTIONS[operation];
   if (operation === "search_repositories") {
     const requestedQuery = optionalString(input, "query");
     const query = requestedQuery ?? "*";
@@ -379,7 +391,7 @@ export function githubOperationRequest(
     if (scope !== "mine" && scope !== "public") githubInputError('scope must be "mine" or "public".');
     const args: Record<string, unknown> = {
       query,
-      per_page: typeof input.per_page === "number" ? input.per_page : 25,
+      per_page: perPageOr(input, 25),
       response_detail: "minimal",
       ...(scope === "mine" ? { for_authenticated_user: true } : {}),
     };
@@ -388,7 +400,7 @@ export function githubOperationRequest(
     if (typeof input.language === "string" && input.language.trim()) args.language = input.language.trim();
     if (typeof input.archived === "boolean") args.archived = input.archived;
     if (typeof input.for_authenticated_user === "boolean") args.for_authenticated_user = input.for_authenticated_user;
-    return { action: GITHUB_OPERATION_ACTIONS[operation], args };
+    return { action, args };
   }
 
   const { owner, repo } = repositoryParts(input);
@@ -396,71 +408,71 @@ export function githubOperationRequest(
 
   switch (operation) {
     case "get_repository":
-      return { action: GITHUB_OPERATION_ACTIONS[operation], args: base };
+      return { action, args: base };
     case "read_file":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
-        args: { ...base, path: requiredString(input, "path"), ...(optionalString(input, "ref") ? { ref: optionalString(input, "ref") } : {}) },
+        action,
+        args: { ...base, path: requiredString(input, "path"), ...withOptionalString(input, "ref") },
       };
     case "list_pull_requests":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: {
           ...base,
           state: optionalString(input, "state") ?? "open",
-          per_page: typeof input.per_page === "number" ? input.per_page : 25,
+          per_page: perPageOr(input, 25),
         },
       };
     case "get_pull_request":
-      return { action: GITHUB_OPERATION_ACTIONS[operation], args: { ...base, pull_number: positiveInteger(input, "number") } };
+      return { action, args: { ...base, pull_number: positiveInteger(input, "number") } };
     case "get_issue":
-      return { action: GITHUB_OPERATION_ACTIONS[operation], args: { ...base, issue_number: positiveInteger(input, "number") } };
+      return { action, args: { ...base, issue_number: positiveInteger(input, "number") } };
     case "list_issue_comments":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: {
           ...base,
           issue_number: positiveInteger(input, "number"),
-          per_page: typeof input.per_page === "number" ? input.per_page : 100,
+          per_page: perPageOr(input, 100),
         },
       };
     case "create_issue":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: {
           ...base,
           title: requiredString(input, "title"),
-          ...(optionalString(input, "body") ? { body: optionalString(input, "body") } : {}),
+          ...withOptionalString(input, "body"),
           ...(Array.isArray(input.labels) ? { labels: input.labels } : {}),
         },
       };
     case "comment_on_issue":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: { ...base, issue_number: positiveInteger(input, "number"), body: requiredString(input, "body") },
       };
     case "create_pull_request":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: {
           ...base,
           title: requiredString(input, "title"),
           head: requiredString(input, "head"),
           base: requiredString(input, "base"),
-          ...(optionalString(input, "body") ? { body: optionalString(input, "body") } : {}),
+          ...withOptionalString(input, "body"),
           ...(typeof input.draft === "boolean" ? { draft: input.draft } : {}),
         },
       };
     case "write_file":
       return {
-        action: GITHUB_OPERATION_ACTIONS[operation],
+        action,
         args: {
           ...base,
           path: requiredString(input, "path"),
           content: rawString(input, "content"),
           message: requiredString(input, "message"),
-          ...(optionalString(input, "branch") ? { branch: optionalString(input, "branch") } : {}),
-          ...(optionalString(input, "sha") ? { sha: optionalString(input, "sha") } : {}),
+          ...withOptionalString(input, "branch"),
+          ...withOptionalString(input, "sha"),
         },
       };
   }

@@ -1,8 +1,14 @@
 import { getWorkspaceComputer } from "../db";
-import type { AgentAction } from "../workspace/workspaceAgentTypes";
+import type {
+  AgentAction,
+  AgentChatRunOptions,
+  WorkspaceToolActivity,
+} from "../workspace/workspaceAgentTypes";
 import type { ExaCitation } from "../exa";
 import type { DesktopCapture } from "../desktopBrowser";
 import type { SandboxOp } from "../sandboxWorkspace";
+import type { E2BSandboxLike } from "../e2b";
+import type { MemoryScope } from "../memories";
 
 export type Computer = Awaited<ReturnType<typeof getWorkspaceComputer>>;
 export type FolderRow = Computer["folders"][number];
@@ -82,4 +88,25 @@ export type ToolCtx = {
   gate?: OwnCodingGate;
   chatId?: string;
   channel?: "telegram" | "web";
+  /**
+   * The model's tool-call id. The editor namespaces its specialist's own
+   * sub-tool activity rows under it so two editor calls in one run can never
+   * collide.
+   */
+  callId: string;
+  /** Personal-agent context: scopes memory and gates the identity tools. */
+  agentChat?: AgentChatRunOptions;
+  /** Pre-resolved scope for the memory tools (undefined = shared scope). */
+  memoryScope?: MemoryScope;
+  /** Live progress notes for the long-running sub-agent tools. */
+  onProgress?: (detail: string) => void;
+  /** The woken workspace sandbox for this run, when it has one. */
+  sandbox?: E2BSandboxLike;
+  /** When this run must be finished (epoch ms). */
+  deadlineAtMs?: number;
+  /**
+   * Receives the editor specialist's own tool calls as first-class activity
+   * rows so they stream in the UI like the agent's own calls.
+   */
+  onSubToolActivity?: (tool: WorkspaceToolActivity) => void | Promise<void>;
 };

@@ -1,4 +1,7 @@
-import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
+import {
+  AI_UNAVAILABLE_PREFIX,
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+} from "@shared/const";
 import { isE2BConfigured, type E2BSandboxLike } from "../e2b";
 import {
   pauseAgentSandbox,
@@ -44,7 +47,6 @@ import {
   redactModelCredentials,
 } from "../modelFailureDetail";
 import {
-  chatWithCustomModel,
   completeWithWorkspaceModel,
   getActiveCustomModel,
 } from "../byokGateway";
@@ -140,47 +142,53 @@ const THINKING_MIN_DELTA_CHARS = 240;
 /** Cap on the reasoning text kept in a thinking block (reasoning can be long). */
 const THINKING_DETAIL_LIMIT = 20_000;
 
-/** Raised when a tool call is still running as the run deadline passes. */
-class RunDeadlineExceeded extends Error {
-  constructor() {
-    super("the run deadline passed while a tool was still executing");
-    this.name = "RunDeadlineExceeded";
-  }
-}
+// Re-exported so existing importers of this module keep working.
+export { TOOL_ACTIVITY_MESSAGE_PREFIX };
+export {
+  CODER_NUDGE_PREFIX,
+  FAILURE_NUDGE_PREFIX,
+} from "./workspacePrompt";
+export { setGatewayRetryBackoffForTests } from "./workspaceRetry";
 
-/**
- * Race a tool call against the run deadline. A single long call (a VM task,
- * a deploy) can outlast the 285s budget between the round-level checks, so
- * Vercel killed the function mid-tool with no closing reply. The work is a
- * factory so an already-expired deadline never starts the call at all -
- * its side effects must not begin once the run has effectively ended.
- * Losing the race stops *waiting*, not the tool - side effects already in
- * flight continue, and the caller closes the run so the reply persists in
- * the remaining margin.
- */
-async function raceToolDeadline<T>(
-  work: () => Promise<T>,
-  deadlineAtMs: number
-): Promise<T> {
-  const remainingMs = deadlineAtMs - Date.now();
-  if (remainingMs <= 0) throw new RunDeadlineExceeded();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new RunDeadlineExceeded()),
-          remainingMs
-        );
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
+import {
+  END_TURN_NUDGE_PREFIX,
+  REPEATED_FAILURE_PREFIX,
+  failureNudgeFor,
+  coderNudgeFor,
+  formatPersonalisationForPrompt,
+  WORKSPACE_AGENT_PROMPT,
+  agentIdentityPromptBlock,
+} from "./workspacePrompt";
+import {
+  getConnectedConnectorToolkits,
+  workspaceToolsForConnectors,
+  emailReplyAllowsTool,
+  connectorStatusLine,
+} from "./workspaceConnectors";
+import {
+  toolCallWrittenAsText,
+  errorChainText,
+  toolSummary,
+} from "./workspaceActivity";
+import {
+  RunDeadlineExceeded,
+  raceToolDeadline,
+  chatWithGatewayRetry,
+  waitFor,
+  type GatewayRetryState,
+} from "./workspaceRetry";
 
-export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+export {
+  END_TURN_NUDGE_PREFIX,
+  REPEATED_FAILURE_PREFIX,
+  failureNudgeFor,
+  coderNudgeFor,
+  agentIdentityPromptBlock,
+  getConnectedConnectorToolkits,
+  workspaceToolsForConnectors,
+  emailReplyAllowsTool,
+  connectorStatusLine,
+};
 
 const DEFAULT_CHAT_TITLES = new Set([
   "New workspace conversation",
@@ -234,522 +242,6 @@ export async function autoTitleChatForUser(
       );
   } catch (error) {
     console.error("[Chat title] auto-title failed", error);
-  }
-}
-
-/** Tool schemas exposed to the model on every message. */
-/**
- * Prefix of the control message that follows a text-only round. The run does
- * not end until the model explicitly calls end_turn, so a plain reply is
- * followed by this nudge until the model finishes or the budget closes it.
- */
-export const END_TURN_NUDGE_PREFIX = "[end-turn control]";
-
-/**
- * Prefix of the control message that follows a round in which the agent
- * wrote substantial code itself without delegating to the coding
- * specialist. Regular users never ask for a sub-agent by name, so the loop
- * itself keeps the specialist in play: one nudge per run, only when the
- * agent's own code write shows it skipped the editor.
- */
-export const CODER_NUDGE_PREFIX = "[coder control]";
-
-
-/**
- * Prefix of the control message delivered once per run after a round whose
- * tool calls failed: the final reply must disclose what failed instead of
- * presenting the run as fully successful.
- */
-export const FAILURE_NUDGE_PREFIX = "[failure control]";
-
-/**
- * Prefix of the tool result that refuses a third execution of a call whose
- * exact name + arguments already failed twice in the same run.
- */
-export const REPEATED_FAILURE_PREFIX = "[repeated-failure control]";
-
-/** Builds the failure-disclosure nudge from the run's failed tool calls. */
-export function failureNudgeFor(failedSteps: string[]): string {
-  const list = failedSteps
-    .slice(-5)
-    .map((step, index) => `${index + 1}. ${step}`)
-    .join("\n");
-  return `${FAILURE_NUDGE_PREFIX} These tool calls failed during this run:\n${list}\nKeep working only if you can address the actual cause shown in each failure text. Whatever happens next, your final reply MUST state plainly which of these steps failed (with the actual error text), which you recovered or worked around, and what actually got completed - never present the run as fully successful while any step is unresolved.`;
-}
-
-/** The coder-delegation nudge for a round that bypassed the specialist. */
-export function coderNudgeFor(wroteName: string): string {
-  return `${CODER_NUDGE_PREFIX} You just wrote ${wroteName} yourself without the editor sub-agent. Nova's editor sub-agent should produce non-trivial code - it returns better code than writing it directly, and the user is never asked which sub-agent to use. If the code you wrote is already complete, correct and verified, continue as you were. Otherwise, delegate the file work to the editor tool with the full task description, the relevant existing code and any exact errors in context, and make sure the code ends up in the workspace - verify the files it wrote autonomously, or place its returned code with your file tools. If the editor reports the sub-agent is not configured (the workspace owner must finish setting up the editor), tell the user exactly that, ask whether to proceed with Nova's own attempt, and only write code yourself in a later turn after the user accepted and the accept_own_coding tool recorded it - never silently continue yourself.`;
-}
-
-const CONNECTOR_TOOL_NAMES = new Set([
-  "github",
-  "list_connector_tools",
-  "use_connector_tool",
-]);
-
-/** Resolves which connector toolkits the user has actually connected. Failures degrade to "not connected". */
-export async function getConnectedConnectorToolkits(
-  ownerId: number,
-  statusCheck: (
-    ownerId: number,
-    toolkit: ComposioToolkit
-  ) => Promise<{ connected: boolean }> = getComposioConnectionStatus
-): Promise<ComposioToolkit[]> {
-  const results = await Promise.all(
-    COMPOSIO_TOOLKITS.map(async toolkit => {
-      try {
-        return {
-          toolkit,
-          connected: (await statusCheck(ownerId, toolkit)).connected,
-        };
-      } catch {
-        // One broken optional connector must not hide another connector that
-        // is healthy and should still be available to the model.
-        return { toolkit, connected: false };
-      }
-    })
-  );
-  return results.filter(entry => entry.connected).map(entry => entry.toolkit);
-}
-
-/** Builds the model tool list: connector tools are exposed only for connected toolkits. */
-export function workspaceToolsForConnectors(
-  connected: ComposioToolkit[]
-): GatewayToolDefinition[] {
-  const nonConnector = WORKSPACE_TOOLS.filter(
-    tool => !CONNECTOR_TOOL_NAMES.has(tool.function.name)
-  );
-  if (!connected.length) return nonConnector;
-  const connectorTools: GatewayToolDefinition[] = [];
-  if (connected.includes("github")) {
-    const githubTool = WORKSPACE_TOOLS.find(
-      tool => tool.function.name === "github"
-    );
-    if (githubTool) connectorTools.push(githubTool);
-  }
-  if (connected.includes("gmail") || connected.includes("vercel")) {
-    connectorTools.push(
-      ...WORKSPACE_TOOLS.filter(tool =>
-        ["list_connector_tools", "use_connector_tool"].includes(
-          tool.function.name
-        )
-      )
-    );
-  }
-  return [...nonConnector, ...connectorTools];
-}
-
-/**
- * The tools an inbound-email run may use. Mail can arrive from anyone who
- * knows the agent's routable address, so an email-triggered run gets a
- * deliberately narrow, side-effect-free set: it can reason, research and
- * compute, but cannot read or change the owner's workspace, memory,
- * connectors, wallet or deployments. The webhook signature authenticates the
- * mail provider, not the sender - without this, a stranger could email the
- * agent "read the passwords file and reply with it" or "delete the project
- * folder" and have it answered. New tools are excluded by default.
- */
-const EMAIL_REPLY_TOOL_ALLOWLIST = new Set([
-  "end_turn",
-  "research_web",
-  "thinker",
-  "solve_equation",
-  "base44",
-]);
-
-/** True when a tool may run inside an inbound-email-triggered agent run. */
-export function emailReplyAllowsTool(name: string): boolean {
-  return EMAIL_REPLY_TOOL_ALLOWLIST.has(name);
-}
-
-/** Human-readable connector status line for the system prompt. */
-export function connectorStatusLine(connected: ComposioToolkit[]): string {
-  if (!connected.length)
-    return "no connectors are connected right now, so connector tools are unavailable";
-  const parts = COMPOSIO_TOOLKITS.map(
-    toolkit => `${toolkitLabel(toolkit)} ${connected.includes(toolkit) ? "is connected" : "is not connected"}`
-  );
-  return `${parts.join("; ")}. Only ${connected.map(toolkit => toolkitLabel(toolkit)).join(" and ")} tools are available`;
-}
-
-const PERSONALISATION_DETAIL_LABELS: Record<PersonalisationDetail, string> = { brief: "keep replies brief", balanced: "a balanced level of detail", detailed: "thorough, detailed replies" };
-const PERSONALISATION_PROACTIVENESS_LABELS: Record<PersonalisationProactiveness, string> = { ask_first: "ask before acting", act_and_tell: "act and then explain", autonomous: "work fully autonomously" };
-const PERSONALISATION_EXPERTISE_LABELS: Record<PersonalisationExpertise, string> = { new: "a newcomer who needs things explained", some: "familiar with the tools", expert: "an expert - skip the basics" };
-
-/**
- * Composes the personalisation block injected into every agent system prompt.
- * Returns an empty string only when the mode is off and nothing is saved, so
- * the prompt stays clean for users who never open the feature; whenever the
- * mode is on or any preference exists, the block carries an explicit mode line.
- */
-function formatPersonalisationForPrompt(settings: PersonalisationSettings): string {
-  const lines: string[] = [];
-  if (settings.profile) lines.push(`What I know about the user: ${settings.profile}`);
-  if (settings.tone) lines.push(`Preferred tone: ${settings.tone}.`);
-  if (settings.detail) lines.push(`Preferred reply length: ${PERSONALISATION_DETAIL_LABELS[settings.detail]}.`);
-  if (settings.proactiveness) lines.push(`Collaboration style: ${PERSONALISATION_PROACTIVENESS_LABELS[settings.proactiveness]}.`);
-  if (settings.expertise) lines.push(`The user is ${PERSONALISATION_EXPERTISE_LABELS[settings.expertise]}.`);
-  // Only a disabled mode with nothing saved is truly "no block". The agent
-  // reads the mode from this explicit line, not from the section's absence, so
-  // an enabled-but-empty profile must still be announced and a disabled mode
-  // with saved preferences must say so.
-  if (!settings.enabled && !lines.length) return "";
-  const intro = settings.enabled
-    ? lines.length
-      ? "Personalisation mode is ON. The user's saved preferences - which you should keep learning and refining:"
-      : "Personalisation mode is ON, but the user has no saved preferences yet. Notice and save lasting preferences with set_personalisation as you work."
-    : "Personalisation mode is OFF. The user's saved preferences (apply them, but do not save new ones):";
-  return lines.length
-    ? `${intro}\n${lines.map(line => `- ${line}`).join("\n")}`
-    : intro;
-}
-
-const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}{{mode}}
-
-Your job is to get the user's work done end-to-end and to a high standard. You are a highly capable operator with a full toolkit: reason about what the user actually needs, use your own judgment for conversation and light work, and reach for tools and specialists whenever they make the result faster, more accurate, or more complete. Prefer finishing the task over narrating a plan. Match the tool to the job - editor for real code, solve_equation for math, run_vm_task / run_bash for computation and data work, thinker for hard reasoning, research_web for current or external facts, connectors for outside services, workspace file tools for durable deliverables - then verify what comes back and keep going until the goal is done. The measure of a good turn is the user's problem actually being solved - never settle for a partial, generic or hedged result when the tools to do better are right there.
-
-Operating principles:
-- Finish the goal. When the user states a goal, complete it end-to-end in this turn: gather what you need, call every tool the goal requires, verify the result, recover from failures, then report. Never reply with only a plan, instructions for the user to run themselves, or a clarifying question when tools could get the work done right now. A refusal or an "I can't" is only acceptable once you have genuinely exhausted what the tools can do, and then say exactly what you would need.
-- Triage lightly. Greetings, quick clarifications, short summaries, and recalling what was just said - answer directly with no tools. Anything involving real code, research, math, data work, files, outside services, or multiple steps - use the tools and specialists. Never turn a simple question into a tool parade, and never swallow complex work with a one-line guess.
-- Bias to action. Make reasonable choices and keep moving on routine, reversible work, checking the relevant files, records, skills, or dedicated tools when the answer depends on them instead of guessing. Default to fully autonomous; switch to collaborative - pause and ask one focused question - only when guessing has a real cost (irreversible or destructive actions beyond the request, personal taste you cannot know, missing credentials or permissions, or no reasonable interpretation). Never improvise facts, targets, recipients, IDs, or permissions, and clearly distinguish what was verified from what was inferred when it matters.
-- Work in tight loops. Hold a short plan for the goal, then execute in small verified steps: look at the latest tool result, adapt, continue. Parallelize independent reads or lookups when that saves a round, and chain tools freely - multi-step work is the norm (create folders before files, read before editing, verify after writing). Do not freeze mid-task to narrate or ask permission - the user sees your tool activity as it runs. End-to-end completion means chaining those steps until the goal is done, not stopping after the first useful action.
-- Prefer dedicated tools. For workspace operations always use the purpose-built tool: create_file, edit_file, read_file, move_file, rename_file, delete_file, create_folder, and friends. Never fall back to the VM (shell, subprocess, echo, sed, heredocs) for work a dedicated tool can do - dedicated tools are instant, auditable, and sync to the workspace automatically. Reserve run_vm_task for genuine computation: running code, installing packages, network requests, data processing, browser automation. When a VM run does produce files you want to keep, copy them into the workspace with dedicated tools afterwards.
-- Never do math or data work in your head. solve_equation evaluates a single math expression and returns the exact answer, so route every calculation through it - sums, percentages, discounts, date/day offsets involving numbers, unit conversions, anything numeric. Any real data work - counting, filtering, aggregating, sorting, converting, extracting or transforming content - goes through run_vm_task: write a short script, run it, read the output. Eyeballing numbers or transformations is the fastest way to give the user a confidently wrong answer; one tool call costs a fraction of a second.
-- Your workspace sandbox is live while you work: it wakes automatically with every run and your files and folders are synced into it at /home/user/workspace. Use run_bash to run bash commands directly on it - ls, grep, wc, head, git, tar - its working directory is your workspace and its stdout and stderr come back to you. Anything bash or the VM creates there is synced back to your durable storage automatically. Prefer run_bash for quick shell work and reserve run_vm_task for Python, pip installs, and heavier compute.
-- Use browse whenever you need a real browser or a GUI: pages that render with JavaScript, logging in or filling forms, clicking through a UI, or reading a page's rendered content. browse drives a full Linux desktop with the Chrome app in it, and every action answers with a screenshot of that screen that you can see - so you steer it by looking: 'open <url>' shows a page in Chrome, then read the screenshot and click the pixel position you want ('click 420 260', 'double-click', 'right-click'), scroll ('scroll down 3'), type ('click' the field first, then 'type "text"'), press keys ('press ctrl+l', 'press enter'), or 'wait <ms>' for a page to settle. 'screenshot' looks again without acting, and 'windows' lists what is open, and 'close' stops the Chrome app outright - every 'open' adds another tab to the one running session, so call it once a browsing task is finished (or tabs are stacking up); 'open <url>' starts the browser again with your logins intact. The screen is 1280x800 and coordinates are screenshot pixels. Captures are saved into the workspace as PNG files you can hand to the user, and the desktop is a persistent machine of its own: the first call in a workspace takes a few seconds to boot it, later calls reuse the same session (so logins persist). If a browse call fails outright, tell the user the desktop browser is unavailable rather than retrying forever. Keep research_web for deep multi-source research and browse for seeing and operating a specific page.
-- Research when facts matter. For user-specific facts, check workspace files and records; for supported procedures, check installed skills; for live state, use dedicated tools; for current or external facts you do not know for certain, use research_web - it returns a full, cited research report from Exa AI's deep research models. Before every research_web call, estimate how deep the research needs to be and pass that difficulty explicitly: deep-lite for single-fact lookups, deep for most questions, deep-reasoning for complex investigations with conflicting or multi-faceted evidence. Use its findings, cite the source URLs for facts that came from them, and never present an inference as verified information.
-- Think deeper when the answer is hard. When a problem needs sustained reasoning rather than lookup or computation - weighing a design or strategy decision, planning a multi-step approach, untangling a subtle trade-off, risk or failure mode, analyzing a body of material for what it implies, or checking your own reasoning before committing to it - call thinker. It is a frontier reasoning sub-agent: hand it the complete question and every relevant piece of context, then use its detailed findings to decide your next action. Never delegate simple questions, lookups or arithmetic to thinker - it reasons, it does not act.
-- Your memory is tool-backed, not file-backed. Every conversation is captured as a memory automatically, and search_memories / read_memory reach it: whenever the user references earlier work, past decisions, or a previous conversation, search for it instead of re-asking. For durable facts, decisions, and the running state of a long multi-step task, save them with save_memory (title, summary, content, optional tags) and read the memory back before resuming or whenever you lose the thread. Workspace files are for deliverables, not for memory.
-- Substantial file work goes through editor - your file-editing sub-agent. Whenever the user wants files created or changed in bulk - building an app or site, whole files, functions, components, scripts, algorithms, tricky bugs, refactoring - delegate it to editor: describe the goal and constraints completely, include the relevant existing code or the exact error in context, and verify what it delivers: with the sandbox awake it works autonomously - its files are already in the workspace, so read the changed files back and check them; when it returns bare code instead, place it into the workspace with your file tools. This is mandatory, not optional: users never ask for a sub-agent by name, and the editor sub-agent writes better code than you writing it directly. Never write non-trivial code yourself with create_file or edit_file - if it is more than a tiny tweak (a one-line fix, a few lines of markup, a small config change), it belongs to editor. Write code yourself only when editor reports the sub-agent is unavailable (then tell the user exactly that - a config problem means the editor is not set up on this workspace yet - ask whether to proceed with Nova's own attempt, and never silently substitute your own code for the specialist's; if you do proceed after the user accepted, say plainly the code is Nova's own work) or for genuinely trivial snippets of a few lines. Notes, documents and other non-code content are yours to write directly.
-- Use connectors for outside services: GitHub for repositories, issues and pull requests; Gmail for reading, sending and replying to email; Vercel for projects, deployments and logs. Connector tools are only available for services that are connected - current connections: {{connectors}}. When a service is not connected, do not attempt its connector tools; tell the user to open Settings and connect it first. For GitHub, use the dedicated github tool with repo in owner/name format - never search raw actions, GitHub App installations, or event endpoints. For Gmail and Vercel, search the exact action slug and parameters with list_connector_tools, then execute with use_connector_tool.
-- Publish websites with deploy_website - publishing is exclusively your ability (the web UI has no publish button). When the user wants their workspace, site, page, or app online (\"put this online\", \"go live\", \"host my site\", \"publish my portfolio\"), first make it deployable: it must be static (anything Netlify's static hosting serves) with an index.html at the root of the chosen directory. Then call deploy_website and deliberately choose the directory to publish - the project or build-output folder that holds the site, never a blind dump of unrelated workspace files; pass '/' only when the site genuinely lives at the workspace root. Every deployment has a stable ID (d-01, d-02, ...) and a short description kept in the workspace's deployment registry across chats. The description is a MUST on every deploy_website call - never call it without a description that names this deployment's purpose, so you and the user always know what each deployment is for. Targeting is deliberate and explicit: pass an existing deployment ID to publish to that deployment - its URL NEVER changes on update, and you must never deploy a different project to it - or omit the ID to create a new deployment, which gets its own ID, URL and a description you write in the same call. Never guess a deployment ID: the workspace's deployments are listed here with their IDs - {{deployments}}. When the user asks to update \"their site\" and several deployments exist, resolve which one by their description or ask; never silently overwrite one deployment's content with another project. Tell the user which URL is live, along with its deployment ID. Deploys can take up to a minute. If the tool reports that hosting is not configured yet (the operator must set NETLIFY_API_TOKEN on the server), tell the user exactly that. When a site or app needs environment variables (API keys, config), attach them by NAME through deploy_website's environment_variables argument: the workspace's saved environment variable names are listed below - {{environment_variables}}. You only ever pass names, never values - the server resolves the values privately. Never invent or guess an environment variable name; if the user needs a variable that is not on the list, tell them to add it in Settings first, then attach it by name on the deploy.
-- Take sites down with delete_website - unpublishing is exclusively your ability too. When the user asks to delete, remove, unpublish, or take down their site or deployment, call delete_website with the deployment's ID (from the deployment list above - never guess one). When several deployments exist or the request is vague, confirm which one they mean first. Deleting every deployment (all: true) is a two-step sweep: the first call only lists the target deployment IDs and deletes nothing - show the user that list and re-call with confirm_all set to exactly it, which you may do in the same turn only when they already explicitly asked to delete every deployment; otherwise wait for their explicit go-ahead first. Deletion is irreversible and the URL goes offline immediately - never improvise it, and tell the user plainly what went offline. Workspace files are never touched by a deletion, and a later deploy_website creates a fresh deployment with a new ID and URL.
-- Start clean projects with create_project_template. When the user wants a new site or app, scaffold it instead of improvising loose files. If they did not specify a stack, choose the best fit yourself instead of asking - and mention the stack you chose. The default for web apps and sites is 'react', a React SPA that runs in the browser (React from a CDN, no build step); never improvise a default as loose HTML files. Use 'static' (a plain HTML/CSS/JS site) only when the user explicitly asks for plain HTML or wants a genuinely simple single page, and 'next' for a Next.js App Router project configured for static export. The template lands in its own project folder. For 'static' and 'react', deploy_website publishes the project folder directly; for 'next', run 'npm install && npm run build' in the project folder via run_vm_task first, copy the generated out/ files into the workspace with create_file, then deploy_website with the out folder as the directory. A 'react' project has NO bundler - React and Babel standalone come from a CDN, so components must be plain global functions (no import/export): expose each component on window in its own file and load it with a text/babel script before the file that uses it, exactly as the scaffold does, or the page renders a blank screen. From there, edit and extend the project with your regular file tools and redeploy to the same deployment ID so its URL stays stable.
-- Recover on your own. If a tool call fails or a name is missing, adapt: list the workspace, try an alternative, fix the input, and continue - but never repeat the identical failing call unchanged, the same outcome is guaranteed. When something is impossible with the tools available, say exactly what you would need to do it.
-- Verify your work. After creating or editing, read back or otherwise confirm the outcome before claiming success.
-- Report briefly, including failures. End multi-step work with a short summary of what changed (files created/edited/moved/deleted, messages sent, tasks run) - not a play-by-play - delivered through end_turn. Any step that failed during the run and was not fully recovered MUST be stated in that summary with its actual error text and what you did instead - a summary that hides a failed step is a false report of the work.
-- End your turn ONLY with end_turn. Writing a reply without calling a tool does NOT end your turn - the run simply continues. When the work is complete, call end_turn with your complete final reply in its 'reply' argument; that is the only way the user receives your answer and the only way your turn finishes. While working, keep using tools; never write the final answer as plain text. When the finished work naturally opens onto concrete next steps, also call follow_up once - before or with end_turn - to offer the user up to three short next actions as tappable suggestions under your reply; skip it when there is nothing real to suggest.
-{{progress_updates}}
-- Honor the user's communication style. When the user states or changes how they want you to communicate ("keep it short", "be more structured", "reply in Spanish"), save it immediately with set_communication_style - it persists across every chat and session, and appears above as their saved style. Apply it to every reply from then on.
-- Personalisation: when the user asks to set up, tune, or change how you work with them, run a short personalisation session - ask one focused question at a time about their role and goals, how they like your replies, how much you should act on your own, and how familiar they are with the tools, waiting for each answer before asking the next, then read the saved profile back in one short paragraph. Save each thing you learn with set_personalisation as you go, and set enabled: true. Outside a session, when the user states a lasting preference about how you should work, save it with set_personalisation too - but only when the personalisation block above states that the mode is ON; if it states OFF, or there is no block at all (the mode was never enabled and nothing is saved), offer to turn the mode on instead of saving. Never invent preferences the user has not expressed.
-
-Formatting: render replies in Markdown when it helps readability - **bold** or *italics* for emphasis, \`inline code\` for identifiers, fenced \`\`\` code blocks with a language tag, and bullet or numbered lists for steps. Keep formatting light in casual replies.
-
-Workspace rules:
-- Resolve files and folders by the exact names/ids listed below; if something is missing, list the workspace and act on what exists instead of guessing.
-- edit_file replaces the file's entire content - read it first when unsure.
-- Keep tool arguments exact and minimal.
-- Invoke tools with real tool calls only - never write a tool call out as plain text (like {"name": ..., "parameters": ...}); the runtime only executes real tool calls.
-- Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
-- Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
-
-The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
-{{style}}
-{{personalisation}}
-This request arrived via: {{channel}}.
-
-Installed skills - the workspace's reusable procedures, listed as name: description. This list is discovery only: call read_skill with a skill's name to load its full instructions, then follow them for that task.
-{{skills}}
-
-Recent memories (search_memories finds more, read_memory returns the full record; list_workspace lists every file and folder):
-{{memories}}`;
-
-/**
- * The {{agent_identity}} block, injected right after Nova's opening line so a
- * personal agent knows who it is, what its identity can do, what awaits the
- * user's approval, and (in team chats) how turns work. Returns "" for the
- * default assistant, leaving the prompt byte-identical to before.
- */
-export function agentIdentityPromptBlock(
-  agentChat: AgentChatRunOptions,
-  approvalsLine: string
-): string {
-  const { profile, team } = agentChat;
-  // A wallet with no cap (budget null) has no "of N" figure to report.
-  const wallet =
-    profile.walletBudgetCredits === null
-      ? `unlimited, no budget cap (${profile.walletSpentCredits} credits spent)`
-      : `${Math.max(
-          0,
-          profile.walletBudgetCredits - profile.walletSpentCredits
-        )} of ${profile.walletBudgetCredits} credits remaining`;
-  const lines = [
-    ` In this conversation you are not the default workspace assistant - you are ${profile.name}${profile.role ? `, the ${profile.role}` : ""}, a personal agent of this workspace: stay in character, act and sign your replies as ${profile.name}.`,
-    profile.instructions
-      ? `\nYour standing instructions: ${profile.instructions}`
-      : "",
-    `\nYour agent identity - email: ${agentAddressFor(profile)} (${
-      profile.agentmailAddress
-        ? "a real inbox that can send to and receive from outside addresses"
-        : "Nova-internal mail"
-    }; send with send_agent_email), phone: ${profile.phoneHandle} (a virtual handle, not real telephony), wallet: ${wallet}.`,
-    `\nGated actions - request_purchase and send_agent_email do not act immediately: they record a request that only the user can confirm in Nova's Agents page. Approval state: ${approvalsLine}. Always tell the user when something you asked for is waiting, approved, denied, or failed.`,
-    "\nYour memory is yours alone: search_memories / read_memory / save_memory work in your agent-private scope plus the shared workspace notes - other agents' memories are invisible to you, and yours to them.",
-    team
-      ? `\nThis is an AGENT TEAM chat - you and your teammates are collaborating on one shared goal: ${team.goal}. Roster in turn order: ${team.roster.map(member => member.name).join(", ")}. This runs as a bounded discussion: read your teammates' turns above, build on them, and contribute your own part without repeating their work. End every turn with end_turn so the discussion continues${team.finalMember ? " - you are the last teammate of the final round, so synthesize the whole team's combined work into the final reply for the user" : ""}. Your reply is shown to the user with a [${profile.name}] attribution.`
-      : "",
-  ];
-  return lines.filter(Boolean).join("");
-}
-
-
-/**
- * Some models spell a tool call out as text instead of invoking it -
- * 'The function call that best answers the given prompt is {"name": "present_file", "parameters": {...}}'.
- * Recover the intent: extract the embedded JSON object and run it as a real
- * tool call so the action still executes and the raw JSON never reaches the user.
- */
-function toolCallWrittenAsText(
-  text: string,
-  tools: Array<{ function: { name: string } }>
-): { name: string; arguments: string } | undefined {
-  if (!text || !text.includes('"name"')) return undefined;
-  const known = new Set(tools.map(tool => tool.function.name));
-  for (const match of Array.from(
-    text.matchAll(/"name"\s*:\s*"([A-Za-z0-9_]+)"/g)
-  )) {
-    const name = match[1];
-    if (!known.has(name) || match.index === undefined) continue;
-    const objectStart = text.lastIndexOf("{", match.index);
-    if (objectStart < 0) continue;
-    // Brace-match forward from the candidate start to the end of that object.
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let i = objectStart; i < text.length; i += 1) {
-      const ch = text[i];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) continue;
-      if (ch === "{") depth += 1;
-      else if (ch === "}") {
-        depth -= 1;
-        if (depth !== 0) continue;
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(text.slice(objectStart, i + 1)) as Record<
-            string,
-            unknown
-          >;
-        } catch {
-          break;
-        }
-        let parameters: Record<string, unknown>;
-        if (typeof parsed.parameters === "object" && parsed.parameters !== null)
-          parameters = parsed.parameters as Record<string, unknown>;
-        else if (
-          typeof parsed.arguments === "object" &&
-          parsed.arguments !== null
-        )
-          parameters = parsed.arguments as Record<string, unknown>;
-        else {
-          const { name: _toolName, ...others } = parsed;
-          parameters = others;
-        }
-        return { name, arguments: JSON.stringify(parameters) };
-      }
-    }
-  }
-  return undefined;
-}
-
-
-/**
- * Unwraps an error chain into one diagnostic line. Drizzle's query errors say
- * only "Failed query: <sql> params: ..." while the actual database error
- * (missing column, timeout, terminated connection) lives on `error.cause` -
- * without the cause, a failed query cannot be diagnosed from the chat.
- */
-function errorChainText(error: unknown): string {
-  const parts: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; current instanceof Error && depth < 4; depth += 1) {
-    const message = current.message.trim();
-    if (message && !parts.includes(message)) parts.push(message);
-    current = (current as Error & { cause?: unknown }).cause;
-  }
-  return parts.join(" | ");
-}
-
-
-function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
-  const action = execution.action;
-  if (!action) return call.name;
-  if (action.kind === "tool")
-    return `${action.operation === "failed" ? "Failed solving" : "Solved"}: ${action.name}.`;
-  if (action.kind === "vm" && action.name === "bash")
-    return `${action.operation === "failed" ? "Failed running" : "Ran"} a bash command in the sandbox.`;
-  if (action.kind === "browser")
-    return `${action.operation === "failed" ? "Failed running" : "Ran"} a browser command: ${action.name}.`;
-  if (action.kind === "research")
-    return `${action.operation === "failed" ? "Failed researching" : "Researched"}: ${action.name}.`;
-  if (action.operation === "presented")
-    return `Presented ${action.name} to the user.`;
-  if (action.kind === "deployment")
-    return action.operation === "failed"
-      ? "Failed deploying the website."
-      : `Deployed the website: ${action.name}.`;
-  if (action.kind === "connector")
-    return action.operation === "listed"
-      ? `Listed ${action.name}.`
-      : `${action.operation === "failed" ? "Failed running" : "Ran"} connector operation: ${action.name}.`;
-  return `${action.operation === "deleted" ? "Delet" : action.operation === "updated" ? "Updat" : "Creat"}ed ${action.kind}: ${action.name}.`;
-}
-
-/** Transient gateway failures worth an automatic in-run retry. */
-const GATEWAY_RETRY_KINDS = new Set(["unavailable", "invalid_response"]);
-
-/**
- * Upstream 429s are the one failure that reaches the user: the provider is
- * genuinely rate limiting, so retrying indefinitely would only extend the
- * lockout. A 429 gets this many immediate retries on the gateway's single
- * model before the throttle is reported.
- */
-const RATE_LIMIT_RETRY_LIMIT = 3;
-
-/**
- * Safety bound for the transient retry loop when a run carries no deadline
- * (standalone helpers, unit calls): a hard-down gateway must not spin forever.
- * Real runs always pass a deadline, and that deadline is the real bound.
- */
-const TRANSIENT_RETRY_MAX_ATTEMPTS = 8;
-
-/**
- * Base backoff between transient retries, doubling on each retry up to the
- * cap. The delay keeps a fast-failing gateway from being hammered: every
- * attempt claims another shared request allowance slot and one daily credit
- * before it is sent, so an unbounded instant loop can exhaust a workspace's
- * allowance or credits during an outage.
- */
-let gatewayRetryBackoffBaseMs = 250;
-const GATEWAY_RETRY_BACKOFF_CAP_MS = 4_000;
-
-/** Test hook: zero the retry backoff so suites stay fast. */
-export function setGatewayRetryBackoffForTests(ms: number | null) {
-  gatewayRetryBackoffBaseMs = ms ?? 250;
-}
-
-/** Run-scoped retry bookkeeping shared across gateway rounds. */
-type GatewayRetryState = { rateLimitRetriesUsed: number };
-
-const waitFor = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Calls the gateway with automatic retries for transient failures (network
- * blips, 5xx, empty completions). Retries are immediate - a blip recovers in
- * place instead of pausing the round - and keep going until the run deadline,
- * so a transient failure never surfaces to the user as an error by itself: the
- * run closes with the normal out-of-budget status (and a continuation, where
- * one is configured) once the budget is gone. A round that already streamed
- * text to the client is never retried: a fresh attempt would duplicate what
- * the user saw.
- */
-async function chatWithGatewayRetry(
-  ownerId: number,
-  messages: GatewayChatMessage[],
-  options: {
-    tools?: GatewayToolDefinition[];
-    onChunk?: (chunk: string) => void;
-    /** Streams the model's private reasoning (reasoning_content) if present. */
-    onReasoning?: (chunk: string) => void;
-    signal?: AbortSignal;
-    /** Run deadline (epoch ms) - the bound on the transient retry loop. */
-    deadlineAtMs?: number;
-    /** Run-scoped state: the 429 retry budget is shared across rounds. */
-    retryState?: GatewayRetryState;
-    /**
-     * True on an image turn before the attachment is dropped. A failed image
-     * round must surface its error so the round can drop the attachment and
-     * re-run on the text model, not keep re-sending an image the model
-     * cannot take.
-     */
-    visionActive?: boolean;
-    /**
-     * The run's model route, resolved once by runWorkspaceAgent (null = the
-     * built-in gateway). Reusing it keeps every round - and every transient
-     * retry - from re-reading the active custom model from the database, and
-     * a run can no longer switch providers mid-conversation when the
-     * workspace's settings change between rounds. Undefined keeps the legacy
-     * per-call lookup for direct callers of this helper.
-     */
-    customModel?: CustomModel | null;
-  }
-) {
-  const gatewayOptions = (streamedChars: { count: number }) => ({
-    tools: options.tools,
-    ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.onChunk
-      ? {
-          onChunk: (chunk: string) => {
-            streamedChars.count += chunk.length;
-            options.onChunk!(chunk);
-          },
-        }
-      : {}),
-  });
-  let transientAttempts = 0;
-  for (;;) {
-    const streamedChars = { count: 0 };
-    try {
-      const route =
-        options.customModel === undefined
-          ? await getActiveCustomModel(ownerId)
-          : options.customModel;
-      return await (route
-        ? chatWithCustomModel(route, messages, gatewayOptions(streamedChars))
-        : chatWithAiGateway(ownerId, messages, gatewayOptions(streamedChars)));
-    } catch (error) {
-      // A user-requested stop aborts the in-flight request: never retry it.
-      if (options.signal?.aborted) throw error;
-      // A round that already streamed text is never retried.
-      if (streamedChars.count > 0) throw error;
-      const kind =
-        error instanceof AiGatewayClientError ? error.kind : undefined;
-      // Upstream 429: a fixed three immediate retries, and only then the
-      // throttle is reported.
-      if (kind === "rate_limit") {
-        const used = options.retryState?.rateLimitRetriesUsed ?? 0;
-        if (used >= RATE_LIMIT_RETRY_LIMIT) throw error;
-        if (options.retryState)
-          options.retryState.rateLimitRetriesUsed = used + 1;
-        continue;
-      }
-      if (kind === undefined || !GATEWAY_RETRY_KINDS.has(kind)) throw error;
-      // An image turn that errors drops the attachment and re-runs on the
-      // text model (the round's vision recovery), so surface the failure
-      // instead of retrying with the same unviewable image.
-      if (options.visionActive) throw error;
-      // Transient failure: retry after a short, capped backoff so fast
-      // failures cannot hammer the gateway. With a deadline the loop is
-      // bounded by the budget and then closes the run as out-of-budget (a
-      // status message, plus a continuation where one is configured)
-      // instead of surfacing an error the user cannot act on.
-      transientAttempts += 1;
-      const delay = Math.min(
-        gatewayRetryBackoffBaseMs * 2 ** Math.min(transientAttempts - 1, 4),
-        GATEWAY_RETRY_BACKOFF_CAP_MS
-      );
-      if (options.deadlineAtMs !== undefined) {
-        if (Date.now() + delay >= options.deadlineAtMs)
-          throw new RunDeadlineExceeded();
-      } else if (transientAttempts >= TRANSIENT_RETRY_MAX_ATTEMPTS) {
-        throw error;
-      }
-      await waitFor(delay);
-      if (options.signal?.aborted) throw error;
-    }
   }
 }
 

@@ -6,11 +6,13 @@ import {
   classifyGatewayHttpError,
   completeWithAiGateway,
   AiGatewayClientError,
+  parseGatewayChoiceMessage,
   readGatewayStreamedChatResult,
   reasoningParamsForModel,
   sanitizeGatewayError,
   type GatewayChatMessage,
   type GatewayChatResult,
+  type GatewayChoiceMessage,
   type GatewayCompletion,
   type GatewayToolCall,
   type GatewayToolDefinition,
@@ -310,30 +312,9 @@ export async function chatWithCustomModel(
       | GatewayCompletion
       | Record<string, unknown>;
     const choice = (
-      payload as {
-        choices?: Array<{
-          message?: {
-            content?: string | null;
-            tool_calls?: Array<{
-              id?: string;
-              type?: string;
-              function?: { name?: string; arguments?: string };
-            }>;
-          };
-        }>;
-      }
+      payload as { choices?: Array<{ message?: GatewayChoiceMessage }> }
     )?.choices?.[0]?.message;
-    const text = typeof choice?.content === "string" ? choice.content : "";
-    const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
-      .filter(call => call?.function?.name)
-      .map(call => ({
-        id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
-        name: String(call.function!.name),
-        arguments:
-          typeof call.function?.arguments === "string"
-            ? call.function.arguments
-            : "{}",
-      }));
+    const { text, toolCalls } = parseGatewayChoiceMessage(choice);
     const bufferedReasoning =
       typeof (choice as { reasoning_content?: unknown } | undefined)
         ?.reasoning_content === "string"

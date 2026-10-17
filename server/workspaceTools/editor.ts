@@ -15,6 +15,7 @@ import { NimConfigError } from "../nim";
 import { syncAgentSandbox } from "../sandboxWorkspace";
 import { trackRunningProcess } from "../runningProcesses";
 import { recordSpecialistAcceptance } from "../workspace/workspaceAgentTypes";
+import { createProgressNudge } from "./progress";
 import { type ToolCtx, type ToolExecution } from "./types";
 
 export async function toolAcceptOwnCoding(
@@ -111,21 +112,13 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
   // calling - it returns complete code for this agent to place. The
   // specialist streams its own steps; the elapsed-time heartbeat only
   // fires when its stream has gone quiet.
-  let lastNoteAt = Date.now();
-  const note = (detail: string) => {
-    lastNoteAt = Date.now();
-    onProgress?.(detail);
-  };
-  const progressTimer = onProgress
-    ? setInterval(() => {
-        if (Date.now() - lastNoteAt < 25_000) return;
-        const elapsed = Math.round((Date.now() - startedAt) / 1000);
-        lastNoteAt = Date.now();
-        onProgress(
-          `The coding specialist is still working - ${elapsed}s elapsed…`
-        );
-      }, 10000)
-    : undefined;
+  const nudge = createProgressNudge({
+    onProgress,
+    startedAt,
+    stillWorking: elapsed =>
+      `The coding specialist is still working - ${elapsed}s elapsed…`,
+  });
+  const note = nudge.note;
   note(
     sandbox
       ? "The coding specialist is taking over the task - reading the workspace on its own…"
@@ -265,7 +258,7 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
       },
     };
   } finally {
-    if (progressTimer) clearInterval(progressTimer);
+    nudge.stop();
     // Close the durable row for this task; a killed invocation never reaches this line, which is exactly how its
     // row becomes resumable.
     await process?.finish(processStatus);

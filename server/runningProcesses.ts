@@ -19,9 +19,9 @@
  * machinery. Every row carries a small resume budget, so a task the platform
  * keeps killing is dead-lettered instead of retried forever.
  */
-import { createHmac } from "node:crypto";
 import type { RunningProcess, RunningProcessPayload } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { postSignedSelfCall } from "./selfCall";
 import { trackBackgroundWork } from "./backgroundWork";
 import {
   appendChatMessageForUser,
@@ -226,29 +226,11 @@ async function callResumeEndpointOnce(
   secret: string,
   processId: number
 ): Promise<boolean> {
-  const body = JSON.stringify({ processId });
-  const signature = createHmac("sha256", secret).update(body).digest("hex");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(
-      `${ENV.publicBaseUrl}/api/agent/process/resume`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-nova-signature": `sha256=${signature}`,
-        },
-        body,
-        signal: controller.signal,
-      }
-    );
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return postSignedSelfCall({
+    url: `${ENV.publicBaseUrl}/api/agent/process/resume`,
+    secret,
+    body: JSON.stringify({ processId }),
+  });
 }
 
 /** Dead-letters a row whose resume budget is spent, telling the user (or closing the run) honestly. */

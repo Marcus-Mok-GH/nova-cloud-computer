@@ -4,6 +4,7 @@
  * citations.
  */
 import { runResearch } from "../researcher";
+import { createProgressNudge } from "./progress";
 import { type ToolCtx, type ToolExecution } from "./types";
 
 export async function toolResearchWeb(ctx: ToolCtx): Promise<ToolExecution> {
@@ -16,19 +17,13 @@ export async function toolResearchWeb(ctx: ToolCtx): Promise<ToolExecution> {
   // The researcher streams its real process now (sub-search results, the
   // start of report synthesis). The elapsed-time heartbeat only fires
   // when the stream has gone quiet, so the log shows work, not ticking.
-  let lastNoteAt = Date.now();
-  const note = (detail: string) => {
-    lastNoteAt = Date.now();
-    onProgress?.(detail);
-  };
-  const progressTimer = onProgress
-    ? setInterval(() => {
-        if (Date.now() - lastNoteAt < 25_000) return;
-        const elapsed = Math.round((Date.now() - startedAt) / 1000);
-        lastNoteAt = Date.now();
-        onProgress(`Deep research is still working - ${elapsed}s elapsed…`);
-      }, 10000)
-    : undefined;
+  const nudge = createProgressNudge({
+    onProgress,
+    startedAt,
+    stillWorking: elapsed =>
+      `Deep research is still working - ${elapsed}s elapsed…`,
+  });
+  const note = nudge.note;
   note(`Deep research is starting its web searches…`);
   try {
     const research = await runResearch(topic, difficulty, instructions, note);
@@ -64,6 +59,6 @@ export async function toolResearchWeb(ctx: ToolCtx): Promise<ToolExecution> {
       },
     };
   } finally {
-    if (progressTimer) clearInterval(progressTimer);
+    nudge.stop();
   }
 }

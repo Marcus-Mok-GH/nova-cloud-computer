@@ -79,6 +79,80 @@ const SOLVE_EQUATION_PANEL_CLASS =
 const framedPanelClass = (maxHeight: string) =>
   `mt-2 flex ${maxHeight} w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-inner dark:border-white/10`;
 
+/** Header strip above a panel body (task/question context). */
+const PANEL_HEADER_CLASS =
+  "shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10";
+
+/** Scrollable body region shared by the headered panels. */
+const PANEL_SCROLL_CLASS =
+  "min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5";
+
+/** The small uppercase label above a panel section (Question, Input, ...). */
+function PanelLabel({
+  children,
+  className = "mb-1",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      className={`${className} text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground`}
+    >
+      {children}
+    </p>
+  );
+}
+
+/** Settled failure body of a panel: the real reason, in red. */
+function FailedDetail({
+  activity,
+  fallback,
+}: {
+  activity: ToolActivity;
+  fallback: string;
+}) {
+  return (
+    <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
+      {activity.detail || activity.summary || fallback}
+    </p>
+  );
+}
+
+/** Monospace block for code/expressions inside a panel. */
+function MonoPre({
+  children,
+  failed,
+}: {
+  children: React.ReactNode;
+  failed?: boolean;
+}) {
+  return (
+    <pre
+      className={`max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 ${
+        failed ? "text-red-600 dark:text-red-400" : "text-foreground"
+      }`}
+    >
+      {children}
+    </pre>
+  );
+}
+
+/** Quiet note when a settled panel has no detail left, only the summary. */
+function SummaryNote({
+  activity,
+  fallback,
+}: {
+  activity: ToolActivity;
+  fallback: string;
+}) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      {activity.summary || fallback}
+    </p>
+  );
+}
+
 /**
  * The collapsible shell every panel-style activity renders through: a
  * one-line header that toggles an optional detail panel beneath it. A running
@@ -467,9 +541,7 @@ export function ResearchToolActivity({ activity }: { activity: ToolActivity }) {
 export function ThinkerDetail({ activity }: { activity: ToolActivity }) {
   if (activity.state === "failed")
     return (
-      <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
-        {activity.detail || activity.summary || "The thinker task failed."}
-      </p>
+      <FailedDetail activity={activity} fallback="The thinker task failed." />
     );
   return (
     <MarkdownDetail
@@ -498,12 +570,10 @@ export function ThinkerPromptHeader({
   if (!question && !context) return null;
   const longContext = context.length > 160;
   return (
-    <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
+    <div className={PANEL_HEADER_CLASS}>
       {question ? (
         <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-            Question
-          </p>
+          <PanelLabel>Question</PanelLabel>
           <p className="break-words whitespace-pre-wrap text-sm leading-6 text-foreground">
             {question}
           </p>
@@ -511,9 +581,7 @@ export function ThinkerPromptHeader({
       ) : null}
       {context ? (
         <div className={question ? "mt-2.5" : ""}>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-            Context
-          </p>
+          <PanelLabel>Context</PanelLabel>
           <p
             className={`break-words whitespace-pre-wrap text-xs leading-5 text-muted-foreground ${
               longContext && !expanded ? "line-clamp-3" : ""
@@ -561,7 +629,7 @@ export function ThinkerToolActivity({ activity }: { activity: ToolActivity }) {
       panelClassName={framedPanelClass("max-h-96")}
     >
       <ThinkerPromptHeader question={question} context={context} />
-      <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+      <div className={PANEL_SCROLL_CLASS}>
         {running ? (
           <RunningProgress
             activity={activity}
@@ -596,10 +664,8 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
       panelClassName={framedPanelClass("max-h-80")}
     >
       {task && (
-        <div className="shrink-0 border-b border-border/70 px-3.5 py-2.5 dark:border-white/10">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-            Task{language ? ` · ${language}` : ""}
-          </p>
+        <div className={PANEL_HEADER_CLASS}>
+          <PanelLabel>Task{language ? ` · ${language}` : ""}</PanelLabel>
           <p className="break-words text-sm leading-6 text-foreground">
             {task}
           </p>
@@ -612,23 +678,17 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
             fallback="The editor is reading the task…"
           />
         ) : activity.state === "failed" ? (
-          <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
-            {activity.detail || activity.summary || "The editor task failed."}
-          </p>
+          <FailedDetail activity={activity} fallback="The editor task failed." />
         ) : activity.detail ? (
           <div className="min-w-0">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              Specialist's code
-            </p>
-            <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-              {activity.detail}
-            </pre>
+            <PanelLabel>Specialist's code</PanelLabel>
+            <MonoPre>{activity.detail}</MonoPre>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {activity.summary ||
-              "The specialist's code is no longer available."}
-          </p>
+          <SummaryNote
+            activity={activity}
+            fallback="The specialist's code is no longer available."
+          />
         )}
       </div>
     </CollapsibleToolPanel>
@@ -675,32 +735,25 @@ export function SolveEquationDetail({
     <>
       {equation && (
         <div className="min-w-0">
-          <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-            Input
-          </p>
-          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-            {equation}
-          </pre>
+          <PanelLabel className="mb-0.5">Input</PanelLabel>
+          <MonoPre>{equation}</MonoPre>
         </div>
       )}
       <div className="min-w-0">
-        <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-          Output
-        </p>
+        <PanelLabel className="mb-0.5">Output</PanelLabel>
         {activity.state === "failed" ? (
-          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-red-600 dark:text-red-400">
+          <MonoPre failed>
             {activity.detail ||
               activity.summary ||
               "Could not evaluate the expression."}
-          </pre>
+          </MonoPre>
         ) : activity.detail ? (
-          <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
-            {activity.detail}
-          </pre>
+          <MonoPre>{activity.detail}</MonoPre>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {activity.summary || "The result is no longer available."}
-          </p>
+          <SummaryNote
+            activity={activity}
+            fallback="The result is no longer available."
+          />
         )}
       </div>
     </>
@@ -738,16 +791,12 @@ export function DiffText({ diff }: { diff: string }) {
 export function EditFileDetail({ activity }: { activity: ToolActivity }) {
   if (activity.diff) return <DiffText diff={activity.diff} />;
   if (activity.state === "failed")
-    return (
-      <p className="break-words text-sm leading-6 text-red-600 dark:text-red-400">
-        {activity.detail || activity.summary || "The edit failed."}
-      </p>
-    );
+    return <FailedDetail activity={activity} fallback="The edit failed." />;
   return (
-    <p className="text-xs text-muted-foreground">
-      {activity.summary ||
-        "No changes - the file already had that content."}
-    </p>
+    <SummaryNote
+      activity={activity}
+      fallback="No changes - the file already had that content."
+    />
   );
 }
 
@@ -768,7 +817,7 @@ export function EditFileToolActivity({ activity }: { activity: ToolActivity }) {
       activity={activity}
       panelClassName={framedPanelClass("max-h-80")}
     >
-      <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3.5 py-2.5">
+      <div className={PANEL_SCROLL_CLASS}>
         {running ? (
           <LiveNote>{activity.detail || "The edit is being applied…"}</LiveNote>
         ) : (

@@ -132,22 +132,10 @@ function buildWorkspaceBriefingVmCode(
       folderCount: input.folders.length,
       fileCount: input.files.length,
       chatCount: input.chats.length,
-      recentFiles: [...input.files]
-        .sort(
-          (left, right) =>
-            new Date(right.updatedAt).getTime() -
-            new Date(left.updatedAt).getTime()
-        )
-        .slice(0, 6)
-        .map(file => `${file.name} (${file.mimeType})`),
-      recentChats: [...input.chats]
-        .sort(
-          (left, right) =>
-            new Date(right.updatedAt).getTime() -
-            new Date(left.updatedAt).getTime()
-        )
-        .slice(0, 6)
-        .map(chat => chat.title),
+      recentFiles: recentEntries(input.files).map(
+        file => `${file.name} (${file.mimeType})`
+      ),
+      recentChats: recentEntries(input.chats).map(chat => chat.title),
       workspaceRules: input.settings.workspaceRules?.trim() || null,
       generatedAt: now.toISOString(),
       artifactName: `daily-workspace-briefing-${utcDateKey(now)}.md`,

@@ -63,6 +63,18 @@ function clip(text: string, limit: number) {
     : trimmed;
 }
 
+/** Clamps a caller-supplied list limit into [1, max]. */
+function clampLimit(limit: number, max: number) {
+  return Math.max(1, Math.min(limit, max));
+}
+
+/** Fire-and-forget S3 mirror: a sync failure must never break the chat run. */
+function mirrorMemoryToS3(ownerId: number, record: ConversationMemoryRecord) {
+  void syncMemoryToS3(ownerId, record).catch(error =>
+    console.error("[Memory] S3 sync failed:", error)
+  );
+}
+
 function toRecord(row: typeof conversationMemories.$inferSelect): ConversationMemoryRecord {
   return {
     id: row.id,
@@ -115,9 +127,7 @@ export async function saveMemoryForUser(
     })
     .returning();
   const record = toRecord(inserted[0]);
-  void syncMemoryToS3(ownerId, record).catch(error =>
-    console.error("[Memory] S3 sync failed:", error)
-  );
+  mirrorMemoryToS3(ownerId, record);
   return record;
 }
 
@@ -192,9 +202,7 @@ export async function appendConversationTurn(
           })
           .returning();
     const record = toRecord(rows[0]);
-    void syncMemoryToS3(ownerId, record).catch(error =>
-      console.error("[Memory] S3 sync failed:", error)
-    );
+    mirrorMemoryToS3(ownerId, record);
     return record;
   } catch (error) {
     console.error("[Memory] Failed to capture conversation turn:", error);
@@ -234,7 +242,7 @@ export async function searchMemoriesForUser(
     .from(conversationMemories)
     .where(where)
     .orderBy(desc(conversationMemories.updatedAt))
-    .limit(Math.max(1, Math.min(limit, 25)));
+    .limit(clampLimit(limit, 25));
   return rows.map(toRecord);
 }
 
@@ -259,10 +267,11 @@ export async function readMemoryForUser(
   return rows[0] ? toRecord(rows[0]) : null;
 }
 
-export async function deleteMemoryForUser(
+/** Shared delete-by-id; an optional scope condition narrows which rows count. */
+async function deleteMemoryWhere(
   ownerId: number,
   memoryId: number,
-  scope?: MemoryScope
+  scopeCondition?: ReturnType<typeof writeScopeCondition>
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -272,11 +281,19 @@ export async function deleteMemoryForUser(
       and(
         eq(conversationMemories.ownerId, ownerId),
         eq(conversationMemories.id, memoryId),
-        writeScopeCondition(scope)
+        scopeCondition
       )
     )
     .returning({ id: conversationMemories.id });
   return deleted.length > 0;
+}
+
+export async function deleteMemoryForUser(
+  ownerId: number,
+  memoryId: number,
+  scope?: MemoryScope
+): Promise<boolean> {
+  return deleteMemoryWhere(ownerId, memoryId, writeScopeCondition(scope));
 }
 
 /**
@@ -295,7 +312,7 @@ export async function listMemoriesForUser(
     .from(conversationMemories)
     .where(eq(conversationMemories.ownerId, ownerId))
     .orderBy(desc(conversationMemories.updatedAt))
-    .limit(Math.max(1, Math.min(limit, 200)));
+    .limit(clampLimit(limit, 200));
   return rows.map(toRecord);
 }
 
@@ -309,18 +326,7 @@ export async function deleteOwnedMemoryForUser(
   ownerId: number,
   memoryId: number
 ): Promise<boolean> {
-  const db = await getDb();
-  if (!db) return false;
-  const deleted = await db
-    .delete(conversationMemories)
-    .where(
-      and(
-        eq(conversationMemories.ownerId, ownerId),
-        eq(conversationMemories.id, memoryId)
-      )
-    )
-    .returning({ id: conversationMemories.id });
-  return deleted.length > 0;
+  return deleteMemoryWhere(ownerId, memoryId);
 }
 
 /**

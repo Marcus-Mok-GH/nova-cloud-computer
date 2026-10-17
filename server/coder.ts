@@ -20,6 +20,7 @@ import {
   contextChars,
   executeSubagentToolCall,
   listWorkspaceFiles,
+  subagentSandboxTools,
   subagentToolArgs,
   subagentToolSummary,
 } from "./subagentRuntime";
@@ -69,75 +70,11 @@ Rules:
 - If the task is impossible as stated, build the closest workable version and say in one line what you changed.`;
 
 /** The tools the autonomous specialist may call in the sandbox. */
-const CODER_TOOLS: NimAgentTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "list_files",
-      description: `List every file in the workspace, as paths relative to ${E2B_WORKSPACE_DIR}.`,
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "read_file",
-      description: "Read one workspace file's full content.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Workspace-relative file path, e.g. 'src/main.py'.",
-          },
-        },
-        required: ["path"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "write_file",
-      description:
-        "Create or completely overwrite one workspace file with its full final content.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Workspace-relative file path, e.g. 'index.html'.",
-          },
-          content: {
-            type: "string",
-            description:
-              "The complete final content of the file - never partial or placeholder text.",
-          },
-        },
-        required: ["path", "content"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "run_command",
-      description:
-        "Run one bash command in the workspace directory - install, build, run, test. Output is truncated to the first 4000 characters.",
-      parameters: {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description:
-              "The bash command to run, e.g. 'python3 game.py --self-check' or 'npm install && npm test'.",
-          },
-        },
-        required: ["command"],
-      },
-    },
-  },
-];
+const CODER_TOOLS: NimAgentTool[] = subagentSandboxTools({
+  writeFilePathExample: "index.html",
+  runCommandDescription:
+    "Run one bash command in the workspace directory - install, build, run, test. Output is truncated to the first 4000 characters.",
+});
 
 /**
  * No fixed step or time cap: the specialist loops until it replies with a

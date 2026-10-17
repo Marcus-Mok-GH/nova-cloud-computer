@@ -841,6 +841,38 @@ export type GatewayToolCall = {
   arguments: string;
 };
 
+/** One OpenAI-style message returned inside `choices[0]` by a gateway. */
+export type GatewayChoiceMessage = {
+  content?: string | null;
+  tool_calls?: Array<{
+    id?: string;
+    type?: string;
+    function?: { name?: string; arguments?: string };
+  }>;
+};
+
+/**
+ * Parses one `choices[0].message` into the text and tool calls the agent loop
+ * uses. Shared by the built-in gateway and the BYOK gateway, which speak the
+ * same OpenAI chat-completions dialect.
+ */
+export function parseGatewayChoiceMessage(
+  choice: GatewayChoiceMessage | undefined
+): { text: string; toolCalls: GatewayToolCall[] } {
+  const text = typeof choice?.content === "string" ? choice.content : "";
+  const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
+    .filter(call => call?.function?.name)
+    .map(call => ({
+      id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
+      name: String(call.function!.name),
+      arguments:
+        typeof call.function?.arguments === "string"
+          ? call.function.arguments
+          : "{}",
+    }));
+  return { text, toolCalls };
+}
+
 export type GatewayChatMessageContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
@@ -963,21 +995,13 @@ export async function readGatewayStreamedChatResult(
   if (!isEventStream) {
     const payload = (await response.json().catch(() => undefined)) as
       | {
-          choices?: Array<{
-            message?: {
-              content?: string | null;
-              tool_calls?: Array<{
-                id?: string;
-                function?: { name?: string; arguments?: string };
-              }>;
-            };
-          }>;
+          choices?: Array<{ message?: GatewayChoiceMessage }>;
           model?: string;
           usage?: GatewayCompletion["usage"];
         }
       | undefined;
     const choice = payload?.choices?.[0]?.message;
-    const text = typeof choice?.content === "string" ? choice.content : "";
+    const { text, toolCalls } = parseGatewayChoiceMessage(choice);
     if (text) onChunk(text);
     const bufferedReasoning =
       reasoningTextFrom(
@@ -988,16 +1012,6 @@ export async function readGatewayStreamedChatResult(
         (choice as { reasoning?: unknown } | undefined)?.reasoning
       );
     if (bufferedReasoning) onReasoning?.(bufferedReasoning);
-    const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
-      .filter(call => call?.function?.name)
-      .map(call => ({
-        id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
-        name: String(call.function!.name),
-        arguments:
-          typeof call.function!.arguments === "string"
-            ? call.function!.arguments
-            : "{}",
-      }));
     return {
       text,
       toolCalls,
@@ -1366,16 +1380,7 @@ async function attemptGatewayChat(
     const payload = (await response.json().catch(() => undefined)) as
       | GatewayCompletion
       | {
-          choices?: Array<{
-            message?: {
-              content?: string | null;
-              tool_calls?: Array<{
-                id?: string;
-                type?: string;
-                function?: { name?: string; arguments?: string };
-              }>;
-            };
-          }>;
+          choices?: Array<{ message?: GatewayChoiceMessage }>;
           model?: string;
           usage?: GatewayCompletion["usage"];
           error?: { message?: string };
@@ -1383,31 +1388,10 @@ async function attemptGatewayChat(
       | undefined;
     const choice = (
       payload as
-        | {
-            choices?: Array<{
-              message?: {
-                content?: string | null;
-                tool_calls?: Array<{
-                  id?: string;
-                  type?: string;
-                  function?: { name?: string; arguments?: string };
-                }>;
-              };
-            }>;
-          }
+        | { choices?: Array<{ message?: GatewayChoiceMessage }> }
         | undefined
     )?.choices?.[0]?.message;
-    const text = typeof choice?.content === "string" ? choice.content : "";
-    const toolCalls: GatewayToolCall[] = (choice?.tool_calls ?? [])
-      .filter(call => call?.function?.name)
-      .map(call => ({
-        id: String(call.id ?? `call-${Math.random().toString(36).slice(2)}`),
-        name: String(call.function!.name),
-        arguments:
-          typeof call.function?.arguments === "string"
-            ? call.function.arguments
-            : "{}",
-      }));
+    const { text, toolCalls } = parseGatewayChoiceMessage(choice);
     const bufferedReasoning =
       reasoningTextFrom(
         (choice as { reasoning_content?: unknown } | undefined)

@@ -26,6 +26,11 @@
  *    so the chunk buffers concatenate straight into one playable MP3.
  */
 
+import {
+  normalizeSpeechText as normalizeText,
+  splitSpeechText,
+} from "@shared/speech";
+
 /** Google stops speaking past roughly this many characters per request. */
 export const MAX_SPEECH_CHUNK_CHARS = 190;
 
@@ -65,11 +70,6 @@ export function normalizeSpeechLanguage(value: unknown): string | null {
   return LANGUAGE_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-/** Collapses whitespace and drops nothing else - Google needs the exact prose. */
-function normalizeText(text: string): string {
-  return (text ?? "").replace(/\s+/g, " ").trim();
-}
-
 /**
  * Splits text into pieces Google will read in full, keeping sentences intact
  * wherever possible so prosody does not reset mid-sentence.
@@ -78,49 +78,7 @@ export function chunkTextForSpeech(
   text: string,
   maxChunkLength = MAX_SPEECH_CHUNK_CHARS
 ): string[] {
-  const clean = normalizeText(text);
-  if (!clean) return [];
-  if (clean.length <= maxChunkLength) return [clean];
-  // Split on sentence ends and keep the punctuation with its sentence.
-  const sentences = clean.match(/[^.!?]+[.!?]+["”’)]*\s*|[^.!?]+$/g) ?? [clean];
-  const chunks: string[] = [];
-  let current = "";
-  const push = () => {
-    const trimmed = current.trim();
-    if (trimmed) chunks.push(trimmed);
-    current = "";
-  };
-  for (const sentence of sentences) {
-    const piece = sentence.trim();
-    if (!piece) continue;
-    if (piece.length > maxChunkLength) {
-      // One run-on sentence: hard-split on word boundaries rather than dropping
-      // the overflow, which the endpoint would do silently.
-      push();
-      const words = piece.split(" ");
-      let part = "";
-      for (const word of words) {
-        const next = part ? `${part} ${word}` : word;
-        if (next.length > maxChunkLength && part) {
-          chunks.push(part);
-          part = word;
-        } else {
-          part = next;
-        }
-      }
-      if (part.trim()) chunks.push(part.trim());
-      continue;
-    }
-    const next = current ? `${current} ${piece}` : piece;
-    if (next.length > maxChunkLength && current) {
-      push();
-      current = piece;
-    } else {
-      current = next;
-    }
-  }
-  push();
-  return chunks;
+  return splitSpeechText(text, maxChunkLength);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { runWorkspaceAgent } from "./workspaceAgent";
+import { runWorkspaceAgent } from "./workspace/workspaceAgent";
 import type { AgentChatRoute, AgentProfileContext } from "./agents";
 
 /**

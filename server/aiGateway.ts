@@ -5,6 +5,7 @@ import {
   settleDailyCreditUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
+import { createSseLineFramer, sseDataPayload } from "./sse";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -601,32 +602,35 @@ async function readGatewayStreamedCompletion(
     let text = "";
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
+    let gotDone = false;
+    const framer = createSseLineFramer(line => {
+      if (gotDone) return;
+      const data = sseDataPayload(line);
+      if (data === null) return;
+      if (data === "[DONE]") {
+        gotDone = true;
+        return;
+      }
+      try {
+        const event = JSON.parse(data) as {
+          choices?: Array<{ delta?: { content?: string } }>;
+        };
+        const delta = event.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta.length > 0) {
+          text += delta;
+          onChunk(delta);
+        }
+      } catch {
+        // Ignore malformed stream fragments.
+      }
+    });
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") {
-          await reader.cancel().catch(() => {});
-          return { text };
-        }
-        try {
-          const event = JSON.parse(data) as {
-            choices?: Array<{ delta?: { content?: string } }>;
-          };
-          const delta = event.choices?.[0]?.delta?.content;
-          if (typeof delta === "string" && delta.length > 0) {
-            text += delta;
-            onChunk(delta);
-          }
-        } catch {
-          // Ignore malformed stream fragments.
-        }
+      framer.push(decoder.decode(value, { stream: true }));
+      if (gotDone) {
+        await reader.cancel().catch(() => {});
+        return { text };
       }
     }
     throw new Error("AI inference stream failed: incomplete response.");
@@ -1019,29 +1023,10 @@ export async function readGatewayStreamedChatResult(
   try {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const read = await readWithStallGuard(reader);
-      if (!read) {
-        // The gateway went silent mid-stream (proxy timeout, dropped
-        // connection) instead of throwing - cancel and fail as unavailable so
-        // the agent loop can retry instead of hanging forever.
-        await reader.cancel().catch(() => {});
-        throw new AiGatewayClientError(
-          "The AI service stopped responding mid-stream. Please retry shortly.",
-          "unavailable"
-        );
-      }
-      if (read.done) break;
-      const value = read.value;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") continue;
-        try {
+    const framer = createSseLineFramer(line => {
+      const data = sseDataPayload(line);
+      if (data === null || data === "[DONE]") return;
+      try {
           const event = JSON.parse(data) as {
             error?: { message?: string } | string;
             model?: string;
@@ -1079,7 +1064,7 @@ export async function readGatewayStreamedChatResult(
             finishReason = lastChoice.finish_reason;
           }
           const delta = lastChoice?.delta;
-          if (!delta) continue;
+          if (!delta) return;
           const reasoningChunk =
             reasoningTextFrom(
               (delta as { reasoning_content?: unknown }).reasoning_content
@@ -1114,12 +1099,26 @@ export async function readGatewayStreamedChatResult(
               slot.arguments += fragment.function.arguments;
             }
           }
-        } catch {
+      } catch {
           // Ignore malformed stream fragments, but count them so an empty
           // completion can be diagnosed from the server logs.
           malformedFragments += 1;
         }
+    });
+    while (true) {
+      const read = await readWithStallGuard(reader);
+      if (!read) {
+        // The gateway went silent mid-stream (proxy timeout, dropped
+        // connection) instead of throwing - cancel and fail as unavailable so
+        // the agent loop can retry instead of hanging forever.
+        await reader.cancel().catch(() => {});
+        throw new AiGatewayClientError(
+          "The AI service stopped responding mid-stream. Please retry shortly.",
+          "unavailable"
+        );
       }
+      if (read.done) break;
+      framer.push(decoder.decode(read.value, { stream: true }));
     }
   } catch (error) {
     if (error instanceof AiGatewayClientError) throw error;

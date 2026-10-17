@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { persistE2BWorkspace } from "./workspaceSync";
+import { persistE2BWorkspace } from "./workspace/workspaceSync";
 import { E2B_WORKSPACE_DIR } from "./e2b";
 
 const state = vi.hoisted(() => ({

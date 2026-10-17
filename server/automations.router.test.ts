@@ -26,7 +26,7 @@ vi.mock("./automations", () => ({ WORKSPACE_DIGEST_CRON: "0 0 9 * * *", runDueAu
 vi.mock("./_core/heartbeat", () => ({ createHeartbeatJob, updateHeartbeatJob }));
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
-vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
+vi.mock("./workspace/workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 vi.mock("./aiGateway", () => ({ getAiGatewayStatus: vi.fn(), completeWithAiGateway: vi.fn(), AiGatewayClientError: class extends Error {} }));
 
 const { appRouter } = await import("./routers");

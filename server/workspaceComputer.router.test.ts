@@ -26,7 +26,7 @@ vi.mock("./db", async () => {
   searchWorkspaceFilesForUser: vi.fn(async (ownerId: number, options: { query: string; regex?: boolean; limit?: number }) => searchWorkspaceFiles([...files.values()].filter(item => item.ownerId === ownerId), options)),
   };
 });
-vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
+vi.mock("./workspace/workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 const { appRouter } = await import("./routers");
 const context = (id: number): TrpcContext => ({ user: { id, openId: String(id), name: null, email: null, loginMethod: "test", role: "user", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() }, req: {} as TrpcContext["req"], res: {} as TrpcContext["res"] });
 

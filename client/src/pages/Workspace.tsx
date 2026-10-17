@@ -3,26 +3,9 @@ import NovaLogo from "@/components/NovaLogo";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { toast } from "sonner";
-import { getNeonAccessToken } from "@/lib/neonAuth";
 import { MarkdownText } from "@/lib/markdown";
-import {
-  collectChatImageAttachments,
-  MAX_CHAT_IMAGE_ATTACHMENTS,
-  MAX_CHAT_IMAGE_TOTAL_CHARS,
-  type ChatImageAttachment,
-} from "@/lib/imageAttachments";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
-import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import {
-  speakMessage,
-  stopAllSpeech,
-  stripMarkdownForSpeech,
-  TTS_START_EVENT,
-  TTS_STOP_EVENT,
-} from "@/lib/speech";
-import {
-  appendLiveTextDelta,
   buildTurnItems,
   chatWorkflowMode,
   dedupeToolActivityMessages,
@@ -31,326 +14,40 @@ import {
   latestFollowUpSuggestions,
   parsePersistedToolActivity,
   reconcileChatMessages,
-  upsertLiveToolEvent,
   type ChatWorkflowMode,
-  type LiveChatEvent,
-  type ToolActivity,
   type TurnRenderItem,
 } from "@/lib/chatMessages";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
-  Check,
   CircleDashed,
-  Copy,
   CornerDownLeft,
   Github,
   ImagePlus,
   Mail,
   MessageSquareText,
-  RefreshCw,
   Rocket,
   Send,
   Square,
-  Volume2,
-  X,
 } from "lucide-react";
-import React, { FormEvent, useEffect, useRef, useState } from "react";
+// JSX compiles to React.createElement in this build (classic runtime), so the
+// default React binding must stay imported even without explicit React.* calls.
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { LEGACY_AI_UNAVAILABLE_PREFIX, AI_UNAVAILABLE_PREFIX } from "@shared/const";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
+import {
+  CopyMessageButton,
+  ImageAttachmentTray,
+  RegenerateMessageButton,
+  SpeakMessageButton,
+  TypingIndicator,
+  WorkspaceError,
+} from "@/components/workspaceChat";
 
-/** Thumbnail strip of the images queued for the next message. */
-function ImageAttachmentTray({
-  attachments,
-  onRemove,
-}: {
-  attachments: ChatImageAttachment[];
-  onRemove: (id: string) => void;
-}) {
-  if (!attachments.length) return null;
-  return (
-    <div className="flex flex-wrap gap-2 px-1 pb-2">
-      {attachments.map(attachment => (
-        <div
-          key={attachment.id}
-          className="relative size-16 overflow-hidden rounded-lg border border-foreground/[0.12] bg-muted/40 dark:border-white/[0.12]"
-        >
-          <img
-            src={attachment.dataUri}
-            alt={attachment.name}
-            className="size-full object-cover"
-          />
-          <button
-            type="button"
-            onClick={() => onRemove(attachment.id)}
-            aria-label={`Remove ${attachment.name}`}
-            className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
-          >
-            <X className="size-3" />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Copies one chat message to the clipboard. The label flips to "Copied" for a
- * couple of seconds so the action is confirmed in place instead of with a toast
- * that would cover the thread.
- */
-function CopyMessageButton({
-  text,
-  className = "",
-}: {
-  text: string;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (resetTimer.current) clearTimeout(resetTimer.current);
-    },
-    []
-  );
-
-  const copy = async () => {
-    if (!navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      if (resetTimer.current) clearTimeout(resetTimer.current);
-      resetTimer.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Could not copy that message.");
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      aria-label={copied ? "Message copied" : "Copy message"}
-      className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
-    >
-      {copied ? (
-        <Check className="size-3 text-emerald-500" />
-      ) : (
-        <Copy className="size-3" />
-      )}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
-/**
- * Regenerates the thread from one message. Opens a confirmation first: on
- * confirm the history from the anchor onwards is permanently removed and
- * Nova generates a fresh reply.
- */
-function RegenerateMessageButton({
-  disabled = false,
-  pending = false,
-  className = "",
-  onConfirm,
-}: {
-  disabled?: boolean;
-  pending?: boolean;
-  className?: string;
-  onConfirm: () => void | Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  const handleConfirm = async () => {
-    if (confirming) return;
-    setConfirming(true);
-    try {
-      await onConfirm();
-      setOpen(false);
-    } finally {
-      setConfirming(false);
-    }
-  };
-
-  return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
-      <button
-        type="button"
-        onClick={() => {
-          if (!disabled && !pending) setOpen(true);
-        }}
-        disabled={disabled || pending}
-        aria-label="Regenerate from here"
-        title="Regenerate from here"
-        className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
-      >
-        <RefreshCw className="size-3" />
-        {pending ? "Working…" : "Regenerate"}
-      </button>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Regenerate from here?</AlertDialogTitle>
-          <AlertDialogDescription>
-            History will be reverted until that point. This message and every
-            message after it will be permanently removed, then Nova will
-            generate a new reply. This cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={confirming}>Cancel</AlertDialogCancel>
-          <AlertDialogAction disabled={confirming} onClick={() => void handleConfirm()}>
-            {confirming ? "Regenerating…" : "Revert & regenerate"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-/**
- * Reads a chat message aloud - the browser's own free speech synthesis when it
- * has a voice to speak with, otherwise a server-synthesised voice (also free,
- * no key). Toggles to Stop while speaking; starting another message stops the
- * current one.
- */
-function SpeakMessageButton({
-  text,
-  disabled = false,
-  className = "",
-}: {
-  text: string;
-  disabled?: boolean;
-  className?: string;
-}) {
-  const [speaking, setSpeaking] = useState(false);
-  const stopRef = useRef<(() => void) | null>(null);
-  // Bumped by every toggle and by another button starting, so a request that
-  // resolves after its run was superseded never updates this button again.
-  const runIdRef = useRef(0);
-
-  useEffect(() => {
-    const handleStart = () => {
-      // A newer speak() call cancels this one; drop the stale stop handle
-      // so unmounting this button cannot cut off the new message.
-      runIdRef.current += 1;
-      stopRef.current = null;
-      setSpeaking(false);
-    };
-    const handleStop = () => {
-      runIdRef.current += 1;
-      stopRef.current = null;
-      setSpeaking(false);
-    };
-    window.addEventListener(TTS_START_EVENT, handleStart);
-    window.addEventListener(TTS_STOP_EVENT, handleStop);
-    return () => {
-      window.removeEventListener(TTS_START_EVENT, handleStart);
-      window.removeEventListener(TTS_STOP_EVENT, handleStop);
-    };
-  }, []);
-
-  useEffect(
-    () => () => {
-      runIdRef.current += 1;
-      stopRef.current?.();
-      stopRef.current = null;
-    },
-    []
-  );
-
-  const toggle = async () => {
-    if (disabled) return;
-    if (speaking) {
-      stopAllSpeech();
-      stopRef.current = null;
-      runIdRef.current += 1;
-      setSpeaking(false);
-      return;
-    }
-    const clean = stripMarkdownForSpeech(text);
-    if (!clean) {
-      toast.error("There is nothing to read aloud in that message.");
-      return;
-    }
-    runIdRef.current += 1;
-    const runId = runIdRef.current;
-    setSpeaking(true);
-    // Choosing an engine may wait on the browser's voice list, so the stop
-    // handle arrives asynchronously: a toggle that lands first wins.
-    const stop = await speakMessage(clean, {
-      onEnd: () => {
-        if (runId !== runIdRef.current) return;
-        stopRef.current = null;
-        setSpeaking(false);
-      },
-      onError: () => {
-        if (runId !== runIdRef.current) return;
-        stopRef.current = null;
-        setSpeaking(false);
-        toast.error("Could not read that message aloud.");
-      },
-    });
-    if (runId !== runIdRef.current) {
-      // The user stopped, or another button started a message, while the
-      // request was in flight.
-      stop();
-      return;
-    }
-    stopRef.current = stop;
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={disabled}
-      aria-label={speaking ? "Stop reading" : "Read message aloud"}
-      aria-pressed={speaking}
-      className={`inline-flex shrink-0 items-center gap-1.5 border border-foreground/[0.12] bg-background/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground transition hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.12] dark:hover:border-primary/50 ${className}`}
-    >
-      {speaking ? (
-        <Square className="size-3 fill-current" />
-      ) : (
-        <Volume2 className="size-3" />
-      )}
-      {speaking ? "Stop" : "Read aloud"}
-    </button>
-  );
-}
-
-/** Opening message for the guided personalisation session launched from Settings. */
-const PERSONALISATION_KICKOFF =
-  "Let's set up my personalisation. Ask me one question at a time about how I work and how I want you to work with me, wait for each answer, then save what you learn with set_personalisation and turn personalisation mode on.";
-
-/**
- * Opening message for a freshly created team chat (launched from the Agents
- * page's team builder): the roster starts in plan mode - split the shared
- * goal into assigned tasks and wait for approval before executing.
- */
-export const teamPlanKickoff = (goal: string): string => {
-  const trimmed = goal.trim();
-  return [
-    trimmed
-      ? `The team's shared goal: ${trimmed}.`
-      : "Begin the team's shared goal.",
-    "Start in plan mode: review the goal and the roster's roles, break the goal into concrete tasks, and assign each task to the teammate best placed to do it. Present the plan for my approval before executing any task - once I approve, execute the assigned tasks in turn order until the goal is done.",
-  ].join(" ");
-};
+export { teamPlanKickoff } from "@/hooks/useWorkspaceChat";
 
 /**
  * The Nova workspace screen: the Overview home page (headline + connectors)
@@ -363,262 +60,36 @@ export default function Workspace() {
   });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const [draft, setDraft] = useState("");
-  const [pendingUserContent, setPendingUserContent] = useState("");
-  const [liveEvents, setLiveEvents] = useState<LiveChatEvent[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  // Peak hours defer the turn: the server answers with a queue position and
-  // this notice stays up until the deferred run actually starts.
-  const [queueNotice, setQueueNotice] = useState<string | null>(null);
-  const [priorityNotice, setPriorityNotice] = useState<string | null>(null);
-  const [baselineMessageId, setBaselineMessageId] = useState(0);
-  // While a stop is being carried out, the ledger is held at the rows the
-  // reader could already see: rows the server persists as it winds the run
-  // down must not make the transcript grow after the button was pressed.
-  const [stopLedgerCutoffId, setStopLedgerCutoffId] = useState(0);
-  // Briefly set when the reader opens a chat whose turn ran on while they were
-  // elsewhere, so the finished reply is not silently waiting on screen.
-  const [settledWhileAway, setSettledWhileAway] = useState(false);
   const chatId =
     typeof window === "undefined"
       ? undefined
       : new URLSearchParams(window.location.search).get("chatId") || undefined;
-  // The conversation currently on screen, kept in a ref so an in-flight stream
-  // can tell whether its chat is still the one being viewed. A reader that
-  // navigates to another chat mid-run must not have the previous chat's live
-  // text, tool rows, or queue notices written into the state it renders.
-  const viewedChatIdRef = useRef<string | undefined>(chatId);
-  viewedChatIdRef.current = chatId;
-  // The in-flight stream's abort handle, and the chat that owns it, so leaving
-  // that chat can stop the reader from receiving a turn it no longer shows.
-  const streamAbortRef = useRef<AbortController | null>(null);
-  const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
-  // Set the moment Stop is pressed. Deltas that arrive while the server winds
-  // the run down are dropped, so the view stops growing the instant the button
-  // is hit instead of when the cancel round-trip finally lands.
-  const stopRequestedRef = useRef(false);
-  // Chats left with a turn still running are tracked module-side (not in a ref
-  // here) because the chat list must show the same marker after this component
-  // unmounts; see `@/lib/awayChats`.
-  // One-shot flag set by Settings' "Start guided setup" button; the effect
-  // below turns it into the opening message of a personalisation session.
-  const personaliseIntent =
-    typeof window === "undefined"
-      ? false
-      : new URLSearchParams(window.location.search).get("personalise") ===
-        "1";
-  const personaliseStartedRef = useRef(false);
-  // One-shot flag set by the Agents page's team builder; the effect below
-  // turns it into the team's plan-mode kickoff message.
-  const teamStartIntent =
-    typeof window === "undefined"
-      ? false
-      : new URLSearchParams(window.location.search).get("teamstart") === "1";
-  const teamKickoffSentRef = useRef(false);
-  const [composerAttachments, setComposerAttachments] = useState<
-    ChatImageAttachment[]
-  >([]);
-  const [preparingImages, setPreparingImages] = useState(false);
-  const composerImageInputRef = useRef<HTMLInputElement>(null);
+  const {
+    draft,
+    setDraft,
+    composerAttachments,
+    setComposerAttachments,
+    preparingImages,
+    composerImageInputRef,
+    addChatImages,
+    canSendComposer,
+    submit,
+    sendMessage,
+    handleRegenerate,
+    savedMessages,
+    queueNotice,
+    priorityNotice,
+    agentIsWorking,
+    composerBusy,
+    pendingUserContent,
+    baselineMessageId,
+    liveEvents,
+    stopLedgerCutoffId,
+    settledWhileAway,
+    revertChat,
+    userScrolledUpRef,
+  } = useWorkspaceChat({ chatId, utils, computer });
 
-  // Downscales and encodes picked/pasted files, then queues them for the next
-  // message up to the per-message cap.
-  const addChatImages = async (
-    setter: React.Dispatch<React.SetStateAction<ChatImageAttachment[]>>,
-    current: ChatImageAttachment[],
-    files: Iterable<File>
-  ) => {
-    setPreparingImages(true);
-    try {
-      const { attachments: prepared, error } =
-        await collectChatImageAttachments(files);
-      if (error) toast.error(error);
-      if (!prepared.length) return;
-      const room = Math.max(0, MAX_CHAT_IMAGE_ATTACHMENTS - current.length);
-      const accepted: ChatImageAttachment[] = [];
-      let totalChars = current.reduce(
-        (sum, attachment) => sum + attachment.dataUri.length,
-        0
-      );
-      for (const attachment of prepared) {
-        if (accepted.length >= room) break;
-        if (
-          totalChars + attachment.dataUri.length >
-          MAX_CHAT_IMAGE_TOTAL_CHARS
-        )
-          continue;
-        accepted.push(attachment);
-        totalChars += attachment.dataUri.length;
-      }
-      if (accepted.length < prepared.length)
-        toast.error(
-          `Attach at most ${MAX_CHAT_IMAGE_ATTACHMENTS} images within the size limit.`
-        );
-      setter([...current, ...accepted]);
-    } finally {
-      setPreparingImages(false);
-    }
-  };
-
-  // Opening a different conversation must not carry over the previous one's
-  // turn state. The submission baseline in particular belongs to the thread it
-  // was taken in: leaving it set while viewing another chat misclassifies that
-  // chat's settled history as the current turn, and its rows are laid out as a
-  // live transcript instead of in place.
-  useEffect(() => {
-    stopAllSpeech();
-    stopRequestedRef.current = false;
-    setStopLedgerCutoffId(0);
-    setComposerAttachments([]);
-    setBaselineMessageId(0);
-    setPendingUserContent("");
-    setLiveEvents([]);
-    setIsStreaming(false);
-    setQueueNotice(null);
-    setPriorityNotice(null);
-    setSettledWhileAway(false);
-    // A stream still running for the chat we just left feeds only that view;
-    // abort it so it stops holding a connection open. The run itself continues
-    // on the server and its rows are already being persisted to the ledger.
-    if (streamAbortRef.current && streamOwnerChatIdRef.current !== chatId) {
-      markChatAway(streamOwnerChatIdRef.current);
-      streamAbortRef.current.abort();
-      streamAbortRef.current = null;
-    }
-  }, [chatId]);
-
-  // Returning to a chat whose stream we cut short refetches its ledger right
-  // away, so a turn that settled while the reader was away shows up without
-  // waiting for the next poll (or a manual reload).
-  useEffect(() => {
-    if (chatId && consumeChatAway(chatId)) {
-      setSettledWhileAway(true);
-      void utils.chats.messages.invalidate({ chatId });
-    }
-  }, [chatId, utils]);
-
-  // The "updated while you were away" pill is a glance, not a state: it fades
-  // out on its own so it never becomes chrome the reader has to dismiss.
-  useEffect(() => {
-    if (!settledWhileAway) return;
-    const timer = setTimeout(() => setSettledWhileAway(false), 8000);
-    return () => clearTimeout(timer);
-  }, [settledWhileAway]);
-
-  // Leaving the workspace screen aborts any stream still in flight; as above,
-  // the server completes the run and the ledger keeps its result.
-  useEffect(
-    () => () => {
-      stopAllSpeech();
-      // Leaving the screen counts as leaving the chat: mark its turn so the
-      // chat list can flag it, then drop the connection.
-      if (streamAbortRef.current) markChatAway(streamOwnerChatIdRef.current);
-      streamAbortRef.current?.abort();
-      streamAbortRef.current = null;
-    },
-    []
-  );
-
-  const contentFor = (text: string, attachments: ChatImageAttachment[]) =>
-    text.trim() ||
-    (attachments.length === 1
-      ? `Uploaded ${attachments[0].name}`
-      : `Uploaded ${attachments.length} images`);
-  const canSendComposer =
-    Boolean(draft.trim() || composerAttachments.length) && !preparingImages;
-  // While a conversation is open it polls every 2.5s so activity started
-  // elsewhere (e.g. Telegram) streams into this view in real time.
-  const savedMessages = trpc.chats.messages.useQuery(
-    { chatId: chatId ?? "" },
-    {
-      enabled: Boolean(chatId),
-      retry: false,
-      refetchOnWindowFocus: false,
-      refetchInterval: Boolean(chatId) ? 2500 : false,
-      refetchIntervalInBackground: false,
-    }
-  );
-  // The backend ledger is the source of truth for active work. This keeps the
-  // status visible after a refresh and for runs started from Telegram or a
-  // continuation segment, where this browser does not own the fetch stream.
-  const runStatus = trpc.chats.runStatus.useQuery(
-    { chatId: chatId ?? "" },
-    {
-      enabled: Boolean(chatId),
-      retry: false,
-      refetchOnWindowFocus: true,
-      refetchInterval: Boolean(chatId) ? 1000 : false,
-      refetchIntervalInBackground: false,
-    }
-  );
-  const agentIsWorking = isStreaming || Boolean(runStatus.data?.active);
-  // The worker flips the deferred turn into a live agent run; at that point the
-  // waiting notice has done its job and the normal working indicator takes over.
-  useEffect(() => {
-    if (runStatus.data?.active) setQueueNotice(null);
-  }, [runStatus.data?.active]);
-  // A queued turn has no agent-run row yet, so it would otherwise look idle;
-  // treat it as busy so the composer offers Stop, which cancels the queued item.
-  const composerBusy = agentIsWorking || Boolean(queueNotice);
-  // A notice belongs to the conversation it was raised in.
-  useEffect(() => {
-    setQueueNotice(null);
-  }, [chatId]);
-  // Stops the chat's in-flight agent run and its queued/running VM workflows
-  // (the composer's send button turns into this stop button while Nova works).
-  const stopRun = trpc.chats.stop.useMutation({
-    onSuccess: () => {
-      setQueueNotice(null);
-      void runStatus.refetch();
-    },
-    onError: error => {
-      // A failed stop leaves the run going: resume applying its stream and
-      // release the held ledger.
-      stopRequestedRef.current = false;
-      setStopLedgerCutoffId(0);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Nova could not be stopped. Please try again."
-      );
-    },
-  });
-  const handleStopRun = () => {
-    if (!chatId || stopRun.isPending) return;
-    // Freeze the transcript immediately: the run's remaining deltas are
-    // dropped on arrival, so the text - and any thinking/tool updates - stop
-    // growing the moment the button is pressed, however slow the cancel
-    // round-trip (or a cold serverless instance) turns out to be. A queued
-    // turn keeps its notice until the mutation confirms the cancel, so a
-    // failed stop can still be retried.
-    stopRequestedRef.current = true;
-    // Hold the ledger at what is already on screen: rows the server persists
-    // while it winds the run down (a finished tool, a flushed thinking block)
-    // must not appear after the button was pressed. Zero means the chat has no
-    // rows yet, so there is nothing to hold.
-    setStopLedgerCutoffId(current =>
-      current > 0
-        ? current
-        : (savedMessages.data ?? []).reduce(
-            (max, message) => Math.max(max, message.id),
-            0
-          )
-    );
-    stopRun.mutate({ chatId });
-  };
-  // A stop pressed on work this browser is not streaming - a queued turn, or a
-  // run started elsewhere - has no stream end to release the held ledger, so
-  // release it (and the freeze) the moment the run is no longer active.
-  useEffect(() => {
-    if (agentIsWorking || stopLedgerCutoffId === 0) return;
-    stopRequestedRef.current = false;
-    setStopLedgerCutoffId(0);
-  }, [agentIsWorking, stopLedgerCutoffId]);
-  const revertChat = trpc.chats.revert.useMutation();
-  // Connector/Telegram status feeds the home dashboard cards. These hooks
-  // MUST run before any early return (React error #300 when the chat view
-  // renders fewer hooks than the home view did), so they live up here with the
-  // other hooks and are simply disabled while a chat conversation is open.
   const connectorStatus = trpc.composio.status.useQuery(undefined, {
     retry: false,
     enabled: !chatId,
@@ -628,7 +99,6 @@ export default function Workspace() {
     enabled: !chatId,
   });
   const scrollRef = useRef<HTMLDivElement>(null);
-  const userScrolledUpRef = useRef(false);
 
   const handleChatScroll = () => {
     const el = scrollRef.current;
@@ -697,322 +167,6 @@ export default function Workspace() {
       }
     })();
   }, []);
-
-  const refreshMessages = async (): Promise<boolean> => {
-    try {
-      await savedMessages.refetch();
-      return !savedMessages.isError;
-    } catch {
-      return false;
-    }
-  };
-  const finalizeStream = async (streamChatId: string): Promise<boolean> => {
-    // The stream has ended: release the stop hold and show the ledger it was
-    // holding back (the run's rows, including the stopped-reply notice, are
-    // persisted by the time the stream closes).
-    stopRequestedRef.current = false;
-    setStopLedgerCutoffId(0);
-    // The reader left this conversation while its turn was still streaming.
-    // The server's ledger holds the turn and the poller will surface it when
-    // that chat is opened again, so do not touch the state on screen now.
-    if (viewedChatIdRef.current !== streamChatId) return true;
-    const refreshed = await refreshMessages();
-    setIsStreaming(false);
-    if (refreshed) {
-      setPendingUserContent("");
-      setLiveEvents([]);
-    } else {
-      toast.error(
-        "Nova replied, but it could not be reloaded yet. Please wait a moment before sending again."
-      );
-    }
-    return refreshed;
-  };
-  /**
-   * Streams a message into `targetChatId`, reused by the active-chat composer
-   * and the one-shot kickoff intents. Resolves true when the turn streamed
-   * to completion and false on any failure, so callers that need a confirmed
-   * send (e.g. the team kickoff's one-shot intent) can react to it.
-   */
-  const sendMessage = async (
-    targetChatId: string,
-    content: string,
-    images: string[] = []
-  ): Promise<boolean> => {
-    userScrolledUpRef.current = false;
-    // Supersede any stream still running (a previous send, or one left behind
-    // by the chat we came from) before taking over the view.
-    streamAbortRef.current?.abort();
-    const controller = new AbortController();
-    streamAbortRef.current = controller;
-    streamOwnerChatIdRef.current = targetChatId;
-    const toPersist = savedMessages.data ?? [];
-    setBaselineMessageId(
-      toPersist.length ? Math.max(...toPersist.map(message => message.id)) : 0
-    );
-    setPendingUserContent(content);
-    setLiveEvents([]);
-    setQueueNotice(null);
-    setPriorityNotice(null);
-    stopRequestedRef.current = false;
-    setStopLedgerCutoffId(0);
-    setIsStreaming(true);
-    try {
-      const token = await getNeonAccessToken().catch(() => null);
-      const response = await fetch("/api/chat/stream", {
-        method: "POST",
-        credentials: "include",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          chatId: targetChatId,
-          content,
-          ...(images.length ? { images } : {}),
-        }),
-      });
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: unknown;
-        } | null;
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : "Nova could not start this response. Please retry shortly."
-        );
-      }
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Stream not supported");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines)
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              await finalizeStream(targetChatId);
-              await utils.workspace.computer.invalidate();
-              return true;
-            }
-            // A stream that belongs to a chat the reader has navigated away
-            // from must not write its events into the current view. Skipping
-            // them here is safe: the persisted ledger carries the same rows.
-            if (viewedChatIdRef.current !== targetChatId) continue;
-            // Stop was pressed: freeze the view. Whatever the run streams
-            // while the server winds it down (including the "Stopped" notice
-            // itself) is dropped here and arrives through the ledger refresh.
-            if (stopRequestedRef.current) continue;
-            try {
-              const parsed = JSON.parse(data) as {
-                type?: string;
-                tool?: ToolActivity;
-                message?: string;
-                choices?: Array<{ delta?: { content?: string } }>;
-              };
-              if (parsed.type === "queued") {
-                setQueueNotice(
-                  typeof parsed.message === "string" ? parsed.message : null
-                );
-                continue;
-              }
-              if (parsed.type === "priority") {
-                setPriorityNotice(
-                  typeof parsed.message === "string" ? parsed.message : null
-                );
-                continue;
-              }
-              if (parsed.type === "tool" && parsed.tool?.id) {
-                setLiveEvents(previous =>
-                  upsertLiveToolEvent(previous, parsed.tool!)
-                );
-                continue;
-              }
-              setLiveEvents(previous =>
-                appendLiveTextDelta(
-                  previous,
-                  parsed.choices?.[0]?.delta?.content || ""
-                )
-              );
-            } catch {
-              /* Ignore malformed stream fragments. */
-            }
-          }
-      }
-      await finalizeStream(targetChatId);
-      return true;
-    } catch (error) {
-      // Navigating away (or being superseded) aborts the fetch; the run keeps
-      // going on the server and the ledger carries its result, so there is
-      // nothing to report to a view that is no longer showing this chat.
-      if ((error as { name?: string } | null)?.name === "AbortError")
-        return false;
-      console.error("Stream error:", error);
-      if (viewedChatIdRef.current === targetChatId)
-        toast.error(
-          error instanceof Error ? error.message : "Failed to send message"
-        );
-      await finalizeStream(targetChatId);
-      return false;
-    } finally {
-      if (streamAbortRef.current === controller) {
-        // A stream that ends (naturally or aborted) after the reader moved on
-        // must still leave its marker: navigation can update the viewed chat
-        // between the fetch settling and the chat-switch effect running, and
-        // the effect only marks a controller that is still live. Marking here
-        // covers that gap; it is a no-op when the chat is still on screen.
-        if (viewedChatIdRef.current !== targetChatId)
-          markChatAway(targetChatId);
-        streamAbortRef.current = null;
-        streamOwnerChatIdRef.current = undefined;
-      }
-    }
-  };
-  const submit = async (event: FormEvent | React.KeyboardEvent) => {
-    event.preventDefault();
-    // While Nova works - or while this turn waits in the peak-hours queue -
-    // both the Enter key and the composer button stop the run.
-    if (composerBusy) {
-      handleStopRun();
-      return;
-    }
-    if ((!draft.trim() && !composerAttachments.length) || !chatId) return;
-    const content = contentFor(draft, composerAttachments);
-    const images = composerAttachments.map(attachment => attachment.dataUri);
-    setDraft("");
-    setComposerAttachments([]);
-    await sendMessage(chatId, content, images);
-  };
-  /**
-   * Regenerates the thread from one message: reverts history from the anchor
-   * onwards, then resends the anchor's prompt as a fresh turn. An assistant
-   * anchor regenerates from its preceding user message instead.
-   */
-  const handleRegenerate = async (
-    anchorId: number,
-    anchorRole: "user" | "assistant",
-    anchorContent: string
-  ) => {
-    if (!chatId || agentIsWorking || revertChat.isPending) return;
-    const all = savedMessages.data ?? [];
-    let revertFromId = anchorId;
-    let resendContent = anchorContent;
-    if (anchorRole === "assistant") {
-      const previousUser = [...all]
-        .reverse()
-        .find(
-          message =>
-            message.id < anchorId &&
-            message.role === "user" &&
-            !isInternalChatMessage(message.content)
-        );
-      if (!previousUser) {
-        toast.error("There is no earlier message to regenerate from.");
-        return;
-      }
-      revertFromId = previousUser.id;
-      resendContent = previousUser.content;
-    }
-    if (!resendContent.trim()) {
-      toast.error("There is nothing to regenerate here.");
-      return;
-    }
-    try {
-      await revertChat.mutateAsync({ chatId, messageId: revertFromId });
-      await savedMessages.refetch();
-      await sendMessage(chatId, resendContent);
-    } catch (error) {
-      // The revert already happened: put the prompt back in the composer so
-      // a failed regeneration never eats what the user wrote.
-      setDraft(resendContent);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Nova could not regenerate that reply."
-      );
-    }
-  };
-  // A chat opened from Settings' "Start guided setup" link begins with the
-  // personalisation kickoff, once. The intent is stripped from the URL so a
-  // refresh or share does not send it again.
-  useEffect(() => {
-    if (!chatId || !personaliseIntent || personaliseStartedRef.current) return;
-    if (savedMessages.isLoading || agentIsWorking) return;
-    if ((savedMessages.data ?? []).length > 0) return;
-    personaliseStartedRef.current = true;
-    const params = new URLSearchParams(window.location.search);
-    params.delete("personalise");
-    window.history.replaceState(
-      null,
-      "",
-      `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`
-    );
-    void sendMessage(chatId, PERSONALISATION_KICKOFF);
-  }, [chatId, personaliseIntent, savedMessages.isLoading, savedMessages.data, agentIsWorking]);
-
-  // A chat opened from the Agents page's team builder begins with the team's
-  // plan-mode kickoff, once. It only fires after the chat history and the
-  // workspace data have loaded *successfully* (a failed query must neither
-  // read as an empty history nor drop the real goal), and the URL intent is
-  // consumed only after the send is confirmed - or when history already
-  // exists - so a failed send stays retryable while a success can never
-  // re-send on refresh or share.
-  useEffect(() => {
-    if (!chatId || !teamStartIntent || teamKickoffSentRef.current) return;
-    if (
-      savedMessages.isLoading ||
-      savedMessages.isError ||
-      computer.isLoading ||
-      computer.isError ||
-      agentIsWorking
-    )
-      return;
-    const stripIntent = () => {
-      const params = new URLSearchParams(window.location.search);
-      params.delete("teamstart");
-      window.history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`
-      );
-    };
-    // The chat already has history: the kickoff happened (or the user spoke
-    // first), so consume the stale intent without sending.
-    if ((savedMessages.data ?? []).length > 0) {
-      teamKickoffSentRef.current = true;
-      stripIntent();
-      return;
-    }
-    const goal =
-      (computer.data?.chats ?? []).find(chat => chat.id === chatId)?.teamGoal ?? "";
-    // Claim synchronously so overlapping effect runs cannot double-send; on
-    // a failed send release the claim and keep the URL flag so the kickoff
-    // retries (the message poll recovers first, then a refresh).
-    teamKickoffSentRef.current = true;
-    void sendMessage(chatId, teamPlanKickoff(goal)).then(sent => {
-      if (sent) {
-        stripIntent();
-        return;
-      }
-      teamKickoffSentRef.current = false;
-    });
-  }, [
-    chatId,
-    teamStartIntent,
-    savedMessages.isLoading,
-    savedMessages.isError,
-    savedMessages.data,
-    agentIsWorking,
-    computer.isLoading,
-    computer.isError,
-    computer.data,
-  ]);
 
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;
@@ -1721,40 +875,4 @@ export default function Workspace() {
   );
 }
 
-export function TypingIndicator() {
-  return (
-    <span
-      data-testid="typing-indicator"
-      role="status"
-      aria-live="polite"
-      aria-label="Working"
-      className="inline-flex items-center text-muted-foreground"
-    >
-      <CircleDashed className="size-4 animate-spin" />
-    </span>
-  );
-}
-
-function WorkspaceError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <DashboardLayout>
-      <div className="grid min-h-[65vh] place-items-center px-4 text-center">
-        <div>
-          <NovaLogo size={40} className="mx-auto" />
-          <h1 className="mt-4 text-2xl font-extrabold tracking-tight">
-            Nova could not open your computer.
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground dark:text-muted-foreground">
-            Your workspace remains private. Try reconnecting to your computer.
-          </p>
-          <Button
-            className="mt-5 rounded-full bg-primary hover:bg-primary/90"
-            onClick={onRetry}
-          >
-            Try again
-          </Button>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
-}
+export { TypingIndicator };

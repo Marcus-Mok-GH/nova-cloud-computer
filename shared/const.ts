@@ -29,6 +29,20 @@ export const AI_UNAVAILABLE_PREFIX = "Nova AI service error: ";
  */
 export const LEGACY_AI_UNAVAILABLE_PREFIX = "Mistral inference gateway error: ";
 
+// Internal chat-ledger row markers. The server writers and the client's
+// parser both recognize these byte-for-byte identical prefixes, and the
+// literal text is also part of message rows already persisted in the
+// database - so they live here, shared by both sides, where they cannot drift.
+/** Tool-activity rows: one per tool call, filtered from history and bubbles. */
+export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
+/** Specialist-acceptance bookkeeping rows - never rendered. */
+export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
+  "__nova_specialist_acceptance__:";
+/** Workflow-mode marker rows (the conversation's stage) - never rendered. */
+export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
+/** One turn's tappable follow-up suggestions, rendered as chips. */
+export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
+
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no
 // Domain), so a sibling *.manus.space site cannot plant a matching value in a

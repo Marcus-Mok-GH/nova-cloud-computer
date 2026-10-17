@@ -34,7 +34,7 @@ vi.mock("./db", () => ({
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
 }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: validate, configureTelegramWebhook: setWebhook, discoverTelegramChat: discover, sendTelegramMessage: send }));
-vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
+vi.mock("./workspace/workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 process.env.NOVA_PUBLIC_BASE_URL ||= "https://nova.example.com";
 const { appRouter } = await import("./routers");
 

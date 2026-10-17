@@ -17,7 +17,7 @@ import {
   getCustomModelForUser,
 } from "./db";
 import { executeTelegramAgentRun, executeWebAgentRun } from "./agentRuns";
-import { MAX_RUN_BUDGET_MS } from "./workspaceAgent";
+import { MAX_RUN_BUDGET_MS } from "./workspace/workspaceAgent";
 import { recordNovaApiError } from "./novaApiErrors";
 import type { InferenceQueueItem, InferenceQueuePayload } from "../drizzle/schema";
 import { kickPeakQueue } from "./peakQueueScheduler";

@@ -3,9 +3,10 @@ import {
   createWorkspaceFolderForUser,
   getWorkspaceComputer,
   updateWorkspaceFileForUser,
-} from "./db";
+} from "../db";
 import { requireWorkspaceOwner } from "./workspaceSecurity";
-import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
+import { cleanPath, folderPathOf, safeRelativePath } from "./paths";
+import { ensureE2BWorkspaceDir, E2B_WORKSPACE_DIR, type E2BSandboxLike } from "../e2b";
 
 const MAX_SYNC_FILES = 48;
 const MAX_SYNC_FILE_BYTES = 200_000;
@@ -13,41 +14,12 @@ const MAX_SYNC_FILE_BYTES = 200_000;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const INTERNAL_PATHS = new Set([".nova-task.py", "nova-manifest.json"]);
 
-function cleanPath(value: string) {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
-
-function folderPath(
-  folderId: number | null,
-  folders: Array<{ id: number; name: string; parentId: number | null }>
-) {
-  const byId = new Map(folders.map(folder => [folder.id, folder]));
-  const parts: string[] = [];
-  const seen = new Set<number>();
-  let current = folderId;
-  while (current !== null && !seen.has(current)) {
-    seen.add(current);
-    const folder = byId.get(current);
-    if (!folder) break;
-    parts.unshift(folder.name);
-    current = folder.parentId;
-  }
-  return parts.join("/");
-}
-
 function workspaceFilePath(
   file: { name: string; folderId: number | null },
   folders: Array<{ id: number; name: string; parentId: number | null }>
 ) {
-  const parent = folderPath(file.folderId, folders);
+  const parent = folderPathOf(folders, file.folderId);
   return parent ? `${parent}/${file.name}` : file.name;
-}
-
-function safeRelativePath(value: string) {
-  const parts = cleanPath(value).split("/").filter(Boolean);
-  if (parts.some(part => part === "." || part === ".." || part.includes("\0")))
-    return null;
-  return parts.join("/");
 }
 
 function workspaceRelativePath(value: string) {

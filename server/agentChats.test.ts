@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { AgentChatRoute, AgentProfileContext } from "./agents";
 
 const runWorkspaceAgent = vi.fn();
-vi.mock("./workspaceAgent", () => ({
+vi.mock("./workspace/workspaceAgent", () => ({
   runWorkspaceAgent: (...args: unknown[]) => runWorkspaceAgent(...args),
 }));
 

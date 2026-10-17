@@ -1,6 +1,9 @@
+import { AGENT_MODE_MESSAGE_PREFIX } from "@shared/const";
 import { appendChatMessageForUser } from "./db";
 import { planFileName } from "./ultraplan";
-import type { WorkspaceAgentOptions } from "./workspaceAgentTypes";
+import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
+
+export { AGENT_MODE_MESSAGE_PREFIX };
 
 /**
  * The workflow modes a conversation moves through: chat is the default for a
@@ -13,12 +16,11 @@ import type { WorkspaceAgentOptions } from "./workspaceAgentTypes";
 export type AgentMode = "chat" | "plan" | "build";
 
 /**
- * Internal bookkeeping rows recording a conversation's current mode. They are
- * persisted as chat messages (like the specialist-acceptance markers), are
- * filtered out of the model's history and the client UI, and never shown to
- * anyone.
+ * Internal bookkeeping rows recording a conversation's current mode (marker
+ * constant shared with the client via `@shared/const`). They are persisted as
+ * chat messages (like the specialist-acceptance markers), are filtered out of
+ * the model's history and the client UI, and never shown to anyone.
  */
-export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
 
 /**
  * The tool a chat-mode turn calls to hand an action request over to planning.

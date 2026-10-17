@@ -10,6 +10,7 @@
  * `output.grounding`. */
 
 import { ENV } from "./_core/env";
+import { createSseLineFramer, sseDataPayload } from "./sse";
 
 export type ExaCitation = { url: string; title: string };
 
@@ -224,50 +225,44 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
   // A misbehaving stream that never sends a newline would otherwise grow the
   // retained line until the 270s timeout; cap it and abandon the stream.
-  const maxSseLineLength = 1_048_576;
-  const emitSseLines = (chunk: string, onLine: (line: string) => void) => {
-    buffer += chunk;
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex !== -1) {
-      onLine(buffer.slice(0, newlineIndex).replace(/\r$/, ""));
-      buffer = buffer.slice(newlineIndex + 1);
-      newlineIndex = buffer.indexOf("\n");
-    }
-    if (buffer.length > maxSseLineLength) {
-      throw new Error("Exa deep research stream exceeded the maximum SSE line length.");
-    }
-  };
-  try {
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    emitSseLines(decoder.decode(value, { stream: true }), line => {
-      if (!line.startsWith("data:")) return;
-      const payload = line.slice(5).trim();
+  const framer = createSseLineFramer(
+    line => {
+      const payload = sseDataPayload(line);
       if (!payload || payload === "[DONE]") return;
       try {
         handleEvent(JSON.parse(payload) as ExaStreamEvent);
       } catch {
         // A malformed fragment never kills the research: skip the line.
       }
-    });
+    },
+    {
+      maxLineLength: 1_048_576,
+      lineLengthError: () =>
+        new Error(
+          "Exa deep research stream exceeded the maximum SSE line length."
+        ),
+    }
+  );
+  try {
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    framer.push(decoder.decode(value, { stream: true }));
   }
   } finally {
     // Release the connection when the stream ends early (error or bound hit).
     reader.cancel().catch(() => {});
   }
   // Flush any trailing line the stream ended without a newline on.
-  if (buffer.startsWith("data:")) {
-    const payload = buffer.slice(5).trim();
-    if (payload && payload !== "[DONE]") {
-      try {
-        handleEvent(JSON.parse(payload) as ExaStreamEvent);
-      } catch {
-        // Same tolerance as mid-stream fragments.
-      }
+  const trailing = framer.pending();
+  const trailingPayload = sseDataPayload(trailing);
+  if (trailingPayload && trailingPayload !== "[DONE]") {
+    try {
+      handleEvent(JSON.parse(trailingPayload) as ExaStreamEvent);
+    } catch {
+      // Same tolerance as mid-stream fragments.
     }
   }
 

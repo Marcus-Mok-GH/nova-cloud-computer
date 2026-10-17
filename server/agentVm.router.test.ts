@@ -20,7 +20,7 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./agentVm", () => ({ getAgentVmStatus: status, listAgentVmRuns: list, startAgentVmRun: start, cancelAgentVmRun: cancel }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
-vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
+vi.mock("./workspace/workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 const { appRouter } = await import("./routers");
 
 function context(id: number): TrpcContext {

@@ -38,7 +38,7 @@ vi.mock("./db", () => ({
   appendChatMessageForUser: vi.fn(async () => ({ id: 1 })),
 }));
 
-vi.mock("./workspaceAgent", () => ({
+vi.mock("./workspace/workspaceAgent", () => ({
   MAX_RUN_BUDGET_MS: 285_000,
   runWorkspaceAgent: spies.runWorkspaceAgent,
   autoTitleChatForUser: spies.autoTitleChatForUser,

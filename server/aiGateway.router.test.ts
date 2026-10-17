@@ -33,7 +33,7 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./agentVm", () => ({ getAgentVmStatus: vi.fn(), listAgentVmRuns: vi.fn(), startAgentVmRun: vi.fn(), cancelAgentVmRun: vi.fn() }));
 vi.mock("./telegram", () => ({ validateTelegramBotToken: vi.fn(), discoverTelegramChat: vi.fn(), sendTelegramMessage: vi.fn() }));
-vi.mock("./workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
+vi.mock("./workspace/workspaceAgent", () => ({ runWorkspaceAgent: vi.fn() }));
 vi.mock("./aiGateway", () => ({
   getAiGatewayStatus: status,
   listGatewayModels: listModels,

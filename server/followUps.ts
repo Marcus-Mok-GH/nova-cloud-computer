@@ -6,8 +6,10 @@
  * chat text and never reaches the model's conversation history.
  */
 
+import { FOLLOW_UP_MESSAGE_PREFIX } from "@shared/const";
+
 /** Prefix of the internal ledger row holding one turn's follow-up suggestions. */
-export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
+export { FOLLOW_UP_MESSAGE_PREFIX };
 
 /** The most suggestions one turn may show. The tool schema says the same. */
 export const MAX_FOLLOW_UPS = 3;

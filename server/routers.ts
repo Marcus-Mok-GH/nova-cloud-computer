@@ -67,7 +67,7 @@ import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
 import { completeWithAiGateway, getAiGatewayStatus, listGatewayModels, AiGatewayClientError } from "./aiGateway";
 import { testCustomModelEndpoint } from "./byokGateway";
-import { autoTitleChatForUser } from "./workspaceAgent";
+import { autoTitleChatForUser } from "./workspace/workspaceAgent";
 import {
   AgentNameTakenError,
   createAgentForUser,

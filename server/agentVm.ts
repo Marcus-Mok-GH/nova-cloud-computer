@@ -17,7 +17,7 @@ import {
   getE2BSandboxStatus,
   withE2BWorkspaceLock,
 } from "./e2b";
-import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspaceSync";
+import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
 import { pauseAgentSandbox } from "./sandboxWorkspace";
 
 const ERROR_LIMIT = 1000;

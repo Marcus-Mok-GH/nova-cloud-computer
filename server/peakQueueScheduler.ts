@@ -1,5 +1,5 @@
-import { createHmac } from "node:crypto";
 import { ENV } from "./_core/env";
+import { postSignedSelfCall } from "./selfCall";
 import { trackBackgroundWork } from "./backgroundWork";
 
 /**
@@ -19,34 +19,18 @@ export async function scheduleQueueAdvance(): Promise<boolean> {
   const secret = ENV.agentContinueSecret;
   const baseUrl = ENV.publicBaseUrl;
   if (!secret || !baseUrl) return false;
-  const body = "{}";
-  const signature = createHmac("sha256", secret).update(body).digest("hex");
   for (let attempt = 1; attempt <= ADVANCE_SCHEDULE_ATTEMPTS; attempt += 1) {
-    const accepted = await scheduleQueueAdvanceOnce(baseUrl, signature, body);
+    const accepted = await postSignedSelfCall({
+      url: `${baseUrl}/api/agent/queue/advance`,
+      secret,
+      body: "{}",
+    });
     if (accepted) return true;
     if (attempt < ADVANCE_SCHEDULE_ATTEMPTS) {
       await new Promise(resolve => setTimeout(resolve, ADVANCE_RETRY_DELAY_MS));
     }
   }
   return false;
-}
-
-async function scheduleQueueAdvanceOnce(baseUrl: string, signature: string, body: string): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(`${baseUrl}/api/agent/queue/advance`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-nova-signature": `sha256=${signature}` },
-      body,
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 /**

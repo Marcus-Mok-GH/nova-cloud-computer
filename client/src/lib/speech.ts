@@ -23,6 +23,8 @@
  * truncate a single very long utterance.
  */
 
+import { splitSpeechText } from "@shared/speech";
+
 /** True when the current browser can read text aloud. */
 export function isSpeechSynthesisSupported(): boolean {
   return (
@@ -72,51 +74,11 @@ export function stripMarkdownForSpeech(raw: string): string {
 
 /**
  * Splits speakable text into sentence-aligned chunks so no single utterance
- * is long enough for browsers to cut off.
+ * is long enough for browsers to cut off. The splitting itself is shared with
+ * the server synthesiser (`@shared/speech`) so the two cannot drift.
  */
 export function chunkSpokenText(text: string, maxChunkLength = 220): string[] {
-  const clean = (text ?? "").trim().replace(/\s+/g, " ");
-  if (!clean) return [];
-  if (clean.length <= maxChunkLength) return [clean];
-  // Split on sentence ends, keep the punctuation with the sentence.
-  const sentences = clean.match(/[^.!?]+[.!?]+["”’)]*\s*|[^.!?]+$/g) ?? [clean];
-  const chunks: string[] = [];
-  let current = "";
-  const push = () => {
-    const trimmed = current.trim();
-    if (trimmed) chunks.push(trimmed);
-    current = "";
-  };
-  for (const sentence of sentences) {
-    const piece = sentence.trim();
-    if (!piece) continue;
-    if (piece.length > maxChunkLength) {
-      // A single run-on sentence: hard-split on word boundaries.
-      push();
-      const words = piece.split(" ");
-      let part = "";
-      for (const word of words) {
-        const next = part ? `${part} ${word}` : word;
-        if (next.length > maxChunkLength && part) {
-          chunks.push(part);
-          part = word;
-        } else {
-          part = next;
-        }
-      }
-      if (part.trim()) chunks.push(part.trim());
-      continue;
-    }
-    const next = current ? `${current} ${piece}` : piece;
-    if (next.length > maxChunkLength && current) {
-      push();
-      current = piece;
-    } else {
-      current = next;
-    }
-  }
-  push();
-  return chunks;
+  return splitSpeechText(text, maxChunkLength);
 }
 
 /** Event fired so every Speak button but the starter flips back to idle. */

@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
+import { NOVA_SIGNATURE_HEADER, verifySelfCallSignature } from "./selfCall";
 import { getDb } from "./db";
 import { collectServiceStatus } from "./status";
 import { inferenceApiRouter } from "./inferenceApi";
@@ -175,9 +175,14 @@ app.post("/api/agent/continue", async (req, res) => {
   // The signature covers the exact raw JSON body, so a payload cannot be
   // edited without invalidating the HMAC.
   const raw = JSON.stringify(req.body ?? {});
-  const received = Buffer.from(String(req.headers["x-nova-signature"] ?? ""));
-  const expected = Buffer.from(`sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`);
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return res.status(401).json({ error: "bad-signature" });
+  if (
+    !verifySelfCallSignature({
+      secret,
+      rawBody: raw,
+      header: req.headers[NOVA_SIGNATURE_HEADER],
+    })
+  )
+    return res.status(401).json({ error: "bad-signature" });
   const runId = Number(req.body?.runId);
   const segment = Number(req.body?.segment);
   if (!Number.isInteger(runId) || runId <= 0 || !Number.isInteger(segment) || segment < 0) return res.status(400).json({ error: "bad-payload" });
@@ -213,9 +218,14 @@ app.post("/api/agent/process/resume", async (req, res) => {
   if (!secret) return res.status(404).json({ error: "process-resume-disabled" });
   // The signature covers the exact raw JSON body, so a payload cannot be edited without invalidating the HMAC.
   const raw = JSON.stringify(req.body ?? {});
-  const received = Buffer.from(String(req.headers["x-nova-signature"] ?? ""));
-  const expected = Buffer.from(`sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`);
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return res.status(401).json({ error: "bad-signature" });
+  if (
+    !verifySelfCallSignature({
+      secret,
+      rawBody: raw,
+      header: req.headers[NOVA_SIGNATURE_HEADER],
+    })
+  )
+    return res.status(401).json({ error: "bad-signature" });
   const processId = Number(req.body?.processId);
   if (!Number.isInteger(processId) || processId <= 0) return res.status(400).json({ error: "bad-payload" });
   // The claim is the whole race decision: several sweeps may ask at once, but only one heartbeat bump wins, and only
@@ -245,9 +255,14 @@ app.post("/api/agent/queue/advance", async (req, res) => {
   const secret = ENV.agentContinueSecret;
   if (!secret) return res.status(404).json({ error: "queue-disabled" });
   const raw = JSON.stringify(req.body ?? {});
-  const received = Buffer.from(String(req.headers["x-nova-signature"] ?? ""));
-  const expected = Buffer.from(`sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`);
-  if (received.length !== expected.length || !timingSafeEqual(received, expected)) return res.status(401).json({ error: "bad-signature" });
+  if (
+    !verifySelfCallSignature({
+      secret,
+      rawBody: raw,
+      header: req.headers[NOVA_SIGNATURE_HEADER],
+    })
+  )
+    return res.status(401).json({ error: "bad-signature" });
   // Ack immediately: the item runs inside this invocation's waitUntil window,
   // which keeps the full serverless budget for the deferred request.
   res.status(202).json({ ok: true });

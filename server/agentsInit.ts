@@ -19,6 +19,7 @@ import {
   contextChars,
   executeSubagentToolCall,
   listWorkspaceFiles,
+  subagentSandboxTools,
 } from "./subagentRuntime";
 import { syncAgentSandbox } from "./sandboxWorkspace";
 import {
@@ -69,74 +70,11 @@ Rules:
 - If the task is impossible as stated, write the closest workable version of the deliverable and say in one line what you changed.`;
 
 /** The tools the subagent may call in the sandbox. */
-const INIT_TOOLS: NimAgentTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "list_files",
-      description: `List every file in the workspace, as paths relative to ${E2B_WORKSPACE_DIR}.`,
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "read_file",
-      description: "Read one workspace file's full content.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Workspace-relative file path, e.g. 'src/main.py'.",
-          },
-        },
-        required: ["path"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "write_file",
-      description:
-        "Create or completely overwrite one workspace file with its full final content.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Workspace-relative file path, e.g. 'AGENTS.md'.",
-          },
-          content: {
-            type: "string",
-            description:
-              "The complete final content of the file - never partial or placeholder text.",
-          },
-        },
-        required: ["path", "content"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "run_command",
-      description: `Run one bash command in the workspace directory. Output is truncated to the first 4000 characters.`,
-      parameters: {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description:
-              "The bash command to run, e.g. 'python3 game.py --self-check' or 'npm install && npm test'.",
-          },
-        },
-        required: ["command"],
-      },
-    },
-  },
-];
+const INIT_TOOLS: NimAgentTool[] = subagentSandboxTools({
+  writeFilePathExample: "AGENTS.md",
+  runCommandDescription:
+    "Run one bash command in the workspace directory. Output is truncated to the first 4000 characters.",
+});
 
 /** The single service-visible activity name for this whole subagent run. */
 export const PREPARING_NEXT_TURN_ACTIVITY = "preparing_next_turn";
@@ -324,12 +262,6 @@ export async function launchPreparingNextTurn(input: {
   workspaceId: number | undefined;
   /** When the invoking run/function must be over (epoch ms). */
   deadlineAtMs?: number;
-  /**
-   * The run's persisting activity emitter (emitTool: streams the event to
-   * the open chat AND appends the TOOL_ACTIVITY_MESSAGE_PREFIX row to the
-   * chat ledger, so the activity survives a page reload and a client that
-   * loses the stream still sees the settled state on the next poll).
-   */
   /**
    * The run's persisting activity emitter (emitTool): streams the event to
    * the open chat AND appends the TOOL_ACTIVITY_MESSAGE_PREFIX row to the

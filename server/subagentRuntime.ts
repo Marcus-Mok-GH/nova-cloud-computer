@@ -10,7 +10,90 @@
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 import { mirrorWorkspaceOp } from "./sandboxWorkspace";
 import { safeRelativePath as safeWorkspacePath } from "./workspace/paths";
-import type { NimAgentMessage } from "./nim";
+import type { NimAgentMessage, NimAgentTool } from "./nim";
+
+/**
+ * The tool schemas both sandbox subagents are offered: list, read, write and
+ * run one command in the live workspace sandbox. The callers differ only in
+ * their model-facing wording for the example path and what run_command is
+ * usually for, which they pass in - everything else is shared so the schemas
+ * cannot drift apart.
+ */
+export function subagentSandboxTools(options: {
+  /** Example workspace-relative path shown in the write_file schema. */
+  writeFilePathExample: string;
+  /** What run_command is for, as its schema description. */
+  runCommandDescription: string;
+}): NimAgentTool[] {
+  return [
+    {
+      type: "function",
+      function: {
+        name: "list_files",
+        description: `List every file in the workspace, as paths relative to ${E2B_WORKSPACE_DIR}.`,
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "read_file",
+        description: "Read one workspace file's full content.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Workspace-relative file path, e.g. 'src/main.py'.",
+            },
+          },
+          required: ["path"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "write_file",
+        description:
+          "Create or completely overwrite one workspace file with its full final content.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: `Workspace-relative file path, e.g. '${options.writeFilePathExample}'.`,
+            },
+            content: {
+              type: "string",
+              description:
+                "The complete final content of the file - never partial or placeholder text.",
+            },
+          },
+          required: ["path", "content"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "run_command",
+        description: options.runCommandDescription,
+        parameters: {
+          type: "object",
+          properties: {
+            command: {
+              type: "string",
+              description:
+                "The bash command to run, e.g. 'python3 game.py --self-check' or 'npm install && npm test'.",
+            },
+          },
+          required: ["command"],
+        },
+      },
+    },
+  ];
+}
 
 /** Cap applied when a file is read back through read_file. */
 export const READ_LIMIT = 16_000;

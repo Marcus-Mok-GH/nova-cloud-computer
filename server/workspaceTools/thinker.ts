@@ -4,6 +4,7 @@
  */
 import { runThinkerTask } from "../thinker";
 import { NimConfigError } from "../nim";
+import { createProgressNudge } from "./progress";
 import { type ToolCtx, type ToolExecution } from "./types";
 
 export async function toolThinker(ctx: ToolCtx): Promise<ToolExecution> {
@@ -13,21 +14,13 @@ export async function toolThinker(ctx: ToolCtx): Promise<ToolExecution> {
     return { ok: false, result: "A question to think through is required." };
   const context = str(args.context) || undefined;
   const startedAt = Date.now();
-  let lastNoteAt = Date.now();
-  const note = (detail: string) => {
-    lastNoteAt = Date.now();
-    onProgress?.(detail);
-  };
-  const progressTimer = onProgress
-    ? setInterval(() => {
-        if (Date.now() - lastNoteAt < 25_000) return;
-        const elapsed = Math.round((Date.now() - startedAt) / 1000);
-        lastNoteAt = Date.now();
-        onProgress(
-          `The thinker sub-agent is still reasoning - ${elapsed}s elapsed…`
-        );
-      }, 10000)
-    : undefined;
+  const nudge = createProgressNudge({
+    onProgress,
+    startedAt,
+    stillWorking: elapsed =>
+      `The thinker sub-agent is still reasoning - ${elapsed}s elapsed…`,
+  });
+  const note = nudge.note;
   note("The thinker sub-agent is reasoning through the question…");
   try {
     const thought = await runThinkerTask(question, context);
@@ -61,6 +54,6 @@ export async function toolThinker(ctx: ToolCtx): Promise<ToolExecution> {
       },
     };
   } finally {
-    if (progressTimer) clearInterval(progressTimer);
+    nudge.stop();
   }
 }

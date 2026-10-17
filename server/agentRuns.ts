@@ -1,9 +1,9 @@
-import { createHmac } from "node:crypto";
 import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
 } from "@shared/const";
 import { ENV } from "./_core/env";
+import { postSignedSelfCall } from "./selfCall";
 import { AiGatewayClientError } from "./aiGateway";
 import {
   startAgentRunForUser,
@@ -571,24 +571,9 @@ async function scheduleContinuationOnce(
   runId: number,
   segment: number
 ): Promise<boolean> {
-  const body = JSON.stringify({ runId, segment });
-  const signature = createHmac("sha256", secret).update(body).digest("hex");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(`${ENV.publicBaseUrl}/api/agent/continue`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-nova-signature": `sha256=${signature}`,
-      },
-      body,
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return postSignedSelfCall({
+    url: `${ENV.publicBaseUrl}/api/agent/continue`,
+    secret,
+    body: JSON.stringify({ runId, segment }),
+  });
 }

@@ -1,4 +1,4 @@
-import { folderPathOf, workspaceRelativePathOf } from "../sandboxWorkspace";
+import { folderPathOf, workspaceRelativePathOf } from "../workspace/paths";
 import {
   type Computer,
   type FileRow,

@@ -29,6 +29,7 @@ import {
   type E2BClientLike,
   type E2BSandboxLike,
 } from "./e2b";
+import { truncateOutput } from "./truncate";
 
 /** The screen the desktop session runs at. Chrome lays the page out at this
  *  size, so the capture doubles as the coordinate space the model clicks in:
@@ -614,12 +615,7 @@ async function performAction(sandbox: E2BSandboxLike, action: DesktopAction) {
   }
 }
 
-function truncate(value: string) {
-  const text = value.replace(/\u0000/g, "");
-  return text.length <= BROWSE_OUTPUT_LIMIT
-    ? text
-    : `${text.slice(0, BROWSE_OUTPUT_LIMIT)}\n…(truncated)`;
-}
+const truncate = (value: string) => truncateOutput(value, BROWSE_OUTPUT_LIMIT);
 
 /**
  * Connects to the workspace's desktop sandbox, or provisions one. A sandbox

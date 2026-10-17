@@ -7,7 +7,7 @@
  */
 import { createWorkspaceFileForUser, updateWorkspaceFileForUser } from "../db";
 import { planFileName } from "../ultraplan";
-import { workspaceRelativePathOf } from "../sandboxWorkspace";
+import { workspaceRelativePathOf } from "../workspace/paths";
 import { unifiedDiff } from "../workspace/workspaceEdits";
 import { type ToolCtx, type ToolExecution } from "./types";
 

@@ -8,6 +8,8 @@ import {
   withE2BWorkspaceLock,
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
+import { safeRelativePath } from "./workspace/paths";
+import { truncateOutput } from "./truncate";
 import { updateWorkspacePersistentSandbox } from "./db";
 
 /**
@@ -17,49 +19,6 @@ import { updateWorkspacePersistentSandbox } from "./db";
  * the live sandbox filesystem, bash commands run straight on it, and the
  * sandbox state is synced back into Neon at the end of the run.
  */
-
-function cleanPath(value: string) {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
-
-/** A workspace-relative path, or null if it is not safe to touch. */
-function safeRelativePath(value: string): string | null {
-  const parts = cleanPath(value)
-    .split("/")
-    .filter(part => part && part !== ".");
-  if (parts.some(part => part === ".." || part.includes("\0"))) return null;
-  return parts.join("/");
-}
-
-/** The workspace-relative folder path of a folder row, walking parent ids. */
-export function folderPathOf(
-  folders: Array<{ id: number; name: string; parentId: number | null }>,
-  folderId: number | null
-): string | null {
-  if (folderId === null || folderId === undefined) return null;
-  const byId = new Map(folders.map(folder => [folder.id, folder]));
-  const parts: string[] = [];
-  const seen = new Set<number>();
-  let current: number | null = folderId;
-  while (current !== null && current !== undefined && !seen.has(current)) {
-    seen.add(current);
-    const folder = byId.get(current);
-    if (!folder) break;
-    parts.unshift(folder.name);
-    current = folder.parentId ?? null;
-  }
-  return parts.join("/") || null;
-}
-
-/** The workspace-relative path of a file, given its folder id. */
-export function workspaceRelativePathOf(
-  folders: Array<{ id: number; name: string; parentId: number | null }>,
-  name: string,
-  folderId: number | null
-): string | null {
-  const parent = folderPathOf(folders, folderId);
-  return safeRelativePath(parent ? `${parent}/${name}` : name);
-}
 
 type FolderLike = { id: number; name: string; parentId: number | null };
 
@@ -283,12 +242,6 @@ export async function pauseAgentSandbox(
 const BASH_TIMEOUT_MS = 120_000;
 const BASH_OUTPUT_LIMIT = 8_000;
 
-function truncateOutput(value: string | undefined): string {
-  const text = (value ?? "").replace(/\u0000/g, "");
-  if (text.length <= BASH_OUTPUT_LIMIT) return text;
-  return `${text.slice(0, BASH_OUTPUT_LIMIT)}\n…(truncated)`;
-}
-
 /**
  * Runs a bash command in the live workspace sandbox, with the workspace
  * directory as cwd. Returns a model-ready result with exit code, stdout and
@@ -304,8 +257,14 @@ export async function runBashOnSandbox(
       timeoutMs: BASH_TIMEOUT_MS,
     });
     const exitCode = (run as { exitCode?: number }).exitCode ?? 0;
-    const stdout = truncateOutput((run as { stdout?: string }).stdout);
-    const stderr = truncateOutput((run as { stderr?: string }).stderr);
+    const stdout = truncateOutput(
+      (run as { stdout?: string }).stdout,
+      BASH_OUTPUT_LIMIT
+    );
+    const stderr = truncateOutput(
+      (run as { stderr?: string }).stderr,
+      BASH_OUTPUT_LIMIT
+    );
     const ok = exitCode === 0;
     const parts = [`Exit code ${exitCode}.`];
     parts.push(`stdout:\n${stdout || "(empty)"}`);

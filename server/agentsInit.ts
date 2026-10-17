@@ -12,7 +12,15 @@
  */
 
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
-import { mirrorWorkspaceOp, syncAgentSandbox } from "./sandboxWorkspace";
+import {
+  CONTEXT_CHAR_BUDGET,
+  SUBAGENT_MAX_TOKENS,
+  compactContext,
+  contextChars,
+  executeSubagentToolCall,
+  listWorkspaceFiles,
+} from "./subagentRuntime";
+import { syncAgentSandbox } from "./sandboxWorkspace";
 import {
   NimContextLengthError,
   runNimAgentChat,
@@ -133,313 +141,12 @@ const INIT_TOOLS: NimAgentTool[] = [
 /** The single service-visible activity name for this whole subagent run. */
 export const PREPARING_NEXT_TURN_ACTIVITY = "preparing_next_turn";
 
-/** Compaction budget, reusing the editor specialist's proven constants. */
-const CONTEXT_CHAR_BUDGET = 300_000;
-const CONTEXT_KEEP_RECENT_MESSAGES = 8;
-const CONTEXT_RECENT_TOOL_CAP = 12_000;
-const CONTEXT_ASSISTANT_CAP = 4_000;
-const CONTEXT_OLD_TOOL_STUB =
-  "(earlier tool output omitted to stay within the model's context window)";
-/** One round's output-token cap (file payloads count as output). */
-const MAX_TOKENS = 16_384;
-const READ_LIMIT = 16_000;
-const COMMAND_OUTPUT_LIMIT = 4_000;
-const COMMAND_TIMEOUT_MS = 120_000;
 
 /** The final status the parent's activity settles to. */
 export type AgentsInitOutcome = {
   ok: boolean;
   summary: string;
 };
-
-/** A workspace-relative path, or null when it is not safe to touch. */
-function safeWorkspacePath(value: string): string | null {
-  const parts = value
-    .replace(/\\/g, "/")
-    .split("/")
-    .filter(part => part && part !== ".");
-  if (parts.some(part => part === ".." || part.includes("\0"))) return null;
-  return parts.join("/");
-}
-
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n…(truncated)`;
-}
-
-/** Approximate size of the subagent's conversation, in characters. */
-function contextChars(messages: NimAgentMessage[]): number {
-  let total = 0;
-  for (const message of messages) {
-    if (message.role === "tool") total += message.content.length;
-    else if (message.role === "assistant") {
-      total += message.content?.length ?? 0;
-      for (const call of message.tool_calls ?? [])
-        total += call.function.arguments.length;
-    } else total += message.content.length;
-  }
-  return total;
-}
-
-/**
- * Shrinks the subagent's conversation toward the context budget without
- * breaking it. Messages up to and including the first user turn (the system
- * prompt and the task intro) are never touched: they are the anchor. Older
- * tool results become a stub, the most recent ones are capped, and long
- * interim assistant text is trimmed - assistant tool_calls are always kept
- * intact, so every tool result still follows the call it answers. Returns
- * true when anything changed.
- */
-function compactContext(
-  messages: NimAgentMessage[],
-  options?: { aggressive?: boolean }
-): boolean {
-  const aggressive = options?.aggressive ?? false;
-  const firstUser = messages.findIndex(message => message.role === "user");
-  if (firstUser < 0) return false;
-  const keepRecent = aggressive ? 4 : CONTEXT_KEEP_RECENT_MESSAGES;
-  const recentStart = Math.max(firstUser + 1, messages.length - keepRecent);
-  const toolCap = aggressive ? 2_000 : CONTEXT_RECENT_TOOL_CAP;
-  const assistantCap = aggressive ? 500 : CONTEXT_ASSISTANT_CAP;
-  let changed = false;
-  for (let index = firstUser + 1; index < messages.length; index += 1) {
-    const message = messages[index];
-    if (message.role === "tool") {
-      if (index < recentStart) {
-        if (message.content !== CONTEXT_OLD_TOOL_STUB) {
-          messages[index] = { ...message, content: CONTEXT_OLD_TOOL_STUB };
-          changed = true;
-        }
-      } else if (message.content.length > toolCap) {
-        const capped = truncate(message.content, toolCap);
-        if (capped !== message.content) {
-          messages[index] = { ...message, content: capped };
-          changed = true;
-        }
-      }
-    } else if (message.role === "assistant") {
-      let next = message;
-      if (message.content && message.content.length > assistantCap) {
-        const capped = truncate(message.content, assistantCap);
-        if (capped !== message.content) {
-          next = { ...next, content: capped };
-          changed = true;
-        }
-      }
-      if (index < recentStart && next.tool_calls?.length) {
-        let shrank = false;
-        const toolCalls = next.tool_calls.map(call => {
-          if (call.function.arguments === "{}") return call;
-          shrank = true;
-          return { ...call, function: { ...call.function, arguments: "{}" } };
-        });
-        if (shrank) {
-          next = { ...next, tool_calls: toolCalls };
-          changed = true;
-        }
-      }
-      if (next !== message) messages[index] = next;
-    }
-  }
-  return changed;
-}
-
-/**
- * Lists the workspace files for the subagent's intro prompt and list_files.
- * Failures stay failures: a thrown command or non-zero exit must not read
- * as a successful empty listing.
- */
-async function listWorkspaceFiles(
-  sandbox: E2BSandboxLike
-): Promise<{ ok: boolean; result: string }> {
-  try {
-    const result = await sandbox.commands.run(
-      `cd ${E2B_WORKSPACE_DIR} && find . -type f -not -path './.git/*' | sort | head -200`,
-      { timeoutMs: 15_000 }
-    );
-    const exitCode = (result as { exitCode?: unknown }).exitCode ?? 0;
-    if (exitCode !== 0)
-      return {
-        ok: false,
-        result: `(could not list the workspace: exit code ${exitCode})`,
-      };
-    const listing = String((result as { stdout?: unknown }).stdout ?? "")
-      .split("\n")
-      .map(line => line.trim().replace(/^\.\//, ""))
-      .filter(Boolean);
-    return {
-      ok: true,
-      result: listing.length > 0 ? listing.join("\n") : "(the workspace is empty)",
-    };
-  } catch {
-    return { ok: false, result: "(could not list the workspace)" };
-  }
-}
-
-/** The short identifying args an activity carries (no payloads). */
-function initToolArgs(
-  name: string,
-  rawArguments: string
-): Record<string, string> {
-  let args: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(rawArguments || "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-      args = parsed as Record<string, unknown>;
-  } catch {
-    // Truncated or malformed JSON - the label falls back to the tool name.
-  }
-  const s = (value: unknown) => (typeof value === "string" ? value : "");
-  if (name === "read_file" || name === "write_file")
-    return args.path ? { path: s(args.path) } : {};
-  if (name === "run_command")
-    return args.command ? { command: s(args.command) } : {};
-  return {};
-}
-
-/** One-line summary of a settled subagent tool call. */
-function initToolSummary(
-  name: string,
-  args: Record<string, string>,
-  ok: boolean
-): string {
-  const brief = (value: string, max: number) =>
-    value.length > max ? `${value.slice(0, max - 1)}…` : value;
-  switch (name) {
-    case "list_files":
-      return ok ? "Listed the workspace files." : "Could not list the workspace files.";
-    case "read_file":
-      return ok ? `Read ${args.path}.` : `Could not read ${args.path}.`;
-    case "write_file":
-      return ok ? `Wrote ${args.path}.` : `Could not write ${args.path}.`;
-    case "run_command":
-      return `${ok ? "Ran" : "Command failed"}: ${brief(args.command ?? "", 80)}`;
-    default:
-      return ok ? "Completed." : "Failed.";
-  }
-}
-
-/** Executes one subagent tool call, returning its ok flag and result text. */
-async function executeInitToolCall(
-  sandbox: E2BSandboxLike,
-  name: string,
-  rawArguments: string,
-  writtenPaths: Set<string>,
-  remainingMs = COMMAND_TIMEOUT_MS
-): Promise<{ ok: boolean; result: string }> {
-  let args: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(rawArguments || "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-      args = parsed as Record<string, unknown>;
-  } catch {
-    return {
-      ok: false,
-      result: "Invalid JSON arguments - call the tool again with valid JSON.",
-    };
-  }
-  const str = (value: unknown) =>
-    typeof value === "string" ? value.trim() : "";
-  const raw = (value: unknown) => (typeof value === "string" ? value : "");
-  switch (name) {
-    case "list_files":
-      return await listWorkspaceFiles(sandbox);
-    case "read_file": {
-      const path = safeWorkspacePath(str(args.path));
-      if (!path) return { ok: false, result: `Unsafe path: ${str(args.path)}` };
-      try {
-        const content = await sandbox.files.read(
-          `${E2B_WORKSPACE_DIR}/${path}`,
-          { format: "text" }
-        );
-        const text =
-          typeof content === "string"
-            ? content
-            : Buffer.from(content as Uint8Array).toString("utf8");
-        return {
-          ok: true,
-          result:
-            text.length > 0 ? truncate(text, READ_LIMIT) : "(the file is empty)",
-        };
-      } catch {
-        return {
-          ok: false,
-          result: `Could not read ${path} - it may not exist. Use list_files first.`,
-        };
-      }
-    }
-    case "write_file": {
-      const path = safeWorkspacePath(str(args.path));
-      const content = raw(args.content);
-      if (!path) return { ok: false, result: `Unsafe path: ${str(args.path)}` };
-      if (!content)
-        return { ok: false, result: "write_file needs the file's full content." };
-      const mirrored = await mirrorWorkspaceOp(sandbox, {
-        kind: "write_file",
-        path,
-        content,
-      });
-      if (!mirrored.ok)
-        return {
-          ok: false,
-          result: `Could not write ${path}: ${mirrored.error}`,
-        };
-      writtenPaths.add(path);
-      return {
-        ok: true,
-        result: `Wrote ${path} (${content.length} characters).`,
-      };
-    }
-    case "run_command": {
-      const command = str(args.command);
-      if (!command) return { ok: false, result: "run_command needs a command." };
-      // Same boundary as the editor: the durable store only imports sandbox
-      // files, so a shell delete or rename would diverge from it and the
-      // file would resurrect on the next run.
-      const forbidden =
-        /(^|[;&|\s])(rm|rmdir|unlink|shred)\b|(^|[;&|\s])mv\b|git\s+(rm|clean)\b/.test(
-          command
-        );
-      if (forbidden) {
-        return {
-          ok: false,
-          result:
-            "Rejected: this workspace must not delete or rename files with shell " +
-            "commands (the durable store would resurrect them). To replace content, " +
-            "use write_file with the full new content.",
-        };
-      }
-      const timeoutMs = Math.min(COMMAND_TIMEOUT_MS, Math.max(0, remainingMs));
-      try {
-        const result = await sandbox.commands.run(
-          `cd ${E2B_WORKSPACE_DIR} && (${command})`,
-          { timeoutMs }
-        );
-        const stdout = String((result as { stdout?: unknown }).stdout ?? "");
-        const stderr = String((result as { stderr?: unknown }).stderr ?? "");
-        const exitCode = (result as { exitCode?: unknown }).exitCode ?? 0;
-        const parts: string[] = [];
-        if (stdout.trim()) parts.push(truncate(stdout, COMMAND_OUTPUT_LIMIT));
-        if (stderr.trim())
-          parts.push(`[stderr]\n${truncate(stderr, COMMAND_OUTPUT_LIMIT)}`);
-        parts.push(`[exit code ${exitCode}]`);
-        return {
-          ok: exitCode === 0,
-          result: parts.join("\n") || "(no output)",
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          result: `The command failed: ${
-            error instanceof Error ? error.message : "unknown error"
-          }`,
-        };
-      }
-    }
-    default:
-      return { ok: false, result: `Unknown tool: ${name}` };
-  }
-}
 
 /**
  * Runs the preparing_next_turn subagent: one autonomous pass over the
@@ -485,7 +192,7 @@ export async function runAgentsInitTask(
         model: ENV.nimCoderModel,
         apiUrl: ENV.nimCoderApiUrl,
         apiKey: ENV.nimCoderApiKey,
-        maxTokens: MAX_TOKENS,
+        maxTokens: SUBAGENT_MAX_TOKENS,
         timeoutMs: Math.min(240_000, remainingMs),
         deadlineAtMs: budgetEndMs,
       });
@@ -533,7 +240,7 @@ export async function runAgentsInitTask(
       }
       let execution: { ok: boolean; result: string };
       try {
-        execution = await executeInitToolCall(
+        execution = await executeSubagentToolCall(
           options.sandbox,
           call.name,
           call.arguments,

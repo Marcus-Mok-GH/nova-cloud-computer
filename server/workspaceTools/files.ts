@@ -8,7 +8,7 @@ import {
   deleteWorkspaceFileForUser,
   updateWorkspaceFileForUser,
 } from "../db";
-import { folderPathOf, workspaceRelativePathOf } from "../sandboxWorkspace";
+import { folderPathOf, workspaceRelativePathOf } from "../workspace/paths";
 import { isCodeFileName, isSubstantialCode, unifiedDiff } from "../workspace/workspaceEdits";
 import {
   fileNotFoundResult,

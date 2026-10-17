@@ -8,7 +8,7 @@ import {
   deleteWorkspaceFolderForUser,
   updateWorkspaceFolderForUser,
 } from "../db";
-import { folderPathOf } from "../sandboxWorkspace";
+import { folderPathOf } from "../workspace/paths";
 import { folderNotFound, nameTakenAtLevel, resolveFolder } from "./resolve";
 import { type ToolCtx, type ToolExecution } from "./types";
 

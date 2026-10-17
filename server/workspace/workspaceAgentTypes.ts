@@ -8,6 +8,9 @@ import {
   appendChatMessageForUser,
   listChatMessagesForUser,
 } from "../db";
+import { SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX } from "@shared/const";
+
+export { SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX };
 
 export type AgentAction = {
   kind:
@@ -125,8 +128,6 @@ export type AgentChatRunOptions = {
  * succeeds). They are persisted as chat messages, filtered out of the
  * model's history and the client UI, and never shown to anyone.
  */
-export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
-  "__nova_specialist_acceptance__:";
 
 type SpecialistAcceptanceState = "pending" | "accepted" | "none";
 

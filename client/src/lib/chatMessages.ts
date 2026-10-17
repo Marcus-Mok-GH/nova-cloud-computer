@@ -1,15 +1,18 @@
-export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
-/** Internal bookkeeping rows (specialist-acceptance state) - never rendered. */
-export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
-  "__nova_specialist_acceptance__:";
-/** Internal bookkeeping rows (the conversation's workflow mode) - never rendered. */
-export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
-/**
- * Internal rows holding one turn's tappable follow-up suggestions. The web
- * chat renders them as chips under the newest reply; the raw row itself is
- * never shown.
- */
-export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
+// The four internal-row markers are a byte-for-byte contract with the server's
+// writers; both sides import the single definition in `@shared/const`.
+import {
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+  SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
+  AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
+} from "@shared/const";
+
+export {
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+  SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
+  AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
+};
 
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>

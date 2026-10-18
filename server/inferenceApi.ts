@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { API_KEY_PREFIX, findOwnerByApiKey } from "./apiKeys";
+import { NOVA_PRO_MODEL_ID } from "@shared/const";
 import { chatWithCustomModel, getActiveCustomModel } from "./byokGateway";
 import { activatePriorityWindowForUser, enqueueInferenceQueueItem, getDailyCreditStatusForUser, getInferenceQueueItemForOwner, getInferenceQueuePosition } from "./db";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
@@ -25,11 +26,12 @@ export const MAX_INFERENCE_MESSAGES = 40;
 export const MAX_INFERENCE_PROMPT_CHARS = 100_000;
 
 /**
- * The public name of Nova's built-in model. The API never exposes the
- * underlying gateway model id: clients ask for `nova-pro` and the built-in
- * gateway resolves whichever default this deployment is configured with.
+ * The public name of Nova's built-in model, shared with `novaApiErrors` and
+ * the client via `@shared/const`. The API never exposes the underlying
+ * gateway model id: clients ask for `nova-pro` and the built-in gateway
+ * resolves whichever default this deployment is configured with.
  */
-export const NOVA_PRO_MODEL_ID = "nova-pro";
+export { NOVA_PRO_MODEL_ID };
 
 /** One callable model in a workspace's inference API surface. */
 export type InferenceApiModel = {

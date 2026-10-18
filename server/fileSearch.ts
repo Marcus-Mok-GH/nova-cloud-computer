@@ -11,6 +11,8 @@
  * UI never has to re-scan file content itself.
  */
 
+import { escapeRegExp } from "@shared/text";
+
 /** The subset of a `workspace_files` row the searcher reads. */
 export type SearchableWorkspaceFile = {
   id: number;
@@ -65,8 +67,6 @@ export type FileSearchMatcher = {
   test: (text: string) => boolean;
   firstIndex: (text: string) => number;
 };
-
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Builds the case-insensitive matcher for one query. Returns an error object

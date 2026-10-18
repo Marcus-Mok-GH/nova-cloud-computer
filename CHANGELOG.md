@@ -1,3 +1,29 @@
+2026-10-18 - Claude Haiku 5.5 leaves the fallback chain; MiMo is the Token Harbor fallback
+
+The built-in gateway's transient-failure chain ran
+deepseek-v4.1-flash:free, then claude-haiku-5.5:free, then
+mimo-v2.6-flash:free, with SeekAI's glm-5.3-flash as the off-provider last
+resort. The Claude Haiku hop is removed: Xiaomi's MiMo V2.6 Flash (free) is
+now the single Token Harbor fallback, so the chain is primary -> MiMo ->
+SeekAI. MiMo carries the fallback contract on its own - tool calling and
+vision for the agent loop, plus omnimodal input - so no capability is lost
+with the slimmer chain, and one allowance/credit claim still covers every
+hop.
+
+The TOKENHARBOR_SECOND_FALLBACK_MODEL env override is gone with the slot it
+named; TOKENHARBOR_FALLBACK_MODEL still overrides the (now MiMo) fallback and
+none/disabled still turns every fallback off, and ai.status no longer reports
+secondFallbackModel. A deployment that still sets the removed variable simply
+runs the defaults.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, README.md,
+docs/ai-gateway-contract.md, CHANGELOG.md.
+Tests: gateway client and chat-stream suites updated for the two-hop Token
+Harbor chain (the redundant three-hop overload test went with the removed
+slot, and the patient-timeout test re-derived for the shorter chain) - 1329
+tests total, all passing.
+
 2026-10-16 - every Telegram recording is transcribed, not only voice notes
 
 Voice notes already became the user's turn through the transcription

@@ -340,7 +340,7 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
   });
 
-  it("falls back to the Haiku model when the primary chat model is rate-limited", async () => {
+  it("falls back to the MiMo model when the primary chat model is rate-limited", async () => {
     let calls = 0;
     const fetchImpl = gatewayFetchStub(path => {
       if (path !== "/chat/completions") throw new Error(`unexpected path ${path}`);
@@ -352,7 +352,7 @@ describe("AI gateway chat stream handling", () => {
         });
       }
       return sseResponse([
-        `data: ${JSON.stringify({ model: "claude-haiku-5.5:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "mimo-v2.6-flash:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
         "data: [DONE]\n\n",
       ]);
     });
@@ -361,7 +361,7 @@ describe("AI gateway chat stream handling", () => {
       onChunk: () => {},
     });
     expect(result.text).toBe("Fallback reply.");
-    expect(result.model).toBe("claude-haiku-5.5:free");
+    expect(result.model).toBe("mimo-v2.6-flash:free");
     expect(calls).toBe(2);
   });
 
@@ -404,7 +404,7 @@ describe("AI gateway chat stream handling", () => {
       }
       return Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ model: "claude-haiku-5.5:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+          `data: ${JSON.stringify({ model: "mimo-v2.6-flash:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
           "data: [DONE]\n\n",
         ])
       );
@@ -424,7 +424,7 @@ describe("AI gateway chat stream handling", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     await attempt;
     expect(settled).toMatchObject({
-      ok: { text: "Fallback reply.", model: "claude-haiku-5.5:free" },
+      ok: { text: "Fallback reply.", model: "mimo-v2.6-flash:free" },
     });
     expect(calls).toBe(2);
   });
@@ -446,7 +446,7 @@ describe("AI gateway chat stream handling", () => {
           })
         );
       }
-      // Both fallbacks never respond; reject when each hop's abort fires.
+      // The fallback never responds; reject when its hop's abort fires.
       return new Promise<Response>((_, reject) => {
         init?.signal?.addEventListener("abort", () =>
           reject(new DOMException("This operation was aborted", "AbortError"))
@@ -465,12 +465,12 @@ describe("AI gateway chat stream handling", () => {
         settled = { error };
       }
     );
-    // 45s: the rate-limited primary has failed and the first fallback (itself
-    // a non-final hop) has just hit its own header timeout.
+    // 45s: the rate-limited primary has failed and the final fallback hop is
+    // inside its patient window.
     await vi.advanceTimersByTimeAsync(45_000);
-    expect(calls).toBe(3);
+    expect(calls).toBe(2);
     // 119s into the final hop's patient window: still waiting.
-    await vi.advanceTimersByTimeAsync(119_000);
+    await vi.advanceTimersByTimeAsync(74_000);
     expect(settled).toBeUndefined();
     // Past 120s: the final hop gives up as unavailable.
     await vi.advanceTimersByTimeAsync(2_000);

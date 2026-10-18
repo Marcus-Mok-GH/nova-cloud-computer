@@ -7,28 +7,24 @@
  * as vision input.
  */
 
-/** Most images one chat message may carry. */
-export const MAX_CHAT_IMAGE_ATTACHMENTS = 4;
+import {
+  MAX_CHAT_IMAGE_ATTACHMENTS,
+  MAX_CHAT_IMAGE_TOTAL_CHARS,
+  SUPPORTED_CHAT_IMAGE_MIME,
+} from "@shared/const";
+
+/*
+ * The attachment limits and the supported image table are the byte-for-byte
+ * contract with the browser composer (`@shared/const`), which downscales and
+ * encodes each picked image to a base64 data URI before sending it.
+ */
+export { MAX_CHAT_IMAGE_ATTACHMENTS, MAX_CHAT_IMAGE_TOTAL_CHARS };
 /**
  * Per-image cap on the encoded data URI. Base64 inflates by ~33%, so this
  * keeps a full set of attachments comfortably under the endpoint's body
  * limit while still fitting a large screenshot.
  */
 export const MAX_CHAT_IMAGE_DATA_URI_CHARS = 3_000_000;
-/**
- * Combined encoded size of one message's images. Keeps the whole JSON body
- * inside the endpoint's body limit even when every attachment is large.
- */
-export const MAX_CHAT_IMAGE_TOTAL_CHARS = 3_500_000;
-
-/** Image types the composer accepts, mapped to their file extension. */
-const SUPPORTED_IMAGE_MIME: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/jpg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-};
 
 /** The image payload of a chat request, or the reason it was rejected. */
 export type ChatImageParseResult =
@@ -80,7 +76,7 @@ export function parseChatImageDataUri(
   const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,/i.exec(dataUri);
   if (!match) return null;
   const mimeType = match[1].toLowerCase();
-  const extension = SUPPORTED_IMAGE_MIME[mimeType];
+  const extension = SUPPORTED_CHAT_IMAGE_MIME[mimeType];
   return extension ? { mimeType, extension } : null;
 }
 

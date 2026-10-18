@@ -2,9 +2,9 @@ import { desc } from "drizzle-orm";
 import { getDb } from "./db";
 import { AiGatewayClientError } from "./aiGateway";
 import { novaApiErrorLogs } from "../drizzle/schema";
+import { NOVA_PRO_MODEL_ID } from "@shared/const";
 
 export const NOVA_API_ERROR_ENDPOINT = "/api/v1/chat/completions";
-export const NOVA_PRO_MODEL_ID_LOCAL = "nova-pro";
 const MAX_MESSAGE_CHARS = 1200;
 
 function truncate(message: string): string {
@@ -69,7 +69,7 @@ export async function recordNovaApiError(input: RecordNovaApiErrorInput): Promis
         ownerId: input.ownerId,
         endpoint: input.endpoint ?? NOVA_API_ERROR_ENDPOINT,
         method: input.method ?? "POST",
-        modelId: NOVA_PRO_MODEL_ID_LOCAL,
+        modelId: NOVA_PRO_MODEL_ID,
         statusCode: classified.statusCode,
         errorKind: classified.errorKind,
         errorCode: classified.errorCode,

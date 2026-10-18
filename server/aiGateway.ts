@@ -97,10 +97,10 @@ export class AiGatewayClientError extends Error {
 /**
  * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
  * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
- * credential. The gateway serves a primary model with two free-tier fallbacks:
+ * credential. The gateway serves a primary model with a free-tier fallback:
  * when the primary fails with a transient error (overload / rate limit,
  * upstream 5xx or timeout, empty completion), the same request is retried
- * in order against each fallback before the error surfaces. A third, last-resort
+ * against the fallback before the error surfaces. A last-resort
  * fallback lives on a different endpoint entirely - SeekAI
  * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
  * so a Token Harbor outage (every free pool congested at once) still has
@@ -113,31 +113,18 @@ export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
 
 /**
  * Fallback model when the primary fails transiently. Token Harbor serves this
- * as `claude-haiku-5.5:free` (free-tier: never billed, same `:free` pattern as
- * the primary, so the deployment is never charged). Verified against Token
- * Harbor's catalogue at https://tokenharbor.ai/models/claude-haiku-5.5:free;
- * the bare Anthropic id is `claude-haiku-5-5`, but on this OpenAI-compatible
- * gateway the `claude-haiku-5.5:free` route id must be used. Haiku 5.5 supports
- * tool calling, vision, and reasoning, so it can serve the agent loop.
+ * as `mimo-v2.6-flash:free` (free-tier: never billed, same `:free` pattern as
+ * the primary, so the deployment is never charged). Provider is Xiaomi (MiMo
+ * family), served via Token Harbor's free tier
+ * (`https://tokenharbor.ai/models/mimo-v2.6-flash:free`, Xiaomi provider at
+ * `https://tokenharbor.ai/providers/xiaomi`): a 1M-context omnimodal reasoning
+ * model (text, image, audio, video input) used on Token Harbor's free
+ * allowance for high-frequency agent/coding calls, so it can serve the agent
+ * loop (tool calling + vision) when the primary is down.
  * Override with TOKENHARBOR_FALLBACK_MODEL; set it to "none"/"disabled" to
  * turn the fallback off.
  */
-export const TOKENHARBOR_FALLBACK_MODEL = "claude-haiku-5.5:free";
-
-/**
- * Second fallback model when both the primary and the first fallback fail
- * transiently. Token Harbor serves this as `mimo-v2.6-flash:free`
- * (free-tier: never billed, same `:free` pattern as the primary, so the
- * deployment is never charged). Provider is Xiaomi (MiMo family), served via
- * Token Harbor's free tier (`https://tokenharbor.ai/models/mimo-v2.6-flash:free`,
- * Xiaomi provider at `https://tokenharbor.ai/providers/xiaomi`): a 1M-context
- * omnimodal reasoning model (text, image, audio, video input) used on
- * Token Harbor's free allowance for high-frequency agent/coding calls, so it
- * can serve the agent loop (tool calling + vision) as a last resort.
- * Override with TOKENHARBOR_SECOND_FALLBACK_MODEL; set it to
- * "none"/"disabled" to turn the second fallback off.
- */
-export const TOKENHARBOR_SECOND_FALLBACK_MODEL = "mimo-v2.6-flash:free";
+export const TOKENHARBOR_FALLBACK_MODEL = "mimo-v2.6-flash:free";
 
 /** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
 const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
@@ -148,7 +135,7 @@ const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
  * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
  * can serve the agent loop when every Token Harbor model has failed
  * transiently. Only used when the SEEKAI_API_KEY credential is configured;
- * without it the chain stops at the two Token Harbor fallbacks, exactly as
+ * without it the chain stops at the Token Harbor fallback, exactly as
  * before. Override with SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled"
  * to turn the last-resort hop off.
  */
@@ -195,19 +182,8 @@ export function gatewayModelChain(): GatewayChainEntry[] {
   const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
   const chain: GatewayChainEntry[] = [{ model: TOKENHARBOR_CHAT_MODEL }];
   if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push({ model: fallback });
-  const second = isChainDisabled(process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL)
-    ? undefined
-    : process.env.TOKENHARBOR_SECOND_FALLBACK_MODEL?.trim() ||
-      TOKENHARBOR_SECOND_FALLBACK_MODEL;
-  if (
-    second &&
-    second !== TOKENHARBOR_CHAT_MODEL &&
-    second !== fallback
-  ) {
-    chain.push({ model: second });
-  }
   // The last resort is a different provider, so it needs its own credential;
-  // without one the chain simply stops after the Token Harbor fallbacks.
+  // without one the chain simply stops after the Token Harbor fallback.
   const seekaiTokenValue = seekaiToken();
   if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
     return chain;
@@ -502,7 +478,6 @@ export async function getAiGatewayStatus(ownerId: number) {
     provider: "mistral" as const,
     model: TOKENHARBOR_CHAT_MODEL,
     fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
-    secondFallbackModel: TOKENHARBOR_SECOND_FALLBACK_MODEL,
     // The last resort lives on a separate credential: without SEEKAI_API_KEY
     // it is never attempted, so it reports as null rather than a model id.
     thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
@@ -539,7 +514,7 @@ function configuredReasoningEffort(): string {
  * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
  * newer additionally take `reasoning_effort`, where "max" is the deepest
  * reasoning served. Models without a thinking mode (the built-in gateway's
- * DeepSeek primary and Claude Haiku 5.5 fallback included) get none, since
+ * DeepSeek primary and MiMo fallback included) get none, since
  * sending unknown fields to a strict endpoint risks a rejection. Exported so
  * the BYOK gateway applies the same per-model logic to a workspace's custom
  * GLM-family models.
@@ -559,13 +534,12 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
- * (Token Harbor's free DeepSeek V4.1 Flash) with Claude Haiku 5.5 (free) as
- * the first transient-failure fallback and Xiaomi's MiMo V2.6 Flash (free) as
- * the second, so the picker and settings validation see all three entries.
- * SeekAI's GLM-5.3-Flash last resort is listed too, but only while the
- * SEEKAI_API_KEY credential is configured - an unconfigured hop is never
- * attempted, so advertising it would be a lie. Listed as text-only because
- * image support on that endpoint is not assumed.
+ * (Token Harbor's free DeepSeek V4.1 Flash) with Xiaomi's MiMo V2.6 Flash
+ * (free) as the transient-failure fallback, so the picker and settings
+ * validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
+ * too, but only while the SEEKAI_API_KEY credential is configured - an
+ * unconfigured hop is never attempted, so advertising it would be a lie.
+ * Listed as text-only because image support on that endpoint is not assumed.
  * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.
  */
@@ -575,7 +549,6 @@ export async function listGatewayModels(
   const models: AvailableGatewayModel[] = [
     { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
     { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
-    { id: TOKENHARBOR_SECOND_FALLBACK_MODEL, kind: "vision" },
   ];
   const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
   if (seekai && !models.some(entry => entry.id === seekai)) {

@@ -43,6 +43,39 @@ export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
 /** One turn's tappable follow-up suggestions, rendered as chips. */
 export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
 
+/**
+ * The public name of Nova's built-in model. The inference API never exposes
+ * the underlying gateway model id: clients ask for `nova-pro` and the built-in
+ * gateway resolves whichever default this deployment is configured with.
+ * Server modules share it from here so no copy has to import across a cycle.
+ */
+export const NOVA_PRO_MODEL_ID = "nova-pro";
+
+// Chat-image attachment limits. The browser composer (which downscales and
+// encodes each picked image) and the server endpoint (which validates the
+// request body) must enforce the same caps, so they live here where they
+// cannot drift.
+/** Most images one chat message may carry. */
+export const MAX_CHAT_IMAGE_ATTACHMENTS = 4;
+/**
+ * Combined encoded size of one message's images. Keeps the whole JSON body
+ * comfortably inside the endpoint's request-body limit even when every
+ * attachment is large.
+ */
+export const MAX_CHAT_IMAGE_TOTAL_CHARS = 3_500_000;
+/**
+ * Image types the composer accepts (any case), mapped to the file extension
+ * a stored chat image gets. The server parses data URIs with this table, and
+ * the browser filters picked files against the same key set.
+ */
+export const SUPPORTED_CHAT_IMAGE_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no
 // Domain), so a sibling *.manus.space site cannot plant a matching value in a

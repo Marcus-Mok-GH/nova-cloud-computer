@@ -434,24 +434,6 @@ export async function ensurePersistentSandbox(
   }
 }
 
-export async function recoverPersistentSandbox(
-  client: E2BClientLike,
-  workspaceId: number,
-  ownerId: number,
-  knownSandboxId?: string | null
-): Promise<E2BSandboxLike> {
-  try {
-    return await createOrGetPersistentSandbox(
-      client,
-      workspaceId,
-      ownerId,
-      knownSandboxId
-    );
-  } catch {
-    return ensurePersistentSandbox(client, workspaceId, ownerId);
-  }
-}
-
 /** Fresh sandboxes do not ship with the Nova workspace directory. Create it
  *  before any command references it as its cwd (E2B rejects missing cwds). */
 export async function ensureE2BWorkspaceDir(sandbox: E2BSandboxLike) {

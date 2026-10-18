@@ -21,7 +21,16 @@ export type NetlifySite = { id: string; name: string | null; url: string };
 /** One file in a website deploy: its site path ("/index.html") and body bytes. */
 export type NetlifyDeployFile = { path: string; content: Buffer };
 
-async function netlifyFetch(path: string, init: RequestInit = {}) {
+/**
+ * One authenticated Netlify API call. Non-2xx responses throw with the status
+ * and the response's (capped) detail - unless `allow404`, which callers use
+ * where a missing resource counts as success.
+ */
+async function netlifyFetch(
+  path: string,
+  init: RequestInit = {},
+  { allow404 = false }: { allow404?: boolean } = {}
+) {
   const response = await fetch(`${NETLIFY_API_BASE}${path}`, {
     ...init,
     headers: {
@@ -29,7 +38,7 @@ async function netlifyFetch(path: string, init: RequestInit = {}) {
       authorization: `Bearer ${ENV.netlifyApiToken}`,
     },
   });
-  if (!response.ok) {
+  if (!response.ok && !(allow404 && response.status === 404)) {
     const detail = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ").trim();
     throw new Error(
       `Netlify responded with status ${response.status}${detail ? `: ${detail}` : "."}`
@@ -51,16 +60,11 @@ export async function createNetlifySite(): Promise<NetlifySite> {
 
 /** Deletes a site entirely - its URL goes offline immediately. A 404 is treated as success (the site is already gone). */
 export async function deleteNetlifySite(siteId: string) {
-  const response = await fetch(`${NETLIFY_API_BASE}/sites/${encodeURIComponent(siteId)}`, {
-    method: "DELETE",
-    headers: { authorization: `Bearer ${ENV.netlifyApiToken}` },
-  });
-  if (!response.ok && response.status !== 404) {
-    const detail = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ").trim();
-    throw new Error(
-      `Netlify responded with status ${response.status}${detail ? `: ${detail}` : "."}`
-    );
-  }
+  await netlifyFetch(
+    `/sites/${encodeURIComponent(siteId)}`,
+    { method: "DELETE", headers: { authorization: `Bearer ${ENV.netlifyApiToken}` } },
+    { allow404: true }
+  );
 }
 
 /**

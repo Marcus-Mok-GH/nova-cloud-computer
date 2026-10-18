@@ -6,6 +6,8 @@ import {
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
 } from "@shared/const";
+import { normalizeFollowUps } from "@shared/followUps";
+import { latestAgentModeMarker } from "@shared/agentMode";
 
 export {
   TOOL_ACTIVITY_MESSAGE_PREFIX,
@@ -39,29 +41,18 @@ export type ChatWorkflowMode = "chat" | "plan" | "build";
 export function chatWorkflowMode(
   messages: PersistedChatMessage[]
 ): ChatWorkflowMode {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const content = messages[index].content;
-    if (content.startsWith(AGENT_MODE_MESSAGE_PREFIX)) {
-      const mode = content.slice(AGENT_MODE_MESSAGE_PREFIX.length);
-      if (mode === "chat" || mode === "plan" || mode === "build") return mode;
-      return "chat";
-    }
-  }
+  const marker = latestAgentModeMarker(messages);
+  if (marker) return marker;
   return messages.some(message => message.role === "assistant")
     ? "build"
     : "chat";
 }
 
-/** The most chips one turn may show; the tool schema promises the same. */
-const MAX_FOLLOW_UPS = 3;
-/** Mirrors the server's per-suggestion cap so a hand-edited row cannot bloat the UI. */
-const MAX_FOLLOW_UP_CHARS = 200;
-
 /**
  * Parses an internal follow-up row back into its suggestions; null when the
- * row is not a usable one. Mirrors the server's normalization (strings only,
- * trimmed, de-duplicated, capped) so a malformed ledger row can never render
- * blank or oversized chips.
+ * row is not a usable one. Shares the server's normalization core
+ * (`@shared/followUps`); unlike the writer it only accepts the array form
+ * the server persists, so a hand-edited bare string cannot render chips.
  */
 export function parseFollowUpMessage(content: string): string[] | null {
   if (!content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)) return null;
@@ -70,17 +61,7 @@ export function parseFollowUpMessage(content: string): string[] | null {
       content.slice(FOLLOW_UP_MESSAGE_PREFIX.length)
     ) as unknown;
     if (!Array.isArray(parsed)) return null;
-    const seen = new Set<string>();
-    const followUps: string[] = [];
-    for (const item of parsed) {
-      if (typeof item !== "string") continue;
-      const text = item.trim().slice(0, MAX_FOLLOW_UP_CHARS);
-      const key = text.toLowerCase();
-      if (!text || seen.has(key)) continue;
-      seen.add(key);
-      followUps.push(text);
-      if (followUps.length >= MAX_FOLLOW_UPS) break;
-    }
+    const followUps = normalizeFollowUps(parsed);
     return followUps.length ? followUps : null;
   } catch {
     return null;

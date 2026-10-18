@@ -41,14 +41,6 @@ export async function listChatMessagesForUser(ownerId: number, chatId: string) {
   return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
 }
 
-export async function updateChatForUser(ownerId: number, chatId: string, title: string) {
-  const db = await requireDb();
-  const chat = await getChatForUser(ownerId, chatId);
-  if (!chat) return undefined;
-  const [updated] = await db.update(chats).set({ title, updatedAt: new Date() }).where(eq(chats.id, chat.id)).returning();
-  return updated;
-}
-
 export async function appendChatMessageForUser(ownerId: number, input: { chatId: string; role: "user" | "assistant"; content: string }) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, input.chatId);

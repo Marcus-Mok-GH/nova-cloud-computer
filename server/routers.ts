@@ -101,6 +101,8 @@ function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNul
  */
 const atLeastOneOf = (keys: readonly string[]) => (input: object) =>
   keys.some(key => (input as Record<string, unknown>)[key] !== undefined);
+/** The `{ id }` input every delete-style and by-id procedure parses. */
+const idInput = z.object({ id: z.number().int().positive() });
 const projectInput = z.object({ name: z.string().trim().min(1, "A project needs a name.").max(160), description: z.string().trim().max(2000).nullable().optional() });
 const taskStatus = z.enum(["todo", "in_progress", "done"]);
 const projectStatus = z.enum(["active", "archived"]);
@@ -110,6 +112,8 @@ const modelProvider = z.enum(["anthropic", "openai", "gemini", "custom", "mistra
 const modelCompatibility = z.enum(["openai", "anthropic"]);
 const projectUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), description: z.string().trim().max(2000).nullable().optional(), status: projectStatus.optional() }).refine(atLeastOneOf(["name", "description", "status"]), { message: "Provide at least one project change." });
 const customModelInput = z.object({ name: z.string().trim().min(1, "Give the model a name.").max(120), modelId: z.string().trim().min(1, "A model ID is required.").max(240), baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), compatibility: modelCompatibility, apiKey: z.string().trim().min(1, "An API key is required.").max(4096), supportsImageInput: z.boolean() });
+/** The connectivity test takes only the three access fields; the stored custom model adds the rest. */
+const testModelEndpointInput = customModelInput.pick({ baseUrl: true, apiKey: true, modelId: true });
 const personalisationDetail = z.enum(["brief", "balanced", "detailed"]);
 const personalisationProactiveness = z.enum(["ask_first", "act_and_tell", "autonomous"]);
 const personalisationExpertise = z.enum(["new", "some", "expert"]);
@@ -254,7 +258,7 @@ export const appRouter = router({
         return renamed;
       }),
     revoke: protectedProcedure
-      .input(z.object({ id: z.number().int().positive() }))
+      .input(idInput)
       .mutation(async ({ ctx, input }) => {
         const revoked = await revokeApiKeyForUser(ctx.user.id, input.id);
         if (!revoked) throw new TRPCError({ code: "NOT_FOUND", message: "That API key does not exist." });
@@ -329,7 +333,7 @@ export const appRouter = router({
     /** Forgets one stored memory by id. Unlike the agent's own memory tools
      *  this is not scope-narrowed: from settings the owner manages every
      *  memory in the workspace. */
-    deleteMemory: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    deleteMemory: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
       const deleted = await deleteOwnedMemoryForUser(ctx.user.id, input.id);
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That memory is not available in your Nova space." });
       return { success: true as const };
@@ -417,18 +421,18 @@ export const appRouter = router({
   agentVm: router({
     status: protectedProcedure.query(({ ctx }) => getAgentVmStatus(ctx.user.id)), list: protectedProcedure.query(({ ctx }) => listAgentVmRuns(ctx.user.id)),
     start: protectedProcedure.input(agentVmRunInput).mutation(async ({ ctx, input }) => { try { return await startAgentVmRun(ctx.user.id, input, { pauseWhenDone: true }); } catch (error) { /* Only curated, user-facing messages reach the client; unexpected errors (sandbox/provider internals) are logged and replaced with a fixed generic message. */ const detail = error instanceof Error ? error.message : ""; const code = /active agent VM run/i.test(detail) ? "PRECONDITION_FAILED" : /blocked|limits/i.test(detail) ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; if (code === "INTERNAL_SERVER_ERROR") console.warn("[AgentVM] start failed:", detail); throw new TRPCError({ code, message: code === "INTERNAL_SERVER_ERROR" ? "Nova could not start that agent VM run." : detail }); } }),
-    cancel: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const run = await cancelAgentVmRun(ctx.user.id, input.id); if (!run) throwIfNotFound(run, "active agent VM run"); return run; }),
+    cancel: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const run = await cancelAgentVmRun(ctx.user.id, input.id); if (!run) throwIfNotFound(run, "active agent VM run"); return run; }),
   }),
   automations: router({
     list: protectedProcedure.query(({ ctx }) => listAutomationsForUser(ctx.user.id)), runs: protectedProcedure.input(z.object({ automationId: z.number().int().positive() })).query(({ ctx, input }) => listAutomationRunsForUser(ctx.user.id, input.automationId)),
     update: protectedProcedure.input(z.object({ id: z.number().int().positive(), enabled: z.boolean() })).mutation(async ({ ctx, input }) => { const existing = await getAutomationRecordForUser(ctx.user.id, input.id); if (!existing) throwIfNotFound(existing, "automation"); const token = sessionToken(ctx.req); if (!token) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Your Nova session is not ready to save a background schedule. Refresh the page and try again." }); if (input.enabled) { if (existing.scheduleCronTaskUid) await updateHeartbeatJob(existing.scheduleCronTaskUid, { cron: WORKSPACE_DIGEST_CRON, path: "/api/scheduled/automation", method: "POST", enable: true }, token); else { const scheduled = await createHeartbeatJob({ name: `nova-automation-${existing.id}`, cron: WORKSPACE_DIGEST_CRON, path: "/api/scheduled/automation", method: "POST", description: "Daily private Nova workspace briefing" }, token); await setAutomationScheduleTaskForUser(ctx.user.id, existing.id, scheduled.taskUid); } } else if (existing.scheduleCronTaskUid) await updateHeartbeatJob(existing.scheduleCronTaskUid, { enable: false }, token); const automation = await updateAutomationForUser(ctx.user.id, input.id, { enabled: input.enabled }); if (!automation) throwIfNotFound(automation, "automation"); return automation; }),
     runDue: protectedProcedure.mutation(async ({ ctx }) => { try { return await runDueAutomationsForUser(ctx.user.id); } catch (error) { /* Only the automation module's own "Nova ..." messages are user-facing; anything else (query errors, provider internals) is logged and kept out of the response. */ const detail = error instanceof Error ? error.message : ""; if (detail && !detail.startsWith("Nova ")) console.warn("[Automations] runDue failed:", detail); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: detail.startsWith("Nova ") ? detail : "Nova could not run the saved automation." }); } }),
   }),
-  folders: router({ create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => { const folder = await createWorkspaceFolderForUser(ctx.user.id, input); if (!folder) throwIfNotFound(folder, "parent folder"); return folder; }), update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => { const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input); if (!folder) throwIfNotFound(folder, "folder"); return folder; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "folder"); return { success: true } as const; }) }),
+  folders: router({ create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => { const folder = await createWorkspaceFolderForUser(ctx.user.id, input); if (!folder) throwIfNotFound(folder, "parent folder"); return folder; }), update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => { const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input); if (!folder) throwIfNotFound(folder, "folder"); return folder; }), delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "folder"); return { success: true } as const; }) }),
   files: router({
     create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => { const file = await createWorkspaceFileForUser(ctx.user.id, input); if (!file) throwIfNotFound(file, "folder"); return file; }),
     update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => { const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input); if (!file) throwIfNotFound(file, "file or destination folder"); return file; }),
-    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "file"); return { success: true } as const; }),
+    delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "file"); return { success: true } as const; }),
     /** Full-text search across the workspace's files: name, body and MIME type.
      *  `regex` treats the query as a regular expression. */
     search: protectedProcedure
@@ -448,7 +452,7 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => listSkillsForUser(ctx.user.id)),
     create: protectedProcedure.input(skillInput).mutation(async ({ ctx, input }) => { try { return await createSkillForUser(ctx.user.id, input); } catch (error) { throw skillRouteError(error, "Nova could not save that skill."); } }),
     update: protectedProcedure.input(skillUpdateInput).mutation(async ({ ctx, input }) => { try { const skill = await updateSkillForUser(ctx.user.id, input.id, input); throwIfNotFound(skill, "skill"); return skill; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not update that skill."); } }),
-    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { const deleted = await deleteSkillForUser(ctx.user.id, input.id); throwIfNotFound(deleted, "skill"); return { success: true as const }; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not delete that skill."); } }),
+    delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { try { const deleted = await deleteSkillForUser(ctx.user.id, input.id); throwIfNotFound(deleted, "skill"); return { success: true as const }; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not delete that skill."); } }),
   }),
   chats: router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
@@ -496,7 +500,7 @@ export const appRouter = router({
         return agentRouteError(error, "Nova could not update that agent.");
       }
     }),
-    delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
       const deleted = await deleteAgentForUser(ctx.user.id, input.id);
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That agent does not exist in your Nova space." });
       return { success: true } as const;
@@ -516,12 +520,12 @@ export const appRouter = router({
     }),
     /** Approvals waiting on the user, plus the most recently decided ones. */
     approvals: protectedProcedure.query(({ ctx }) => listApprovalsForUser(ctx.user.id)),
-    approve: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    approve: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
       const result = await decideApprovalForUser(ctx.user.id, input.id, "approve");
       if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That request is no longer waiting for a decision." });
       return result;
     }),
-    deny: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    deny: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
       const result = await decideApprovalForUser(ctx.user.id, input.id, "deny");
       if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That request is no longer waiting for a decision." });
       return result;
@@ -529,8 +533,8 @@ export const appRouter = router({
     /** Nova-internal mail between agents (and to the workspace owner). */
     inbox: protectedProcedure.query(({ ctx }) => listAgentEmailsForUser(ctx.user.id)),
   }),
-  models: router({ createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)), deleteCustom: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteCustomModelForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "custom model"); return { success: true } as const; }), /** Tests a candidate BYOK endpoint (base URL + key + model ID) without saving it. */ testCustom: protectedProcedure.input(z.object({ baseUrl: z.string().trim().url("Enter a complete HTTPS endpoint URL.").max(2048), apiKey: z.string().trim().min(1, "An API key is required.").max(4096), modelId: z.string().trim().min(1, "A model ID is required.").max(240) })).mutation(async ({ input }) => { try { return await testCustomModelEndpoint(input); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The provider endpoint could not be reached." }); } }) }),
-  projects: router({ list: protectedProcedure.query(({ ctx }) => listProjectsForUser(ctx.user.id)), get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => { const project = await getProjectForUser(ctx.user.id, input.id); if (!project) throwIfNotFound(project, "project"); return project; }), create: protectedProcedure.input(projectInput).mutation(async ({ ctx, input }) => { const project = await createProjectForUser(ctx.user.id, input); if (!project) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that project." }); return project; }), update: protectedProcedure.input(projectUpdateInput).mutation(async ({ ctx, input }) => { const project = await updateProjectForUser(ctx.user.id, input.id, input); if (!project) throwIfNotFound(project, "project"); return project; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteProjectForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "project"); return { success: true } as const; }) }),
-  tasks: router({ list: protectedProcedure.query(({ ctx }) => listTasksForUser(ctx.user.id)), create: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), title: z.string().trim().min(1, "A task needs a title.").max(240), notes: z.string().trim().max(4000).nullable().optional(), dueAt: z.date().nullable().optional() })).mutation(async ({ ctx, input }) => { const task = await createTaskForUser(ctx.user.id, input); if (!task) throwIfNotFound(task, "project"); return task; }), updateStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: taskStatus })).mutation(async ({ ctx, input }) => { const task = await updateTaskStatusForUser(ctx.user.id, input.id, input.status); if (!task) throwIfNotFound(task, "task"); return task; }), delete: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const deleted = await deleteTaskForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "task"); return { success: true } as const; }) }),
+  models: router({ createCustom: protectedProcedure.input(customModelInput).mutation(({ ctx, input }) => createCustomModelForUser(ctx.user.id, input)), deleteCustom: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteCustomModelForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "custom model"); return { success: true } as const; }), /** Tests a candidate BYOK endpoint (base URL + key + model ID) without saving it. */ testCustom: protectedProcedure.input(testModelEndpointInput).mutation(async ({ input }) => { try { return await testCustomModelEndpoint(input); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The provider endpoint could not be reached." }); } }) }),
+  projects: router({ list: protectedProcedure.query(({ ctx }) => listProjectsForUser(ctx.user.id)), get: protectedProcedure.input(idInput).query(async ({ ctx, input }) => { const project = await getProjectForUser(ctx.user.id, input.id); if (!project) throwIfNotFound(project, "project"); return project; }), create: protectedProcedure.input(projectInput).mutation(async ({ ctx, input }) => { const project = await createProjectForUser(ctx.user.id, input); if (!project) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that project." }); return project; }), update: protectedProcedure.input(projectUpdateInput).mutation(async ({ ctx, input }) => { const project = await updateProjectForUser(ctx.user.id, input.id, input); if (!project) throwIfNotFound(project, "project"); return project; }), delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteProjectForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "project"); return { success: true } as const; }) }),
+  tasks: router({ list: protectedProcedure.query(({ ctx }) => listTasksForUser(ctx.user.id)), create: protectedProcedure.input(z.object({ projectId: z.number().int().positive(), title: z.string().trim().min(1, "A task needs a title.").max(240), notes: z.string().trim().max(4000).nullable().optional(), dueAt: z.date().nullable().optional() })).mutation(async ({ ctx, input }) => { const task = await createTaskForUser(ctx.user.id, input); if (!task) throwIfNotFound(task, "project"); return task; }), updateStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: taskStatus })).mutation(async ({ ctx, input }) => { const task = await updateTaskStatusForUser(ctx.user.id, input.id, input.status); if (!task) throwIfNotFound(task, "task"); return task; }), delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteTaskForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "task"); return { success: true } as const; }) }),
 });
 export type AppRouter = typeof appRouter;

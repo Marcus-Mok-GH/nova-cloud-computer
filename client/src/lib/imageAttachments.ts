@@ -4,17 +4,17 @@
  * downscaled and re-encoded to JPEG before it becomes a data URI. Small files
  * are kept byte-for-byte so screenshots stay sharp and transparency/animation
  * survives.
+ *
+ * The attachment limits and the accepted image types are the byte-for-byte
+ * contract with the server's request validation (`@shared/const`).
  */
 
-/** Most images one chat message may carry; mirrors the server's cap. */
-export const MAX_CHAT_IMAGE_ATTACHMENTS = 4;
+import { SUPPORTED_CHAT_IMAGE_MIME } from "@shared/const";
+
+/** Attachment limits shared with the server's request validation (`@shared/const`). */
+export { MAX_CHAT_IMAGE_ATTACHMENTS, MAX_CHAT_IMAGE_TOTAL_CHARS } from "@shared/const";
 /** Longest edge an oversized image is scaled down to. */
 export const MAX_CHAT_IMAGE_DIMENSION = 1280;
-/**
- * Total encoded size one message's attachments may add up to. Keeps the JSON
- * request comfortably inside the server's body limit even with a full set.
- */
-export const MAX_CHAT_IMAGE_TOTAL_CHARS = 3_500_000;
 /** Below this size a supported image is attached unchanged. */
 const KEEP_ORIGINAL_BYTES = 700_000;
 const JPEG_QUALITY = 0.82;
@@ -27,8 +27,11 @@ export type ChatImageAttachment = {
 };
 
 export function isSupportedChatImage(file: File): boolean {
-  return /^image\/(png|jpe?g|webp|gif)$/i.test(file.type);
+  return SUPPORTED_CHAT_IMAGE_MIME_TYPES.includes(file.type.toLowerCase());
 }
+
+/** The image types the composer accepts, keyed like the server's table. */
+const SUPPORTED_CHAT_IMAGE_MIME_TYPES = Object.keys(SUPPORTED_CHAT_IMAGE_MIME);
 
 /** Downscales/encodes one picked file, or explains why it cannot be used. */
 export async function prepareChatImageAttachment(

@@ -1,3 +1,33 @@
+2026-10-18 - the migration chain replays cleanly on a fresh database
+
+drizzle-kit applies every pending migration in a single transaction, and two
+historical migrations used enum values that were only added earlier in that
+same chain: 0022 compared `workspace_settings.activeProvider` to
+'nvidia-nim' (added to `model_provider` in 0009), and 0031 set `users.role`
+to 'developer' (added to `user_role` in 0030). PostgreSQL refuses to use an
+enum value until the transaction that added it commits (55P04 "unsafe use of
+new value"), so any database replaying the chain from scratch - a freshly
+provisioned Neon project, a preview branch, disaster recovery - died partway
+through the deploy build's `db:migrate:deploy` step, while the long-lived
+production database, which applied each migration in its own deploy's
+transaction over weeks, never hit the guard.
+
+0022 now compares the provider as text, matching the same rows without
+coercing the pending enum literal, and 0031 wraps the eager promotion in a
+guard that skips only when the value is still uncommitted - the runtime auth
+path re-asserts the pinned developer rank on every authenticated request
+anyway, and databases where the value is long committed still run the update.
+0023's `ADD VALUE` also gains `IF NOT EXISTS`, so drifted environments record
+the migration instead of failing every deploy, matching 0009 and 0030.
+
+Files: drizzle/neon/0022_mistral_provider.sql,
+drizzle/neon/0023_easy_moondragon.sql,
+drizzle/neon/0031_promote_sole_developer.sql, CHANGELOG.md.
+Tests: full chain replayed through drizzle-kit against a fresh PostgreSQL
+database (52 migrations recorded, enums and tables intact, re-run is a clean
+no-op), the 0031 promotion verified against a committed-enum database, and
+the migrate plus Neon-auth catch-all suites green.
+
 2026-10-18 - Claude Haiku 5.5 leaves the fallback chain; MiMo is the Token Harbor fallback
 
 The built-in gateway's transient-failure chain ran

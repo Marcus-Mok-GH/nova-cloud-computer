@@ -1,3 +1,25 @@
+2026-10-18 - Vercel deploys survive a Neon outage
+
+Every deployment since October 17 failed before any code was built: the
+build's first step applies migrations over a database connection, Neon was
+refusing all of them ("Your account or project has exceeded the quota"),
+and drizzle-kit's non-zero exit aborted the build while its spinner hid
+the real error from the log. The Vercel build command now runs a tolerant
+gate (server/migrate-deploy.ts) instead: it probes the database with the
+same pg driver and connection string drizzle-kit would use, and when the
+probe answers, migrations run exactly as before so genuine SQL failures
+still fail the build. When it does not, the gate prints the underlying
+error as a build warning and ships the deploy anyway; that is safe because
+the runtime bootstrap (server/migrate.ts) already retries pending
+migrations on the first database-backed request, so the schema catches up
+on the next healthy deploy. Manual `pnpm run db:migrate:deploy` stays
+strict.
+
+Files: vercel.json, server/migrate-deploy.ts, server/migrate-deploy.test.ts,
+README.md, CHANGELOG.md.
+Tests: pnpm check, pnpm test, plus a live `tsx server/migrate-deploy.ts`
+run against the quota-blocked Neon, which printed the reason and exited 0.
+
 2026-10-18 - the landing page is rebuilt from sections and speaks every supported language
 
 Home.tsx had become a single 156-line file of hardcoded English whose warm hex

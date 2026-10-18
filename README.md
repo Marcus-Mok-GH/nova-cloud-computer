@@ -127,9 +127,8 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `TOKENHARBOR_API_KEY`         | Server-only Token Harbor key (`thk_live_...`) powering the built-in AI gateway    |
 | `TOKENHARBOR_GATEWAY_URL`     | Optional HTTPS override for the Token Harbor base URL (defaults to `https://tokenharbor.ai/v1`) |
 | `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
-| `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `claude-haiku-5.5:free`); set to `none`/`disabled` to disable |
-| `TOKENHARBOR_SECOND_FALLBACK_MODEL` | Optional override for the built-in gateway second fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
-| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after both Token Harbor fallbacks fail |
+| `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
+| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after the Token Harbor fallback fails |
 | `SEEKAI_GATEWAY_URL`         | Optional HTTPS override for the SeekAI base URL (defaults to `https://seekai.cc/v1`) |
 | `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
@@ -138,9 +137,8 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
 
 The built-in gateway serves Token Harbor's free
-`deepseek-v4.1-flash:free` with `claude-haiku-5.5:free` as the first fallback
-and `mimo-v2.6-flash:free` (Xiaomi MiMo) as the second fallback for
-transient failures. See
+`deepseek-v4.1-flash:free` with `mimo-v2.6-flash:free` (Xiaomi MiMo) as the
+fallback for transient failures. See
 [`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
 details.
 

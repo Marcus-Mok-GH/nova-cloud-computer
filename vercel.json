@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm run db:migrate:deploy && pnpm run build",
+  "buildCommand": "pnpm exec tsx server/migrate-deploy.ts && pnpm run build",
   "outputDirectory": "dist/public",
   "rewrites": [
     {

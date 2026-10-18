@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { workspaceFiles, workspaceFolders, workspaces } from "../../drizzle/schema";
-import { destroyPersistentSandbox, getE2BClient, initWorkspacePersistentVm } from "../e2b";
+import { destroyPersistentSandbox, initWorkspacePersistentVm } from "../e2b";
 import { requireDb } from "./core";
 import { cancelActiveAgentVmRunsForUser } from "./agentRuns";
 
@@ -31,19 +31,6 @@ async function ensureWorkspacePersistentVm<T extends typeof workspaces.$inferSel
     .where(eq(workspaces.id, workspace.id))
     .limit(1);
   return { ...workspace, persistentSandboxId: winner?.persistentSandboxId ?? sandboxId };
-}
-
-export async function getWorkspacePersistentSandbox(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  if (!workspace.persistentSandboxId) return null;
-  const client = getE2BClient();
-  if (!client) return null;
-  try {
-    return await client.connect(workspace.persistentSandboxId);
-  } catch {
-    return null;
-  }
 }
 
 /**

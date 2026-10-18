@@ -7,7 +7,7 @@
 
 export type HighlightSegment = { text: string; match: boolean };
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+import { escapeRegExp } from "@shared/text";
 
 /** Returns the snippet as alternating plain/matched segments. Never throws. */
 export function highlightSegments(text: string, query: string, regex = false): HighlightSegment[] {

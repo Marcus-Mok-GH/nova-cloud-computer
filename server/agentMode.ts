@@ -1,9 +1,15 @@
 import { AGENT_MODE_MESSAGE_PREFIX } from "@shared/const";
-import { appendChatMessageForUser } from "./db";
+import {
+  appendChatMessageForUser,
+} from "./db";
 import { planFileName } from "./ultraplan";
 import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
+import { latestAgentModeMarker } from "@shared/agentMode";
+import type { AgentMode } from "@shared/agentMode";
 
 export { AGENT_MODE_MESSAGE_PREFIX };
+export type { AgentMode } from "@shared/agentMode";
+export { latestAgentModeMarker as readAgentModeMarker } from "@shared/agentMode";
 
 /**
  * The workflow modes a conversation moves through: chat is the default for a
@@ -11,9 +17,10 @@ export { AGENT_MODE_MESSAGE_PREFIX };
  * plan (the planning-only /ultraplan machinery); the user's approval flips it
  * into build, the ordinary full-toolkit mode. Acting is deliberately gated
  * behind planning so a request is researched and laid out before anything in
- * the workspace is touched.
+ * the workspace is touched. The type and the persisted-marker parsing are
+ * shared with the client in `@shared/agentMode`.
  */
-export type AgentMode = "chat" | "plan" | "build";
+
 
 /**
  * Internal bookkeeping rows recording a conversation's current mode (marker
@@ -63,25 +70,6 @@ export function chatModeAllowsTool(name: string): boolean {
 }
 
 /**
- * Reads the latest persisted mode marker from a conversation's rows. Returns
- * null when the chat has never recorded a mode (an older chat, or a brand-new
- * one), so the caller can decide the default.
- */
-export function readAgentModeMarker(
-  messages: Array<{ role: string; content: string }>
-): AgentMode | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const content = messages[index].content;
-    if (content.startsWith(AGENT_MODE_MESSAGE_PREFIX)) {
-      const mode = content.slice(AGENT_MODE_MESSAGE_PREFIX.length);
-      if (mode === "chat" || mode === "plan" || mode === "build") return mode;
-      return "chat";
-    }
-  }
-  return null;
-}
-
-/**
  * Resolves the workflow mode a run should use. A recorded marker wins; "plan"
  * means a plan was drafted and the user has now replied, which enters build.
  * With no marker, a chat that already has an assistant turn is an existing
@@ -91,7 +79,7 @@ export function readAgentModeMarker(
 export function resolveAgentMode(
   messages: Array<{ role: string; content: string }>
 ): { mode: "chat" | "build"; isNewChat: boolean; fromPlan: boolean } {
-  const marker = readAgentModeMarker(messages);
+  const marker = latestAgentModeMarker(messages);
   if (marker === "plan")
     return { mode: "build", isNewChat: false, fromPlan: true };
   if (marker === "chat" || marker === "build")

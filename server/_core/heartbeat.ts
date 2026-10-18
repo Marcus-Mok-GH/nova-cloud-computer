@@ -181,33 +181,3 @@ export async function updateHeartbeatJob(
     userSession
   );
 }
-
-/** Delete a cron located by `taskUid`. Idempotent on caller side. */
-export async function deleteHeartbeatJob(
-  taskUid: string,
-  userSession: string
-): Promise<void> {
-  await callForge("DeleteHeartbeatJob", { taskUid }, userSession);
-}
-
-/**
- * List cron jobs owned by the resolved actor (end-user when `userSession`
- * is set, project owner otherwise) within the current project.
- *
- * `actorUserId` in the response echoes whose cron list you got back. End-users
- * cannot list other users' crons via this SDK; cross-user inspection is
- * owner-only via the sandbox CLI (`manus-heartbeat list --user-id <uid>`).
- */
-export async function listHeartbeatJobs(
-  userSession: string,
-  pagination?: { page?: number; pageSize?: number }
-): Promise<{ total: number; actorUserId: string; jobs: HeartbeatJobInfo[] }> {
-  const body: Record<string, unknown> = {};
-  if (pagination?.page !== undefined) body.page = pagination.page;
-  if (pagination?.pageSize !== undefined) body.pageSize = pagination.pageSize;
-  return callForge<{
-    total: number;
-    actorUserId: string;
-    jobs: HeartbeatJobInfo[];
-  }>("ListHeartbeatJobs", body, userSession);
-}

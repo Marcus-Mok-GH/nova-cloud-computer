@@ -28,16 +28,6 @@ export async function listSiteDeploymentsForUser(ownerId: number, limit = 10) {
     .limit(limit);
 }
 
-/** Every distinct Netlify site the workspace has ever deployed (any status), for deletion sweeps. */
-export async function listSiteDeploymentSiteIdsForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
-  const rows = await db.selectDistinct({ siteId: siteDeployments.siteId })
-    .from(siteDeployments)
-    .where(eq(siteDeployments.workspaceId, workspace.id));
-  return rows.map(row => row.siteId);
-}
-
 /** Marks every deployment record of one Netlify site as deleted. Returns how many rows changed. */
 export async function markSiteDeploymentsDeletedForUser(ownerId: number, siteId: string) {
   const db = await requireDb();

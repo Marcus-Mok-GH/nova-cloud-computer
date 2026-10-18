@@ -175,7 +175,7 @@ pnpm db:push
 
 The repo is linked to the Vercel project `nova-cloud-computer` (see `.vercel/repo.json`). Production is deployed from the `main` branch.
 
-- Build command: `pnpm run db:migrate:deploy && pnpm run build` (applies pending migrations automatically whenever a database URL is configured; skips cleanly when none is present, e.g. CI)
+- Build command: `pnpm exec tsx server/migrate-deploy.ts && pnpm run build` (probes the database first: applies pending migrations when it answers, and when it does not — quota exhausted, outage — logs the reason and deploys anyway, since the runtime bootstrap retries pending migrations on the first database-backed request; skips cleanly when no database URL is present, e.g. CI. `pnpm run db:migrate:deploy` stays strict for manual runs)
 - The standalone server also migrates at boot (`pnpm start`), so a self-hosted run creates any missing tables automatically
 - Output directory: `dist/public`
 - Serverless entry: `api/[...path].ts` (mounts the Express app)

@@ -1,5 +1,6 @@
 import type { DesktopCapture } from "../desktopBrowser";
 import { createWorkspaceFileForUser } from "../db";
+import { fileStamp } from "@shared/text";
 
 /**
  * Saves a desktop capture into the workspace as a PNG file, so the user can
@@ -40,7 +41,7 @@ export function browseCaptureFileName(
   atMs = Date.now(),
   unique = false
 ) {
-  const stamp = new Date(atMs).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const stamp = fileStamp(atMs);
   const base =
     (suggested ?? "desktop")
       .replace(/\.png$/i, "")

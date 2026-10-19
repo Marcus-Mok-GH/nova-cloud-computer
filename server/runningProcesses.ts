@@ -20,6 +20,8 @@
  * keeps killing is dead-lettered instead of retried forever.
  */
 import type { RunningProcess, RunningProcessPayload } from "../drizzle/schema";
+import { errorMessage } from "@shared/_core/errors";
+import { retryUntilAccepted } from "@shared/timing";
 import { ENV } from "./_core/env";
 import { postSignedSelfCall } from "./selfCall";
 import { trackBackgroundWork } from "./backgroundWork";
@@ -196,14 +198,11 @@ async function dispatchResume(
 ): Promise<boolean> {
   const secret = ENV.agentContinueSecret;
   if (secret && ENV.publicBaseUrl) {
-    for (let attempt = 1; attempt <= RESUME_SELF_CALL_ATTEMPTS; attempt += 1) {
-      if (await callResumeEndpointOnce(secret, process.id)) return true;
-      if (attempt < RESUME_SELF_CALL_ATTEMPTS)
-        await new Promise(resolve =>
-          setTimeout(resolve, RESUME_SELF_CALL_RETRY_DELAY_MS)
-        );
-    }
-    return false;
+    return retryUntilAccepted({
+      attempts: RESUME_SELF_CALL_ATTEMPTS,
+      retryDelayMs: RESUME_SELF_CALL_RETRY_DELAY_MS,
+      attempt: () => callResumeEndpointOnce(secret, process.id),
+    });
   }
   const claimed = await claimRunningProcess(
     process.id,
@@ -290,7 +289,7 @@ export async function resumeRunningProcess(
     await finishRunningProcess(
       process.id,
       "failed",
-      error instanceof Error ? error.message : String(error)
+      errorMessage(error)
     ).catch(() => {});
     if (process.attempts >= MAX_PROCESS_RESUME_ATTEMPTS)
       await announceResumeFailure(process).catch(() => {});

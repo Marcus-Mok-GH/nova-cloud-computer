@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { TranslationKey } from "@/i18n";
 
-export type ThemeMode = "light" | "dark";
+type ThemeMode = "light" | "dark";
 
 export interface ThemeOption {
   /** Matches a `[data-theme="..."]` palette block in index.css. */

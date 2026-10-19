@@ -1,3 +1,6 @@
+import { errorMessage } from "@shared/_core/errors";
+import { fileStamp } from "@shared/text";
+
 export type TelegramBotProfile = { id: string; username: string | null; displayName: string | null };
 export type TelegramWebhookInfo = { url: string | null; linked: boolean; pendingUpdateCount: number };
 type TelegramResponse<T> = { ok: boolean; result?: T; description?: string };
@@ -22,7 +25,7 @@ async function telegramRequest<T>(token: string, method: string, payload: Record
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
   }).catch(error => {
-    throw new Error(error instanceof Error && /abort|time[d]?[\s-]?out/i.test(error.message) ? "Telegram did not answer in time." : error instanceof Error ? error.message : String(error));
+    throw new Error(error instanceof Error && /abort|time[d]?[\s-]?out/i.test(error.message) ? "Telegram did not answer in time." : errorMessage(error));
   });
   const data = await response.json().catch(() => ({})) as TelegramResponse<T>;
   if (!response.ok || !data.ok || data.result === undefined) throw new Error(data.description || "Telegram could not complete that request.");
@@ -67,7 +70,7 @@ export async function discoverTelegramChat(token: string, fetchImpl: typeof fetc
   try {
     updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     if (msg.toLowerCase().includes("webhook") && msg.toLowerCase().includes("getupdates")) {
       await telegramRequest<boolean>(token, "deleteWebhook", { drop_pending_updates: false }, fetchImpl);
       updates = await telegramRequest<Array<{ message?: { chat?: { id?: number | string } }; channel_post?: { chat?: { id?: number | string } } }>>(token, "getUpdates", { limit: 50 }, fetchImpl);
@@ -187,7 +190,7 @@ export async function downloadTelegramUpload(token: string, upload: TelegramUplo
   const response = await fetchImpl(telegramFileUrl(token, fileInfo.file_path), { signal: AbortSignal.timeout(TELEGRAM_FILE_DOWNLOAD_TIMEOUT_MS) });
   if (!response.ok) throw new Error("Telegram could not deliver that file.");
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const stamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+  const stamp = fileStamp(Date.now());
   const name =
     upload.fileName ??
     (upload.kind === "photo" ? `photo-${stamp}.jpg`

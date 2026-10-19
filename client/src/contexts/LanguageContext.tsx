@@ -12,12 +12,10 @@ import {
 
 const STORAGE_KEY = "nova.language";
 
-export type { TranslationVars };
-
-export type TranslateFn = (key: TranslationKey, vars?: TranslationVars) => string;
+type TranslateFn = (key: TranslationKey, vars?: TranslationVars) => string;
 
 /** Picks the `_one`/`_other` variant of a key by count (both exist per pair). */
-export type TranslatePluralFn = (
+type TranslatePluralFn = (
   oneKey: TranslationKey,
   otherKey: TranslationKey,
   count: number,

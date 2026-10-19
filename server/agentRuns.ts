@@ -2,6 +2,8 @@ import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
 } from "@shared/const";
+import { errorMessage } from "@shared/_core/errors";
+import { retryUntilAccepted } from "@shared/timing";
 import { ENV } from "./_core/env";
 import { postSignedSelfCall } from "./selfCall";
 import { AiGatewayClientError } from "./aiGateway";
@@ -344,7 +346,7 @@ export async function executeTelegramAgentRun(
     // clue the user can act on, so it is sent instead - matching what the web
     // chat shows for the same failure. Deployment-internal kinds keep the
     // generic notice.
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = errorMessage(error);
     // "nova-pro" is the built-in model's public name: the agent's own catch
     // labels a BYOK run's provider correctly and handles every model failure
     // this safety net could reach, so only built-in failures are quoted here.
@@ -532,7 +534,7 @@ export async function executeWebAgentRun(
         ownerId,
         run.id,
         "failed",
-        error instanceof Error ? error.message : String(error)
+        errorMessage(error)
       ).catch(() => {});
     throw error;
   } finally {
@@ -557,13 +559,11 @@ export async function scheduleContinuation(
   // request between two segments threw away all the finished work. The
   // endpoint acks within milliseconds once the claim lands, so retries are
   // cheap; the caller's remaining runtime budget bounds the loop naturally.
-  for (let attempt = 1; ; attempt += 1) {
-    if (await scheduleContinuationOnce(secret, runId, segment)) return true;
-    if (attempt >= CONTINUATION_SCHEDULE_ATTEMPTS) return false;
-    await new Promise(resolve =>
-      setTimeout(resolve, CONTINUATION_RETRY_DELAY_MS)
-    );
-  }
+  return retryUntilAccepted({
+    attempts: CONTINUATION_SCHEDULE_ATTEMPTS,
+    retryDelayMs: CONTINUATION_RETRY_DELAY_MS,
+    attempt: () => scheduleContinuationOnce(secret, runId, segment),
+  });
 }
 
 async function scheduleContinuationOnce(

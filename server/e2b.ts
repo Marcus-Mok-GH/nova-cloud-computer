@@ -1,4 +1,6 @@
 import { Sandbox, type CommandResult } from "e2b";
+import { errorMessage } from "@shared/_core/errors";
+
 export const E2B_WORKSPACE_DIR = "/home/user/workspace";
 
 const MAX_WORKSPACE_FILES = 24;
@@ -162,7 +164,7 @@ export function resetSandboxCreationCount() {
 }
 
 function safeE2BError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   return message
     .replace(
       /(?:E2B_API_KEY\s*[=:]\s*|authorization\s*[:=]\s*bearer\s+|bearer\s+)\S+/gi,

@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, Refres
 import DashboardLayout from "@/components/DashboardLayout";
 import type { ServiceHealth, ServiceState, ServiceStatusReport } from "@shared/serviceStatus";
 
-export type PageProbe = { path: string; name: string; description: string; ok: boolean; latencyMs: number | null; checked: boolean };
+type PageProbe = { path: string; name: string; description: string; ok: boolean; latencyMs: number | null; checked: boolean };
 
 /** Every route the app can render, probed live by the status page. */
 export const APP_PAGES: Array<{ path: string; name: string; description: string }> = [

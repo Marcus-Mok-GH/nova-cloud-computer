@@ -233,7 +233,7 @@ const failedCount = (activities: ToolActivity[]) =>
  * the latest line spinning. Auto-scrolls to the newest line so the user can
  * watch the process happen instead of a single "working..." line.
  */
-export function ProgressLog({ log }: { log: string[] }) {
+function ProgressLog({ log }: { log: string[] }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "nearest" });

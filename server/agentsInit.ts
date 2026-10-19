@@ -145,10 +145,8 @@ export async function runAgentsInitTask(
       } else if (round === 0 && writtenPaths.size === 0) {
         summary = `The subagent could not start: ${errorMessage(error, "unknown error")}`;
       } else {
-        summary = `The subagent hit a failure mid-task (${errorMessage(
-          error,
-          "unknown error"
-        )}) after writing ${writtenPaths.size} file(s).`;
+        const reason = errorMessage(error, "unknown error");
+        summary = `The subagent hit a failure mid-task (${reason}) after writing ${writtenPaths.size} file(s).`;
       }
       break;
     }

@@ -483,7 +483,9 @@ async function main() {
   }
 
   const manifest = readManifest();
-  const cache = force ? {} : readCache();
+  // Read the cache even with --force: a forced locale ignores its own entries,
+  // but writing back must not discard what the other locales already earned.
+  const cache = readCache();
   const sourceEntries = Object.entries(en) as Array<[string, string]>;
 
   interface LocaleJob {
@@ -510,7 +512,7 @@ async function main() {
     const done: Record<string, string> = {};
     const pending: Array<[string, string]> = [];
     for (const [key, text] of stale) {
-      const cached = cache[cacheKey(target.id, text)];
+      const cached = force ? undefined : cache[cacheKey(target.id, text)];
       if (cached && isValid(text, cached)) done[key] = cached;
       else pending.push([key, text]);
     }

@@ -224,28 +224,37 @@ export function useWorkspaceChat({
       : `Uploaded ${attachments.length} images`);
   const canSendComposer =
     Boolean(draft.trim() || composerAttachments.length) && !preparingImages;
-  // While a conversation is open it polls every 2.5s so activity started
-  // elsewhere (e.g. Telegram) streams into this view in real time.
-  const savedMessages = trpc.chats.messages.useQuery(
-    { chatId: chatId ?? "" },
-    {
-      enabled: Boolean(chatId),
-      retry: false,
-      refetchOnWindowFocus: false,
-      refetchInterval: Boolean(chatId) ? 2500 : false,
-      refetchIntervalInBackground: false,
-    }
-  );
   // The backend ledger is the source of truth for active work. This keeps the
   // status visible after a refresh and for runs started from Telegram or a
   // continuation segment, where this browser does not own the fetch stream.
+  // A live run polls once a second; an idle open conversation falls back to a
+  // slow cadence so it is not a database query every second for as long as a
+  // tab stays open.
   const runStatus = trpc.chats.runStatus.useQuery(
     { chatId: chatId ?? "" },
     {
       enabled: Boolean(chatId),
       retry: false,
       refetchOnWindowFocus: true,
-      refetchInterval: Boolean(chatId) ? 1000 : false,
+      refetchInterval: query =>
+        Boolean(chatId) ? (query.state.data?.active ? 1000 : 15_000) : false,
+      refetchIntervalInBackground: false,
+    }
+  );
+  // While a conversation is open it polls quickly so activity started
+  // elsewhere (e.g. Telegram) streams into this view in real time. Idle
+  // conversations match the status query's slow cadence.
+  const savedMessages = trpc.chats.messages.useQuery(
+    { chatId: chatId ?? "" },
+    {
+      enabled: Boolean(chatId),
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchInterval: Boolean(chatId)
+        ? Boolean(runStatus.data?.active) || isStreaming
+          ? 2500
+          : 15_000
+        : false,
       refetchIntervalInBackground: false,
     }
   );
@@ -414,7 +423,14 @@ export function useWorkspaceChat({
             const data = line.slice(6).trim();
             if (data === "[DONE]") {
               await finalizeStream(targetChatId);
-              await utils.workspace.computer.invalidate();
+              // The run consumed credits and may have created or retitled the
+              // chat: refresh the sidebar, the archive, and the credit chip
+              // directly instead of relying on a background poll.
+              await Promise.all([
+                utils.workspace.computer.invalidate(),
+                utils.workspace.chats.invalidate(),
+                utils.credits.status.invalidate(),
+              ]);
               return true;
             }
             // A stream that belongs to a chat the reader has navigated away

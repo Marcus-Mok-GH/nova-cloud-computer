@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo } from "react";
 type UseAuthOptions = { redirectOnUnauthenticated?: boolean; redirectPath?: string };
 
 export const LAST_ACTIVE_KEY = "nova_last_active_timestamp";
-export const ACTIVITY_THROTTLE_MS = 10_000; // Throttle localStorage updates to at most once every 10 seconds
+const ACTIVITY_THROTTLE_MS = 10_000; // Throttle localStorage updates to at most once every 10 seconds
 
 function getUserScopedKey(userId: number): string {
   return `${LAST_ACTIVE_KEY}_user_${userId}`;

@@ -24,7 +24,7 @@ import pg from "pg";
  * `pnpm run db:migrate:deploy` stays strict.
  */
 
-export const PROBE_TIMEOUT_MS = 15_000;
+const PROBE_TIMEOUT_MS = 15_000;
 
 export type DatabaseProbe = { ok: true } | { ok: false; reason: string };
 

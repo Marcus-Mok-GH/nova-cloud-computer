@@ -82,7 +82,7 @@ export class InferenceApiError extends Error {
   }
 }
 
-export function openAiErrorPayload(status: number, message: string, type: string, code: string) {
+function openAiErrorPayload(status: number, message: string, type: string, code: string) {
   return { error: { message, type, code } };
 }
 

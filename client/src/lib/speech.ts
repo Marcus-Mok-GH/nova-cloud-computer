@@ -26,7 +26,7 @@
 import { splitSpeechText } from "@shared/speech";
 
 /** True when the current browser can read text aloud. */
-export function isSpeechSynthesisSupported(): boolean {
+function isSpeechSynthesisSupported(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof window.speechSynthesis !== "undefined" &&
@@ -90,7 +90,7 @@ export const TTS_STOP_EVENT = "nova-tts-stop";
  * CORS: the upstream free provider the endpoint calls is not CORS-enabled and
  * rate-limits per requester IP, both of which make a browser-direct call fail.
  */
-export const SPEECH_ENDPOINT = "/api/speech";
+const SPEECH_ENDPOINT = "/api/speech";
 
 /** How long to wait for a browser that loads its voice list asynchronously. */
 const VOICE_LOAD_TIMEOUT_MS = 300;
@@ -147,7 +147,7 @@ export function stopAllSpeech(): void {
 }
 
 /** Picks a reasonable default voice (English when available). */
-export function pickDefaultVoice(): SpeechSynthesisVoice | null {
+function pickDefaultVoice(): SpeechSynthesisVoice | null {
   if (!isSpeechSynthesisSupported()) return null;
   try {
     const voices = window.speechSynthesis.getVoices();
@@ -166,7 +166,7 @@ export function pickDefaultVoice(): SpeechSynthesisVoice | null {
   }
 }
 
-export interface SpeakOptions {
+interface SpeakOptions {
   rate?: number;
   pitch?: number;
   onEnd?: () => void;
@@ -178,7 +178,7 @@ export interface SpeakOptions {
  * call should be active at a time - callers must `cancel()` first (this helper
  * does that itself before queueing).
  */
-export function speakChunks(
+function speakChunks(
   chunks: string[],
   options: SpeakOptions = {}
 ): () => void {
@@ -336,7 +336,7 @@ export function speakChunks(
 }
 
 /** Where a browser that cannot speak locally gets its voice from. */
-export type SpeechEngine = "browser" | "server";
+type SpeechEngine = "browser" | "server";
 
 /**
  * Waits briefly for a browser that loads its voice list asynchronously.
@@ -419,7 +419,7 @@ export function speechRequestUrl(
  * Plays server-synthesised audio for `text`. Returns a stop function that also
  * revokes the object URL, so a cancelled message never leaks a blob.
  */
-export async function speakWithServerAudio(
+async function speakWithServerAudio(
   text: string,
   options: SpeakOptions = {}
 ): Promise<() => void> {

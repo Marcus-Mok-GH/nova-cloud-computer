@@ -12,6 +12,7 @@ import {
   MAX_CHAT_IMAGE_TOTAL_CHARS,
   SUPPORTED_CHAT_IMAGE_MIME,
 } from "@shared/const";
+import { fileStamp } from "@shared/text";
 
 /*
  * The attachment limits and the supported image table are the byte-for-byte
@@ -92,7 +93,7 @@ export function chatImageAttachmentFileName(
 ): { name: string; mimeType: string } | null {
   const parsed = parseChatImageDataUri(dataUri);
   if (!parsed) return null;
-  const stamp = new Date(atMs).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const stamp = fileStamp(atMs);
   const suffix = Math.random().toString(36).slice(2, 7);
   return {
     name: `image-${stamp}-${index + 1}-${suffix}.${parsed.extension}`,

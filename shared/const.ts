@@ -83,11 +83,9 @@ export const SUPPORTED_CHAT_IMAGE_MIME: Record<string, string> = {
 export const OAUTH_STATE_COOKIE = "__Host-oauth_state";
 
 // `state` carries the callback redirect URI (used at token exchange) plus the
-// CSRF nonce. Defined here so the client encoder and server decoder never drift.
+// CSRF nonce. Defined here so the shape read by the server is the shape the
+// login flow sends, whoever encodes it.
 export type OAuthState = { redirectUri: string; nonce?: string };
-
-export const encodeOAuthState = (state: OAuthState): string =>
-  btoa(JSON.stringify(state));
 
 export const decodeOAuthState = (state: string): OAuthState => {
   let decoded: string;

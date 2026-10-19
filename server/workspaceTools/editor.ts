@@ -4,6 +4,8 @@
  * user accept Nova's own coding while the specialist is down). Both live here
  * together because they share the specialist lifecycle.
  */
+import { errorMessage } from "@shared/_core/errors";
+import { sleep } from "@shared/timing";
 import {
   MIN_CALL_RESERVE_MS,
   runAutonomousCoderTask,
@@ -176,7 +178,7 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
       // endpoint, refused plaintext transport) is classified by type,
       // not by message text.
       if (error instanceof NimConfigError) throw error;
-      const message = error instanceof Error ? error.message : "";
+      const message = errorMessage(error, "");
       if (message.includes("not configured")) throw error;
       // Transient specialist failures (timeouts, NIM hiccups) get one
       // automatic retry, so a single blip never pushes the agent into
@@ -191,7 +193,7 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
       )
         throw error;
       note("The coding specialist hit a snag - retrying once…");
-      await new Promise(resolve => setTimeout(resolve, retryWaitMs));
+      await sleep(retryWaitMs);
       outcome = await runSpecialist();
     }
     if (outcome.kind === "single") {

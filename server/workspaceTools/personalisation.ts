@@ -14,6 +14,7 @@ import {
   type PersonalisationInput,
   type PersonalisationProactiveness,
 } from "../db";
+import { errorMessage } from "@shared/_core/errors";
 import { type ToolCtx, type ToolExecution } from "./types";
 
 export async function toolSetCommunicationStyle(ctx: ToolCtx): Promise<ToolExecution> {
@@ -30,7 +31,7 @@ export async function toolSetCommunicationStyle(ctx: ToolCtx): Promise<ToolExecu
   } catch (error) {
     return {
       ok: false,
-      result: `Could not save the style preference: ${error instanceof Error ? error.message : String(error)}`,
+      result: `Could not save the style preference: ${errorMessage(error)}`,
     };
   }
 }
@@ -72,7 +73,7 @@ export async function toolSetPersonalisation(ctx: ToolCtx): Promise<ToolExecutio
   } catch (error) {
     return {
       ok: false,
-      result: `Could not save the personalisation preferences: ${error instanceof Error ? error.message : String(error)}`,
+      result: `Could not save the personalisation preferences: ${errorMessage(error)}`,
     };
   }
 }

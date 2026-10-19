@@ -3,6 +3,7 @@
  * through the run's progress callback and reports web sources as structured
  * citations.
  */
+import { errorMessage } from "@shared/_core/errors";
 import { runResearch } from "../researcher";
 import { createProgressNudge } from "./progress";
 import { type ToolCtx, type ToolExecution } from "./types";
@@ -47,7 +48,7 @@ export async function toolResearchWeb(ctx: ToolCtx): Promise<ToolExecution> {
       },
     };
   } catch (error) {
-    const message = `Web research failed: ${error instanceof Error ? error.message : "unknown error"}.`;
+    const message = `Web research failed: ${errorMessage(error, "unknown error")}.`;
     return {
       ok: false,
       result: message,

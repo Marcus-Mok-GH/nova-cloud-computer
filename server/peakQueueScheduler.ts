@@ -1,6 +1,7 @@
 import { ENV } from "./_core/env";
 import { postSignedSelfCall } from "./selfCall";
 import { trackBackgroundWork } from "./backgroundWork";
+import { retryUntilAccepted } from "@shared/timing";
 
 /**
  * How many times the self-invocation is retried before falling back to inline
@@ -19,18 +20,16 @@ export async function scheduleQueueAdvance(): Promise<boolean> {
   const secret = ENV.agentContinueSecret;
   const baseUrl = ENV.publicBaseUrl;
   if (!secret || !baseUrl) return false;
-  for (let attempt = 1; attempt <= ADVANCE_SCHEDULE_ATTEMPTS; attempt += 1) {
-    const accepted = await postSignedSelfCall({
-      url: `${baseUrl}/api/agent/queue/advance`,
-      secret,
-      body: "{}",
-    });
-    if (accepted) return true;
-    if (attempt < ADVANCE_SCHEDULE_ATTEMPTS) {
-      await new Promise(resolve => setTimeout(resolve, ADVANCE_RETRY_DELAY_MS));
-    }
-  }
-  return false;
+  return retryUntilAccepted({
+    attempts: ADVANCE_SCHEDULE_ATTEMPTS,
+    retryDelayMs: ADVANCE_RETRY_DELAY_MS,
+    attempt: () =>
+      postSignedSelfCall({
+        url: `${baseUrl}/api/agent/queue/advance`,
+        secret,
+        body: "{}",
+      }),
+  });
 }
 
 /**

@@ -2,6 +2,7 @@
  * The thinker sub-agent tool family: one long model call that reasons through
  * a question, with a quiet-stream heartbeat so the activity panel stays honest.
  */
+import { errorMessage } from "@shared/_core/errors";
 import { runThinkerTask } from "../thinker";
 import { NimConfigError } from "../nim";
 import { createProgressNudge } from "./progress";
@@ -40,9 +41,7 @@ export async function toolThinker(ctx: ToolCtx): Promise<ToolExecution> {
     const message =
       error instanceof NimConfigError
         ? error.message
-        : `The thinker sub-agent failed: ${
-            error instanceof Error ? error.message : "unknown error"
-          }.`;
+        : `The thinker sub-agent failed: ${errorMessage(error, "unknown error")}.`;
     return {
       ok: false,
       result: message,

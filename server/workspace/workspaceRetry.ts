@@ -13,6 +13,7 @@ import {
   type GatewayToolDefinition,
 } from "../aiGateway";
 import { chatWithCustomModel, getActiveCustomModel } from "../byokGateway";
+import { sleep } from "@shared/timing";
 import type { CustomModel } from "../../drizzle/schema";
 
 /** Raised when a tool call is still running as the run deadline passes. */
@@ -90,9 +91,6 @@ export function setGatewayRetryBackoffForTests(ms: number | null) {
 
 /** Run-scoped retry bookkeeping shared across gateway rounds. */
 export type GatewayRetryState = { rateLimitRetriesUsed: number };
-
-export const waitFor = (ms: number) =>
-  new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Calls the gateway with automatic retries for transient failures (network
@@ -196,7 +194,7 @@ export async function chatWithGatewayRetry(
       } else if (transientAttempts >= TRANSIENT_RETRY_MAX_ATTEMPTS) {
         throw error;
       }
-      await waitFor(delay);
+      await sleep(delay);
       if (options.signal?.aborted) throw error;
     }
   }

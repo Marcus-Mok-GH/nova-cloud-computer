@@ -5,7 +5,7 @@
  * literal by default, regular expression when `regex` is set.
  */
 
-export type HighlightSegment = { text: string; match: boolean };
+type HighlightSegment = { text: string; match: boolean };
 
 import { escapeRegExp } from "@shared/text";
 

@@ -17,6 +17,7 @@
  * provider is Pollinations, OGG audio is decoded in-process (WASM) and
  * repackaged as 16-bit mono WAV at this boundary before upload. */
 
+import { errorMessage } from "@shared/_core/errors";
 import { ENV } from "./_core/env";
 import { OggOpusDecoder } from "ogg-opus-decoder";
 
@@ -113,7 +114,7 @@ export async function transcribeAudio(
     signal: AbortSignal.timeout(TRANSCRIPTION_TIMEOUT_MS),
   }).catch(error => {
     const timedOut = error instanceof Error && /abort|time[d]?[\s-]?out/i.test(error.message);
-    throw new Error(timedOut ? "the transcription provider did not answer in time" : error instanceof Error ? error.message : String(error));
+    throw new Error(timedOut ? "the transcription provider did not answer in time" : errorMessage(error));
   });
   const data = await response.json().catch(() => ({})) as { text?: unknown; error?: { message?: unknown } | string };
   if (!response.ok) {

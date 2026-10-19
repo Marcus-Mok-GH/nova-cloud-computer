@@ -14,7 +14,7 @@ import { SUPPORTED_CHAT_IMAGE_MIME } from "@shared/const";
 /** Attachment limits shared with the server's request validation (`@shared/const`). */
 export { MAX_CHAT_IMAGE_ATTACHMENTS, MAX_CHAT_IMAGE_TOTAL_CHARS } from "@shared/const";
 /** Longest edge an oversized image is scaled down to. */
-export const MAX_CHAT_IMAGE_DIMENSION = 1280;
+const MAX_CHAT_IMAGE_DIMENSION = 1280;
 /** Below this size a supported image is attached unchanged. */
 const KEEP_ORIGINAL_BYTES = 700_000;
 const JPEG_QUALITY = 0.82;

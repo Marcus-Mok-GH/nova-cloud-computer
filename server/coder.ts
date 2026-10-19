@@ -11,6 +11,7 @@
  * calling - works autonomously: it lists, reads and writes workspace
  * files, runs commands, and iterates until the task is done. */
 
+import { errorMessage } from "@shared/_core/errors";
 import { ENV } from "./_core/env";
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 import {
@@ -281,11 +282,10 @@ export async function runAutonomousCoderTask(
       // restart from a misleading clean slate (its writes are real, in the
       // sandbox). Report exactly what was done and let the caller verify.
       if (writtenPaths.size > 0 || commandsRun > 0) {
+        const reason = errorMessage(error, "unknown error");
         return {
           kind: "autonomous",
-          summary: `The specialist hit a failure mid-task after doing part of the work (${
-            error instanceof Error ? error.message : "unknown error"
-          }). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
+          summary: `The specialist hit a failure mid-task after doing part of the work (${reason}). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
           writtenPaths: Array.from(writtenPaths).sort(),
           commandsRun,
           // roundsRun counts every attempted request (the zero-based
@@ -377,9 +377,7 @@ export async function runAutonomousCoderTask(
       } catch (error) {
         execution = {
           ok: false,
-          result: `The tool call failed: ${
-            error instanceof Error ? error.message : "unknown error"
-          }`,
+          result: `The tool call failed: ${errorMessage(error, "unknown error")}`,
         };
       }
       if (call.name === "run_command") commandsRun += 1;

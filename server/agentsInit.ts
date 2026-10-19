@@ -11,6 +11,7 @@
  * subagent works, settling to completed (or failed) when it is done.
  */
 
+import { errorMessage } from "@shared/_core/errors";
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 import {
   CONTEXT_CHAR_BUDGET,
@@ -142,13 +143,10 @@ export async function runAgentsInitTask(
           ? "The subagent's conversation outgrew the model's context window; it compacted the earlier steps but the window closed before it could retry."
           : "The subagent's conversation grew past the model's context window and could no longer be compacted.";
       } else if (round === 0 && writtenPaths.size === 0) {
-        summary = `The subagent could not start: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`;
+        summary = `The subagent could not start: ${errorMessage(error, "unknown error")}`;
       } else {
-        summary = `The subagent hit a failure mid-task (${
-          error instanceof Error ? error.message : "unknown error"
-        }) after writing ${writtenPaths.size} file(s).`;
+        const reason = errorMessage(error, "unknown error");
+        summary = `The subagent hit a failure mid-task (${reason}) after writing ${writtenPaths.size} file(s).`;
       }
       break;
     }
@@ -188,9 +186,7 @@ export async function runAgentsInitTask(
       } catch (error) {
         execution = {
           ok: false,
-          result: `The tool call failed: ${
-            error instanceof Error ? error.message : "unknown error"
-          }`,
+          result: `The tool call failed: ${errorMessage(error, "unknown error")}`,
         };
       }
       messages.push({
@@ -377,8 +373,7 @@ export async function launchPreparingNextTurn(input: {
       state: "failed",
       args: {
         arguments: JSON.stringify({
-          summary:
-            error instanceof Error ? error.message : "The subagent failed unexpectedly.",
+          summary: errorMessage(error, "The subagent failed unexpectedly."),
         }),
       },
       summary: "Preparing the next turn failed.",

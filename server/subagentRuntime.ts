@@ -7,6 +7,7 @@
  * so a fix to one silently missed the other. Everything identical now lives
  * here.
  */
+import { errorMessage } from "@shared/_core/errors";
 import { E2B_WORKSPACE_DIR, type E2BSandboxLike } from "./e2b";
 import { mirrorWorkspaceOp } from "./sandboxWorkspace";
 import { safeRelativePath as safeWorkspacePath } from "./workspace/paths";
@@ -437,9 +438,7 @@ export async function executeSubagentToolCall(
       } catch (error) {
         return {
           ok: false,
-          result: `The command failed: ${
-            error instanceof Error ? error.message : "unknown error"
-          }`,
+          result: `The command failed: ${errorMessage(error, "unknown error")}`,
         };
       }
     }

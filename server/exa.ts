@@ -9,6 +9,7 @@
  * synthesized report in `output.content` plus field-level citations in
  * `output.grounding`. */
 
+import { responseErrorDetail } from "@shared/_core/errors";
 import { ENV } from "./_core/env";
 import { createSseLineFramer, sseDataPayload } from "./sse";
 
@@ -139,8 +140,7 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
     signal: AbortSignal.timeout(options.timeoutMs ?? 270_000),
   });
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    const hint = detail.slice(0, 300).replace(/\s+/g, " ").trim();
+    const hint = await responseErrorDetail(response);
     throw new Error(`Exa deep research responded with status ${response.status}${hint ? `: ${hint}` : "."}`);
   }
 

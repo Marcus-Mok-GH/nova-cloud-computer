@@ -23,7 +23,7 @@ export const isInternalChatMessage = (content: string): boolean =>
   content.startsWith(AGENT_MODE_MESSAGE_PREFIX) ||
   content.startsWith(FOLLOW_UP_MESSAGE_PREFIX);
 
-export type ChatRole = "user" | "assistant";
+type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {
   id: number;
   role: ChatRole;
@@ -219,7 +219,7 @@ export function upsertLiveToolEvent(
 }
 
 /** One renderable entry of the live (un-persisted) transcript. */
-export type LiveChatItem =
+type LiveChatItem =
   | { kind: "text"; content: string }
   | { kind: "toolRun"; activities: ToolActivity[] };
 
@@ -316,7 +316,7 @@ function parseStringRecord(value: unknown): Record<string, string> {
   return record;
 }
 
-export type ChatReconciliation = {
+type ChatReconciliation = {
   userCommitted: boolean;
   replyCommitted: boolean;
   liveActivities: ToolActivity[];
@@ -368,7 +368,7 @@ export function reconcileChatMessages(
   return { userCommitted, replyCommitted, liveActivities };
 }
 
-export type ChatListItem =
+type ChatListItem =
   | { kind: "message"; message: PersistedChatMessage }
   | { kind: "toolRun"; activities: ToolActivity[] };
 

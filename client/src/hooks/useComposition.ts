@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { usePersistFn } from "./usePersistFn";
 
-export interface UseCompositionReturn<
+interface UseCompositionReturn<
   T extends HTMLInputElement | HTMLTextAreaElement,
 > {
   onCompositionStart: React.CompositionEventHandler<T>;
@@ -10,7 +10,7 @@ export interface UseCompositionReturn<
   isComposing: () => boolean;
 }
 
-export interface UseCompositionOptions<
+interface UseCompositionOptions<
   T extends HTMLInputElement | HTMLTextAreaElement,
 > {
   onKeyDown?: React.KeyboardEventHandler<T>;

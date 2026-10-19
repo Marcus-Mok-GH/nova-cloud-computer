@@ -468,7 +468,7 @@ export const fr: Translations = {
   "landing.pricing.api.body": "Créez des clés par espace de travail et développez sur les mêmes modèles avec une API compatible OpenAI.",
   "landing.pricing.note": "Le placement prioritaire pendant les heures de pointe est disponible via Billing lorsque vous en avez besoin.",
   "landing.faq.eyebrow": "Questions",
-  "landing.faq.title": "Les réponses courtes.",
+  "landing.faq.title": "FAQ",
   "landing.faq.q1": "Qu’est‑ce que Nova exactement ?",
   "landing.faq.a1": "Un ordinateur cloud persistant avec un agent IA. Vous obtenez un espace de travail privé avec fichiers, conversations, automatisations et un terminal, plus un agent qui travaille à votre place.",
   "landing.faq.q2": "Ai‑je besoin d’installer quoi‑que‑ce soit ?",

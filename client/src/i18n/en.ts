@@ -524,7 +524,7 @@ export const en = {
 
   // Landing: FAQ
   "landing.faq.eyebrow": "Questions",
-  "landing.faq.title": "The short answers.",
+  "landing.faq.title": "Q&A",
   "landing.faq.q1": "What exactly is Nova?",
   "landing.faq.a1": "A persistent cloud computer with an AI agent. You get a private workspace with files, conversations, automations, and a terminal, plus an agent that works in it on your behalf.",
   "landing.faq.q2": "Do I need to install anything?",

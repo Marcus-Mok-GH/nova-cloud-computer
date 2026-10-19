@@ -468,7 +468,7 @@ export const ja: Translations = {
   "landing.pricing.api.body": "ワークスペースごとにキーを作成し、OpenAI 互換 API で同じモデルを使用できます。",
   "landing.pricing.note": "ピーク時間の優先配置は、必要に応じて請求から利用可能です。",
   "landing.faq.eyebrow": "質問",
-  "landing.faq.title": "簡潔な回答です。",
+  "landing.faq.title": "Q&A",
   "landing.faq.q1": "Nova は何ですか？",
   "landing.faq.a1": "永続的なクラウドコンピュータと AI エージェントです。ファイル、会話、オートメーション、ターミナルを備えたプライベートワークスペースと、代わりに作業するエージェントが付属します。",
   "landing.faq.q2": "何かインストールする必要がありますか？",

@@ -468,7 +468,7 @@ export const zh: Translations = {
   "landing.pricing.api.body": "为每个工作区创建密钥，并使用相同模型构建兼容 OpenAI 的 API。",
   "landing.pricing.note": "在高峰时段可通过计费获取优先排队。",
   "landing.faq.eyebrow": "问题",
-  "landing.faq.title": "简短回答。",
+  "landing.faq.title": "常见问题",
   "landing.faq.q1": "Nova到底是什么？",
   "landing.faq.a1": "一个持久的云计算机，配备 AI 代理。你将获得一个私有工作区，包含文件、对话、自动化和终端，以及在其上为你工作的代理。",
   "landing.faq.q2": "我需要安装任何东西吗？",

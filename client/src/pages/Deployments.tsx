@@ -49,7 +49,7 @@ function StatusChip({ status }: { status: DeploymentRow["status"] }) {
 /** The Deployments page: the live site, its deploy history, and taking hosted deployments offline. */
 export default function Deployments() {
   const utils = trpc.useUtils();
-  const status = trpc.deployments.status.useQuery(undefined, { retry: false, refetchInterval: 30_000 });
+  const status = trpc.deployments.status.useQuery(undefined, { retry: false, refetchInterval: 60_000 });
 
   const configured = Boolean(status.data?.configured);
   // Deleted deployments are not shown at all: a taken-down site is never

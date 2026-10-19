@@ -30,6 +30,8 @@ import {
   type E2BSandboxLike,
 } from "./e2b";
 import { truncateOutput } from "./truncate";
+import { errorMessage } from "@shared/_core/errors";
+import { sleep } from "@shared/timing";
 
 /** The screen the desktop session runs at. Chrome lays the page out at this
  *  size, so the capture doubles as the coordinate space the model clicks in:
@@ -377,7 +379,7 @@ async function waitForCommand(
   for (;;) {
     if ((await runCommand(sandbox, probe)).exitCode === 0) return true;
     if (Date.now() >= deadline) return false;
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    await sleep(POLL_INTERVAL_MS);
   }
 }
 
@@ -504,10 +506,10 @@ async function stopChrome(sandbox: E2BSandboxLike): Promise<boolean> {
   for (;;) {
     if ((await runCommand(sandbox, CHROME_PROBE)).exitCode !== 0) return true;
     if (Date.now() >= deadline) break;
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    await sleep(POLL_INTERVAL_MS);
   }
   await runCommand(sandbox, CHROME_KILL_FORCE);
-  await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+  await sleep(POLL_INTERVAL_MS);
   return (await runCommand(sandbox, CHROME_PROBE)).exitCode !== 0;
 }
 
@@ -560,9 +562,7 @@ async function captureDesktop(
     // The action itself already happened; losing the capture must not turn
     // the whole call into a failure.
     console.warn(
-      `[E2B] Desktop screenshot failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
+      `[E2B] Desktop screenshot failed: ${errorMessage(error)}`
     );
     return {
       warning:
@@ -647,9 +647,7 @@ async function openDesktopSession(input: {
     } catch (error) {
       // A sandbox that expired or was killed behind us is replaced, not fatal.
       console.warn(
-        `[E2B] Desktop sandbox ${sandboxId} could not be reached: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+        `[E2B] Desktop sandbox ${sandboxId} could not be reached: ${errorMessage(error)}`
       );
     }
   }

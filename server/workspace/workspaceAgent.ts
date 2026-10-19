@@ -2,6 +2,7 @@ import {
   AI_UNAVAILABLE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
 } from "@shared/const";
+import { sleep } from "@shared/timing";
 import { isE2BConfigured, type E2BSandboxLike } from "../e2b";
 import {
   pauseAgentSandbox,
@@ -174,7 +175,6 @@ import {
   RunDeadlineExceeded,
   raceToolDeadline,
   chatWithGatewayRetry,
-  waitFor,
   type GatewayRetryState,
 } from "./workspaceRetry";
 
@@ -374,7 +374,7 @@ ${
     : `Write a short, honest status message to the user (2-4 sentences): what got done, what is unfinished, and that they can send "continue" so you pick up exactly where you left off. Output only that message.`
 }`
         ).catch(() => null),
-        waitFor(DEADLINE_CLOSE_MODEL_CAP_MS),
+        sleep(DEADLINE_CLOSE_MODEL_CAP_MS),
       ])) as { text?: unknown } | null | undefined;
       const text =
         typeof completion?.text === "string" ? completion.text.trim() : "";

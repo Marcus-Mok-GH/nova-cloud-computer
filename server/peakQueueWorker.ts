@@ -1,3 +1,4 @@
+import { sleep } from "@shared/timing";
 import { AiGatewayClientError, type GatewayChatMessage } from "./aiGateway";
 import { chatWithAiGateway } from "./aiGateway";
 import { chatWithCustomModel } from "./byokGateway";
@@ -83,7 +84,7 @@ async function watchForStaleRunningItem(): Promise<void> {
     return;
   }
   if (waitMs > MAX_WATCHDOG_WAIT_MS) return;
-  await new Promise(resolve => setTimeout(resolve, waitMs));
+  await sleep(waitMs);
   await requeueStaleInferenceQueueItems(new Date(Date.now() - STALE_RUNNING_MS)).catch(() => 0);
   kickPeakQueue();
 }

@@ -8,6 +8,8 @@
  * the bodies it does not already have on its CDN. */
 
 import { createHash } from "crypto";
+import { responseErrorDetail } from "@shared/_core/errors";
+import { sleep } from "@shared/timing";
 import { ENV } from "./_core/env";
 
 const NETLIFY_API_BASE = "https://api.netlify.com/api/v1";
@@ -39,7 +41,7 @@ async function netlifyFetch(
     },
   });
   if (!response.ok && !(allow404 && response.status === 404)) {
-    const detail = (await response.text().catch(() => "")).slice(0, 300).replace(/\s+/g, " ").trim();
+    const detail = await responseErrorDetail(response);
     throw new Error(
       `Netlify responded with status ${response.status}${detail ? `: ${detail}` : "."}`
     );
@@ -100,8 +102,6 @@ export async function setSiteEnvVars(
 function sha1(content: Buffer) {
   return createHash("sha1").update(content).digest("hex");
 }
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Deploys the given files to the site via the file-digest method and waits for

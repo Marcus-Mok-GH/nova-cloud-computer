@@ -11,6 +11,7 @@
  * strengths live next to it and call their providers directly through this
  * small client. */
 
+import { sleep } from "@shared/timing";
 import { ENV } from "./_core/env";
 
 /**
@@ -224,10 +225,6 @@ const RETRY_BACKOFF_MS = [1_000, 3_000, 8_000, 15_000];
  * result back before the run deadline passes.
  */
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /** Retry delay from a Retry-After header when present and sane. */
 function retryAfterMs(response: Response): number | undefined {

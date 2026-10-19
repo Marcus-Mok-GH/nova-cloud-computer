@@ -282,12 +282,10 @@ export async function runAutonomousCoderTask(
       // restart from a misleading clean slate (its writes are real, in the
       // sandbox). Report exactly what was done and let the caller verify.
       if (writtenPaths.size > 0 || commandsRun > 0) {
+        const reason = errorMessage(error, "unknown error");
         return {
           kind: "autonomous",
-          summary: `The specialist hit a failure mid-task after doing part of the work (${errorMessage(
-            error,
-            "unknown error"
-          )}). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
+          summary: `The specialist hit a failure mid-task after doing part of the work (${reason}). It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). Verify the changed files, finish or fix the task, and present the result honestly.`,
           writtenPaths: Array.from(writtenPaths).sort(),
           commandsRun,
           // roundsRun counts every attempted request (the zero-based

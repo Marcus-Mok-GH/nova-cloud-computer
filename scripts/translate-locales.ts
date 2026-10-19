@@ -12,10 +12,16 @@
  *   TRANSLATE_API_BASE_URL  OpenAI-compatible base URL (default: Pollinations)
  *   TRANSLATE_API_KEY       Bearer token (falls back to POLLINATIONS_API_KEY)
  *   TRANSLATE_MODEL         Model id (default: openai-fast)
+ *   TRANSLATE_BATCH_SIZE    Strings per completion (default: 120)
+ *   TRANSLATE_CONCURRENCY   Requests in flight (default: 4 with a key, 1 without)
  *
  * The anonymous Pollinations tier allows one completion every ~30 seconds per
  * IP, so without a key the script paces itself (a full run takes a while).
  * Set a pollen key via TRANSLATE_API_KEY/POLLINATIONS_API_KEY for full speed.
+ *
+ * Speed comes from two places: bigger batches (the tier's budget is spent per
+ * request, not per string) and translating locales in parallel. Without a key
+ * the tier is capped per IP, so the run stays serial and only batches grow.
  *
  * The script is incremental: a manifest (client/src/i18n/manifest.json) tracks
  * the hash of each English source string per locale, so re-runs only
@@ -27,7 +33,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { en } from "../client/src/i18n/en";
-import { DEFAULT_LANGUAGE, languages } from "../client/src/i18n/languages";
+import { DEFAULT_LANGUAGE, languages, type LanguageOption } from "../client/src/i18n/languages";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const i18nDir = path.join(root, "client", "src", "i18n");
@@ -37,11 +43,21 @@ const API_BASE_URL = (process.env.TRANSLATE_API_BASE_URL ?? "https://text.pollin
 const API_KEY = (process.env.TRANSLATE_API_KEY ?? process.env.POLLINATIONS_API_KEY ?? "").trim();
 const MODEL = process.env.TRANSLATE_MODEL ?? "openai-fast";
 
-/** Strings per completion; large batches conserve the tight free-tier budget. */
-const BATCH_SIZE = 60;
+/**
+ * Strings per completion. The tier's budget is spent per *request*, not per
+ * string, so bigger batches are strictly faster as long as the reply still fits
+ * the model's output budget. Override with TRANSLATE_BATCH_SIZE.
+ */
+const BATCH_SIZE = Math.max(1, Number(process.env.TRANSLATE_BATCH_SIZE ?? 120));
 const MAX_ATTEMPTS = 6;
-/** Minimum gap between requests: 32s without a key, 1.5s with one. */
+/** Window over which request starts are paced: 32s without a key, 1.5s with one. */
 const PACE_MS = API_KEY ? 1500 : 32_000;
+/**
+ * Requests allowed per PACE_MS window, and in flight at once. The anonymous
+ * tier is capped per IP, so parallelism only pays off once a key is set.
+ * Override with TRANSLATE_CONCURRENCY.
+ */
+const CONCURRENCY = Math.max(1, Number(process.env.TRANSLATE_CONCURRENCY ?? (API_KEY ? 4 : 1)));
 
 /** Brand and product names that must survive translation untouched. */
 const PROPER_NOUNS =
@@ -90,16 +106,67 @@ interface ChatResponse {
   error?: { message?: string };
 }
 
-let lastRequestAt = 0;
+/**
+ * Paces request *starts* so at most CONCURRENCY fire per PACE_MS window, no
+ * matter how many workers are running. Keeps the anonymous tier's per-IP limit
+ * in check while letting keyed runs overlap requests.
+ */
+class RateLimiter {
+  private starts: number[] = [];
+  private queue: Promise<void> = Promise.resolve();
+
+  async acquire(): Promise<void> {
+    const previous = this.queue;
+    let release!: () => void;
+    this.queue = new Promise<void>(resolve => (release = resolve));
+    await previous;
+    for (;;) {
+      const now = Date.now();
+      this.starts = this.starts.filter(at => now - at < PACE_MS);
+      if (this.starts.length < CONCURRENCY) {
+        this.starts.push(now);
+        break;
+      }
+      await sleep(PACE_MS - (now - this.starts[0]));
+    }
+    release();
+  }
+}
+
+/** Caps how many requests are in flight at once. */
+class Semaphore {
+  private available: number;
+  private waiters: Array<() => void> = [];
+
+  constructor(size: number) {
+    this.available = size;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available--;
+      return;
+    }
+    await new Promise<void>(resolve => this.waiters.push(resolve));
+  }
+
+  release(): void {
+    const next = this.waiters.shift();
+    if (next) next();
+    else this.available++;
+  }
+}
+
+const limiter = new RateLimiter();
+const slots = new Semaphore(CONCURRENCY);
 
 /** Calls the chat endpoint with pacing, retries and backoff. */
 async function chat(system: string, user: string): Promise<string> {
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const wait = Math.max(0, PACE_MS - (Date.now() - lastRequestAt));
-    if (wait > 0) await sleep(wait);
-    lastRequestAt = Date.now();
+    await slots.acquire();
     try {
+      await limiter.acquire();
       const response = await fetch(`${API_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
@@ -126,7 +193,6 @@ async function chat(system: string, user: string): Promise<string> {
           const pause = retryAfter ? (Number(retryAfter[1]) + 5) * 1000 : PACE_MS;
           console.warn(`  rate limited; waiting ${Math.round(pause / 1000)}s`);
           await sleep(pause);
-          lastRequestAt = Date.now();
         }
         throw new Error(`HTTP ${response.status}: ${body.slice(0, 160)}`);
       }
@@ -138,6 +204,8 @@ async function chat(system: string, user: string): Promise<string> {
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.warn(`  attempt ${attempt}/${MAX_ATTEMPTS} failed: ${lastError.message}`);
+    } finally {
+      slots.release();
     }
   }
   throw lastError ?? new Error("translation request failed");
@@ -201,49 +269,45 @@ async function translateChunk(
 }
 
 /**
- * Translates the pending keys for one locale in batches. Keys that come back
- * invalid are gathered and retried together once at the end (the free tier
- * charges one request per call, so retries are batched too); anything still
+ * Retries keys whose translation failed validation, in one batch (the free tier
+ * charges a request per call, so retries are batched too); anything still
  * invalid falls back to the English source with a warning.
  */
-async function translateLocale(
+async function retryFailed(
   targetId: string,
   targetName: string,
-  pending: Array<[string, string]>
-): Promise<Record<string, string>> {
-  const output: Record<string, string> = {};
-  let failed: Array<[string, string]> = [];
-  for (let offset = 0; offset < pending.length; offset += BATCH_SIZE) {
-    const batch = pending.slice(offset, offset + BATCH_SIZE);
-    try {
-      const { done, failed: batchFailed } = await translateChunk(targetName, batch);
-      Object.assign(output, done);
-      failed.push(...batchFailed);
-    } catch (error) {
-      console.warn(`  batch of ${batch.length} failed outright: ${error instanceof Error ? error.message : error}`);
-      failed.push(...batch);
-    }
-    console.log(`  ${Math.min(offset + BATCH_SIZE, pending.length)}/${pending.length}`);
-  }
-  if (failed.length > 0) {
-    console.log(`  retrying ${failed.length} invalid key(s) in one final batch`);
-    try {
-      const parsed = parseJsonObject(await chat(SYSTEM_PROMPT(targetName), JSON.stringify(Object.fromEntries(failed))));
-      const stillFailed: Array<[string, string]> = [];
-      for (const [key, source] of failed) {
-        if (isValid(source, parsed[key])) output[key] = parsed[key].trim();
-        else stillFailed.push([key, source]);
-      }
-      failed = stillFailed;
-    } catch {
-      /* keep the English fallback below */
-    }
+  failed: Array<[string, string]>,
+  output: Record<string, string>
+): Promise<void> {
+  if (failed.length === 0) return;
+  console.log(`  retrying ${failed.length} invalid key(s) in one final batch`);
+  try {
+    const parsed = parseJsonObject(await chat(SYSTEM_PROMPT(targetName), JSON.stringify(Object.fromEntries(failed))));
+    const stillFailed: Array<[string, string]> = [];
     for (const [key, source] of failed) {
-      console.warn(`  [${targetId}] keeping English for "${key}" (placeholder mismatch or missing)`);
-      output[key] = source;
+      if (isValid(source, parsed[key])) output[key] = parsed[key].trim();
+      else stillFailed.push([key, source]);
     }
+    failed = stillFailed;
+  } catch {
+    /* keep the English fallback below */
   }
-  return output;
+  for (const [key, source] of failed) {
+    console.warn(`  [${targetId}] keeping English for "${key}" (placeholder mismatch or missing)`);
+    output[key] = source;
+  }
+}
+
+/** Runs tasks with at most `size` of them in flight. */
+async function runPool(tasks: Array<() => Promise<void>>, size: number): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(size, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const current = next++;
+      await tasks[current]();
+    }
+  });
+  await Promise.all(workers);
 }
 
 function escapeTs(text: string): string {
@@ -282,6 +346,15 @@ async function main() {
   const manifest = readManifest();
   const sourceEntries = Object.entries(en) as Array<[string, string]>;
 
+  interface LocaleJob {
+    target: LanguageOption;
+    existing: Record<string, string>;
+    pending: Array<[string, string]>;
+    done: Record<string, string>;
+    failed: Array<[string, string]>;
+  }
+
+  const jobs: LocaleJob[] = [];
   for (const target of targets) {
     const existing = force ? {} : readLocaleFile(target.id);
     const previous = force ? {} : (manifest[target.id] ?? {});
@@ -291,17 +364,40 @@ async function main() {
       continue;
     }
     console.log(`${target.id}: translating ${pending.length} of ${sourceEntries.length} strings (${MODEL})`);
-    const translated = await translateLocale(target.id, target.englishName, pending);
+    jobs.push({ target, existing, pending, done: {}, failed: [] });
+  }
+
+  const tasks: Array<() => Promise<void>> = [];
+  for (const job of jobs) {
+    for (let offset = 0; offset < job.pending.length; offset += BATCH_SIZE) {
+      const batch = job.pending.slice(offset, offset + BATCH_SIZE);
+      tasks.push(async () => {
+        try {
+          const { done, failed } = await translateChunk(job.target.englishName, batch);
+          Object.assign(job.done, done);
+          job.failed.push(...failed);
+        } catch (error) {
+          console.warn(`  [${job.target.id}] batch of ${batch.length} failed outright: ${error instanceof Error ? error.message : error}`);
+          job.failed.push(...batch);
+        }
+        console.log(`  [${job.target.id}] ${Object.keys(job.done).length}/${job.pending.length}`);
+      });
+    }
+  }
+  await runPool(tasks, CONCURRENCY);
+
+  for (const job of jobs) {
+    await retryFailed(job.target.id, job.target.englishName, job.failed, job.done);
     const merged: Record<string, string> = {};
     const nextManifest: Record<string, string> = {};
     for (const [key, text] of sourceEntries) {
-      merged[key] = translated[key] ?? existing[key] ?? text;
+      merged[key] = job.done[key] ?? job.existing[key] ?? text;
       nextManifest[key] = hash(text);
     }
-    writeLocaleFile(target.id, target.englishName, merged);
-    manifest[target.id] = nextManifest;
+    writeLocaleFile(job.target.id, job.target.englishName, merged);
+    manifest[job.target.id] = nextManifest;
     writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-    console.log(`${target.id}: wrote client/src/i18n/${target.id}.ts`);
+    console.log(`${job.target.id}: wrote client/src/i18n/${job.target.id}.ts`);
   }
 }
 

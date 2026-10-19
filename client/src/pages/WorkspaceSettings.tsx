@@ -202,7 +202,7 @@ function EnvironmentVarsCard() {
 }
 
 function TelegramBotCard() {
-  const utils = trpc.useUtils(); const { t } = useTranslation(); const status = trpc.telegram.status.useQuery(undefined, { retry: false, refetchInterval: 3000 }); const [chatId, setChatId] = useState(""); const [testText, setTestText] = useState(() => t("settings.telegram.test.defaultMessage"));
+  const utils = trpc.useUtils(); const { t } = useTranslation(); const status = trpc.telegram.status.useQuery(undefined, { retry: false, refetchInterval: 30_000 }); const [chatId, setChatId] = useState(""); const [testText, setTestText] = useState(() => t("settings.telegram.test.defaultMessage"));
   const refresh = () => utils.telegram.status.invalidate();
   const configure = trpc.telegram.configure.useMutation({ onSuccess: async data => { await refresh(); setChatId(data.chatId ?? ""); }, onError: error => toast.error(error.message) });
   const discover = trpc.telegram.discoverChat.useMutation({ onSuccess: async data => { await refresh(); setChatId(data.chatId ?? ""); toast.success(t("settings.telegram.discovered")); }, onError: error => toast.error(error.message) });
@@ -221,7 +221,7 @@ function toolkitLabel(toolkit: "github" | "gmail" | "vercel", t: (key: Translati
 function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" | "vercel" }) {
   const utils = trpc.useUtils();
   const { t } = useTranslation();
-  const status = trpc.composio.status.useQuery(undefined, { retry: false, refetchInterval: 15000 });
+  const status = trpc.composio.status.useQuery(undefined, { retry: false, refetchInterval: 60_000 });
   const connect = trpc.composio.connect.useMutation({
     onSuccess: async result => {
       window.open(result.redirectUrl, "_blank", "noopener");

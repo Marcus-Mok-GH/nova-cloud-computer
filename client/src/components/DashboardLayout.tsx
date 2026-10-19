@@ -15,7 +15,10 @@ import { trpc } from "@/lib/trpc";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user, logout } = useAuth();
-  const credits = trpc.credits.status.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 30_000 });
+  // Refreshed on window focus and right after a run finalizes (see
+  // useWorkspaceChat) instead of a background poll: an idle signed-in tab
+  // should not keep waking the database every 30 seconds.
+  const credits = trpc.credits.status.useQuery(undefined, { enabled: Boolean(user) });
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -44,7 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isConsoleOperator = user?.role === "admin" || user?.role === "developer";
   // Error count for the sidebar Notifications entry. The query is admin-gated
   // server-side, and only console operators ever see the entry.
-  const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 30_000 });
+  const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 120_000 });
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6"><div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.12)] sm:p-8"><NovaLogo size={34} className="mx-auto" /><h1 className="mt-5 text-2xl font-extrabold tracking-tight text-foreground">{t("layout.signInTitle")}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("layout.signInBody")}</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-6 w-full">{t("layout.signIn")}</button></div></div>;

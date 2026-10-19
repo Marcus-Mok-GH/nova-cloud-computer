@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 export default function NewChatButton() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
-  const create = trpc.chats.create.useMutation({ onSuccess: () => utils.workspace.computer.invalidate() });
+  const create = trpc.chats.create.useMutation({ onSuccess: () => Promise.all([utils.workspace.chats.invalidate(), utils.workspace.computer.invalidate()]) });
 
   const startNewChat = async () => {
     if (create.isPending) return;

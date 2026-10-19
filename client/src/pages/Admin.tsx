@@ -279,7 +279,7 @@ export function AdminApiErrorNotifications() {
   const utils = trpc.useUtils();
   const logsQuery = trpc.admin.apiErrorLogs.useQuery(
     { limit: 100 },
-    { retry: false, refetchInterval: 30_000 }
+    { retry: false, refetchInterval: 60_000 }
   );
   const clearLogs = trpc.admin.clearApiErrorLogs.useMutation({
     onSuccess: async result => {
@@ -403,7 +403,7 @@ export default function Admin() {
   });
   const errorCountQuery = trpc.admin.apiErrorLogs.useQuery(
     { limit: 100 },
-    { enabled: isConsoleOperator, retry: false, refetchInterval: 30_000 }
+    { enabled: isConsoleOperator, retry: false, refetchInterval: 60_000 }
   );
 
   const invalidateAdminData = async () =>

@@ -29,6 +29,7 @@ import {
   listWorkspaceEnvVarsForUser,
   saveWorkspaceEnvVarsForUser,
   getWorkspaceDashboard,
+  listChatsForUser,
   listChatMessagesForUser,
   revertChatToMessageForUser,
   listProjectsForUser,
@@ -268,6 +269,10 @@ export const appRouter = router({
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),
     computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),
+    /** The conversation archive on its own: the Chats page polls this instead
+     * of `computer`, which also loads folders, files, and settings it never
+     * renders. */
+    chats: protectedProcedure.query(({ ctx }) => listChatsForUser(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {

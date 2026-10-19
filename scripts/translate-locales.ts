@@ -45,7 +45,7 @@ const PACE_MS = API_KEY ? 1500 : 32_000;
 
 /** Brand and product names that must survive translation untouched. */
 const PROPER_NOUNS =
-  "Nova, GitHub, Gmail, Vercel, Composio, Telegram, OpenAI, OpenRouter, Groq, Together, DeepSeek, Anthropic, vLLM, Ollama, BYOK, API, VM, Ctrl, Cmd, Enter, Bearer, RESET, CLEAR, DELETE";
+  "Nova, GitHub, Gmail, Vercel, Composio, Telegram, OpenAI, OpenRouter, Groq, Together, DeepSeek, Anthropic, vLLM, Ollama, Neon, E2B, BYOK, API, VM, Ctrl, Cmd, Enter, Bearer, RESET, CLEAR, DELETE";
 
 type Manifest = Record<string, Record<string, string>>;
 

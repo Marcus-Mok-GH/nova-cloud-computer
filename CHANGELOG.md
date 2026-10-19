@@ -43,6 +43,33 @@ README.md, CHANGELOG.md.
 Tests: pnpm check, pnpm test, plus a live `tsx server/migrate-deploy.ts`
 run against the quota-blocked Neon, which printed the reason and exited 0.
 
+2026-10-18 - the landing page is rebuilt from sections and speaks every supported language
+
+Home.tsx had become a single 156-line file of hardcoded English whose warm hex
+palette ignored the app's ten named themes, and its copy had drifted from the
+product: no channels, no pricing story, no FAQ, and a one-line footer. The
+page is now a thin composition over small section components in
+client/src/pages/landing (nav, hero, three product deep-dives, how it works,
+channels, pricing, FAQ, developer callout, footer) styled entirely from theme
+tokens, so every named palette and dark mode resolve correctly. DM Serif
+Display carries the headlines over the existing DM Sans, the hero gets soft
+token-derived color washes, the developer callout is the page's single
+inverted band, and the FAQ uses the existing Radix accordion. Every string is
+a landing.* key in en.ts and the six generated locales were regenerated, so
+the landing page follows the device language like the app shell. The preview
+keeps its aria-hidden phone simplification, the old dead landing CSS
+(.site-shell, .hero-section, .feature-card, .theme-toggle, .topbar-link,
+.section-*) is removed while .pill-btn stays for the sign-in and admin
+surfaces that still use it, and index.html gains a matching title, description,
+and Open Graph tags.
+
+Files: client/src/pages/Home.tsx, client/src/pages/landing/*,
+client/src/index.css, client/src/i18n/en.ts plus the generated locales and
+manifest.json, scripts/translate-locales.ts, client/index.html,
+client/src/pages/Home.render.test.tsx, docs/i18n.md, CHANGELOG.md.
+Tests: pnpm check, pnpm test (1329 passed), pnpm build, and the built CSS was
+verified to carry the landing classes and the display-font token.
+
 2026-10-18 - the migration chain replays cleanly on a fresh database
 
 drizzle-kit applies every pending migration in a single transaction, and two

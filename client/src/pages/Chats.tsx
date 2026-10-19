@@ -9,8 +9,10 @@ import { useAwayChats } from "@/lib/awayChats";
 import { useLocation } from "wouter";
 
 export default function Chats() {
-  // Poll so a conversation started from Telegram shows up without a refresh.
-  const computer = trpc.workspace.computer.useQuery(undefined, { retry: false, refetchInterval: 5000, refetchIntervalInBackground: false });
+  // Poll so a conversation started from Telegram shows up without a refresh,
+  // on the archive query alone: this page never renders the folders, files, or
+  // settings that `workspace.computer` also loads.
+  const chats = trpc.workspace.chats.useQuery(undefined, { retry: false, refetchInterval: 60_000, refetchIntervalInBackground: false });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const awayChats = useAwayChats();
@@ -22,6 +24,7 @@ export default function Chats() {
       const token = await getNeonAccessToken().catch(() => null);
       const response = await fetch("/api/chat/delete", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ chatId }) });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Could not delete chat");
+      await utils.workspace.chats.invalidate();
       await utils.workspace.computer.invalidate();
       toast.success("Chat deleted");
     } catch (error) {
@@ -41,7 +44,7 @@ export default function Chats() {
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Every conversation stays with the private computer it helps you shape.</p>
         </div>
         <div className="mt-8 space-y-2">
-          {computer.data?.chats.length ? computer.data.chats.map(chat => (
+          {chats.data?.length ? chats.data.map(chat => (
             <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_24px_rgba(10,10,10,0.07)] dark:border-white/10 dark:bg-card dark:hover:border-white/20">
               <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><MessageSquareText className="size-4" /></span>

@@ -1,3 +1,26 @@
+2026-10-19 - idle tabs stop keeping the database awake
+
+One focused tab used to poll the database hard enough to keep the Neon
+compute running around the clock - the shape of load that burned through
+the free plan's monthly quota and started failing deploys and signed-in
+requests with "Your account or project has exceeded the quota". Polling
+now matches the work that is actually happening. The chat view polls run
+status and messages at 1s/2.5s only while a run is live and falls back to
+15s when the conversation is idle. The Chats archive polls a new light
+`workspace.chats` query once a minute instead of refetching all five lists
+behind `workspace.computer` every 5s. The sidebar credit chip refreshes on
+window focus and right after a run finalizes instead of every 30s, and the
+settings, deployments, and admin polls move to 30-60s or focus-driven
+refresh. The terminal poll stays at 5s: it reads in-memory session state
+and never touches the database.
+
+Files: client/src/components/DashboardLayout.tsx,
+client/src/components/NewChatButton.tsx,
+client/src/hooks/useWorkspaceChat.ts, client/src/pages/Chats.tsx,
+client/src/pages/Deployments.tsx, client/src/pages/WorkspaceSettings.tsx,
+client/src/pages/Admin.tsx, server/routers.ts, CHANGELOG.md.
+Tests: pnpm check, pnpm test (1338 passed), pnpm build.
+
 2026-10-18 - Vercel deploys survive a Neon outage
 
 Every deployment since October 17 failed before any code was built: the

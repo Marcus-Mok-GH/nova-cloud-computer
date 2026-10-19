@@ -329,6 +329,11 @@ body { -webkit-tap-highlight-color: transparent; }
 button, a, [role="button"] { touch-action: manipulation; }
 ::selection { background: oklch(0.56 0.13 35 / 0.20); }
 
+/* Docs section bar: a swipeable row of anchors reads as tabs, so its own
+   scrollbar is hidden while touch, keyboard, and programmatic scrolling work. */
+.docs-scroller { scrollbar-width: none; -ms-overflow-style: none; }
+.docs-scroller::-webkit-scrollbar { display: none; }
+
 .dashboard-shell { background: var(--background); }
 .dashboard-shell main { -webkit-overflow-scrolling: touch; }
 

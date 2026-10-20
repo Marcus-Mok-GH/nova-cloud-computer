@@ -7,6 +7,7 @@ import { ensureUserWorkspaceProvisioned, getUserByOpenId, upsertUser } from "../
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import { sdk } from "./sdk";
+import { isSupportBotRequestPath } from "./supportBotPath";
 
 export type TrpcContext = { req: CreateExpressContextOptions["req"]; res: CreateExpressContextOptions["res"]; user: User | null; banned: boolean };
 
@@ -106,6 +107,18 @@ async function persistFirstPartySession(opts: CreateExpressContextOptions, ident
 }
 
 export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
+  // The public Q&A assistant answers from a server-owned brief and never
+  // touches the database, so its requests skip the session lookup entirely:
+  // the widget keeps answering while the database is unavailable or over
+  // quota. `support.ask` is a public procedure that never reads `ctx.user`,
+  // so skipping the lookup costs it nothing.
+  //
+  // `req.path` is the mount-relative path the tRPC adapter dispatches on, so
+  // the route is identified exactly the way it is invoked.
+  if (isSupportBotRequestPath(opts.req.path || opts.req.originalUrl)) {
+    return { req: opts.req, res: opts.res, user: null, banned: false };
+  }
+
   const bearer = await authenticateBearerToken(opts.req.header("authorization"));
   if (bearer && "banned" in bearer) {
     return { req: opts.req, res: opts.res, user: null, banned: true };

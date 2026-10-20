@@ -112,7 +112,10 @@ export async function createContext(opts: CreateExpressContextOptions): Promise<
   // the widget keeps answering while the database is unavailable or over
   // quota. `support.ask` is a public procedure that never reads `ctx.user`,
   // so skipping the lookup costs it nothing.
-  if (isSupportBotRequestPath(opts.req.originalUrl || opts.req.path)) {
+  //
+  // `req.path` is the mount-relative path the tRPC adapter dispatches on, so
+  // the route is identified exactly the way it is invoked.
+  if (isSupportBotRequestPath(opts.req.path || opts.req.originalUrl)) {
     return { req: opts.req, res: opts.res, user: null, banned: false };
   }
 

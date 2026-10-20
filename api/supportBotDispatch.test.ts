@@ -14,4 +14,15 @@ describe("database bootstrap dispatch", () => {
     expect(needsDatabaseBootstrap("/api/v1/chat/completions")).toBe(true);
     expect(needsDatabaseBootstrap(undefined)).toBe(true);
   });
+
+  it("keeps the bootstrap on a URL that dispatches another procedure", () => {
+    // The tRPC adapter dispatches on the last path segment, so this one is
+    // `auth.me` and not the Q&A route.
+    expect(needsDatabaseBootstrap("/api/trpc/support.ask/../auth.me")).toBe(true);
+    expect(needsDatabaseBootstrap("/api/trpc/support.ask/")).toBe(true);
+  });
+
+  it("keeps the bootstrap on a non-tRPC path that ends like the Q&A route", () => {
+    expect(needsDatabaseBootstrap("/api/other/support.ask")).toBe(true);
+  });
 });

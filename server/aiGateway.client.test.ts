@@ -13,6 +13,7 @@ vi.mock("./db", () => ({
 
 const {
   chatWithAiGateway,
+  chatWithPublicAiGateway,
   completeWithAiGateway,
   getAiGatewayStatus,
   listGatewayModels,
@@ -314,6 +315,31 @@ describe("AI gateway client", () => {
     const result = await chatWithAiGateway(7, [{ role: "user", content: "hello" }], {});
     expect(result).toMatchObject({ text: "chat reply", model: TOKENHARBOR_CHAT_MODEL });
     expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL]);
+  });
+
+  it("answers public questions without claiming a workspace allowance", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "public reply" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+
+    const result = await chatWithPublicAiGateway([{ role: "user", content: "What is Nova?" }], { maxTokens: 99_999 });
+    expect(result).toEqual({ text: "public reply", model: TOKENHARBOR_CHAT_MODEL });
+    expect(claim).not.toHaveBeenCalled();
+    expect(getAllowance).not.toHaveBeenCalled();
+    const body = JSON.parse(String((globalThis.fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls[1]?.[1]?.body));
+    // The public path clamps caller-supplied output and is always deterministic.
+    expect(body).toMatchObject({ max_tokens: 1200, temperature: 0.2 });
+  });
+
+  it("falls back for a public question without claiming an allowance", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: TOKENHARBOR_FALLBACK_MODEL }), { status: 200 }));
+
+    await expect(chatWithPublicAiGateway([{ role: "user", content: "hi" }])).resolves.toMatchObject({ text: "fallback reply" });
+    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(claim).not.toHaveBeenCalled();
   });
 
   it("ignores any caller-supplied model override", async () => {

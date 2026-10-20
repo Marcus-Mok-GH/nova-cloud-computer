@@ -67,6 +67,7 @@ import { WORKSPACE_DIGEST_CRON, runDueAutomationsForUser } from "./automations";
 import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 import { getSessionCookieOptions, sessionToken } from "./_core/cookies";
 import { completeWithAiGateway, getAiGatewayStatus, listGatewayModels, AiGatewayClientError } from "./aiGateway";
+import { answerSupportQuestion, supportClientKey, SupportBotError, SUPPORT_BOT_MAX_MESSAGE_CHARS, SUPPORT_BOT_MAX_MESSAGES } from "./supportBot";
 import { testCustomModelEndpoint } from "./byokGateway";
 import { autoTitleChatForUser } from "./workspace/workspaceAgent";
 import {
@@ -140,6 +141,13 @@ const terminalRouteError = (error: unknown, fallback: string) => {
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
 };
 const gatewayCompletionInput = z.object({ prompt: z.string().trim().min(3, "Describe what you want Nova to help with.").max(12000), modelId: z.string().trim().min(1).max(240).optional() });
+/** Public Q&A widget input: bounded user/assistant turns; the server owns the system brief. */
+const supportChatInput = z.object({
+  messages: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().trim().min(1, "Ask a question about Nova to get started.").max(SUPPORT_BOT_MAX_MESSAGE_CHARS),
+  })).min(1, "Ask a question about Nova to get started.").max(SUPPORT_BOT_MAX_MESSAGES),
+});
 const agentName = z.string().trim().min(1, "An agent needs a name.").max(80, "Names are at most 80 characters.");
 /** `walletBudgetCredits: null` grants an unlimited wallet (no cap). */
 const agentBudgetCredits = z.number().int().min(0).max(100000).nullable().optional();
@@ -404,6 +412,25 @@ export const appRouter = router({
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
   ai: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listGatewayModels(input?.forceRefresh); } catch (error) { if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getAiGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(gatewayCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithAiGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached", "credits_exhausted"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova's AI service is temporarily unavailable. Please retry shortly." }); } }) }),
+  /**
+   * Public Q&A for the landing page and API docs. No session is required:
+   * `server/supportBot.ts` validates the conversation and owns the anonymous
+   * rate limits before calling the built-in gateway.
+   */
+  support: router({
+    ask: publicProcedure.input(supportChatInput).mutation(async ({ ctx, input }) => {
+      try {
+        const answer = await answerSupportQuestion(input.messages, supportClientKey(ctx.req));
+        return { answer };
+      } catch (error) {
+        if (error instanceof SupportBotError) {
+          const code = error.kind === "rate_limit" ? "TOO_MANY_REQUESTS" : error.kind === "invalid" ? "BAD_REQUEST" : "SERVICE_UNAVAILABLE";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The assistant could not answer just now. Please try again shortly." });
+      }
+    }),
+  }),
   deployments: router({
     /** Live website deployments: configuration, the current live site, and recent history. Publishing itself is AI-only - the deploy_website agent tool is the single path to a deploy, so there is no deploy mutation here. */
     status: protectedProcedure.query(({ ctx }) => getDeploymentStatusForUser(ctx.user.id)),

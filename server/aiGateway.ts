@@ -23,6 +23,9 @@ const STREAM_STALL_TIMEOUT_MS = 120_000;
 // stalling the reply for the full patient chat timeout; the final hop keeps
 // CHAT_REQUEST_TIMEOUT_MS because there is nowhere left to fall back to.
 const STREAMED_FALLBACK_HEADERS_TIMEOUT_MS = 45_000;
+// Public Q&A answers are short, so a wedged primary hop is abandoned for the
+// fallback quickly instead of making a visitor wait out the full agent timeout.
+const PUBLIC_CHAT_TIMEOUT_MS = 45_000;
 /** Patient timeout for long single-shot completions (e.g. automation planning). */
 export const LONG_COMPLETION_TIMEOUT_MS = CHAT_REQUEST_TIMEOUT_MS;
 const ERROR_MESSAGE_LIMIT = 600;
@@ -1205,6 +1208,95 @@ export async function chatWithAiGateway(
       throw error;
     }
   }
+  throw lastError;
+}
+
+/**
+ * A public, unauthenticated chat completion for Nova's Q&A assistant. This is
+ * intentionally separate from `chatWithAiGateway`: it claims no workspace
+ * allowance or daily credits, so it must only be called by a route that
+ * enforces its own input caps and rate limits (see `server/supportBot.ts`).
+ *
+ * It walks the same primary → fallback chain and retries transient failures.
+ * Responses are buffered rather than streamed because the public widget asks
+ * one short question at a time and renders the finished answer.
+ */
+export async function chatWithPublicAiGateway(
+  messages: GatewayChatMessage[],
+  options: { maxTokens?: number; signal?: AbortSignal } = {}
+): Promise<{ text: string; model: string }> {
+  await assertAiGatewayReady();
+  const maxTokens = Math.min(Math.max(options.maxTokens ?? 600, 64), 1_200);
+  const chain = gatewayModelChain();
+  let lastError: unknown;
+
+  for (let index = 0; index < chain.length; index += 1) {
+    const entry = chain[index];
+    try {
+      const response = await gatewayFetch(
+        "/chat/completions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model: entry.model,
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.2,
+          }),
+        },
+        PUBLIC_CHAT_TIMEOUT_MS,
+        options.signal,
+        endpointFor(entry)
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => undefined)) as
+          | GatewayCompletion
+          | { error?: { message?: string } }
+          | undefined;
+        const message = gatewayErrorMessageFromPayload(payload);
+        throw new AiGatewayClientError(
+          message ??
+            describeGatewayError(payload, response.status) ??
+            "Nova’s AI service is temporarily unavailable. Please retry shortly.",
+          classifyGatewayHttpError(response.status)
+        );
+      }
+
+      const payload = (await response.json().catch(() => undefined)) as
+        | {
+            choices?: Array<{ message?: GatewayChoiceMessage }>;
+            model?: string;
+          }
+        | undefined;
+      const { text } = parseGatewayChoiceMessage(
+        payload?.choices?.[0]?.message
+      );
+      if (!text.trim()) {
+        throw new AiGatewayClientError(
+          "The AI service returned an invalid completion. Please retry shortly.",
+          "invalid_response"
+        );
+      }
+      return {
+        text: text.trim(),
+        model: payload?.model ?? entry.model,
+      };
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        error instanceof AiGatewayClientError &&
+        isFallbackRetryableKind(error.kind);
+      if (retryable && index + 1 < chain.length) {
+        console.warn(
+          `[AI gateway] public model ${entry.model} failed (${(error as AiGatewayClientError).kind}); falling back to ${chain[index + 1].model}`
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+
   throw lastError;
 }
 

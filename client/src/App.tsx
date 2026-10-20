@@ -3,8 +3,10 @@ import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import SupportBot from "./components/SupportBot";
+import { isSupportBotRoute } from "./lib/supportBot";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
@@ -41,11 +43,18 @@ function Router() {
       <Route path={"/app/more"} component={More} />
       <Route path={"/app/admin"} component={Admin} />
       <Route path={"/app/admin/notifications"} component={Admin} />
+      <Route path={"/docs"} component={ApiDocs} />
       <Route path={"/docs/api"} component={ApiDocs} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+/** The public Q&A widget is only mounted on the landing and docs pages. */
+function PublicSupportBot() {
+  const [location] = useLocation();
+  return isSupportBotRoute(location) ? <SupportBot /> : null;
 }
 
 function App() {
@@ -56,6 +65,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <Router />
+            <PublicSupportBot />
             <Analytics />
           </TooltipProvider>
         </LanguageProvider>

@@ -117,4 +117,17 @@ describe("public Q&A with an unavailable database", () => {
 
     expect(response.status).not.toBe(200);
   });
+
+  it("treats a URL that dispatches another procedure as database-backed", async () => {
+    // The tRPC adapter dispatches on the last path segment, so this request
+    // reaches `auth.me`. It must not inherit the Q&A route's database-free
+    // context.
+    const token = await sdk.createSessionToken("neon-user-id", { name: "Sample" });
+    const response = await fetch(`${baseUrl}/api/trpc/support.ask/../auth.me`, {
+      method: "GET",
+      headers: { cookie: `${COOKIE_NAME}=${token}` },
+    });
+
+    expect(response.status).not.toBe(200);
+  });
 });

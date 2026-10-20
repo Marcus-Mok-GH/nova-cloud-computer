@@ -14,6 +14,12 @@ export const SUPPORT_BOT_PROCEDURE = "support.ask";
 /**
  * True when a URL targets the public Q&A procedure and nothing else.
  *
+ * The tRPC adapter dispatches on the *last* path segment of the
+ * mount-relative path - `req.path.slice(req.path.lastIndexOf("/") + 1)` - so
+ * the classification has to read that same segment. A URL like
+ * `/api/trpc/support.ask/../auth.me` dispatches `auth.me`, not the Q&A route,
+ * and must not be treated as one; a trailing slash dispatches nothing at all.
+ *
  * A batched tRPC request carries several procedures in one path
  * (`/api/trpc/support.ask,auth.me`). Such a request still needs the session
  * lookup for its other procedures, so only a batch made up entirely of the
@@ -22,10 +28,8 @@ export const SUPPORT_BOT_PROCEDURE = "support.ask";
 export function isSupportBotRequestPath(url: string | undefined): boolean {
   if (!url) return false;
   const pathname = url.split(/[?#]/)[0] ?? "";
-  const segments = pathname.split("/").filter(Boolean);
-  const trpcIndex = segments.lastIndexOf("trpc");
-  if (trpcIndex === -1) return false;
-  const procedures = (segments[trpcIndex + 1] ?? "")
+  const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1);
+  const procedures = lastSegment
     .split(",")
     .map(procedure => procedure.trim())
     .filter(Boolean);

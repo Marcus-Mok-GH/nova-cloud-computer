@@ -12,6 +12,9 @@ the schema bootstrap and the running-process recovery sweep on every
 request, including the bot's. Both now skip the Q&A route: the context
 returns an anonymous context for `support.ask` without the session lookup,
 and the entry point leaves the bootstrap to the routes that need a database.
+The route is identified by the same last path segment the tRPC adapter
+dispatches on, so a URL that ends in another procedure - such as
+`/api/trpc/support.ask/../auth.me` - is never mistaken for the Q&A route.
 Every other route is unchanged and keeps reporting a database outage rather
 than silently signing the user out, and a batched tRPC request that carries
 other procedures alongside the Q&A call still takes the normal path.
@@ -21,7 +24,7 @@ api/[...path].ts, server/_core/supportBotPath.test.ts,
 server/_core/context.supportBot.test.ts,
 server/supportBot.integration.test.ts, api/supportBotDispatch.test.ts,
 CHANGELOG.md.
-Tests: pnpm check, pnpm test (1362 passed), pnpm build.
+Tests: pnpm check, pnpm test (1366 passed), pnpm build.
 
 2026-10-19 - idle tabs stop keeping the database awake
 

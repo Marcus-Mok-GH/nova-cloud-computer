@@ -46,10 +46,11 @@ async function ensureSchemaReady() {
  *
  * The public Q&A assistant never touches the database, so its requests skip
  * both: the widget keeps answering while the database is unavailable or over
- * quota. Every other route still runs them.
+ * quota. Every other route still runs them. The tRPC namespace is part of the
+ * test so that only a real `support.ask` call is treated as database-free.
  */
 export function needsDatabaseBootstrap(url: string | undefined): boolean {
-  return !isSupportBotRequestPath(url);
+  return !(isTrpcPathFromRequestUrl(url) && isSupportBotRequestPath(url));
 }
 
 /**

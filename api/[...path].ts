@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
+import { isSupportBotRequestPath } from "../server/_core/supportBotPath";
 
 const require = createRequire(import.meta.url);
 
@@ -40,6 +41,18 @@ async function ensureSchemaReady() {
 }
 
 /**
+ * True when a request has to run the database-backed bootstrap (the schema
+ * check and the recovery sweep).
+ *
+ * The public Q&A assistant never touches the database, so its requests skip
+ * both: the widget keeps answering while the database is unavailable or over
+ * quota. Every other route still runs them.
+ */
+export function needsDatabaseBootstrap(url: string | undefined): boolean {
+  return !isSupportBotRequestPath(url);
+}
+
+/**
  * Any request that reaches the API is a chance to notice processes the platform killed earlier: a throttled,
  * fire-and-forget sweep reads the durable running-process ledger and resumes the orphans in a fresh invocation, so an
  * interrupted editor task or agent run keeps going without the user (or the main agent) having to restart it by hand.
@@ -50,6 +63,13 @@ function kickProcessRecoverySweep() {
   } catch {
     // The sweep is opportunistic: when the ledger (or the bundle) is not ready yet, the next request tries again.
   }
+}
+
+/** Runs the database-backed bootstrap, unless the request needs no database at all. */
+async function prepareDatabaseForRequest(url: string | undefined) {
+  if (!needsDatabaseBootstrap(url)) return;
+  await ensureSchemaReady();
+  kickProcessRecoverySweep();
 }
 
 const RESPONSE_HEADERS = ["cache-control", "content-type", "location", "pragma", "set-auth-jwt", "vary"] as const;
@@ -213,15 +233,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (proxyPath !== null) return proxyNeonAuth(req, res, proxyPath);
 
   if (isCoDeployedApiPath(req.query.path) || isCoDeployedApiPathFromRequestUrl(req.url)) {
-    await ensureSchemaReady();
-    kickProcessRecoverySweep();
+    await prepareDatabaseForRequest(req.url);
     return getCoDeployedApp()(req, res);
   }
 
   const apiServiceUrl = process.env.API_SERVICE_URL?.replace(/\/$/, "").trim();
   if (apiServiceUrl) return proxyApiService(req, res, apiServiceUrl);
 
-  await ensureSchemaReady();
-  kickProcessRecoverySweep();
+  await prepareDatabaseForRequest(req.url);
   return getCoDeployedApp()(req, res);
 }

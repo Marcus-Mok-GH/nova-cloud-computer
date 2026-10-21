@@ -49,7 +49,7 @@ export function OnboardingModal({ onClose }: { onClose: () => void }) {
             <Sparkles size={16} />
             <span className="text-[11px] font-bold uppercase tracking-[0.14em]">Welcome to Nova</span>
           </div>
-          <DialogTitle>Two quick questions</DialogTitle>
+          <DialogTitle>A few quick questions</DialogTitle>
           <DialogDescription>
             Tell us a little about yourself so we can make Nova more useful. Everything is optional.
           </DialogDescription>

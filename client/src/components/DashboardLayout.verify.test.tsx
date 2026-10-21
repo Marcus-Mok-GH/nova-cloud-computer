@@ -11,7 +11,10 @@ vi.mock("@/_core/hooks/useAuth", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
+    auth: {
+      setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) },
+      onboarding: { useQuery: () => ({ data: { completed: true, source: null, useCase: null, experience: null } }) },
+    },
     workspace: {
       computer: {
         useQuery: () => ({

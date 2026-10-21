@@ -13,6 +13,8 @@ import {
   searchWorkspaceFilesForUser,
   isUsernameTaken,
   setUsernameForUser,
+  getUserOnboarding,
+  saveUserOnboarding,
   deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
@@ -175,6 +177,39 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     /** Lets the sign-in page tell a banned account apart from a broken deployment. */
     banStatus: publicProcedure.query(opts => ({ banned: opts.ctx.banned })),
+    /** The starter-question answers for the signed-in user, plus whether they
+     * have finished onboarding. The client shows the onboarding modal only
+     * while `completed` is false. */
+    onboarding: protectedProcedure.query(async ({ ctx }) => {
+      const saved = await getUserOnboarding(ctx.user.id);
+      return {
+        completed: Boolean(saved?.completedAt),
+        source: saved?.source ?? null,
+        useCase: saved?.useCase ?? null,
+        experience: saved?.experience ?? null,
+      };
+    }),
+    /** Records the starter-question answers. `completed` is false when the user
+     * skipped, which leaves onboarding open to be asked again later. */
+    saveOnboarding: protectedProcedure
+      .input(z.object({
+        source: z.string().trim().max(120).nullable().optional(),
+        useCase: z.string().trim().max(120).nullable().optional(),
+        experience: z.string().trim().max(40).nullable().optional(),
+        completed: z.boolean().default(true),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await saveUserOnboarding(
+          ctx.user.id,
+          {
+            source: input.source ?? null,
+            useCase: input.useCase ?? null,
+            experience: input.experience ?? null,
+          },
+          input.completed
+        );
+        return { success: true } as const;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),
     /** Step 1 of account deletion: emails an OTP to the account address via
      *  Neon Auth so only the mailbox owner can confirm deletion. */

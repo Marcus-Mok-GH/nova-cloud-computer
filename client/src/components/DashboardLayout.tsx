@@ -9,6 +9,7 @@ import { ChevronsLeft, ChevronsRight, Coins, LogOut, Menu, Moon, Sun, X } from "
 import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/lib/nav";
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
+import { OnboardingModal } from "./OnboardingModal";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 
@@ -19,6 +20,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // useWorkspaceChat) instead of a background poll: an idle signed-in tab
   // should not keep waking the database every 30 seconds.
   const credits = trpc.credits.status.useQuery(undefined, { enabled: Boolean(user) });
+  // Starter questions for brand-new accounts. Shown once until the user
+  // completes (or skips) onboarding; a skip leaves it open to ask again later.
+  const onboarding = trpc.auth.onboarding.useQuery(undefined, { enabled: Boolean(user), retry: false });
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -101,6 +106,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}` : `overflow-visible overscroll-contain md:overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+2rem)] ${sidebarCollapsed ? "md:pl-[68px]" : "md:pl-[204px] lg:pl-[228px]"}`}`}>{children}</main>
 
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
+      {user && onboarding.data && !onboarding.data.completed && !onboardingDismissed && (
+        <OnboardingModal onClose={() => setOnboardingDismissed(true)} />
+      )}
     </div>
   );
 }

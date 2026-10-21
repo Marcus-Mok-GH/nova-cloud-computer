@@ -14,7 +14,10 @@ vi.mock("./NotFound", () => ({ default: () => <div>404</div> }));
 vi.mock("wouter", () => ({ useLocation: () => [mockPath, vi.fn()], useSearch: () => "", Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    auth: { setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) } },
+    auth: {
+      setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) },
+      onboarding: { useQuery: () => ({ data: { completed: true, source: null, useCase: null, experience: null } }) },
+    },
     credits: { status: { useQuery: () => ({ data: undefined, isLoading: false }) } },
     useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() }, apiErrorLogs: { invalidate: vi.fn() } } }),
     admin: {

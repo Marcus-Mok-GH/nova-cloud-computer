@@ -19,6 +19,8 @@ export const agentRunStatus = pgEnum("agent_run_status", ["running", "awaiting_c
 export const inferenceQueueStatus = pgEnum("inference_queue_status", ["waiting", "running", "completed", "failed", "cancelled"]);
 /** Lifecycle of an agent action the user must confirm: pending review, executed (approved and carried out), denied (declined), or failed (approved but not carried out, e.g. the wallet ran out of budget). */
 export const agentApprovalStatus = pgEnum("agent_approval_status", ["pending", "executed", "denied", "failed"]);
+/** Lifecycle of an env-var value request the agent raised in a chat: waiting on the user's secure input, fulfilled (value saved), or dismissed. */
+export const envVarRequestStatus = pgEnum("env_var_request_status", ["pending", "fulfilled", "cancelled"]);
 /** Lifecycle of a durable background process: alive and beating, closed normally, or dead-lettered once its resume budget is spent. */
 export const runningProcessStatus = pgEnum("running_process_status", ["running", "completed", "failed"]);
 
@@ -294,6 +296,28 @@ export const agentApprovals = pgTable("agent_approvals", {
   index("agent_approvals_agent_status_idx").on(table.agentId, table.status),
 ]);
 export type AgentApprovalRow = typeof agentApprovals.$inferSelect;
+
+/**
+ * A value request the agent raised from a chat: it needs an environment
+ * variable whose value only the user can supply (an API key), so the web
+ * composer is replaced with a secure value input until the request is
+ * fulfilled or dismissed. The request carries the NAME only - the value goes
+ * straight into the encrypted workspace_env_vars row and never passes through
+ * this table, the model, or a chat message.
+ */
+export const envVarRequests = pgTable("env_var_requests", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  /** The chat the request was raised from; nulled when that chat is deleted. */
+  chatId: varchar("chatId", { length: 24 }).references(() => chats.id, { onDelete: "set null" }),
+  name: varchar("name", { length: 128 }).notNull(),
+  /** Why the variable is needed, shown next to the secure input. */
+  reason: varchar("reason", { length: 400 }),
+  status: envVarRequestStatus("status").default("pending").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("env_var_requests_chat_status_idx").on(table.chatId, table.status)]);
+export type EnvVarRequestRow = typeof envVarRequests.$inferSelect;
 
 /**
  * Agent mail, both outbound (delivered through AgentMail, or to the

@@ -17,9 +17,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  ArrowUp,
   Check,
   CircleDashed,
   Copy,
+  Eye,
+  EyeOff,
   RefreshCw,
   Square,
   Volume2,
@@ -311,6 +314,108 @@ export function TypingIndicator() {
     >
       <CircleDashed className="size-4 animate-spin" />
     </span>
+  );
+}
+
+/**
+ * Replaces the message box while the agent is waiting on a value only the
+ * user can supply - an environment variable requested with set_env_var and no
+ * value. The value is submitted straight to the server's encrypted store; it
+ * is never sent as a chat message, so it never reaches the model. Dismissing
+ * returns the ordinary composer untouched.
+ */
+export function EnvVarRequestComposer({
+  request,
+  remaining,
+  busy = false,
+  onSubmit,
+  onDismiss,
+}: {
+  request: { id: number; name: string; reason: string | null };
+  /** How many further requests are queued behind this one. */
+  remaining?: number;
+  busy?: boolean;
+  onSubmit: (value: string) => void | Promise<void>;
+  onDismiss: () => void | Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+  const [visible, setVisible] = useState(false);
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    setValue("");
+    void onSubmit(trimmed);
+  };
+  return (
+    <div data-testid="env-var-request" className="px-0.5 pb-0.5">
+      <div
+        role="status"
+        className="mx-2 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
+      >
+        Nova needs the value for{' '}
+        <span className="font-bold">{request.name}</span>
+        {remaining && remaining > 0
+          ? ` (one of ${remaining + 1} requested values)`
+          : ""}
+        {request.reason ? (
+          <span className="block pt-0.5 font-normal text-muted-foreground">
+            {request.reason}
+          </span>
+        ) : null}
+        <span className="block pt-0.5 font-normal text-muted-foreground">
+          Enter it below - it's saved encrypted and is never posted in the
+          chat.
+        </span>
+      </div>
+      <form
+        onSubmit={submit}
+        className="flex items-center gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]"
+      >
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={event => setValue(event.target.value)}
+          placeholder={`Value for ${request.name}`}
+          autoFocus
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={`Value for ${request.name}`}
+          className="min-h-10 flex-1 bg-transparent px-0 py-1.5 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:text-[15px]"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible(previous => !previous)}
+          aria-label={visible ? "Hide value" : "Show value"}
+          title={visible ? "Hide value" : "Show value"}
+          className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground dark:hover:bg-white/[0.08]"
+        >
+          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onDismiss()}
+          disabled={busy}
+          aria-label="Dismiss this request"
+          title="Dismiss"
+          className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
+        >
+          <X className="size-4" />
+        </button>
+        <button
+          type="submit"
+          disabled={!value.trim() || busy}
+          aria-label="Save value"
+          className={
+            value.trim() && !busy
+              ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black"
+              : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"
+          }
+        >
+          <ArrowUp className="size-4" />
+        </button>
+      </form>
+    </div>
   );
 }
 

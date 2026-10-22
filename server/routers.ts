@@ -30,6 +30,9 @@ import {
   getWorkspaceModelSettingsForUser,
   listWorkspaceEnvVarsForUser,
   saveWorkspaceEnvVarsForUser,
+  listPendingEnvVarRequestsForUser,
+  fulfillEnvVarRequestForUser,
+  cancelEnvVarRequestForUser,
   getWorkspaceDashboard,
   listChatsForUser,
   listChatMessagesForUser,
@@ -367,6 +370,29 @@ export const appRouter = router({
         const invalid = input.vars.find(entry => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name.trim()));
         if (invalid) throw new TRPCError({ code: "BAD_REQUEST", message: `'${invalid.name}' is not a valid environment variable name - use letters, digits and underscores, starting with a letter or underscore (e.g. STRIPE_API_KEY).` });
         return saveWorkspaceEnvVarsForUser(ctx.user.id, input.vars);
+      }),
+    /** The open chat's pending env-var value requests (NAME + reason only):
+     *  the agent raised them via set_env_var without a value, and the composer
+     *  renders them as secure value inputs instead of the message box. */
+    envVarRequests: protectedProcedure
+      .input(z.object({ chatId: z.string().trim().min(1).max(24) }))
+      .query(({ ctx, input }) => listPendingEnvVarRequestsForUser(ctx.user.id, input.chatId)),
+    /** Fulfils one pending request: the submitted value is stored encrypted
+     *  as the workspace env var and is never echoed back. */
+    fulfillEnvVarRequest: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), value: z.string().trim().min(1, "Enter a value first.").max(4096) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await fulfillEnvVarRequestForUser(ctx.user.id, input.id, input.value);
+        if (!result.ok) throw new TRPCError({ code: "NOT_FOUND", message: result.message });
+        return result;
+      }),
+    /** Dismisses one pending request (the user chose not to provide a value). */
+    cancelEnvVarRequest: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const cancelled = await cancelEnvVarRequestForUser(ctx.user.id, input.id);
+        if (!cancelled) throw new TRPCError({ code: "NOT_FOUND", message: "That request no longer exists." });
+        return { success: true as const };
       }),
     /** Factory reset: deletes every workspace file and folder and replaces
      *  the persistent VM with a fresh machine. Guarded by a typed confirm. */

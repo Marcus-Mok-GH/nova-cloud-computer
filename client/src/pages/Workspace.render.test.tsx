@@ -54,6 +54,13 @@ const state = vi.hoisted(() => ({
     content: string;
   }>,
   agentRunStatus: { active: false as boolean },
+  envVarRequests: [] as Array<{
+    id: number;
+    chatId: string | null;
+    name: string;
+    reason: string | null;
+    createdAt: Date;
+  }>,
   composioStatus: {
     data: {
       keyLength: 64,
@@ -97,6 +104,11 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     workspace: {
       computer: { useQuery: () => state.computer },
+      envVarRequests: {
+        useQuery: () => ({ data: state.envVarRequests, isLoading: false }),
+      },
+      fulfillEnvVarRequest: { useMutation: () => mutation },
+      cancelEnvVarRequest: { useMutation: () => mutation },
       dashboard: {
         useQuery: () => ({
           data: { projects: [], tasks: [] },
@@ -144,7 +156,10 @@ vi.mock("@/lib/trpc", () => ({
     },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({
-      workspace: { computer: { invalidate } },
+      workspace: {
+        computer: { invalidate },
+        envVarRequests: { invalidate },
+      },
       chats: { messages: { invalidate } },
       agentVm: { list: { invalidate } },
       ai: { status: { invalidate } },
@@ -212,6 +227,7 @@ describe("Workspace rendered browser states", () => {
     };
     state.chatMessages = [];
     state.agentRunStatus = { active: false };
+    state.envVarRequests = [];
     state.composioStatus = {
       data: {
         keyLength: 64,
@@ -713,5 +729,44 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain('role="status"');
     expect(markup).not.toContain("Nova is actively working");
     expect(markup).toContain("animate-spin");
+  });
+
+  it("replaces the composer with a secure value request while the agent waits on one", () => {
+    state.computer = {
+      data: { folders: [], files: [], chats: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    state.envVarRequests = [
+      {
+        id: 7,
+        chatId: "1",
+        name: "STRIPE_API_KEY",
+        reason: "Paying for the domain",
+        createdAt: new Date("2026-10-22T00:00:00Z"),
+      },
+    ];
+    const markup = renderChat();
+    // The message box is gone; the secure input for the named variable is in
+    // its place, with the reason the agent gave.
+    expect(markup).toContain('data-testid="env-var-request"');
+    expect(markup).toContain("Value for STRIPE_API_KEY");
+    expect(markup).toContain("Paying for the domain");
+    expect(markup).toContain('type="password"');
+    expect(markup).not.toContain("<textarea");
+    expect(markup).not.toContain("Message Nova");
+  });
+
+  it("keeps the ordinary composer while no value request is pending", () => {
+    state.computer = {
+      data: { folders: [], files: [], chats: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    const markup = renderChat();
+    expect(markup).not.toContain('data-testid="env-var-request"');
+    expect(markup).toContain("Message Nova");
   });
 });

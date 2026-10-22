@@ -463,6 +463,35 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "set_env_var",
+      description:
+        "Add or update one of the workspace's environment variables (API keys, tokens, config) that deploy_website attaches by name. Two modes: pass 'value' when you already know it (non-secret config); OMIT 'value' when the value is a secret only the user can supply - then the user's chat input is replaced with a secure value request and they enter it there. Never invent, guess, or echo a secret value, never ask the user to paste one into the chat, and once a value is saved you can never read it back - reference the NAME only.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description:
+              "Environment variable name, e.g. STRIPE_API_KEY - letters, digits and underscores.",
+          },
+          value: {
+            type: "string",
+            description:
+              "The value, when you know it. OMIT it for secrets the user must enter themselves - that raises a secure request in their chat input.",
+          },
+          reason: {
+            type: "string",
+            description:
+              "Why the variable is needed - shown to the user with the secure request so they know what they are approving.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "send_progress_update",
       description:
         "Send the user a brief mid-task progress note over Telegram (opening ETA, revised ETA, interim status, or a blocker notice). Use this while working on a request; use send_telegram_message when sending a message is itself the task. Requires Telegram to be connected.",

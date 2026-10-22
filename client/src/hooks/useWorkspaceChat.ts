@@ -506,6 +506,65 @@ export function useWorkspaceChat({
       }
     }
   };
+  // Pending env-var value requests for the open chat: the agent raised one
+  // via set_env_var without a value, so the composer becomes a secure value
+  // input until it is fulfilled or dismissed. Queried only while the chat is
+  // idle - a working run keeps the normal composer (with its Stop button) -
+  // and polled slowly so a request raised mid-run appears once the run ends.
+  const envVarRequests = trpc.workspace.envVarRequests.useQuery(
+    { chatId: chatId ?? "" },
+    {
+      enabled: Boolean(chatId) && !composerBusy,
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchInterval: Boolean(chatId) ? 10_000 : false,
+      refetchIntervalInBackground: false,
+    }
+  );
+  const pendingEnvVarRequests = envVarRequests.data ?? [];
+  const fulfillEnvVar = trpc.workspace.fulfillEnvVarRequest.useMutation();
+  const cancelEnvVar = trpc.workspace.cancelEnvVarRequest.useMutation();
+  // Fulfils one request: the value goes straight to the server's encrypted
+  // store, then the conversation resumes with a short continuation message
+  // naming the variable only - the value itself never appears in a chat
+  // message, so it can never reach the model.
+  const fulfillEnvVarRequest = async (
+    request: { id: number; name: string },
+    value: string
+  ) => {
+    const trimmed = value.trim();
+    if (!chatId || !trimmed || fulfillEnvVar.isPending) return;
+    try {
+      await fulfillEnvVar.mutateAsync({ id: request.id, value: trimmed });
+      await utils.workspace.envVarRequests.invalidate({ chatId });
+      toast.success(`${request.name} saved`);
+      await sendMessage(
+        chatId,
+        `I've entered the value for ${request.name} - it's saved now. Continue where you left off.`
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Nova could not save that value. Please try again."
+      );
+    }
+  };
+  // Dismisses one request (the user chose not to provide a value): the
+  // normal composer comes back and the agent can be told another way.
+  const dismissEnvVarRequest = async (request: { id: number }) => {
+    if (!chatId || cancelEnvVar.isPending) return;
+    try {
+      await cancelEnvVar.mutateAsync({ id: request.id });
+      await utils.workspace.envVarRequests.invalidate({ chatId });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Nova could not dismiss that request. Please try again."
+      );
+    }
+  };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
     // While Nova works - or while this turn waits in the peak-hours queue -
@@ -678,5 +737,9 @@ export function useWorkspaceChat({
     settledWhileAway,
     revertChat,
     userScrolledUpRef,
+    pendingEnvVarRequests,
+    fulfillEnvVarRequest,
+    dismissEnvVarRequest,
+    fulfillingEnvVarRequest: fulfillEnvVar.isPending,
   };
 }

@@ -40,6 +40,7 @@ import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
 import {
   CopyMessageButton,
+  EnvVarRequestComposer,
   ImageAttachmentTray,
   RegenerateMessageButton,
   SpeakMessageButton,
@@ -88,7 +89,18 @@ export default function Workspace() {
     settledWhileAway,
     revertChat,
     userScrolledUpRef,
+    pendingEnvVarRequests,
+    fulfillEnvVarRequest,
+    dismissEnvVarRequest,
+    fulfillingEnvVarRequest,
   } = useWorkspaceChat({ chatId, utils, computer });
+  // While the agent waits on a value only the user can supply (a set_env_var
+  // request), the composer becomes a secure value input instead of the
+  // message box - hidden while a run is working, so Stop stays reachable.
+  const pendingEnvVarRequest =
+    !composerBusy && pendingEnvVarRequests.length > 0
+      ? pendingEnvVarRequests[0]
+      : undefined;
 
   const connectorStatus = trpc.composio.status.useQuery(undefined, {
     retry: false,
@@ -670,63 +682,80 @@ export default function Workspace() {
                   }}
                 />
                 <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]">
-                  <Textarea
-                    value={draft}
-                    onChange={event => setDraft(event.target.value)}
-                    onKeyDown={event => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        void submit(event);
+                  {pendingEnvVarRequest ? (
+                    <EnvVarRequestComposer
+                      key={pendingEnvVarRequest.id}
+                      request={pendingEnvVarRequest}
+                      remaining={pendingEnvVarRequests.length - 1}
+                      busy={fulfillingEnvVarRequest}
+                      onSubmit={value =>
+                        fulfillEnvVarRequest(pendingEnvVarRequest, value)
                       }
-                    }}
-                    onPaste={event => {
-                      const files = Array.from(
-                        event.clipboardData?.files ?? []
-                      ).filter(file => file.type.startsWith("image/"));
-                      if (!files.length) return;
-                      event.preventDefault();
-                      void addChatImages(
-                        setComposerAttachments,
-                        composerAttachments,
-                        files
-                      );
-                    }}
-                    placeholder="Message Nova"
-                    rows={1}
-                    className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
-                  />
-                  {!composerBusy && (
-                    <button
-                      type="button"
-                      onClick={() => composerImageInputRef.current?.click()}
-                      disabled={preparingImages}
-                      aria-label="Attach images"
-                      className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
-                    >
-                      <ImagePlus className="size-4" />
-                    </button>
-                  )}
-                  {composerBusy ? (
-                    <button
-                      type="submit"
-                      aria-label="Stop Nova"
-                      className="grid size-10 shrink-0 place-items-center rounded-lg bg-red-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-500 hover:shadow-md"
-                    >
-                      <Square className="size-4 fill-current" />
-                    </button>
+                      onDismiss={() =>
+                        dismissEnvVarRequest(pendingEnvVarRequest)
+                      }
+                    />
                   ) : (
-                    <button
-                      type="submit"
-                      disabled={!canSendComposer}
-                      aria-label="Send message"
-                      className={
-                        canSendComposer
-                          ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black"
-                          : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"
-                      }
-                    >
-                      <ArrowUp className="size-4" />
-                    </button>
+                    <>
+                      <Textarea
+                        value={draft}
+                        onChange={event => setDraft(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            void submit(event);
+                          }
+                        }}
+                        onPaste={event => {
+                          const files = Array.from(
+                            event.clipboardData?.files ?? []
+                          ).filter(file => file.type.startsWith("image/"));
+                          if (!files.length) return;
+                          event.preventDefault();
+                          void addChatImages(
+                            setComposerAttachments,
+                            composerAttachments,
+                            files
+                          );
+                        }}
+                        placeholder="Message Nova"
+                        rows={1}
+                        className="max-h-28 min-h-10 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-1.5 text-[16px] leading-6 placeholder:text-muted-foreground focus-visible:ring-0 sm:text-[15px]"
+                      />
+                      {!composerBusy && (
+                        <button
+                          type="button"
+                          onClick={() => composerImageInputRef.current?.click()}
+                          disabled={preparingImages}
+                          aria-label="Attach images"
+                          className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
+                        >
+                          <ImagePlus className="size-4" />
+                        </button>
+                      )}
+                      {composerBusy ? (
+                        <button
+                          type="submit"
+                          aria-label="Stop Nova"
+                          className="grid size-10 shrink-0 place-items-center rounded-lg bg-red-600 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-500 hover:shadow-md"
+                        >
+                          <Square className="size-4 fill-current" />
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          disabled={!canSendComposer}
+                          aria-label="Send message"
+                          className={
+                            canSendComposer
+                              ? "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground text-background shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:bg-white dark:text-black"
+                              : "grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-muted-foreground transition dark:bg-white/[0.08]"
+                          }
+                        >
+                          <ArrowUp className="size-4" />
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -35,6 +35,7 @@ import { toolSendTelegramMessage, toolSendProgressUpdate, toolPresentFile } from
 import { toolSetCommunicationStyle, toolSetPersonalisation } from "../workspaceTools/personalisation";
 import { toolGithub, toolListConnectorTools, toolUseConnectorTool } from "../workspaceTools/connectors";
 import { toolSearchMemories, toolReadMemory, toolSaveMemory, toolDeleteMemory } from "../workspaceTools/memories";
+import { toolSetEnvVar } from "../workspaceTools/envvars";
 import { toolSolveEquation } from "../workspaceTools/equation";
 import { toolBase44 } from "../workspaceTools/codec";
 import { toolResearchWeb } from "../workspaceTools/research";
@@ -129,6 +130,8 @@ export async function executeWorkspaceTool(
       return toolReadMemory(ctx);
     case "save_memory":
       return toolSaveMemory(ctx);
+    case "set_env_var":
+      return toolSetEnvVar(ctx);
     case "delete_memory":
       return toolDeleteMemory(ctx);
     case "read_skill": {

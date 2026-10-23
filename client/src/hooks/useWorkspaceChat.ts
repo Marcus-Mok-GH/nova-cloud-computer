@@ -11,10 +11,18 @@ import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import {
   collectChatImageAttachments,
+  isSupportedChatImage,
   MAX_CHAT_IMAGE_ATTACHMENTS,
-  MAX_CHAT_IMAGE_TOTAL_CHARS,
   type ChatImageAttachment,
 } from "@/lib/imageAttachments";
+import {
+  collectChatFileAttachments,
+  queueComposerAttachments,
+  MAX_CHAT_FILE_ATTACHMENTS,
+  type ChatComposerAttachment,
+  type ChatFileAttachment,
+  type ChatFileUpload,
+} from "@/lib/fileAttachments";
 import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import { stopAllSpeech } from "@/lib/speech";
 import {
@@ -117,44 +125,52 @@ export function useWorkspaceChat({
       : new URLSearchParams(window.location.search).get("teamstart") === "1";
   const teamKickoffSentRef = useRef(false);
   const [composerAttachments, setComposerAttachments] = useState<
-    ChatImageAttachment[]
+    ChatComposerAttachment[]
   >([]);
-  const [preparingImages, setPreparingImages] = useState(false);
+  const [preparingAttachments, setPreparingAttachments] = useState(false);
   const composerImageInputRef = useRef<HTMLInputElement>(null);
 
-  // Downscales and encodes picked/pasted files, then queues them for the next
-  // message up to the per-message cap.
-  const addChatImages = async (
-    setter: React.Dispatch<React.SetStateAction<ChatImageAttachment[]>>,
-    current: ChatImageAttachment[],
+  // Routes dropped/pasted/picked files to the right encoder - images are
+  // downscaled for vision, other files encoded as data-URI uploads - then
+  // queues what fits the per-message budget.
+  const addChatAttachments = async (
+    setter: React.Dispatch<React.SetStateAction<ChatComposerAttachment[]>>,
+    current: ChatComposerAttachment[],
     files: Iterable<File>
   ) => {
-    setPreparingImages(true);
+    setPreparingAttachments(true);
     try {
-      const { attachments: prepared, error } =
-        await collectChatImageAttachments(files);
-      if (error) toast.error(error);
+      const picked = Array.from(files);
+      const imageFiles = picked.filter(isSupportedChatImage);
+      const otherFiles = picked.filter(file => !isSupportedChatImage(file));
+      const imageResult: {
+        attachments: ChatImageAttachment[];
+        error?: string;
+      } = imageFiles.length
+        ? await collectChatImageAttachments(imageFiles)
+        : { attachments: [] };
+      const fileResult: { attachments: ChatFileAttachment[]; error?: string } =
+        otherFiles.length
+          ? await collectChatFileAttachments(otherFiles)
+          : { attachments: [] };
+      for (const error of [imageResult.error, fileResult.error])
+        if (error) toast.error(error);
+      const prepared: ChatComposerAttachment[] = [
+        ...imageResult.attachments,
+        ...fileResult.attachments,
+      ];
       if (!prepared.length) return;
-      const room = Math.max(0, MAX_CHAT_IMAGE_ATTACHMENTS - current.length);
-      const accepted: ChatImageAttachment[] = [];
-      let totalChars = current.reduce(
-        (sum, attachment) => sum + attachment.dataUri.length,
-        0
+      const { accepted, overflow } = queueComposerAttachments(
+        current,
+        prepared
       );
-      for (const attachment of prepared) {
-        if (accepted.length >= room) break;
-        if (totalChars + attachment.dataUri.length > MAX_CHAT_IMAGE_TOTAL_CHARS)
-          continue;
-        accepted.push(attachment);
-        totalChars += attachment.dataUri.length;
-      }
-      if (accepted.length < prepared.length)
+      if (overflow > 0)
         toast.error(
-          `Attach at most ${MAX_CHAT_IMAGE_ATTACHMENTS} images within the size limit.`
+          `Attach at most ${MAX_CHAT_IMAGE_ATTACHMENTS} images and ${MAX_CHAT_FILE_ATTACHMENTS} files within the size limit.`
         );
-      setter([...current, ...accepted]);
+      if (accepted.length) setter([...current, ...accepted]);
     } finally {
-      setPreparingImages(false);
+      setPreparingAttachments(false);
     }
   };
 
@@ -217,13 +233,14 @@ export function useWorkspaceChat({
     []
   );
 
-  const contentFor = (text: string, attachments: ChatImageAttachment[]) =>
+  const contentFor = (text: string, attachments: ChatComposerAttachment[]) =>
     text.trim() ||
     (attachments.length === 1
       ? `Uploaded ${attachments[0].name}`
-      : `Uploaded ${attachments.length} images`);
+      : `Uploaded ${attachments.length} attachments`);
   const canSendComposer =
-    Boolean(draft.trim() || composerAttachments.length) && !preparingImages;
+    Boolean(draft.trim() || composerAttachments.length) &&
+    !preparingAttachments;
   // The backend ledger is the source of truth for active work. This keeps the
   // status visible after a refresh and for runs started from Telegram or a
   // continuation segment, where this browser does not own the fetch stream.
@@ -362,7 +379,8 @@ export function useWorkspaceChat({
   const sendMessage = async (
     targetChatId: string,
     content: string,
-    images: string[] = []
+    images: string[] = [],
+    files: ChatFileUpload[] = []
   ): Promise<boolean> => {
     userScrolledUpRef.current = false;
     // Supersede any stream still running (a previous send, or one left behind
@@ -396,6 +414,7 @@ export function useWorkspaceChat({
           chatId: targetChatId,
           content,
           ...(images.length ? { images } : {}),
+          ...(files.length ? { files } : {}),
         }),
       });
       if (!response.ok) {
@@ -575,10 +594,24 @@ export function useWorkspaceChat({
     }
     if ((!draft.trim() && !composerAttachments.length) || !chatId) return;
     const content = contentFor(draft, composerAttachments);
-    const images = composerAttachments.map(attachment => attachment.dataUri);
+    const images = composerAttachments.flatMap(attachment =>
+      attachment.kind === "image" ? [attachment.dataUri] : []
+    );
+    const files = composerAttachments.flatMap(
+      (attachment): ChatFileUpload[] =>
+        attachment.kind === "file"
+          ? [
+              {
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                dataUri: attachment.dataUri,
+              },
+            ]
+          : []
+    );
     setDraft("");
     setComposerAttachments([]);
-    await sendMessage(chatId, content, images);
+    await sendMessage(chatId, content, images, files);
   };
   /**
    * Regenerates the thread from one message: reverts history from the anchor
@@ -717,9 +750,9 @@ export function useWorkspaceChat({
     setDraft,
     composerAttachments,
     setComposerAttachments,
-    preparingImages,
+    preparingAttachments,
     composerImageInputRef,
-    addChatImages,
+    addChatAttachments,
     canSendComposer,
     submit,
     sendMessage,

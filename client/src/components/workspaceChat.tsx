@@ -23,6 +23,9 @@ import {
   Copy,
   Eye,
   EyeOff,
+  File,
+  FileAudio,
+  FileText,
   RefreshCw,
   Square,
   Volume2,
@@ -39,39 +42,79 @@ import {
   TTS_START_EVENT,
   TTS_STOP_EVENT,
 } from "@/lib/speech";
-import type { ChatImageAttachment } from "@/lib/imageAttachments";
+import type { ChatComposerAttachment } from "@/lib/fileAttachments";
 
-/** Thumbnail strip of the images queued for the next message. */
-export function ImageAttachmentTray({
+/** Compact "1.2 MB" label for a file chip in the attachment tray. */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** The tray glyph for a non-image attachment, chosen by content type. */
+function FileAttachmentGlyph({ mimeType }: { mimeType: string }) {
+  if (mimeType.startsWith("audio/"))
+    return <FileAudio className="size-4 text-muted-foreground" />;
+  if (mimeType.startsWith("text/") || mimeType === "application/pdf")
+    return <FileText className="size-4 text-muted-foreground" />;
+  return <File className="size-4 text-muted-foreground" />;
+}
+
+/** Thumbnail strip of the images and files queued for the next message. */
+export function AttachmentTray({
   attachments,
   onRemove,
 }: {
-  attachments: ChatImageAttachment[];
+  attachments: ChatComposerAttachment[];
   onRemove: (id: string) => void;
 }) {
   if (!attachments.length) return null;
   return (
     <div className="flex flex-wrap gap-2 px-1 pb-2">
-      {attachments.map(attachment => (
-        <div
-          key={attachment.id}
-          className="relative size-16 overflow-hidden rounded-lg border border-foreground/[0.12] bg-muted/40 dark:border-white/[0.12]"
-        >
-          <img
-            src={attachment.dataUri}
-            alt={attachment.name}
-            className="size-full object-cover"
-          />
-          <button
-            type="button"
-            onClick={() => onRemove(attachment.id)}
-            aria-label={`Remove ${attachment.name}`}
-            className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+      {attachments.map(attachment =>
+        attachment.kind === "image" ? (
+          <div
+            key={attachment.id}
+            className="relative size-16 overflow-hidden rounded-lg border border-foreground/[0.12] bg-muted/40 dark:border-white/[0.12]"
           >
-            <X className="size-3" />
-          </button>
-        </div>
-      ))}
+            <img
+              src={attachment.dataUri}
+              alt={attachment.name}
+              className="size-full object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(attachment.id)}
+              aria-label={`Remove ${attachment.name}`}
+              className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        ) : (
+          <div
+            key={attachment.id}
+            title={`${attachment.name} (${formatFileSize(attachment.sizeBytes)})`}
+            className="relative flex size-16 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border border-foreground/[0.12] bg-muted/40 px-1 text-center dark:border-white/[0.12]"
+          >
+            <FileAttachmentGlyph mimeType={attachment.mimeType} />
+            <span className="w-full truncate text-[9px] font-semibold leading-tight text-foreground">
+              {attachment.name}
+            </span>
+            <span className="text-[9px] font-medium leading-none text-muted-foreground">
+              {formatFileSize(attachment.sizeBytes)}
+            </span>
+            <button
+              type="button"
+              onClick={() => onRemove(attachment.id)}
+              aria-label={`Remove ${attachment.name}`}
+              className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        )
+      )}
     </div>
   );
 }

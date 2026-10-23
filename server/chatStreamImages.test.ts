@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
+const PDF_URI = "data:application/pdf;base64,JVBERi0xLjQ=";
+const TXT_URI = "data:text/plain;base64,aGVsbG8=";
 
 const spies = vi.hoisted(() => ({
   createWorkspaceFileForUser: vi.fn(
@@ -176,5 +178,125 @@ describe("Chat stream image attachments", () => {
     const { status } = await post({ chatId: "chat-1", content: "   " });
     expect(status).toBe(400);
     expect(spies.runWorkspaceAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe("Chat stream file attachments", () => {
+  const realFetch = globalThis.fetch.bind(globalThis);
+  let server: ReturnType<typeof app.listen>;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = app.listen(0);
+    await new Promise(resolve => server.once("listening", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no port");
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function post(body: unknown) {
+    const response = await realFetch(`${baseUrl}/api/chat/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { status: response.status, text: await response.text() };
+  }
+
+  it("saves a dropped file to the workspace and tells the agent how to read it", async () => {
+    const { status, text } = await post({
+      chatId: "chat-1",
+      content: "summarize this",
+      files: [{ name: "notes.txt", mimeType: "text/plain", dataUri: TXT_URI }],
+    });
+    expect(status).toBe(200);
+    expect(text).toContain("data: [DONE]");
+    expect(spies.createWorkspaceFileForUser).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        name: "notes.txt",
+        content: TXT_URI,
+        mimeType: "text/plain",
+      })
+    );
+    const runOptions = spies.runWorkspaceAgent.mock.calls[0][3] as {
+      uploadContext?: string;
+      imageAttachments?: string[];
+    };
+    expect(runOptions.uploadContext).toContain('"notes.txt" (file id 55)');
+    expect(runOptions.uploadContext).toContain("read its contents with read_file");
+    // Files are workspace uploads, not vision input.
+    expect(runOptions.imageAttachments).toBeUndefined();
+    // The visible user message stays the clean typed text.
+    expect(spies.runWorkspaceAgent.mock.calls[0][2]).toBe("summarize this");
+  });
+
+  it("accepts a file-only message and names the uploaded file", async () => {
+    const { status } = await post({
+      chatId: "chat-1",
+      files: [{ name: "report.pdf", mimeType: "application/pdf", dataUri: PDF_URI }],
+    });
+    expect(status).toBe(200);
+    expect(spies.runWorkspaceAgent.mock.calls[0][2]).toBe("Uploaded report.pdf");
+    const runOptions = spies.runWorkspaceAgent.mock.calls[0][3] as {
+      uploadContext?: string;
+    };
+    expect(runOptions.uploadContext).toContain("pypdf");
+  });
+
+  it("retries a duplicate file name with a stamped one", async () => {
+    spies.createWorkspaceFileForUser.mockResolvedValueOnce(undefined as never);
+    const { status } = await post({
+      chatId: "chat-1",
+      content: "here",
+      files: [{ name: "notes.txt", mimeType: "text/plain", dataUri: TXT_URI }],
+    });
+    expect(status).toBe(200);
+    expect(spies.createWorkspaceFileForUser).toHaveBeenCalledTimes(2);
+    const retry = spies.createWorkspaceFileForUser.mock.calls[1][1] as {
+      name: string;
+    };
+    expect(retry.name).toMatch(/^\d{14}-notes\.txt$/);
+  });
+
+  it("rejects an active content type", async () => {
+    const { status } = await post({
+      chatId: "chat-1",
+      content: "here",
+      files: [
+        {
+          name: "page.html",
+          mimeType: "text/html",
+          dataUri: "data:text/html;base64,PGI+PC9iPg==",
+        },
+      ],
+    });
+    expect(status).toBe(400);
+    expect(spies.runWorkspaceAgent).not.toHaveBeenCalled();
+  });
+
+  it("covers a mixed image + file turn in one context", async () => {
+    const { status } = await post({
+      chatId: "chat-1",
+      content: "compare these",
+      images: [PNG],
+      files: [{ name: "figures.csv", mimeType: "text/csv", dataUri: "data:text/csv;base64,YSxiCjEsMg==" }],
+    });
+    expect(status).toBe(200);
+    const runOptions = spies.runWorkspaceAgent.mock.calls[0][3] as {
+      uploadContext?: string;
+      imageAttachments?: string[];
+    };
+    expect(runOptions.imageAttachments).toEqual([PNG]);
+    expect(runOptions.uploadContext).toContain("an image");
+    expect(runOptions.uploadContext).toContain('"figures.csv" (file id 55)');
   });
 });

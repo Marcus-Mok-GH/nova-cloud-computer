@@ -425,6 +425,6 @@ describe("Composio connector client", () => {
 
   it("wraps Composio HTTP errors with their message", async () => {
     const fetchImpl = vi.fn(async () => composioResponse({ error: { message: "Invalid API key" } }, 401));
-    await expect(getComposioConnectionStatus(1, fetchImpl)).rejects.toThrow("Invalid API key");
+    await expect(getComposioConnectionStatus(1, "github", fetchImpl)).rejects.toThrow("Invalid API key");
   });
 });

@@ -76,6 +76,35 @@ export const SUPPORTED_CHAT_IMAGE_MIME: Record<string, string> = {
   "image/gif": "gif",
 };
 
+// Chat file attachments: the non-image assets (documents, audio, archives...)
+// the web composer accepts by drag & drop or picker and sends as base64 data
+// URIs. Like the image table above, the browser composer and the server's
+// request validation enforce the same caps from here so they cannot drift.
+/** Most non-image files one chat message may carry. */
+export const MAX_CHAT_FILE_ATTACHMENTS = 3;
+/**
+ * Per-file cap on the encoded data URI. Base64 inflates by ~33%, so this is
+ * roughly a 1.9 MB file - large enough for documents, audio clips, and small
+ * archives while staying inside the endpoint's 4mb body limit.
+ */
+export const MAX_CHAT_FILE_DATA_URI_CHARS = 2_600_000;
+/**
+ * Combined encoded size of one message's images AND files. The endpoint's
+ * JSON body limit is 4mb, so this single budget keeps every attachment mix
+ * comfortably inside it.
+ */
+export const MAX_CHAT_ATTACHMENT_TOTAL_CHARS = 3_500_000;
+/**
+ * Content types never accepted as chat file attachments: active/scriptable
+ * documents that could execute if ever rendered or opened from the workspace.
+ * Both the browser composer and the server filter against this list.
+ */
+export const BLOCKED_CHAT_FILE_MIME: readonly string[] = [
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+];
+
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no
 // Domain), so a sibling *.manus.space site cannot plant a matching value in a

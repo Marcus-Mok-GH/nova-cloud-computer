@@ -27,6 +27,7 @@ import {
   ImagePlus,
   Mail,
   MessageSquareText,
+  Paperclip,
   Rocket,
   Send,
   Square,
@@ -39,9 +40,13 @@ import { LEGACY_AI_UNAVAILABLE_PREFIX, AI_UNAVAILABLE_PREFIX } from "@shared/con
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
 import {
+  dragCarriesFiles,
+  isDesktopDragDrop,
+} from "@/lib/fileAttachments";
+import {
+  AttachmentTray,
   CopyMessageButton,
   EnvVarRequestComposer,
-  ImageAttachmentTray,
   RegenerateMessageButton,
   SpeakMessageButton,
   TypingIndicator,
@@ -70,9 +75,9 @@ export default function Workspace() {
     setDraft,
     composerAttachments,
     setComposerAttachments,
-    preparingImages,
+    preparingAttachments,
     composerImageInputRef,
-    addChatImages,
+    addChatAttachments,
     canSendComposer,
     submit,
     sendMessage,
@@ -117,6 +122,45 @@ export default function Workspace() {
     if (!el) return;
     userScrolledUpRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight > 120;
+  };
+
+  // Desktop drag & drop: while files hover the chat, an overlay invites the
+  // drop and any file lands in the composer tray (images through the image
+  // pipeline, everything else as a workspace upload). Entering/leaving child
+  // elements is counted so the overlay survives the pointer crossing nested
+  // elements. Touch devices are skipped - the affordance is desktop-only.
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
+  const filesDraggedOver = (event: React.DragEvent) =>
+    isDesktopDragDrop() && dragCarriesFiles(event.dataTransfer?.types);
+  const handleDragEnter = (event: React.DragEvent) => {
+    if (!filesDraggedOver(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDraggingFiles(true);
+  };
+  const handleDragOver = (event: React.DragEvent) => {
+    if (!filesDraggedOver(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+  const handleDragLeave = () => {
+    if (!draggingFiles) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDraggingFiles(false);
+  };
+  const handleDrop = (event: React.DragEvent) => {
+    if (!dragCarriesFiles(event.dataTransfer?.types)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDraggingFiles(false);
+    const files = event.dataTransfer?.files;
+    if (files?.length)
+      void addChatAttachments(
+        setComposerAttachments,
+        composerAttachments,
+        Array.from(files)
+      );
   };
 
   useEffect(() => {
@@ -311,7 +355,13 @@ export default function Workspace() {
     const modeBadge = workflowBadge[chatWorkflowMode(persisted)];
     return (
       <DashboardLayout>
-        <section className="chat-editorial-shell relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-foreground">
+        <section
+          className="chat-editorial-shell relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-foreground"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <div className="chat-editorial-orbit pointer-events-none absolute -right-40 -top-48 size-[34rem] rounded-full border border-primary/[0.12] dark:border-primary/[0.16]" />
           <div className="chat-editorial-orbit pointer-events-none absolute -bottom-72 -left-56 size-[32rem] rounded-full border border-foreground/[0.06] dark:border-white/[0.07]" />
           <header className="relative z-10 shrink-0 border-b border-foreground/[0.10] bg-background/75 backdrop-blur-xl dark:border-white/[0.10]">
@@ -656,7 +706,7 @@ export default function Workspace() {
                     Enter to send
                   </span>
                 </div>
-                <ImageAttachmentTray
+                <AttachmentTray
                   attachments={composerAttachments}
                   onRemove={id =>
                     setComposerAttachments(previous =>
@@ -673,7 +723,7 @@ export default function Workspace() {
                   onChange={event => {
                     const files = event.target.files;
                     if (files?.length)
-                      void addChatImages(
+                      void addChatAttachments(
                         setComposerAttachments,
                         composerAttachments,
                         files
@@ -712,7 +762,7 @@ export default function Workspace() {
                           ).filter(file => file.type.startsWith("image/"));
                           if (!files.length) return;
                           event.preventDefault();
-                          void addChatImages(
+                          void addChatAttachments(
                             setComposerAttachments,
                             composerAttachments,
                             files
@@ -726,7 +776,7 @@ export default function Workspace() {
                         <button
                           type="button"
                           onClick={() => composerImageInputRef.current?.click()}
-                          disabled={preparingImages}
+                          disabled={preparingAttachments}
                           aria-label="Attach images"
                           className="grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50 dark:hover:bg-white/[0.08]"
                         >
@@ -765,6 +815,17 @@ export default function Workspace() {
               </p>
             </div>
           </form>
+          {draggingFiles && (
+            <div
+              data-testid="chat-drop-overlay"
+              className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-background/55 p-4 backdrop-blur-[3px]"
+            >
+              <div className="flex items-center gap-2.5 rounded-xl border-2 border-dashed border-primary bg-card/95 px-6 py-4 text-sm font-bold text-foreground shadow-[0_18px_50px_rgba(36,40,34,0.18)] dark:bg-white/[0.08]">
+                <Paperclip className="size-4 text-primary" />
+                Drop files to attach them for Nova
+              </div>
+            </div>
+          )}
         </section>
       </DashboardLayout>
     );

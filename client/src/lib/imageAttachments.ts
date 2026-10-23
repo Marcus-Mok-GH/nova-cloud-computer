@@ -20,6 +20,8 @@ const KEEP_ORIGINAL_BYTES = 700_000;
 const JPEG_QUALITY = 0.82;
 
 export type ChatImageAttachment = {
+  /** Discriminator in the composer's mixed image/file attachment list. */
+  kind: "image";
   id: string;
   name: string;
   mimeType: string;
@@ -45,6 +47,7 @@ export async function prepareChatImageAttachment(
     const dataUri = await encodeChatImage(file);
     return {
       attachment: {
+        kind: "image",
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: file.name || "image",
         mimeType: dataUri.slice(5, dataUri.indexOf(";")),

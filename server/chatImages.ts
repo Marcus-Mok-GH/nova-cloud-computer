@@ -12,7 +12,7 @@ import {
   MAX_CHAT_IMAGE_TOTAL_CHARS,
   SUPPORTED_CHAT_IMAGE_MIME,
 } from "@shared/const";
-import { fileStamp } from "@shared/text";
+import { base64DataUriMimeType, fileStamp } from "@shared/text";
 
 /*
  * The attachment limits and the supported image table are the byte-for-byte
@@ -74,9 +74,8 @@ export function parseChatImageDataUri(
   dataUri: string
 ): { mimeType: string; extension: string } | null {
   if (typeof dataUri !== "string") return null;
-  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,/i.exec(dataUri);
-  if (!match) return null;
-  const mimeType = match[1].toLowerCase();
+  const mimeType = base64DataUriMimeType(dataUri);
+  if (!mimeType) return null;
   const extension = SUPPORTED_CHAT_IMAGE_MIME[mimeType];
   return extension ? { mimeType, extension } : null;
 }

@@ -25,10 +25,8 @@ export function resolveFolder(
   if (byName) return byName;
   // Nested folder path, e.g. "sites/ph-meter": match the last segment with
   // its parent path.
-  const segments = normalized.split("/").filter(Boolean);
+  const { segments, base, dir } = splitWorkspaceRef(normalized);
   if (segments.length < 2) return undefined;
-  const base = segments[segments.length - 1];
-  const dir = segments.slice(0, -1).join("/");
   const folderRows = folderRowsOf(computer);
   return computer.folders.find(
     folder =>
@@ -51,6 +49,19 @@ export function normalizeWorkspaceRef(raw: string): string {
 
 export function folderRowsOf(computer: Computer): FolderRowLike[] {
   return computer.folders as FolderRowLike[];
+}
+
+/**
+ * Splits a normalized workspace reference into the segments a name match
+ * needs to look at: the final segment, and the parent path it must live under.
+ */
+function splitWorkspaceRef(normalized: string) {
+  const segments = normalized.split("/").filter(Boolean);
+  return {
+    segments,
+    base: segments[segments.length - 1] ?? "",
+    dir: segments.slice(0, -1).join("/"),
+  };
 }
 
 /** The workspace-relative path of a file, lowercase ("folder/index.html"). */
@@ -93,10 +104,8 @@ export function resolveFile(
   if (byPath) return byPath;
   // 3. Path-style ref whose last segment names a file: resolve by basename,
   //    preferring the file inside the folder path the ref points at.
-  const segments = normalized.split("/").filter(Boolean);
+  const { segments, base, dir } = splitWorkspaceRef(normalized);
   if (segments.length < 2) return undefined;
-  const base = segments[segments.length - 1];
-  const dir = segments.slice(0, -1).join("/");
   const basenameMatches = computer.files.filter(
     file => file.name.toLowerCase() === base
   );
@@ -124,8 +133,7 @@ export function fileNotFoundResult(computer: Computer, ref: unknown): string {
   const raw = typeof ref === "string" ? ref : String(ref ?? "");
   const normalized = normalizeWorkspaceRef(String(raw));
   const folderRows = folderRowsOf(computer);
-  const segments = normalized.split("/").filter(Boolean);
-  const base = segments[segments.length - 1] ?? normalized;
+  const { segments, base } = splitWorkspaceRef(normalized);
   const suggestions: string[] = [];
   const seen = new Set<string>();
   for (const file of computer.files) {

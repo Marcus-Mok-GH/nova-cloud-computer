@@ -2,7 +2,7 @@ import CodeEditor, { type EditorCursor } from "@/components/CodeEditor";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { detectLanguage, languageLabel } from "@/lib/syntaxHighlight";
-import { getFolderTrail } from "@/lib/workspaceBrowser";
+import { getFolderTrail, getWorkspaceContents } from "@/lib/workspaceBrowser";
 import { highlightSegments } from "@/lib/fileSearch";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -215,8 +215,7 @@ function CreateRow({ kind, depth, finish, cancel }: { kind: "file" | "folder"; d
 }
 
 function Tree({ folders, files, parentId, depth, activeFolderId, expanded, setExpanded, selectFolder, open, remove, creating, finishCreate, cancelCreate }: TreeProps) {
-  const childFolders = folders.filter(f => f.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
-  const childFiles = files.filter(f => f.folderId === parentId).sort((a, b) => a.name.localeCompare(b.name));
+  const { folders: childFolders, files: childFiles } = getWorkspaceContents(folders, files, parentId);
   return <>
     {creating && creating.parentId === parentId && <CreateRow kind={creating.kind} depth={depth} finish={finishCreate} cancel={cancelCreate} />}
     {childFolders.map(folder => { const isOpen = expanded.has(folder.id); const hasChildren = folders.some(f => f.parentId === folder.id) || files.some(f => f.folderId === folder.id); return <React.Fragment key={folder.id}><button onClick={() => { selectFolder(folder.id); setExpanded(p => { const n = new Set(p); isOpen ? n.delete(folder.id) : n.add(folder.id); return n; }); }} className={`flex h-[26px] max-sm:h-9 w-full items-center gap-1 rounded-sm text-left transition hover:bg-neutral-200/50 dark:hover:bg-card/5 ${activeFolderId === folder.id ? "bg-neutral-200/80 text-foreground dark:bg-card/10 dark:text-foreground" : "text-foreground/80 dark:text-foreground/80"}`} style={{ paddingLeft: `${8 + depth * 12}px` }}>{hasChildren ? (isOpen ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />) : <span className="size-3 shrink-0" />}{isOpen ? <FolderOpen className="size-3.5 shrink-0 text-primary/80" /> : <Folder className="size-3.5 shrink-0 text-primary/80" />}<span className="min-w-0 truncate">{folder.name}</span></button>{isOpen && <Tree folders={folders} files={files} parentId={folder.id} depth={depth + 1} activeFolderId={activeFolderId} expanded={expanded} setExpanded={setExpanded} selectFolder={selectFolder} open={open} remove={remove} creating={creating} finishCreate={finishCreate} cancelCreate={cancelCreate} />}</React.Fragment>; })}

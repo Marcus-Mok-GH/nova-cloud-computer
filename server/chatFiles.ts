@@ -13,7 +13,7 @@ import {
   MAX_CHAT_FILE_ATTACHMENTS,
   MAX_CHAT_FILE_DATA_URI_CHARS,
 } from "@shared/const";
-import { fileStamp } from "@shared/text";
+import { base64DataUriMimeType, fileStamp } from "@shared/text";
 
 /*
  * The attachment limits and the blocked content types are the byte-for-byte
@@ -92,8 +92,7 @@ export function readChatFileAttachments(
         files: [],
         error: "Images belong in the `images` field of a chat message.",
       };
-    const parsed = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,/i.exec(dataUri);
-    if (!parsed || parsed[1].toLowerCase() !== mime)
+    if (base64DataUriMimeType(dataUri) !== mime)
       return {
         files: [],
         error: "Each file must be a base64 data URI matching its mime type.",

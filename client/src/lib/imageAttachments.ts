@@ -10,6 +10,7 @@
  */
 
 import { SUPPORTED_CHAT_IMAGE_MIME } from "@shared/const";
+import { collectPreparedAttachments, newAttachmentId } from "./attachments";
 
 /** Attachment limits shared with the server's request validation (`@shared/const`). */
 export { MAX_CHAT_IMAGE_ATTACHMENTS, MAX_CHAT_IMAGE_TOTAL_CHARS } from "@shared/const";
@@ -48,7 +49,7 @@ export async function prepareChatImageAttachment(
     return {
       attachment: {
         kind: "image",
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: newAttachmentId(),
         name: file.name || "image",
         mimeType: dataUri.slice(5, dataUri.indexOf(";")),
         dataUri,
@@ -66,11 +67,7 @@ export async function collectChatImageAttachments(
   const picked = Array.from(files).filter(file => file.type.startsWith("image/"));
   if (!picked.length) return { attachments: [] };
   const results = await Promise.all(picked.map(prepareChatImageAttachment));
-  const attachments = results.flatMap(result =>
-    "attachment" in result ? [result.attachment] : []
-  );
-  const error = results.find(result => "error" in result)?.error;
-  return { attachments, ...(error ? { error } : {}) };
+  return collectPreparedAttachments(results);
 }
 
 async function encodeChatImage(file: File): Promise<string> {

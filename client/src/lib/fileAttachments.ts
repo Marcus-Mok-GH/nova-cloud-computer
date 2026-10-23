@@ -16,6 +16,7 @@ import {
   MAX_CHAT_FILE_ATTACHMENTS,
   MAX_CHAT_IMAGE_ATTACHMENTS,
 } from "@shared/const";
+import { collectPreparedAttachments, newAttachmentId } from "./attachments";
 import type { ChatImageAttachment } from "./imageAttachments";
 
 /** Attachment limits shared with the server's request validation (`@shared/const`). */
@@ -72,7 +73,7 @@ export async function prepareChatFileAttachment(
     return {
       attachment: {
         kind: "file",
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: newAttachmentId(),
         name: file.name || "attachment",
         mimeType: mime,
         dataUri,
@@ -91,11 +92,7 @@ export async function collectChatFileAttachments(
   const picked = Array.from(files);
   if (!picked.length) return { attachments: [] };
   const results = await Promise.all(picked.map(prepareChatFileAttachment));
-  const attachments = results.flatMap(result =>
-    "attachment" in result ? [result.attachment] : []
-  );
-  const error = results.find(result => "error" in result)?.error;
-  return { attachments, ...(error ? { error } : {}) };
+  return collectPreparedAttachments(results);
 }
 
 /**

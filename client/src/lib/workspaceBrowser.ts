@@ -11,11 +11,14 @@ export type WorkspaceBrowserFile = {
   updatedAt?: Date;
 };
 
-export function getWorkspaceContents(
-  folders: WorkspaceBrowserFolder[],
-  files: WorkspaceBrowserFile[],
+export function getWorkspaceContents<
+  Folder extends WorkspaceBrowserFolder,
+  File extends WorkspaceBrowserFile,
+>(
+  folders: Folder[],
+  files: File[],
   activeFolderId: number | null,
-) {
+): { folders: Folder[]; files: File[] } {
   const inActiveFolder = (itemFolderId: number | null) => itemFolderId === activeFolderId;
 
   return {

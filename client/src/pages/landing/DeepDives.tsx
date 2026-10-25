@@ -1,21 +1,25 @@
 import React from "react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/contexts/LanguageContext";
+import ProductCapture from "./ProductCapture";
 import { Eyebrow } from "./shared";
-import { AgentVignette, AutomationVignette, FilesVignette } from "./vignettes";
 
 /** One editorial pair: a narrative column and a wide product scene. */
 function Row({
   eyebrow,
   title,
   body,
-  scene,
+  capture,
+  alt,
+  label,
   flip,
 }: {
   eyebrow: string;
   title: string;
   body: string;
-  scene: React.ReactNode;
+  capture: string;
+  alt: string;
+  label: string;
   flip?: boolean;
 }) {
   return (
@@ -29,14 +33,15 @@ function Row({
           {body}
         </p>
       </div>
-      <div className={cn(flip && "lg:order-1")}>{scene}</div>
+      <div className={cn(flip && "lg:order-1")}>
+        <ProductCapture src={capture} alt={alt} label={label} />
+      </div>
     </div>
   );
 }
 
 /**
- * The product story: three scenes - workspace, agent, automations - in
- * alternating editorial pairs instead of a card grid.
+ * The product story: three real Nova screens in alternating editorial pairs.
  */
 export default function DeepDives() {
   const { t } = useTranslation();
@@ -44,7 +49,7 @@ export default function DeepDives() {
   return (
     <section id="product" className="scroll-mt-24 border-t border-border">
       <div className="mx-auto max-w-6xl px-5 pb-4 pt-14 sm:px-8 sm:pb-6 sm:pt-20">
-        <div className="max-w-2xl">
+        <div className="max-w-3xl">
           <Eyebrow>{t("landing.product.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.product.title")}
@@ -59,20 +64,26 @@ export default function DeepDives() {
           eyebrow={t("landing.workspace.eyebrow")}
           title={t("landing.workspace.title")}
           body={t("landing.workspace.body")}
-          scene={<FilesVignette />}
+          capture="/landing/workspace-files.png"
+          alt={t("landing.capture.files.alt")}
+          label={t("landing.capture.files.label")}
         />
         <Row
           eyebrow={t("landing.agent.eyebrow")}
           title={t("landing.agent.title")}
           body={t("landing.agent.body")}
-          scene={<AgentVignette />}
+          capture="/landing/workspace-chat.png"
+          alt={t("landing.capture.agent.alt")}
+          label={t("landing.capture.agent.label")}
           flip
         />
         <Row
           eyebrow={t("landing.automations.eyebrow")}
           title={t("landing.automations.title")}
           body={t("landing.automations.body")}
-          scene={<AutomationVignette />}
+          capture="/landing/workspace-automations.png"
+          alt={t("landing.capture.automations.alt")}
+          label={t("landing.capture.automations.label")}
         />
       </div>
     </section>

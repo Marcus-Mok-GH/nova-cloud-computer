@@ -421,135 +421,146 @@ export const en = {
 
   // Landing page
   "landing.skipToContent": "Skip to content",
-  "landing.nav.product": "What it does",
-  "landing.nav.how": "How it works",
-  "landing.nav.channels": "Channels",
+  "landing.nav.product": "Inside Nova",
+  "landing.nav.how": "How work moves",
+  "landing.nav.channels": "Where to find Nova",
   "landing.nav.pricing": "Pricing",
   "landing.nav.faq": "FAQ",
   "landing.nav.apiDocs": "API docs",
   "landing.nav.aria": "Main navigation",
   "landing.nav.menu": "Open navigation",
   "landing.nav.closeMenu": "Close navigation",
-  "landing.cta.get": "Get your own Nova",
-  "landing.cta.open": "Open your Nova",
+  "landing.cta.get": "Get started",
+  "landing.cta.open": "Open workspace",
 
   // Landing: hero
-  "landing.hero.eyebrow": "Your own AI cloud computer",
-  "landing.hero.title": "A cloud computer that works while you don't.",
-  "landing.hero.body": "Nova keeps your files, conversations, and routines in one persistent workspace, with an agent that writes the document, runs the task, and tells you when it is done.",
+  "landing.hero.eyebrow": "Your cloud workspace, with an AI agent",
+  "landing.hero.title": "Work that has somewhere to go.",
+  "landing.hero.body":
+    "Nova brings your files, conversations, and recurring tasks into one private cloud workspace. Ask its agent to make something, leave a routine running, then come back to the work in progress.",
   "landing.hero.secondary": "See how it works",
-  "landing.hero.bullet1": "An agent that works 24/7",
-  "landing.hero.bullet2": "A real computer, not just a chatbot",
+  "landing.hero.bullet1": "Files and chats in one workspace",
+  "landing.hero.bullet2": "Tasks continue in the cloud",
+  "landing.hero.caption": "A workspace that stays ready when you return.",
 
-  // Landing: workspace preview (decorative)
-  "landing.preview.routines": "Routines",
-  "landing.preview.recent": "Recent",
-  "landing.preview.greeting": "Good morning",
-  "landing.preview.question": "What are we working on?",
-  "landing.preview.hint": "Open a file, continue a conversation, or leave Nova a task for later.",
-  "landing.preview.ask": "Ask Nova anything about your work",
-  "landing.preview.startChat": "Start a chat",
-  "landing.preview.resume": "Pick up where you left off",
-  "landing.preview.notes": "Project notes",
-  "landing.preview.notesMeta": "Edited yesterday",
-  "landing.preview.routine": "Weekly routine",
-  "landing.preview.routineMeta": "Runs on Monday",
+  // Landing: application captures
+  "landing.capture.workspace.label": "Nova workspace",
+  "landing.capture.workspace.alt":
+    "Nova's workspace screen with its private workspace navigation and connected tools.",
+  "landing.capture.files.label": "Files and folders",
+  "landing.capture.files.alt":
+    "Nova's file browser with a project document open in the built-in editor.",
+  "landing.capture.agent.label": "A saved conversation",
+  "landing.capture.agent.alt":
+    "A Nova conversation showing an example request and the agent's completed response.",
+  "landing.capture.automations.label": "Scheduled work",
+  "landing.capture.automations.alt":
+    "Nova's automation settings with a scheduled recurring task and its run history.",
 
   // Landing: product deep-dives
-  "landing.product.eyebrow": "What Nova does",
-  "landing.product.title": "More than a chatbot.",
-  "landing.product.body": "Nova runs on a real cloud computer. It remembers your workspace, acts on your behalf, and keeps working after you close the tab.",
+  "landing.product.eyebrow": "The work behind the chat",
+  "landing.product.title": "A workspace built for follow-through.",
+  "landing.product.body":
+    "Nova gives its agent a persistent computer with files, folders, and a terminal. It can act on work there, while scheduled routines carry on after you close the browser.",
   "landing.workspace.eyebrow": "Workspace",
-  "landing.workspace.title": "A real computer, not a chat window",
-  "landing.workspace.body": "Your workspace is a persistent cloud machine with its own files and folders. Leave work there and come back a week later: everything is exactly where you left it.",
+  "landing.workspace.title": "Your work has a place to stay.",
+  "landing.workspace.body":
+    "Keep files, folders, conversations, and a terminal together in one private workspace. Close the browser and come back to the same files and chats.",
   "landing.agent.eyebrow": "Agent",
-  "landing.agent.title": "An agent that finishes the job",
-  "landing.agent.body": "Ask for something concrete - a spreadsheet, a summary, a research pass - and Nova makes it, then tells you where it landed. Real output, not just a suggestion.",
+  "landing.agent.title": "From a request to a finished file.",
+  "landing.agent.body":
+    "Ask Nova to summarize a report, shape a spreadsheet, or draft a message. It can work with your files and connected services, then leave the result in your workspace.",
   "landing.automations.eyebrow": "Automations",
-  "landing.automations.title": "Work that runs while you don't",
-  "landing.automations.body": "Turn a recurring task into a routine once. Nova keeps it running on schedule - day or night - and keeps a run history you can check.",
-
-  // Landing: deep-dive vignettes
-  "landing.vignette.editedJustNow": "Edited just now",
-  "landing.vignette.editedToday": "Edited today",
-  "landing.vignette.editedMonday": "Edited Monday",
-  "landing.vignette.request": "Build a summary of sales.csv and email it to me.",
-  "landing.vignette.stepRead": "Read sales.csv",
-  "landing.vignette.stepAnalyse": "Ran the analysis in a sandbox",
-  "landing.vignette.stepCreate": "Created weekly-summary.xlsx",
-  "landing.vignette.stepSend": "Emailed you the result",
-  "landing.vignette.done": "Done in 47 seconds",
-  "landing.vignette.schedule": "Every weekday at 08:30",
-  "landing.vignette.history": "Run history",
-  "landing.vignette.runDone": "Completed, 2 hours ago",
-  "landing.vignette.runYesterday": "Completed, yesterday",
-  "landing.vignette.runNext": "Next run, tomorrow at 08:30",
+  "landing.automations.title": "Let the routine take the next turn.",
+  "landing.automations.body":
+    "Describe a recurring job and choose a schedule. Nova can run it in the cloud and keep each run in a history you can review.",
 
   // Landing: how it works
   "landing.steps.eyebrow": "How it works",
-  "landing.steps.title": "Start with the thing in front of you.",
-  "landing.steps.body": "No elaborate setup or blank-canvas ceremony. Tell Nova what you need, and its cloud computer gets to work - immediately, and again every time the job repeats.",
-  "landing.steps.one.title": "Hand Nova the work",
-  "landing.steps.one.body": "Drop in a file, describe what you need, or just say what is on your mind: no setup, no blank canvas.",
-  "landing.steps.two.title": "Watch it get done",
-  "landing.steps.two.body": "Nova writes the file, sends the message, runs the automation - whatever the job actually calls for.",
-  "landing.steps.three.title": "Move on, it keeps going",
-  "landing.steps.three.body": "The workspace and its routines stay live in the cloud, ready the next time you check in - even from Telegram.",
+  "landing.steps.title": "A small handoff can change your whole day.",
+  "landing.steps.body":
+    "Bring the work you already have. Nova can pick it up in your workspace and return what it made, while the things that repeat can follow a schedule.",
+  "landing.steps.one.title": "Bring the task as it is",
+  "landing.steps.one.body":
+    "Share a file, ask a question, or describe a job. Start with the work in front of you.",
+  "landing.steps.two.title": "Get back something useful",
+  "landing.steps.two.body":
+    "Nova can research, create files, and use services you have connected. The result lands in your workspace.",
+  "landing.steps.three.title": "Return when you are ready",
+  "landing.steps.three.body":
+    "Files and chats persist, and scheduled automations run in the cloud. Check in from a browser or Telegram.",
 
   // Landing: channels
-  "landing.channels.eyebrow": "Channels",
-  "landing.channels.title": "Nova goes where you already are.",
-  "landing.channels.body": "Your workspace lives in the cloud, so the agent is never more than one message away.",
+  "landing.channels.eyebrow": "Where you can reach Nova",
+  "landing.channels.title": "Keep the conversation close.",
+  "landing.channels.body":
+    "Your workspace stays in the browser. Telegram and email offer other ways to reach Nova and continue work.",
   "landing.channels.telegram.title": "Telegram",
-  "landing.channels.telegram.body": "Message Nova from your phone like a colleague. The conversation lands in your workspace, ready to continue on a bigger screen.",
+  "landing.channels.telegram.body":
+    "Connect your Telegram account, then message Nova from your phone. The conversation stays available in your workspace.",
   "landing.channels.email.title": "Email",
-  "landing.channels.email.body": "Send a note to your Nova inbox and the answer arrives in the same thread. No dashboard required.",
+  "landing.channels.email.body":
+    "Reach Nova by email and continue the exchange in that thread, without opening the workspace first.",
   "landing.channels.browser.title": "Any browser",
-  "landing.channels.browser.body": "Nothing to install. Open your workspace on any device and everything is already there, terminal included.",
-  "landing.channels.trust.storage": "Persistent storage on Neon",
-  "landing.channels.trust.execution": "Isolated execution on E2B sandboxes",
-  "landing.channels.trust.byok": "Your own model keys welcome",
+  "landing.channels.browser.body":
+    "Open Nova in a browser on desktop or phone. Your workspace and its built-in terminal are there when you need them.",
+  "landing.channels.trust.storage": "Persistent storage with Neon",
+  "landing.channels.trust.execution": "Isolated execution with E2B",
+  "landing.channels.trust.byok": "Bring your own model provider",
 
   // Landing: pricing
   "landing.pricing.eyebrow": "What it costs",
-  "landing.pricing.title": "Credits, not surprises.",
-  "landing.pricing.body": "Nova's built-in models run on a daily credit balance that resets every day. Connect your own provider and your runs use that instead.",
+  "landing.pricing.title": "Daily credits, or your own model.",
+  "landing.pricing.body":
+    "Built-in models use daily credits that reset each day. Connect an OpenAI-compatible provider and Nova can use your key instead.",
   "landing.pricing.credits.title": "Daily credits",
-  "landing.pricing.credits.body": "Every day starts with a fresh balance for Nova's built-in models - roughly a cent per credit, and no card required to begin.",
+  "landing.pricing.credits.body":
+    "Each day starts with a fresh balance for Nova's built-in models. A credit is roughly one cent, and no card is required to start.",
   "landing.pricing.byok.title": "Bring your own model",
-  "landing.pricing.byok.body": "Connect an OpenAI-compatible provider and every chat, automation, and background job runs on your key - stored encrypted and sent only to that provider.",
+  "landing.pricing.byok.body":
+    "Connect an OpenAI-compatible provider and your chats, automations, and background jobs can run on your key. It is stored encrypted and sent only to that provider.",
   "landing.pricing.api.title": "API access included",
-  "landing.pricing.api.body": "Create keys per workspace and build on the same models with an OpenAI-compatible API.",
-  "landing.pricing.note": "Priority placement during peak hours is available from Billing when you need it.",
+  "landing.pricing.api.body":
+    "Create a key for your workspace and call Nova through an OpenAI-compatible API using the same daily credits.",
+  "landing.pricing.note":
+    "Need a faster place in the queue at peak times? Priority placement is available in Billing.",
 
   // Landing: FAQ
   "landing.faq.eyebrow": "Questions",
-  "landing.faq.title": "Q&A",
+  "landing.faq.title": "Good to know",
   "landing.faq.q1": "What exactly is Nova?",
-  "landing.faq.a1": "A persistent cloud computer with an AI agent. You get a private workspace with files, conversations, automations, and a terminal, plus an agent that works in it on your behalf.",
+  "landing.faq.a1":
+    "A persistent cloud computer with an AI agent. You get a private workspace with files, conversations, automations, and a terminal, plus an agent that works in it on your behalf.",
   "landing.faq.q2": "Do I need to install anything?",
-  "landing.faq.a2": "No. Nova runs in the browser, and you can also reach your agent from Telegram or email. A terminal is built in for when you want a real shell.",
+  "landing.faq.a2":
+    "No. Nova runs in the browser, and you can also reach your agent from Telegram or email. A terminal is built in for when you want a real shell.",
   "landing.faq.q3": "Who can see my workspace?",
-  "landing.faq.a3": "Only your account. Files, chats, and settings belong to your workspace, and model keys you connect are stored encrypted and sent only to the provider you chose.",
+  "landing.faq.a3":
+    "Only your account. Files, chats, and settings belong to your workspace, and model keys you connect are stored encrypted and sent only to the provider you chose.",
   "landing.faq.q4": "What can Nova not do yet?",
-  "landing.faq.a4": "The public API is text-only for now, and Nova can only reach the services you connect for it. When it cannot do something, it says so instead of guessing.",
+  "landing.faq.a4":
+    "The public API is text-only for now, and Nova can only reach the services you connect for it. When it cannot do something, it says so instead of guessing.",
   "landing.faq.q5": "Does it keep working when I am away?",
-  "landing.faq.a5": "Yes. Automations run on schedule in the cloud, day or night, and Nova can message you on Telegram or by email when a job is done.",
+  "landing.faq.a5":
+    "Yes. Automations run on schedule in the cloud, day or night, and Nova can message you on Telegram or by email when a job is done.",
   "landing.faq.q6": "How much does it cost?",
-  "landing.faq.a6": "Nova starts on daily credits with no card required. Bring your own OpenAI-compatible key, and priority placement during peak hours is optional.",
+  "landing.faq.a6":
+    "Nova starts on daily credits with no card required. Bring your own OpenAI-compatible key, and priority placement during peak hours is optional.",
 
   // Landing: developer callout
   "landing.dev.eyebrow": "For developers",
-  "landing.dev.title": "Your workspace has an API.",
-  "landing.dev.body": "Create a key and point your own tools at an OpenAI-compatible surface: chat completions, streaming, and the model list, all on the same daily credits.",
-  "landing.dev.cta": "Read the API docs",
+  "landing.dev.title": "Bring Nova into your own tools.",
+  "landing.dev.body":
+    "Create a workspace key and use Nova through an OpenAI-compatible API for chat completions, streaming, and the model list. Requests use the same daily credits as the workspace.",
+  "landing.dev.cta": "Explore the API docs",
 
   // Landing: footer
-  "landing.footer.cta.title": "The best place to start is the task you keep opening another tab for.",
+  "landing.footer.cta.title":
+    "Start with the task that has been waiting in another tab.",
   "landing.footer.product": "Product",
   "landing.footer.workspace": "Workspace",
   "landing.footer.resources": "Resources",
-  "landing.footer.tagline": "A workspace for the work in progress.",
+  "landing.footer.tagline": "A cloud workspace for work in progress.",
 } as const;
 
 export type Translations = { [K in keyof typeof en]: string };

@@ -98,12 +98,13 @@ export function parseGoalMarker(content: string): GoalState | null {
  * The goal a conversation is on: the latest row wins, exactly like the
  * workflow-mode markers. Null when the conversation never had a goal.
  *
- * Only rows the server wrote count. Untrusted text reaches the ledger as the
- * user's message - the body of an inbound email is persisted verbatim - and a
- * goal makes the agent work unattended, so text somebody else wrote must not be
- * able to install one. Every real goal row is written by the server as an
- * assistant row; `/goal <objective>` is read from the user's turn by
- * `parseGoalCommand`, never from a ledger row.
+ * Only assistant rows count, and a goal makes the agent work unattended, so no
+ * row that could hold text somebody else wrote may parse as one. A user's own
+ * message is refused here - `/goal <objective>` is read from the user's turn by
+ * `parseGoalCommand`, never from a ledger row - and the server defuses a
+ * leading marker on model-authored text before persisting it, because a reply
+ * that opened with one would otherwise read back as state the server recorded.
+ * What is left is the rows the server writes itself.
  */
 export function latestGoalState(
   messages: Array<{ role: string; content: string }>

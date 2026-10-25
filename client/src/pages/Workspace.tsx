@@ -34,15 +34,22 @@ import {
 } from "lucide-react";
 // JSX compiles to React.createElement in this build (classic runtime), so the
 // default React binding must stay imported even without explicit React.* calls.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { LEGACY_AI_UNAVAILABLE_PREFIX, AI_UNAVAILABLE_PREFIX } from "@shared/const";
+import {
+  LEGACY_AI_UNAVAILABLE_PREFIX,
+  AI_UNAVAILABLE_PREFIX,
+} from "@shared/const";
+import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
+import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
+import {
+  matchSlashCommands,
+  slashCommandInsertion,
+  slashCommandQuery,
+} from "@/lib/slashCommands";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
-import {
-  dragCarriesFiles,
-  isDesktopDragDrop,
-} from "@/lib/fileAttachments";
+import { dragCarriesFiles, isDesktopDragDrop } from "@/lib/fileAttachments";
 import {
   AttachmentTray,
   CopyMessageButton,
@@ -161,6 +168,81 @@ export default function Workspace() {
         composerAttachments,
         Array.from(files)
       );
+  };
+
+  // Slash commands: a "/" at the start of the composer offers the commands a
+  // conversation understands, fuzzy-matched as the user keeps typing. The menu
+  // only borrows the keyboard while it is open - once it closes (a space, a
+  // pick, or Escape) Enter sends the message exactly as it always did.
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const slashQuery = slashCommandQuery(draft);
+  const slashMatches = useMemo(
+    () =>
+      slashQuery === null || slashMenuDismissed
+        ? []
+        : matchSlashCommands(SLASH_COMMANDS, slashQuery),
+    [slashQuery, slashMenuDismissed]
+  );
+  const slashMenuOpen = slashMatches.length > 0;
+  // Clamped rather than trusted: a shrinking result list must still leave a
+  // command highlighted.
+  const activeSlashIndex = Math.min(
+    slashActiveIndex,
+    Math.max(0, slashMatches.length - 1)
+  );
+  const activeSlashCommand = slashMatches[activeSlashIndex];
+
+  // Each new query starts its own highlight, and Escape's dismissal lasts only
+  // until the next keystroke.
+  useEffect(() => {
+    setSlashActiveIndex(0);
+    setSlashMenuDismissed(false);
+  }, [slashQuery]);
+
+  const pickSlashCommand = (command: SlashCommand) => {
+    setDraft(slashCommandInsertion(command));
+    const composer = composerRef.current;
+    if (!composer) return;
+    // Replacing the value can leave the caret at the start, so put it after the
+    // command we just inserted, ready for the task it takes.
+    requestAnimationFrame(() => {
+      composer.focus();
+      composer.setSelectionRange(composer.value.length, composer.value.length);
+    });
+  };
+
+  const handleComposerKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (slashMenuOpen) {
+      const step = (delta: number) => {
+        event.preventDefault();
+        setSlashActiveIndex(
+          index => (index + delta + slashMatches.length) % slashMatches.length
+        );
+      };
+      if (event.key === "ArrowDown") return step(1);
+      if (event.key === "ArrowUp") return step(-1);
+      // Enter picks the highlighted command instead of sending: a half-typed
+      // command should complete, never leave as a message. Shift+Enter still
+      // opens a new line, which ends the command and closes the menu.
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+        event.preventDefault();
+        if (activeSlashCommand) pickSlashCommand(activeSlashCommand);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSlashMenuDismissed(true);
+        return;
+      }
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submit(event);
+    }
   };
 
   useEffect(() => {
@@ -335,8 +417,7 @@ export default function Workspace() {
     > = {
       chat: {
         label: "Chat",
-        className:
-          "border-foreground/[0.14] bg-muted/70 text-muted-foreground",
+        className: "border-foreground/[0.14] bg-muted/70 text-muted-foreground",
         title:
           "Chat mode - Nova answers and researches, then plans before it acts.",
       },
@@ -681,7 +762,15 @@ export default function Workspace() {
             onSubmit={submit}
             className="chat-editorial-composer relative z-10 shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-7 sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
           >
-            <div className="mx-auto w-full max-w-[1240px]">
+            <div className="relative mx-auto w-full max-w-[1240px]">
+              {/* Anchored to this composer wrapper, so the menu floats above
+                  the input rather than over the conversation. */}
+              <SlashCommandMenu
+                commands={slashMatches}
+                activeIndex={activeSlashIndex}
+                onSelect={pickSlashCommand}
+                onActiveIndexChange={setSlashActiveIndex}
+              />
               <div className="border border-foreground/[0.14] bg-card/85 p-2 shadow-[0_14px_45px_rgba(36,40,34,0.10)] backdrop-blur-xl transition focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]">
                 {queueNotice && (
                   <div
@@ -703,7 +792,7 @@ export default function Workspace() {
                 )}
                 <div className="flex items-center justify-end px-2.5 pb-1.5">
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
-                    Enter to send
+                    Enter to send · / for commands
                   </span>
                 </div>
                 <AttachmentTray
@@ -748,14 +837,22 @@ export default function Workspace() {
                   ) : (
                     <>
                       <Textarea
+                        ref={composerRef}
                         value={draft}
                         onChange={event => setDraft(event.target.value)}
-                        onKeyDown={event => {
-                          if (event.key === "Enter" && !event.shiftKey) {
-                            event.preventDefault();
-                            void submit(event);
-                          }
-                        }}
+                        onKeyDown={handleComposerKeyDown}
+                        onBlur={() => setSlashMenuDismissed(true)}
+                        role="combobox"
+                        aria-expanded={slashMenuOpen}
+                        aria-controls={
+                          slashMenuOpen ? SLASH_MENU_ID : undefined
+                        }
+                        aria-activedescendant={
+                          slashMenuOpen
+                            ? `${SLASH_MENU_ID}-option-${activeSlashIndex}`
+                            : undefined
+                        }
+                        aria-autocomplete="list"
                         onPaste={event => {
                           const files = Array.from(
                             event.clipboardData?.files ?? []

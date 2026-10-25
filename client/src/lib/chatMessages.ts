@@ -1,10 +1,11 @@
-// The four internal-row markers are a byte-for-byte contract with the server's
+// The internal-row markers are a byte-for-byte contract with the server's
 // writers; both sides import the single definition in `@shared/const`.
 import {
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
 } from "@shared/const";
 import { normalizeFollowUps } from "@shared/followUps";
 import { latestAgentModeMarker } from "@shared/agentMode";
@@ -14,6 +15,7 @@ export {
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
 };
 
 /** True for internal rows the UI must never show as chat bubbles. */
@@ -21,7 +23,8 @@ export const isInternalChatMessage = (content: string): boolean =>
   content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) ||
   content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) ||
   content.startsWith(AGENT_MODE_MESSAGE_PREFIX) ||
-  content.startsWith(FOLLOW_UP_MESSAGE_PREFIX);
+  content.startsWith(FOLLOW_UP_MESSAGE_PREFIX) ||
+  content.startsWith(GOAL_MESSAGE_PREFIX);
 
 type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {

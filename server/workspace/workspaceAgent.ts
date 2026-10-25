@@ -1,5 +1,6 @@
 import {
   AI_UNAVAILABLE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
 } from "@shared/const";
 import { sleep } from "@shared/timing";
@@ -88,6 +89,22 @@ import {
   resolveAgentMode,
 } from "../agentMode";
 import {
+  buildGoalContinuationPrompt,
+  buildGoalInstruction,
+  GOAL_CLEARED_MESSAGE,
+  GOAL_USAGE,
+  parseGoalCommand,
+  recordGoalState,
+  REPORT_GOAL_TOOL,
+  type GoalOutcome,
+} from "../goal";
+import {
+  latestGoalState,
+  MAX_GOAL_CONTINUATIONS,
+  MAX_GOAL_SEGMENTS,
+  type GoalState,
+} from "@shared/goal";
+import {
   type AgentAction,
   type AgentChatRunOptions,
   type WorkspaceAgentOptions,
@@ -153,6 +170,7 @@ const STOP_DB_POLL_MS = 2_000;
 
 // Re-exported so existing importers of this module keep working.
 export { TOOL_ACTIVITY_MESSAGE_PREFIX };
+export { GOAL_COMMAND, REPORT_GOAL_TOOL } from "../goal";
 export {
   CODER_NUDGE_PREFIX,
   FAILURE_NUDGE_PREFIX,
@@ -223,7 +241,8 @@ export async function autoTitleChatForUser(
         !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
         !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
         !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX) &&
-        !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
+        !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX) &&
+        !m.content.startsWith(GOAL_MESSAGE_PREFIX)
     );
     if (!firstUser || !lastAssistant) return;
     const prompt = [
@@ -437,6 +456,13 @@ ${
     ? null
     : parseUltraplanCommand(content);
 
+  // `/goal <objective>` starts an autonomous chase - the agent works round after
+  // round toward the objective, and the chained segments of a long run continue
+  // it - until it reports the goal met or blocked. Like /ultraplan, the typed
+  // command stays the persisted user bubble and the directive is added to the
+  // model's turn only, and inbound-email runs never get it.
+  const goalCommand = options.emailReply ? null : parseGoalCommand(content);
+
   // The workspace sandbox wakes in parallel with every run: `sandboxWake`
   // resolves to the live machine (or undefined when E2B is not configured or
   // the wake failed). It stays a resolved-undefined promise until the wake is
@@ -454,6 +480,24 @@ ${
     if (ultraplan && !ultraplan.task) {
       await options.onChunk?.(ULTRAPLAN_USAGE);
       const message = await persistAssistant(ULTRAPLAN_USAGE);
+      return { message, actions: [], outOfBudget: false };
+    }
+    // `/goal` with nothing to aim at, and `/goal clear`, are answered here too:
+    // neither spends an agent run, and clearing must record the goal's end so
+    // the next run does not pick the chase back up.
+    if (goalCommand?.kind === "usage") {
+      await options.onChunk?.(GOAL_USAGE);
+      const message = await persistAssistant(GOAL_USAGE);
+      return { message, actions: [], outOfBudget: false };
+    }
+    if (goalCommand?.kind === "clear") {
+      await recordGoalState(ownerId, chatId, {
+        objective: "",
+        status: "cleared",
+        segments: 0,
+      });
+      await options.onChunk?.(GOAL_CLEARED_MESSAGE);
+      const message = await persistAssistant(GOAL_CLEARED_MESSAGE);
       return { message, actions: [], outOfBudget: false };
     }
     // A workspace with its own provider (BYOK) never depends on the built-in
@@ -565,6 +609,44 @@ ${
     if (modesEnabled && resolvedMode.fromPlan)
       await recordAgentMode(ownerId, chatId, "build");
 
+    /**
+     * The goal chase this run is part of, or null when it is an ordinary run.
+     *
+     * A `/goal <objective>` message starts one; a conversation whose last goal
+     * row is still `active` carries it on - which is what makes the chase
+     * survive the chained segments of a long run, and a user who left it
+     * unfinished. Every run that chases spends one of the goal's segment
+     * allowance, so an unmet goal cannot be pursued forever.
+     */
+    let goal: GoalState | null = null;
+    if (goalCommand?.kind === "set") {
+      goal = {
+        objective: goalCommand.objective,
+        status: "active",
+        segments: 1,
+      };
+    } else {
+      const existing = latestGoalState(priorMessages);
+      if (existing?.status === "active" && existing.segments < MAX_GOAL_SEGMENTS)
+        goal = { ...existing, segments: existing.segments + 1 };
+      else if (existing?.status === "active") {
+        // The chase has spent its allowance. Stop, and record that it did -
+        // the alternative is an unmet goal quietly spending credits forever.
+        await recordGoalState(ownerId, chatId, {
+          ...existing,
+          status: "unfinished",
+        });
+      }
+    }
+    if (goal) await recordGoalState(ownerId, chatId, goal);
+    const goalRun = goal !== null;
+    // A chase is work, not a question: a conversation that starts one is in
+    // build mode from here on, whatever a brand-new chat would otherwise be.
+    if (goalRun && modesEnabled && agentMode === "chat") {
+      agentMode = "build";
+      await recordAgentMode(ownerId, chatId, "build");
+    }
+
     // Follow-up chips are a web-app affordance: follow_up proposes tappable
     // next actions that sit under the reply, which Telegram cannot render, so
     // the tool is withheld from every Telegram run (mode allowlists included).
@@ -578,6 +660,9 @@ ${
     const buildTools = allTools.filter(tool => {
       const { name } = tool.function;
       if (isPlanTool(name) || name === START_PLANNING_TOOL) return false;
+      // Ending a chase only means something while one is running; an ordinary
+      // run must not be able to report a goal it is not chasing.
+      if (name === REPORT_GOAL_TOOL && !goalRun) return false;
       // An inbound-email run is untrusted input from a stranger, so it gets
       // a strict allowlist instead of the full workspace toolkit.
       if (options.emailReply) return emailReplyAllowsTool(name);
@@ -686,11 +771,16 @@ ${
     // the text instead, which is fine there since the user turn is not shown).
     // `/ultraplan` adds its planning directive to the model's turn only - the
     // persisted user bubble keeps the clean command the user typed.
-    const modelInput = ultraplan
-      ? `${content}\n\n${buildUltraplanInstruction(ultraplan.task, options.channel)}`
-      : resolvedMode.fromPlan
-        ? `${content}\n\n${buildBuildModeInstruction(chatId, options.channel)}`
-        : content;
+    const modelInput = goal
+      ? `${content}\n\n${buildGoalInstruction(goal.objective, options.channel, {
+          segments: goal.segments,
+          maxSegments: MAX_GOAL_SEGMENTS,
+        })}`
+      : ultraplan
+        ? `${content}\n\n${buildUltraplanInstruction(ultraplan.task, options.channel)}`
+        : resolvedMode.fromPlan
+          ? `${content}\n\n${buildBuildModeInstruction(chatId, options.channel)}`
+          : content;
     const modelContent = options.uploadContext
       ? `${modelInput}${options.uploadContext}`
       : modelInput;
@@ -731,7 +821,8 @@ ${
           !m.content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) &&
           !m.content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) &&
           !m.content.startsWith(AGENT_MODE_MESSAGE_PREFIX) &&
-          !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX)
+          !m.content.startsWith(FOLLOW_UP_MESSAGE_PREFIX) &&
+          !m.content.startsWith(GOAL_MESSAGE_PREFIX)
       )
       .slice(-MAX_HISTORY_MESSAGES)) {
       const turn: GatewayChatMessage = {
@@ -768,12 +859,31 @@ ${
     } else historyTurns.push(currentTurn);
     const messages: GatewayChatMessage[] = [systemMessage(), ...historyTurns];
 
+    /**
+     * Goal-chase state for this run. `goalOutcome` is set once the model says
+     * how the chase ended (through report_goal) - until then an end_turn is a
+     * round report, and the chase continues. `goalContinuations` counts how
+     * many times this run has been sent back to work, which is what bounds a
+     * model that keeps trying to stop.
+     */
+    let goalOutcome: GoalOutcome | null = null;
+    let goalContinuations = 0;
+    const handledGoalOutcomes = new Set<string>();
+
     // /stop support: a stop request recorded after the run started aborts the
     // run at the next safe point (round boundary or between tool calls).
     const runStartedAt = await getDatabaseTime();
     const stopRun = async () => {
       const stoppedReply =
         "⏹️ Stopped - this run was cancelled at your request.";
+      // Stopping ends the chase, not just this run: recording the goal as
+      // unfinished keeps the user's next message from silently resuming work
+      // they just cancelled.
+      if (goalRun && goal && !goalOutcome)
+        await recordGoalState(ownerId, chatId, {
+          ...goal,
+          status: "unfinished",
+        });
       await options.onChunk?.(stoppedReply);
       const message = await persistAssistant(stoppedReply);
       return { message, actions: [], outOfBudget: false };
@@ -893,6 +1003,60 @@ ${
         content: `Stored these follow-up suggestions to show as tappable buttons under your reply: ${followUps.join(
           "; "
         )}. Do not list them again in your end_turn reply.`,
+      });
+    };
+    /**
+     * Records how a goal chase ended. Like follow_up and end_turn it is a local
+     * control call - no side effects in the workspace and no budget cost - and
+     * the round is scanned for it before the calls are dispatched, so the order
+     * the model wrote it in relative to end_turn cannot decide whether the
+     * chase closes. The ledger row it writes is what stops the next run from
+     * picking the goal back up.
+     */
+    const recordGoalOutcome = async (call: GatewayToolCall) => {
+      if (
+        !goalRun ||
+        !goal ||
+        call.name !== REPORT_GOAL_TOOL ||
+        handledGoalOutcomes.has(call.id)
+      )
+        return;
+      handledGoalOutcomes.add(call.id);
+      let outcome: GoalOutcome = "blocked";
+      let detail = "";
+      try {
+        const parsed = JSON.parse(call.arguments || "{}") as {
+          outcome?: unknown;
+          detail?: unknown;
+        };
+        if (parsed?.outcome === "met") outcome = "met";
+        if (typeof parsed?.detail === "string") detail = parsed.detail.trim();
+      } catch {
+        // Malformed arguments end the chase as blocked: the model did not give
+        // usable evidence that the goal was reached.
+      }
+      goalOutcome = outcome;
+      await recordGoalState(ownerId, chatId, {
+        ...goal,
+        status: outcome === "met" ? "met" : "unfinished",
+      });
+      await emitTool({
+        id: call.id,
+        name: call.name,
+        state: "completed",
+        args: { arguments: call.arguments.slice(0, 500) },
+        summary:
+          outcome === "met"
+            ? `Goal met${detail ? `: ${detail}` : "."}`
+            : `Goal could not be finished unaided${detail ? `: ${detail}` : "."}`,
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          outcome === "met"
+            ? "Recorded: the goal is met and the chase is over. Finish with end_turn and your final report."
+            : "Recorded: the chase is over and the user will be told you are blocked. Finish with end_turn and say plainly what you need from them.",
       });
     };
     for (let round = 0; ; round += 1) {
@@ -1133,6 +1297,11 @@ ${
         result.text.trim()
       )
         await persistRoundText(result.text);
+      // report_goal may be written before or after end_turn in the same round,
+      // and the end_turn branch below breaks the call loop - so the round is
+      // scanned for it first, and the order the model wrote the two calls in
+      // cannot decide whether the chase closes.
+      for (const call of calls) await recordGoalOutcome(call);
       for (const call of calls) {
         // The explicit end of the turn. It is a local control call - no side
         // effects, no budget cost - so it is honored even when the run
@@ -1169,6 +1338,23 @@ ${
             reply = "";
             streamedReplyChars = 0;
           }
+          // A goal chase does not end on end_turn. Until the model reports a
+          // goal outcome, this round's text is a progress report: it is
+          // persisted as its own message - the user follows a long chase round
+          // by round - and the run goes back to work instead of stopping.
+          if (goalRun && !goalOutcome && goalContinuations < MAX_GOAL_CONTINUATIONS) {
+            goalContinuations += 1;
+            if (reply.trim()) await persistRoundText(reply);
+            reply = "";
+            streamedReplyChars = 0;
+            draftReply = "";
+            draftStreamedChars = 0;
+            messages.push({
+              role: "user",
+              content: buildGoalContinuationPrompt(goal?.objective ?? ""),
+            });
+            break;
+          }
           endTurnCalled = true;
           break;
         }
@@ -1177,6 +1363,18 @@ ${
         // cost, so it is honored even when the run budget is gone.
         if (call.name === "follow_up") {
           await recordFollowUps(call);
+          continue;
+        }
+        // report_goal was handled by the round's pre-scan, which runs before
+        // this dispatch so the tool still counts when the model wrote it after
+        // end_turn. Only the not-a-goal-run correction is left for here.
+        if (call.name === REPORT_GOAL_TOOL) {
+          if (!goalRun)
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: `${REPORT_GOAL_TOOL} is only available while this conversation is chasing a goal.`,
+            });
           continue;
         }
         // The chat-mode model hands an action request over to planning. This is

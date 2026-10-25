@@ -54,7 +54,7 @@ export default function WorkspaceSettings() {
     <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className={activeTab === "general" ? "space-y-7" : "hidden"}><section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.rules.eyebrow")}</p><h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.rules.title")}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("settings.rules.body")}</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder={t("settings.rules.placeholder")} maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.rules.save")}</Button></div></section><LanguageCard /><ThemeCard /></div>
     <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalisationCard /><MemoryCard /></div>
     <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className={activeTab === "ai" ? "space-y-7" : "hidden"}><ModelProviderCard /></div>
-    <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /><ConnectorCard toolkit="vercel" /></div>
+    <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><CodexConnectorCard enabled={activeTab === "connections"} /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /><ConnectorCard toolkit="vercel" /></div>
     <div role="tabpanel" id="settings-panel-environment" aria-labelledby="settings-tab-environment" className={activeTab === "environment" ? "space-y-7" : "hidden"}><EnvironmentVarsCard /></div>
     <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
     <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
@@ -216,6 +216,100 @@ function toolkitLabel(toolkit: "github" | "gmail" | "vercel", t: (key: Translati
   if (toolkit === "github") return t("settings.connectors.toolkit.github");
   if (toolkit === "gmail") return t("settings.connectors.toolkit.gmail");
   return t("settings.connectors.toolkit.vercel");
+}
+
+function CodexConnectorCard({ enabled }: { enabled: boolean }) {
+  const utils = trpc.useUtils();
+  const { t } = useTranslation();
+  const status = trpc.codex.status.useQuery(undefined, {
+    enabled,
+    retry: false,
+    refetchInterval: query => query.state.data?.pending ? 2500 : false,
+  });
+  const connect = trpc.codex.connect.useMutation({
+    onSuccess: async () => { await utils.codex.status.invalidate(); },
+    onError: error => toast.error(error.message || t("settings.codex.error")),
+  });
+  const disconnect = trpc.codex.disconnect.useMutation({
+    onSuccess: async () => {
+      await utils.codex.status.invalidate();
+      toast.success(t("settings.codex.disconnected"));
+    },
+    onError: error => toast.error(error.message || t("settings.codex.error")),
+  });
+  const connection = status.data;
+  const connected = connection?.connected ?? false;
+  const pending = connection?.pending ?? false;
+  const busy = connect.isPending || disconnect.isPending;
+  const canCopyCode = typeof navigator !== "undefined" && Boolean(navigator.clipboard);
+
+  const copyCode = async () => {
+    if (!connection?.userCode || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(connection.userCode);
+      toast.success(t("settings.codex.device.copied"));
+    } catch {
+      toast.error(t("settings.codex.device.copyError"));
+    }
+  };
+
+  return (
+    <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.codex.eyebrow")}</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.codex.title")}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.codex.body")}</p>
+        </div>
+        <span className={`inline-flex items-center gap-2 self-start rounded-full px-3 py-1.5 text-xs font-bold ${connected ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : connection?.state === "error" ? "bg-red-500/10 text-red-700 dark:text-red-300" : "bg-muted text-muted-foreground"}`}>
+          {connected ? <Check size={14} /> : pending ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+          {connected ? t("settings.codex.connected") : pending ? t("settings.codex.pending") : connection?.state === "error" ? t("settings.codex.failed") : t("settings.codex.notConnected")}
+        </span>
+      </div>
+
+      <p className="mt-5 rounded-xl border bg-muted/20 px-4 py-3 text-xs leading-5 text-muted-foreground">{t("settings.codex.storage")}</p>
+
+      {pending && (
+        <div className="mt-5 rounded-2xl border border-primary/20 bg-primary/[0.035] p-5">
+          <p className="text-sm font-bold">{connection?.userCode ? t("settings.codex.device.title") : t("settings.codex.starting")}</p>
+          {connection?.userCode && connection.verificationUrl ? (
+            <>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("settings.codex.device.body")}</p>
+              <a className="mt-3 inline-block text-sm font-semibold text-primary underline underline-offset-4" href={connection.verificationUrl} target="_blank" rel="noopener noreferrer">{t("settings.codex.device.open")}</a>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <code className="rounded-lg border bg-background px-4 py-3 font-mono text-xl font-bold tracking-[0.18em]">{connection.userCode}</code>
+                <Button variant="outline" onClick={copyCode} disabled={!canCopyCode} className="gap-2"><Clipboard size={15} />{t("settings.codex.device.copy")}</Button>
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("settings.codex.starting.body")}</p>
+          )}
+        </div>
+      )}
+
+      {connected && <p className="mt-5 text-sm leading-6 text-muted-foreground">{t("settings.codex.connected.body")} <code className="rounded bg-muted px-1.5 py-1 font-mono text-xs">npx --yes --package @openai/codex@latest codex</code></p>}
+      {connection?.state === "error" && <p role="alert" className="mt-5 text-sm leading-6 text-destructive">{t("settings.codex.error")}</p>}
+      {!connection?.configured && !status.isLoading && <p className="mt-5 text-sm leading-6 text-muted-foreground">{t("settings.codex.unavailable")}</p>}
+      {status.isError && <p role="alert" className="mt-5 text-sm leading-6 text-destructive">{t("settings.codex.statusError")}</p>}
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        {connected || pending ? (
+          <Button variant="outline" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => {
+            if (window.confirm(t("settings.codex.disconnect.confirm"))) disconnect.mutate();
+          }}>
+            {(busy || status.isFetching) && <Loader2 className="animate-spin" size={15} />}{t("settings.codex.disconnect")}
+          </Button>
+        ) : (
+          <Button disabled={!connection?.configured || busy} onClick={() => connect.mutate()}>
+            {busy && <Loader2 className="animate-spin" size={15} />}{t("settings.codex.connect")}
+          </Button>
+        )}
+        <Button variant="outline" onClick={() => void status.refetch()} disabled={status.isFetching}>
+          {status.isFetching && <Loader2 className="animate-spin" size={15} />}{t("settings.codex.refresh")}
+        </Button>
+      </div>
+    </section>
+  );
 }
 
 function ConnectorCard({ toolkit }: { toolkit: "github" | "gmail" | "vercel" }) {

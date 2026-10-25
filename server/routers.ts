@@ -92,6 +92,7 @@ import { executeWebAgentRun } from "./agentRuns";
 import { clearMemoriesForUser, deleteOwnedMemoryForUser, listMemoriesForUser } from "./memories";
 import { SkillNameTakenError, SkillStorageError, createSkillForUser, deleteSkillForUser, listSkillsForUser, updateSkillForUser } from "./skills";
 import { COMPOSIO_TOOLKITS, ComposioApiError, createComposioConnectionLink, deleteComposioConnection, getComposioConnectionStatus, isComposioToolkit, listComposioTools } from "./composio";
+import { disconnectOpenAICodex, getOpenAICodexConnectionStatus, OpenAICodexConnectorError, startOpenAICodexDeviceLogin } from "./codexConnector";
 import { configureTelegramWebhook, discoverTelegramChat, sendTelegramMessage, validateTelegramBotToken } from "./telegram";
 import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
@@ -464,6 +465,35 @@ export const appRouter = router({
         throw error;
       })
     }),
+  }),
+  codex: router({
+    status: protectedProcedure.query(({ ctx }) =>
+      getOpenAICodexConnectionStatus(ctx.user.id).catch(error => {
+        if (error instanceof OpenAICodexConnectorError) {
+          const code = error.status === 503 ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not read your Codex connection." });
+      })
+    ),
+    connect: protectedProcedure.mutation(({ ctx }) =>
+      startOpenAICodexDeviceLogin(ctx.user.id).catch(error => {
+        if (error instanceof OpenAICodexConnectorError) {
+          const code = error.status === 503 ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not start Codex sign-in." });
+      })
+    ),
+    disconnect: protectedProcedure.mutation(({ ctx }) =>
+      disconnectOpenAICodex(ctx.user.id).catch(error => {
+        if (error instanceof OpenAICodexConnectorError) {
+          const code = error.status === 503 ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: error.message });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not disconnect Codex." });
+      })
+    ),
   }),
   telegram: router({
     status: protectedProcedure.query(({ ctx }) => getTelegramSettingsForUser(ctx.user.id)),

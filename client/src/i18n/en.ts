@@ -518,12 +518,12 @@ export const en = {
     "Each day starts with a fresh balance for Nova's built-in models. A credit is roughly one cent, and no card is required to start.",
   "landing.pricing.byok.title": "Bring your own model",
   "landing.pricing.byok.body":
-    "Connect an OpenAI-compatible provider and your chats, automations, and background jobs can run on your key. It is stored encrypted and sent only to that provider.",
+    "Connect an OpenAI-compatible provider and your chats, automations, and background jobs can run on your key. Your provider key is stored encrypted and sent only to that provider.",
   "landing.pricing.api.title": "API access included",
   "landing.pricing.api.body":
     "Create a key for your workspace and call Nova through an OpenAI-compatible API using the same daily credits.",
   "landing.pricing.note":
-    "Need a faster place in the queue at peak times? Priority placement is available in Billing.",
+    "Need a faster place in the queue at peak times? Find priority placement in your billing settings.",
 
   // Landing: FAQ
   "landing.faq.eyebrow": "Questions",

@@ -18,7 +18,8 @@ vi.mock("@/lib/trpc", () => ({
     apiKeys: { list: { useQuery: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }) }, create: { useMutation: () => mutation }, rename: { useMutation: () => mutation }, revoke: { useMutation: () => mutation } },
     billing: { status: { useQuery: () => ({ data: { priority: false, armed: false, purchasedAt: null, activatedAt: null, expiresAt: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, purchasePriority: { useMutation: () => mutation } },
     composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null }, vercel: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, environmentVars: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
+    codex: { status: { useQuery: () => ({ data: { configured: true, connected: false, pending: false, state: "disconnected", verificationUrl: null, userCode: null }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
+    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, environmentVars: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, codex: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -45,6 +46,7 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("General");
     expect(markup).toContain("AI provider (BYOK)");
     expect(markup).toContain("Connections");
+    expect(markup).toContain("OpenAI Codex");
     expect(markup).toContain("Automations");
     expect(markup).toContain("API keys");
     expect(markup).toContain("Billing");

@@ -619,30 +619,41 @@ ${
      * allowance, so an unmet goal cannot be pursued forever.
      */
     let goal: GoalState | null = null;
-    if (goalCommand?.kind === "set") {
-      goal = {
-        objective: goalCommand.objective,
-        status: "active",
-        segments: 1,
-      };
-    } else {
-      const existing = latestGoalState(priorMessages);
-      if (existing?.status === "active" && existing.segments < MAX_GOAL_SEGMENTS)
-        goal = { ...existing, segments: existing.segments + 1 };
-      else if (existing?.status === "active") {
-        // The chase has spent its allowance. Stop, and record that it did -
-        // the alternative is an unmet goal quietly spending credits forever.
-        await recordGoalState(ownerId, chatId, {
-          ...existing,
-          status: "unfinished",
-        });
+    // An inbound-email run never chases a goal, even when the conversation has
+    // one running: the mail is untrusted input from a stranger, and a chase is
+    // unattended work. The user's next message in the app resumes it.
+    if (!options.emailReply) {
+      if (goalCommand?.kind === "set") {
+        goal = {
+          objective: goalCommand.objective,
+          status: "active",
+          segments: 1,
+        };
+      } else {
+        const existing = latestGoalState(priorMessages);
+        if (
+          existing?.status === "active" &&
+          existing.segments < MAX_GOAL_SEGMENTS
+        )
+          goal = { ...existing, segments: existing.segments + 1 };
+        else if (existing?.status === "active") {
+          // The chase has spent its allowance. Stop, and record that it did -
+          // the alternative is an unmet goal quietly spending credits forever.
+          await recordGoalState(ownerId, chatId, {
+            ...existing,
+            status: "unfinished",
+          });
+        }
       }
     }
     if (goal) await recordGoalState(ownerId, chatId, goal);
     const goalRun = goal !== null;
-    // A chase is work, not a question: a conversation that starts one is in
-    // build mode from here on, whatever a brand-new chat would otherwise be.
-    if (goalRun && modesEnabled && agentMode === "chat") {
+    // A chase is work, not a question: it runs in build mode whatever the
+    // conversation's stage was. Chat mode is research-only and plan mode is
+    // read-only, and neither offers report_goal - a chase there could neither
+    // change anything nor report that it was done. Setting a goal is the user
+    // saying to get on with it, which is what entering build mode means.
+    if (goalRun && modesEnabled && agentMode !== "build") {
       agentMode = "build";
       await recordAgentMode(ownerId, chatId, "build");
     }

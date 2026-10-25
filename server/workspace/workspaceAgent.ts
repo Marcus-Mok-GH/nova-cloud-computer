@@ -1,6 +1,7 @@
 import {
   AI_UNAVAILABLE_PREFIX,
   GOAL_MESSAGE_PREFIX,
+  INTERNAL_MESSAGE_PREFIXES,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
 } from "@shared/const";
 import { sleep } from "@shared/timing";
@@ -317,11 +318,24 @@ export async function runWorkspaceAgent(
    * search_memories / read_memory tools serve). appendConversationTurn
    * never throws - a memory failure must not break the run.
    */
+  /**
+   * Model output is not trusted to open with an internal ledger marker. Read
+   * back from the chat, a row that begins with one is indistinguishable from
+   * state the server recorded itself (the goal, the workflow mode, the follow-up
+   * chips, tool activity), and the run loop acts on that state unattended - so
+   * text the model merely read (an email, a fetched page, a file, connector
+   * data) must not be able to leave one behind. A zero-width space keeps the
+   * text the user reads intact while stopping it from parsing as a marker.
+   */
+  const defuseInternalMarker = (text: string): string =>
+    INTERNAL_MESSAGE_PREFIXES.some(prefix => text.startsWith(prefix))
+      ? `\u200b${text}`
+      : text;
   const persistAssistant = async (reply: string) => {
     const message = await appendChatMessageForUser(ownerId, {
       chatId,
       role: "assistant",
-      content: `${authorPrefix}${reply}`,
+      content: `${authorPrefix}${defuseInternalMarker(reply)}`,
     });
     const turn = { userText: content, assistantText: reply };
     if (options.agentChat) {
@@ -346,7 +360,7 @@ export async function runWorkspaceAgent(
       await appendChatMessageForUser(ownerId, {
         chatId,
         role: "assistant",
-        content: `${authorPrefix}${text}`,
+        content: `${authorPrefix}${defuseInternalMarker(text)}`,
       });
     } catch (error) {
       console.error("[Chat] failed to persist interim reply text", error);
@@ -619,10 +633,13 @@ ${
      * allowance, so an unmet goal cannot be pursued forever.
      */
     let goal: GoalState | null = null;
-    // An inbound-email run never chases a goal, even when the conversation has
-    // one running: the mail is untrusted input from a stranger, and a chase is
-    // unattended work. The user's next message in the app resumes it.
-    if (!options.emailReply) {
+    // A chase is a single-agent pursuit, so the runs that keep their own rules
+    // never pick the conversation's goal up, even when one is running. An
+    // inbound-email run is untrusted input from a stranger; an /ultraplan turn
+    // is read-only by contract and cannot report an outcome; and a team
+    // member's turn is one contribution to a discussion, not a run of its own.
+    // The user's next ordinary message resumes the chase.
+    if (!options.emailReply && !ultraplan && !options.agentChat?.team) {
       if (goalCommand?.kind === "set") {
         goal = {
           objective: goalCommand.objective,

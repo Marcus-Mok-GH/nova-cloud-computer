@@ -1,3 +1,4 @@
+import { ULTRAPLAN_COMMAND } from "@shared/commands";
 import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
 
 /**
@@ -11,24 +12,32 @@ import type { WorkspaceAgentOptions } from "./workspace/workspaceAgentTypes";
  * and review it before execution, rather than discovering the shape of the
  * work only once code is already being written.
  */
-export const ULTRAPLAN_COMMAND = "/ultraplan";
+/**
+ * Re-exported from `shared/commands`, which is where the name of every slash
+ * command lives: the composer's slash menu offers the commands listed there and
+ * inserts their exact spelling, so the two sides cannot disagree about what
+ * this command is called.
+ */
+export { ULTRAPLAN_COMMAND };
 
 /**
  * Matches the command at the very start of a message, optionally addressed to
  * a bot (`/ultraplan@NovaBot`, which Telegram appends in group chats), and
  * captures everything after it as the task. The trailing `(?:\s|$)` guard
- * keeps words like `/ultraplanning` from matching.
+ * keeps words like `/ultraplanning` from matching. Built from the shared name
+ * so renaming the command cannot leave this parser matching the old one.
  */
-const ULTRAPLAN_PATTERN = /^\s*\/ultraplan(?:@[A-Za-z0-9_]+)?(?:\s|$)([\s\S]*)$/i;
+const ULTRAPLAN_PATTERN = new RegExp(
+  `^\\s*${ULTRAPLAN_COMMAND}(?:@[A-Za-z0-9_]+)?(?:\\s|$)([\\s\\S]*)$`,
+  "i"
+);
 
 /**
  * Parses a message as the `/ultraplan` command. Returns the task text (which
  * may be empty when the command was sent alone) or null when the message is
  * not the command.
  */
-export function parseUltraplanCommand(
-  text: unknown
-): { task: string } | null {
+export function parseUltraplanCommand(text: unknown): { task: string } | null {
   if (typeof text !== "string") return null;
   const match = ULTRAPLAN_PATTERN.exec(text);
   if (!match) return null;

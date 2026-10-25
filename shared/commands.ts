@@ -9,6 +9,9 @@
 /** The `/ultraplan` command: plan a task deeply, then wait for approval. */
 export const ULTRAPLAN_COMMAND = "/ultraplan";
 
+/** The `/goal` command: chase an outcome autonomously until it is met. */
+export const GOAL_COMMAND = "/goal";
+
 export interface SlashCommand {
   /** The command as typed, including its leading slash. */
   name: string;
@@ -28,5 +31,11 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     args: "<task>",
     description:
       "Research the task and draft a plan for your approval before anything changes",
+  },
+  {
+    name: GOAL_COMMAND,
+    args: "<objective>",
+    description:
+      "Work toward an outcome on your own, round after round, until it is met",
   },
 ];

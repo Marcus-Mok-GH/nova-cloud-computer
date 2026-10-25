@@ -407,10 +407,16 @@ describe("Segment chaining inside the runner", () => {
         message: { message_id: 31, chat: { id: 42 }, text: "long job" },
       });
       expect(response.status).toBe(200);
-      await waitFor(() =>
-        spies.finishAgentRunForUser.mock.calls.some(
-          call => call[2] === "completed"
-        )
+      // The retry loop (3 attempts with 1500ms delays) takes ~3s; give
+      // waitFor well over that so load on the machine doesn't cause a
+      // premature timeout that leaves background work bleeding into the
+      // next test.
+      await waitFor(
+        () =>
+          spies.finishAgentRunForUser.mock.calls.some(
+            call => call[2] === "completed"
+          ),
+        8_000
       );
       const closeCall = spies.finishAgentRunForUser.mock.calls.find(
         call => call[2] === "completed"
@@ -422,11 +428,14 @@ describe("Segment chaining inside the runner", () => {
       // waitFor returns (rather than throws) its final predicate result, so
       // asserting on it keeps this test honest if the fallback never lands.
       expect(
-        await waitFor(() =>
-          spies.sendTelegramMessage.mock.calls.some(
-            call =>
-              typeof call[2] === "string" && call[2].includes('Send "continue"')
-          )
+        await waitFor(
+          () =>
+            spies.sendTelegramMessage.mock.calls.some(
+              call =>
+                typeof call[2] === "string" &&
+                call[2].includes('Send "continue"')
+            ),
+          8_000
         )
       ).toBe(true);
     } finally {
@@ -464,7 +473,7 @@ describe("Segment chaining inside the runner", () => {
       message: { message_id: 40, chat: { id: 42 }, text: "long build" },
     });
     expect(response.status).toBe(200);
-    expect(await waitFor(() => continuationFetches.length > 0)).toBe(true);
+    expect(await waitFor(() => continuationFetches.length > 0, 8_000)).toBe(true);
     expect(continuationFetches.length).toBe(1);
     expect(JSON.parse(continuationFetches[0].body)).toEqual({
       runId: 501,

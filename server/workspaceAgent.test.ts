@@ -5655,15 +5655,19 @@ describe("the /goal chase", () => {
         content: formatGoalMarker({ objective, status: "active", segments: 1 }),
       },
     ]);
-    chatWithAiGateway
-      .mockResolvedValueOnce(chatResult({ text: "Thanks - noted." }))
-      .mockResolvedValueOnce(endTurnReply({ reply: "Thanks - noted." }));
+    // One round, and it ends the turn: the chase would have answered this with
+    // a continuation round, and the round report - not an answer to the mail -
+    // is what would have gone back to the sender.
+    chatWithAiGateway.mockResolvedValueOnce(
+      endTurnReply({ reply: "Here is the answer." })
+    );
     await runWorkspaceAgent(
       1,
       3,
       "Email from ada@example.com\nSubject: Hello\n\nCould you check the site?",
       { emailReply: true }
     );
+    expect(chatWithAiGateway).toHaveBeenCalledTimes(1);
     // The mail is answered as an ordinary request: no chase directive, no
     // goal row, and the goal the user left running is untouched for their next
     // message in the app.

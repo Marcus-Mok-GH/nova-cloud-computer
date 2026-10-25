@@ -6,6 +6,7 @@ import {
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
   GOAL_MESSAGE_PREFIX,
+  INTERNAL_MESSAGE_PREFIXES,
 } from "@shared/const";
 import { normalizeFollowUps } from "@shared/followUps";
 import { latestAgentModeMarker } from "@shared/agentMode";
@@ -20,11 +21,7 @@ export {
 
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>
-  content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX) ||
-  content.startsWith(SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX) ||
-  content.startsWith(AGENT_MODE_MESSAGE_PREFIX) ||
-  content.startsWith(FOLLOW_UP_MESSAGE_PREFIX) ||
-  content.startsWith(GOAL_MESSAGE_PREFIX);
+  INTERNAL_MESSAGE_PREFIXES.some(prefix => content.startsWith(prefix));
 
 type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {

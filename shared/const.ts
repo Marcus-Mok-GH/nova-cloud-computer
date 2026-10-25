@@ -51,6 +51,21 @@ export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
 export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
 
 /**
+ * Every internal-row marker, for the code that has to tell a row the server
+ * wrote apart from model output. The server defuses a leading marker on
+ * model-authored text before persisting it, because a reply that opened with
+ * one would read back from the chat as state the server had recorded - and the
+ * run loop acts on that state unattended.
+ */
+export const INTERNAL_MESSAGE_PREFIXES: readonly string[] = [
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+  SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
+  AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
+];
+
+/**
  * The public name of Nova's built-in model. The inference API never exposes
  * the underlying gateway model id: clients ask for `nova-pro` and the built-in
  * gateway resolves whichever default this deployment is configured with.

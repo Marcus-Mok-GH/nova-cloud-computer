@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { agentRuns, agentStopRequests, agentVmRuns, workspaces } from "../../drizzle/schema";
+import { noteAgentStop } from "../agentStopSignals";
 import { requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 import { getChatForUser } from "./chats";
@@ -54,6 +55,9 @@ export async function requestAgentStopForUser(ownerId: number, chatId?: string |
   const db = await requireDb();
   await db.delete(agentStopRequests).where(eq(agentStopRequests.ownerId, ownerId));
   const [created] = await db.insert(agentStopRequests).values({ ownerId, chatId: chatId ?? null }).returning();
+  // Runs streaming on this instance see the stop immediately, without waiting
+  // for their next database poll.
+  noteAgentStop(ownerId, chatId ?? null);
   return created;
 }
 
@@ -117,11 +121,13 @@ export async function claimAgentRunContinuation(runId: number, expectedSegment: 
   return { runId: claimed.id, segment: claimed.segment, chatId: claimed.chatId, ownerId: workspace.ownerId, channel: "telegram", token: credentials.token, telegramChatId: claimed.notifyChatId } satisfies AgentRunContinuationClaim;
 }
 
-/** Returns the live run for a conversation, after verifying it belongs to the owner. */
-export async function getActiveAgentRunForChat(ownerId: number, chatId: string) {
+/**
+ * The chat's live run, looked up by an already-owned chat id. Callers that have
+ * just resolved the chat (the run-status poll) use this so the ownership lookup
+ * is not repeated.
+ */
+export async function getActiveAgentRunInChat(chatId: string) {
   const db = await requireDb();
-  const chat = await getChatForUser(ownerId, chatId);
-  if (!chat) return undefined;
   return (await db.select({
     id: agentRuns.id,
     status: agentRuns.status,
@@ -129,9 +135,16 @@ export async function getActiveAgentRunForChat(ownerId: number, chatId: string) 
     startedAt: agentRuns.startedAt,
     updatedAt: agentRuns.updatedAt,
   }).from(agentRuns).where(and(
-    eq(agentRuns.chatId, chat.id),
+    eq(agentRuns.chatId, chatId),
     inArray(agentRuns.status, ["running", "awaiting_continue"]),
   )).orderBy(desc(agentRuns.createdAt)).limit(1))[0];
+}
+
+/** Returns the live run for a conversation, after verifying it belongs to the owner. */
+export async function getActiveAgentRunForChat(ownerId: number, chatId: string) {
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  return getActiveAgentRunInChat(chat.id);
 }
 
 /** Starts a segmented agent run ledger row: one row per user message that begins agent work. */

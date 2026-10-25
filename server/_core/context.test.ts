@@ -109,3 +109,27 @@ describe("first-party session developer pin", () => {
     expect(ctx.user?.role).toBe("admin");
   });
 });
+
+describe("workspace provisioning check", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.verifySession.mockResolvedValue({ openId: "open-1", name: "Marcus" });
+    mocks.createSessionToken.mockResolvedValue("token");
+    mocks.ensureUserWorkspaceProvisioned.mockResolvedValue(undefined);
+  });
+
+  it("runs once per warm instance instead of on every request", async () => {
+    // A fresh owner id keeps this test independent of the ones above, whose
+    // requests already provisioned owner 1.
+    mocks.getUserByOpenId.mockResolvedValue(storedUser({ id: 2, role: "developer" }));
+
+    await createContext(sessionOptions());
+    await createContext(sessionOptions());
+    await createContext(sessionOptions());
+
+    await vi.waitFor(() =>
+      expect(mocks.ensureUserWorkspaceProvisioned).toHaveBeenCalledTimes(1)
+    );
+    expect(mocks.ensureUserWorkspaceProvisioned).toHaveBeenCalledWith(2);
+  });
+});

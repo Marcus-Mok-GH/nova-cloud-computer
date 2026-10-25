@@ -10,6 +10,7 @@ import {
   syncAgentSandbox,
 } from "../sandboxWorkspace";
 import { getDatabaseTime, hasAgentStopAfter } from "../db";
+import { hasLocalAgentStopAfter } from "../agentStopSignals";
 import {
   appendConversationTurn,
   listRecentMemoriesForPrompt,
@@ -142,6 +143,13 @@ const THINKING_EMIT_INTERVAL_MS = 2_000;
 const THINKING_MIN_DELTA_CHARS = 240;
 /** Cap on the reasoning text kept in a thinking block (reasoning can be long). */
 const THINKING_DETAIL_LIMIT = 20_000;
+/**
+ * How often a streaming run asks the database whether someone pressed /stop.
+ * A stop served by this same instance is seen on the next chunk without a
+ * query (see agentStopSignals); this cadence only covers stops served
+ * elsewhere, where a second or two of delay is acceptable.
+ */
+const STOP_DB_POLL_MS = 2_000;
 
 // Re-exported so existing importers of this module keep working.
 export { TOOL_ACTIVITY_MESSAGE_PREFIX };
@@ -774,12 +782,26 @@ ${
     // /stop must be able to end a run mid-response, not only between rounds:
     // the chunk stream is polled for stop requests and aborts the in-flight
     // completion so a long reply stops almost immediately.
+    // A stop served by this instance is answered from memory; anything else is
+    // left to the database poll.
+    const stopRequested = async () =>
+      hasLocalAgentStopAfter(ownerId, chatId, runStartedAt) ||
+      hasAgentStopAfter(ownerId, chatId, runStartedAt).catch(() => false);
+
     const stopController = new AbortController();
     let lastStopCheckMs = 0;
+    let lastStopDbCheckMs = 0;
     const checkStopMidStream = () => {
+      if (stopController.signal.aborted) return;
       const now = Date.now();
+      if (hasLocalAgentStopAfter(ownerId, chatId, runStartedAt)) {
+        stopController.abort();
+        return;
+      }
       if (now - lastStopCheckMs < 250) return;
       lastStopCheckMs = now;
+      if (now - lastStopDbCheckMs < STOP_DB_POLL_MS) return;
+      lastStopDbCheckMs = now;
       void hasAgentStopAfter(ownerId, chatId, runStartedAt)
         .then(stop => {
           if (stop) stopController.abort();
@@ -874,8 +896,7 @@ ${
       });
     };
     for (let round = 0; ; round += 1) {
-      if (round > 0 && (await hasAgentStopAfter(ownerId, chatId, runStartedAt)))
-        return stopRun();
+      if (round > 0 && (await stopRequested())) return stopRun();
       // A deploy or long research can consume nearly the whole request
       // budget. Starting another gateway round this close to the maxDuration
       // limit risks the function being killed before the reply persists -
@@ -990,10 +1011,7 @@ ${
           closedByDeadline = true;
           break;
         }
-        if (
-          stopController.signal.aborted &&
-          (await hasAgentStopAfter(ownerId, chatId, runStartedAt))
-        ) {
+        if (stopController.signal.aborted && (await stopRequested())) {
           flushThinking("completed");
           await thinkingEmissions;
           return stopRun();
@@ -1213,8 +1231,7 @@ ${
           });
           continue;
         }
-        if (await hasAgentStopAfter(ownerId, chatId, runStartedAt))
-          return stopRun();
+        if (await stopRequested()) return stopRun();
         // The budget is already gone: starting the call would begin its side
         // effects (a file write, a deploy) after the run has effectively
         // ended. Skip it, record why, and close the run instead.

@@ -24,7 +24,7 @@ import {
   getChatForUser,
   getOrCreateWorkspace,
   getAutomationRecordForUser,
-  getActiveAgentRunForChat,
+  getActiveAgentRunInChat,
   getDailyCreditStatusForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
@@ -555,7 +555,9 @@ export const appRouter = router({
     runStatus: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");
-      const run = await getActiveAgentRunForChat(ctx.user.id, input.chatId);
+      // The chat is already resolved (and ownership proven) above, so the run is
+      // looked up by that id instead of repeating the ownership lookup.
+      const run = await getActiveAgentRunInChat(chat.id);
       return run ? { active: true as const, ...run } : { active: false as const };
     }),
     /** Stops the chat's in-flight agent run and its queued/running VM workflows. */

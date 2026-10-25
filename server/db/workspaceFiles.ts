@@ -4,8 +4,8 @@ import { wouldCreateWorkspaceFolderCycle } from "../workspace/workspaceFolderTre
 import { searchWorkspaceFiles, type FileSearchOptions } from "../fileSearch";
 import { isUniqueViolation, requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
-import { listChatsForUser } from "./chats";
-import { getWorkspaceModelSettingsForUser } from "./models";
+import { listChatsByWorkspaceId } from "./chats";
+import { getWorkspaceModelSettingsByWorkspaceId } from "./models";
 
 async function getFolderForUser(ownerId: number, folderId: number) {
   const db = await requireDb();
@@ -26,9 +26,14 @@ async function getFileForUser(ownerId: number, fileId: number) {
 }
 
 export async function listWorkspaceFoldersForUser(ownerId: number) {
-  const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  return db.select().from(workspaceFolders).where(eq(workspaceFolders.workspaceId, workspace.id)).orderBy(asc(workspaceFolders.name));
+  return listWorkspaceFoldersByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+export async function listWorkspaceFoldersByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  return db.select().from(workspaceFolders).where(eq(workspaceFolders.workspaceId, workspaceId)).orderBy(asc(workspaceFolders.name));
 }
 
 export async function createWorkspaceFolderForUser(ownerId: number, input: { name: string; parentId?: number | null }) {
@@ -76,9 +81,14 @@ export async function deleteWorkspaceFolderForUser(ownerId: number, folderId: nu
 }
 
 export async function listWorkspaceFilesForUser(ownerId: number) {
-  const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  return db.select().from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspace.id)).orderBy(desc(workspaceFiles.updatedAt));
+  return listWorkspaceFilesByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+export async function listWorkspaceFilesByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  return db.select().from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspaceId)).orderBy(desc(workspaceFiles.updatedAt));
 }
 
 /** Searches every file in the workspace by name, body and MIME type. */
@@ -138,13 +148,19 @@ export async function deleteWorkspaceFileForUser(ownerId: number, fileId: number
   return true;
 }
 
+/**
+ * The workspace snapshot the app loads on open. The workspace is resolved once
+ * and every collection is read against that id: resolving it per collection
+ * (the way each `...ForUser` helper does on its own) cost four extra queries
+ * per load for a value this call already holds.
+ */
 export async function getWorkspaceComputer(ownerId: number) {
   const workspace = await getOrCreateWorkspace(ownerId);
   const [folders, files, chatRows, settings] = await Promise.all([
-    listWorkspaceFoldersForUser(ownerId),
-    listWorkspaceFilesForUser(ownerId),
-    listChatsForUser(ownerId),
-    getWorkspaceModelSettingsForUser(ownerId),
+    listWorkspaceFoldersByWorkspaceId(workspace.id),
+    listWorkspaceFilesByWorkspaceId(workspace.id),
+    listChatsByWorkspaceId(workspace.id),
+    getWorkspaceModelSettingsByWorkspaceId(workspace.id),
   ]);
   return { workspace, folders, files, chats: chatRows, settings };
 }

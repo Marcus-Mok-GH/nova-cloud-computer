@@ -15,20 +15,30 @@ function toSafeCustomModel(model: typeof customModels.$inferSelect) {
 }
 
 async function getOrCreateWorkspaceSettings(ownerId: number) {
-  const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const existing = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspace.id)).limit(1);
+  return getOrCreateWorkspaceSettingsByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+async function getOrCreateWorkspaceSettingsByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  const existing = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspaceId)).limit(1);
   if (existing[0]) return existing[0];
-  await db.insert(workspaceSettings).values({ workspaceId: workspace.id }).onConflictDoNothing();
-  const created = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspace.id)).limit(1);
+  await db.insert(workspaceSettings).values({ workspaceId }).onConflictDoNothing();
+  const created = await db.select().from(workspaceSettings).where(eq(workspaceSettings.workspaceId, workspaceId)).limit(1);
   if (!created[0]) throw new Error("Nova could not create workspace settings.");
   return created[0];
 }
 
 export async function listCustomModelsForUser(ownerId: number) {
-  const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  return (await db.select().from(customModels).where(eq(customModels.workspaceId, workspace.id)).orderBy(asc(customModels.createdAt))).map(toSafeCustomModel);
+  return listCustomModelsByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+async function listCustomModelsByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  return (await db.select().from(customModels).where(eq(customModels.workspaceId, workspaceId)).orderBy(asc(customModels.createdAt))).map(toSafeCustomModel);
 }
 
 export async function getCustomModelForUser(ownerId: number, customModelId: number) {
@@ -78,7 +88,16 @@ export async function getActiveCustomModelForUser(ownerId: number) {
 }
 
 export async function getWorkspaceModelSettingsForUser(ownerId: number) {
-  const [settings, models] = await Promise.all([getOrCreateWorkspaceSettings(ownerId), listCustomModelsForUser(ownerId)]);
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return getWorkspaceModelSettingsByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+export async function getWorkspaceModelSettingsByWorkspaceId(workspaceId: number) {
+  const [settings, models] = await Promise.all([
+    getOrCreateWorkspaceSettingsByWorkspaceId(workspaceId),
+    listCustomModelsByWorkspaceId(workspaceId),
+  ]);
   return { ...settings, customModels: models };
 }
 

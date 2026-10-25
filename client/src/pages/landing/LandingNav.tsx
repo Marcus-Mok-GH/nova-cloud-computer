@@ -10,7 +10,7 @@ const navLinkClasses =
 
 /** Sticky top navigation: anchors, the theme toggle, and the page's main CTA. */
 export default function LandingNav() {
-  const { t } = useTranslation();
+  const { t, language, languages, setLanguage } = useTranslation();
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated, enterNova } = useEnterNova();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,6 +81,19 @@ export default function LandingNav() {
               <Sun className="size-4" />
             )}
           </button>
+          <select
+            id="landing-language-desktop"
+            value={language}
+            onChange={event => setLanguage(event.target.value)}
+            aria-label={t("settings.language.title")}
+            className="hidden h-9 max-w-[124px] rounded-full border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex"
+          >
+            {languages.map(option => (
+              <option key={option.id} value={option.id} lang={option.locale}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           <CtaButton
             label={ctaLabel}
             onClick={onEnter}
@@ -136,6 +149,26 @@ export default function LandingNav() {
           >
             {t("landing.nav.apiDocs")}
           </a>
+          <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
+            <label
+              htmlFor="landing-language-mobile"
+              className="mb-1.5 block text-xs font-medium text-muted-foreground"
+            >
+              {t("settings.language.title")}
+            </label>
+            <select
+              id="landing-language-mobile"
+              value={language}
+              onChange={event => setLanguage(event.target.value)}
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {languages.map(option => (
+                <option key={option.id} value={option.id} lang={option.locale}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <CtaButton
             label={ctaLabel}
             onClick={onEnter}

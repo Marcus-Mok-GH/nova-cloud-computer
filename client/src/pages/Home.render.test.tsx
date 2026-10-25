@@ -1,11 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "./Home";
 import SignIn from "./SignIn";
 
+const authState = vi.hoisted(() => ({ isAuthenticated: false }));
+
 vi.mock("@/_core/hooks/useAuth", () => ({
-  useAuth: () => ({ isAuthenticated: false, loading: false }),
+  useAuth: () => ({
+    isAuthenticated: authState.isAuthenticated,
+    loading: false,
+  }),
 }));
 vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: () => ({ theme: "light", toggleTheme: vi.fn(), switchable: true }),
@@ -21,6 +26,10 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/", vi.fn()],
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }));
+
+afterEach(() => {
+  authState.isAuthenticated = false;
+});
 
 describe("landing and sign-in render", () => {
   it("renders the hero and every landing section", () => {
@@ -58,6 +67,20 @@ describe("landing and sign-in render", () => {
       "Nova&#x27;s file browser with a project document open in the built-in editor."
     );
     expect(markup).toContain('aria-controls="landing-mobile-nav"');
+  });
+
+  it("renders the language selectors for guests and signed-in visitors", () => {
+    for (const isAuthenticated of [false, true]) {
+      authState.isAuthenticated = isAuthenticated;
+      const markup = renderToStaticMarkup(<Home />);
+
+      expect(markup).toContain('id="landing-language-desktop"');
+      expect(markup).toContain('id="landing-language-mobile"');
+      expect(markup).toContain('<option value="es" lang="es">Español</option>');
+      expect(markup).toContain(
+        isAuthenticated ? "Open workspace" : "Get started"
+      );
+    }
   });
 
   it("renders the Zo-style sign-in page", () => {

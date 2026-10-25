@@ -4,7 +4,7 @@
  */
 
 /** Escapes a literal string so it can be safely embedded in a RegExp source. */
-export const escapeRegExp = (value: string) =>
+export const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**

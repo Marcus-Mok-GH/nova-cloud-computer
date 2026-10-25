@@ -48,6 +48,31 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "report_goal",
+      description:
+        'Report the outcome of the goal this conversation is chasing (only available while a goal is active). Call it exactly once, when the chase truly ends: outcome "met" with the evidence you verified, or outcome "blocked" with what you need from the user. Until you call it, ending your turn does NOT end the chase - the run continues toward the goal automatically - so call it as soon as either is true, and never to hand back a plan or an unverified claim.',
+      parameters: {
+        type: "object",
+        properties: {
+          outcome: {
+            type: "string",
+            enum: ["met", "blocked"],
+            description:
+              '"met" when the objective is genuinely achieved, "blocked" when it cannot be advanced without the user.',
+          },
+          detail: {
+            type: "string",
+            description:
+              'For "met": the evidence you checked - the measurement, the file, the command output. For "blocked": exactly what you need from the user.',
+          },
+        },
+        required: ["outcome", "detail"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "request_purchase",
       description:
         "Request a purchase from your agent wallet (personal agents only). The credits are NOT spent by this call: it records a request that only the user can confirm, in Nova's Agents page. Use it for anything that costs wallet credits; an amount over the remaining budget is rejected immediately. After calling it, tell the user the purchase is waiting for their approval, then end your turn.",

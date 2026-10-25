@@ -38,10 +38,32 @@ export const TOOL_ACTIVITY_MESSAGE_PREFIX = "__nova_tool_activity__:";
 /** Specialist-acceptance bookkeeping rows - never rendered. */
 export const SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX =
   "__nova_specialist_acceptance__:";
+/**
+ * Goal rows: one per change to a conversation's autonomous goal (the `/goal`
+ * command). The server reads them to decide whether a run keeps chasing the
+ * goal and the client reads them to label the conversation, so both sides parse
+ * the same rows through `@shared/goal`.
+ */
+export const GOAL_MESSAGE_PREFIX = "__nova_goal__:";
 /** Workflow-mode marker rows (the conversation's stage) - never rendered. */
 export const AGENT_MODE_MESSAGE_PREFIX = "__nova_agent_mode__:";
 /** One turn's tappable follow-up suggestions, rendered as chips. */
 export const FOLLOW_UP_MESSAGE_PREFIX = "__nova_follow_ups__:";
+
+/**
+ * Every internal-row marker, for the code that has to tell a row the server
+ * wrote apart from model output. The server defuses a leading marker on
+ * model-authored text before persisting it, because a reply that opened with
+ * one would read back from the chat as state the server had recorded - and the
+ * run loop acts on that state unattended.
+ */
+export const INTERNAL_MESSAGE_PREFIXES: readonly string[] = [
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+  SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
+  AGENT_MODE_MESSAGE_PREFIX,
+  FOLLOW_UP_MESSAGE_PREFIX,
+];
 
 /**
  * The public name of Nova's built-in model. The inference API never exposes

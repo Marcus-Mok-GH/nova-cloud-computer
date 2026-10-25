@@ -40,8 +40,10 @@ import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
 } from "@shared/const";
+import { latestGoalState } from "@shared/goal";
 import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
 import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
+import { GoalBadge } from "@/components/GoalBadge";
 import {
   matchSlashCommands,
   slashCommandInsertion,
@@ -324,6 +326,10 @@ export default function Workspace() {
     const followUpSuggestions = agentIsWorking
       ? []
       : latestFollowUpSuggestions(persisted);
+    // The autonomous goal this conversation is chasing (from the same ledger
+    // rows the server reads), shown as a header badge. Null for a chat that
+    // never had one, or whose goal the user cleared.
+    const chatGoal = latestGoalState(persisted);
     // Internal bookkeeping rows (tool activity is rendered separately,
     // acceptance markers never) stay out of the visible bubble list.
     const visibleMessages = dedupeToolActivityMessages(
@@ -468,6 +474,7 @@ export default function Workspace() {
                       <span className="size-1.5 rounded-full bg-current opacity-70" />
                       {modeBadge.label}
                     </span>
+                    <GoalBadge goal={chatGoal} />
                   </div>
                   {agentIsWorking && (
                     <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">

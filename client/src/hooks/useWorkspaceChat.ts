@@ -244,9 +244,11 @@ export function useWorkspaceChat({
   // The backend ledger is the source of truth for active work. This keeps the
   // status visible after a refresh and for runs started from Telegram or a
   // continuation segment, where this browser does not own the fetch stream.
-  // A live run polls once a second; an idle open conversation falls back to a
-  // slow cadence so it is not a database query every second for as long as a
-  // tab stays open.
+  // A live run polls every few seconds - the reply itself arrives over the
+  // fetch stream, so the poll only has to notice the run ending (and the stop
+  // button flips as soon as it does; pressing stop also refetches immediately).
+  // An idle open conversation falls back to a slow cadence so a tab left open
+  // is not a steady stream of queries.
   const runStatus = trpc.chats.runStatus.useQuery(
     { chatId: chatId ?? "" },
     {
@@ -254,13 +256,15 @@ export function useWorkspaceChat({
       retry: false,
       refetchOnWindowFocus: true,
       refetchInterval: query =>
-        Boolean(chatId) ? (query.state.data?.active ? 1000 : 15_000) : false,
+        Boolean(chatId) ? (query.state.data?.active ? 3_000 : 30_000) : false,
       refetchIntervalInBackground: false,
     }
   );
-  // While a conversation is open it polls quickly so activity started
-  // elsewhere (e.g. Telegram) streams into this view in real time. Idle
-  // conversations match the status query's slow cadence.
+  // The ledger poll is a fallback, not the delivery path: text, tool lines and
+  // thinking blocks arrive live over the fetch stream this browser owns, and a
+  // run's final rows are refetched when the stream closes. So it polls at a
+  // relaxed cadence while work is in flight - enough to pick up rows written by
+  // another channel (e.g. Telegram) - and slowly when the chat is idle.
   const savedMessages = trpc.chats.messages.useQuery(
     { chatId: chatId ?? "" },
     {
@@ -269,8 +273,8 @@ export function useWorkspaceChat({
       refetchOnWindowFocus: false,
       refetchInterval: Boolean(chatId)
         ? Boolean(runStatus.data?.active) || isStreaming
-          ? 2500
-          : 15_000
+          ? 5_000
+          : 30_000
         : false,
       refetchIntervalInBackground: false,
     }
@@ -359,6 +363,10 @@ export function useWorkspaceChat({
     // that chat is opened again, so do not touch the state on screen now.
     if (viewedChatIdRef.current !== streamChatId) return true;
     const refreshed = await refreshMessages();
+    // The status poll now runs every few seconds, so the run is checked once
+    // here as the stream closes - otherwise the composer would keep offering
+    // Stop (and hide the reply's follow-up chips) until the next poll.
+    void runStatus.refetch();
     setIsStreaming(false);
     if (refreshed) {
       setPendingUserContent("");

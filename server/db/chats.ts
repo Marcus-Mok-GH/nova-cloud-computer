@@ -1,22 +1,37 @@
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
-import { chatMessages, chats } from "../../drizzle/schema";
+import { chatMessages, chats, workspaces } from "../../drizzle/schema";
 import { newChatId } from "../chatId";
 import { isUniqueViolation, requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 
+/**
+ * One chat row, scoped to its owner in a single round trip. The workspace is
+ * resolved as a subquery rather than a separate read, so every chat read or
+ * write path (opening a conversation, polling it, appending to it) costs one
+ * query less. This deliberately does not provision a workspace: sign-in and
+ * `workspace.computer` do that, and a chat cannot exist without one.
+ */
 export async function getChatForUser(ownerId: number, chatId: string) {
   const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const ownedWorkspaceIds = db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, ownerId));
   return (await db.select().from(chats).where(and(
     eq(chats.id, chatId),
-    eq(chats.workspaceId, workspace.id),
+    inArray(chats.workspaceId, ownedWorkspaceIds),
   )).limit(1))[0];
 }
 
 export async function listChatsForUser(ownerId: number) {
-  const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  return db.select().from(chats).where(eq(chats.workspaceId, workspace.id)).orderBy(desc(chats.updatedAt));
+  return listChatsByWorkspaceId(workspace.id);
+}
+
+/** Internal: the caller must have resolved a workspace this owner owns. */
+export async function listChatsByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  return db.select().from(chats).where(eq(chats.workspaceId, workspaceId)).orderBy(desc(chats.updatedAt));
 }
 
 export async function createChatForUser(ownerId: number, title: string) {

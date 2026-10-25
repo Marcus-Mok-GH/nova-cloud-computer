@@ -40,6 +40,34 @@ function getJwks() {
 
 type BannedAuthentication = { banned: true };
 
+/** How long a stored sign-in stays fresh enough to skip the write that refreshes it. */
+const SIGN_IN_REFRESH_MS = 60_000;
+
+function needsSignInRefresh(lastSignedIn: Date | null | undefined): boolean {
+  if (!lastSignedIn) return true;
+  return Date.now() - new Date(lastSignedIn).getTime() > SIGN_IN_REFRESH_MS;
+}
+
+/**
+ * Owners whose workspace this instance has already provisioned. Provisioning is
+ * a database read on every authenticated request, and the answer only changes
+ * when a workspace is created - so once it has succeeded here it is not asked
+ * for again while the instance stays warm. The map is capped so a busy instance
+ * cannot grow it without bound; clearing it only costs one read per owner.
+ */
+const MAX_REMEMBERED_OWNERS = 5_000;
+const provisionedOwners = new Set<number>();
+
+function ensureWorkspaceInBackground(userId: number) {
+  if (provisionedOwners.has(userId)) return;
+  void ensureUserWorkspaceProvisioned(userId)
+    .then(() => {
+      if (provisionedOwners.size >= MAX_REMEMBERED_OWNERS) provisionedOwners.clear();
+      provisionedOwners.add(userId);
+    })
+    .catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
+}
+
 async function authenticateBearerToken(header: string | undefined): Promise<BearerAuthentication | BannedAuthentication | null> {
   if (!header?.startsWith("Bearer ")) return null;
   const keySet = getJwks();
@@ -51,10 +79,19 @@ async function authenticateBearerToken(header: string | undefined): Promise<Bear
     });
     const identity = normalizeNeonIdentity(payload);
     if (!identity) return null;
-    await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
-    const user = await getUserByOpenId(identity.openId);
+    // Read first: a returning user costs one query, not a write plus a read on
+    // every authenticated request. The row is written only when it is missing
+    // or its stored sign-in has gone stale.
+    let user = await getUserByOpenId(identity.openId);
     if (user?.bannedAt) return { banned: true }; // Banned accounts cannot sign in, even with a valid Neon token.
-    if (user) void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
+    if (!user || needsSignInRefresh(user.lastSignedIn)) {
+      await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
+      // The upsert can (re)assert the pinned developer rank, so the stored row
+      // is read back instead of reusing the one fetched before the write.
+      user = await getUserByOpenId(identity.openId);
+      if (user?.bannedAt) return { banned: true };
+    }
+    if (user) ensureWorkspaceInBackground(user.id);
     return user ? { user, identity } : null;
   } catch (error) {
     console.warn("[Auth] Neon token validation failed", error instanceof Error ? error.message : error);
@@ -85,7 +122,7 @@ async function authenticateFirstPartySession(cookieHeader: string | undefined): 
     });
     user.role = "developer";
   }
-  void ensureUserWorkspaceProvisioned(user.id).catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
+  ensureWorkspaceInBackground(user.id);
   return {
     user,
     identity: {

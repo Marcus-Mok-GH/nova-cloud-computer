@@ -1,6 +1,7 @@
 import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
+  NOVA_PUBLIC_APP_URL,
 } from "@shared/const";
 import { errorMessage } from "@shared/_core/errors";
 import { retryUntilAccepted } from "@shared/timing";
@@ -28,8 +29,12 @@ import {
   type RunningProcessHandle,
 } from "./runningProcesses";
 
-/** The web app that renders each chat's full tool-activity replay. */
-export const NOVA_WEB_APP_URL = "https://nova-cloud-computer.vercel.app";
+/**
+ * The web app that renders each chat's full tool-activity replay. Aliased to
+ * the shared origin so Telegram deep links cannot drift from the rest of the
+ * product when the deployment domain changes.
+ */
+export const NOVA_WEB_APP_URL = NOVA_PUBLIC_APP_URL;
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
 export const VIEW_RUN_BUTTON_TEXT = "\u{1FA90} View this run in Nova";
 /**

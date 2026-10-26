@@ -11,6 +11,9 @@ export type WorkspaceBrowserFile = {
   updatedAt?: Date;
 };
 
+const compareByName = (left: { name: string }, right: { name: string }) =>
+  left.name.localeCompare(right.name);
+
 export function getWorkspaceContents<
   Folder extends WorkspaceBrowserFolder,
   File extends WorkspaceBrowserFile,
@@ -19,15 +22,13 @@ export function getWorkspaceContents<
   files: File[],
   activeFolderId: number | null,
 ): { folders: Folder[]; files: File[] } {
-  const inActiveFolder = (itemFolderId: number | null) => itemFolderId === activeFolderId;
-
   return {
     folders: folders
-      .filter(folder => inActiveFolder(folder.parentId))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+      .filter(folder => folder.parentId === activeFolderId)
+      .sort(compareByName),
     files: files
-      .filter(file => inActiveFolder(file.folderId))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+      .filter(file => file.folderId === activeFolderId)
+      .sort(compareByName),
   };
 }
 

@@ -21,6 +21,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { MarkdownText } from "@/lib/markdown";
+import { formatFileSize } from "@/lib/formatFileSize";
 import {
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
@@ -50,12 +51,6 @@ function formatStamp(value: Date | string | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function formatBytes(sizeBytes: number) {
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Read-only inspection of one account's chats and workspace files. */
@@ -233,7 +228,7 @@ export function AdminUserContent({ userId }: { userId: number }) {
                       )}
                       {file.name}
                       <span className="ms-2 text-xs font-normal text-muted-foreground">
-                        {formatBytes(file.sizeBytes)} · {file.mimeType} ·{" "}
+                        {formatFileSize(file.sizeBytes, "decimal")} · {file.mimeType} ·{" "}
                         {formatStamp(file.updatedAt)}
                       </span>
                     </p>

@@ -11,6 +11,9 @@ export type WorkspaceBrowserFile = {
   updatedAt?: Date;
 };
 
+const compareByName = (left: { name: string }, right: { name: string }) =>
+  left.name.localeCompare(right.name);
+
 export function getWorkspaceContents<
   Folder extends WorkspaceBrowserFolder,
   File extends WorkspaceBrowserFile,
@@ -19,20 +22,19 @@ export function getWorkspaceContents<
   files: File[],
   activeFolderId: number | null,
 ): { folders: Folder[]; files: File[] } {
-  const inActiveFolder = (itemFolderId: number | null) => itemFolderId === activeFolderId;
-
   return {
     folders: folders
-      .filter(folder => inActiveFolder(folder.parentId))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+      .filter(folder => folder.parentId === activeFolderId)
+      .sort(compareByName),
     files: files
-      .filter(file => inActiveFolder(file.folderId))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+      .filter(file => file.folderId === activeFolderId)
+      .sort(compareByName),
   };
 }
 
 export function getFolderTrail(folders: WorkspaceBrowserFolder[], activeFolderId: number | null) {
-  const foldersById = new Map(folders.map(folder => [folder.id, folder]));
+  const foldersById = new Map<number, WorkspaceBrowserFolder>();
+  for (const folder of folders) foldersById.set(folder.id, folder);
   const trail: WorkspaceBrowserFolder[] = [];
   const visited = new Set<number>();
   let currentId = activeFolderId;
@@ -40,10 +42,10 @@ export function getFolderTrail(folders: WorkspaceBrowserFolder[], activeFolderId
   while (currentId !== null && !visited.has(currentId)) {
     const folder = foldersById.get(currentId);
     if (!folder) break;
-    trail.unshift(folder);
+    trail.push(folder);
     visited.add(currentId);
     currentId = folder.parentId;
   }
 
-  return trail;
+  return trail.reverse();
 }

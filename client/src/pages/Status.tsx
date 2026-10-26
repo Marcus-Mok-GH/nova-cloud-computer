@@ -65,7 +65,7 @@ function ServiceRow({ service }: { service: ServiceHealth }) {
 function PageRow({ probe, onOpen }: { probe: PageProbe; onOpen: (path: string) => void }) {
   return (
     <li>
-      <button onClick={() => onOpen(probe.path)} className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-4 text-left transition hover:bg-accent/40">
+      <button onClick={() => onOpen(probe.path)} className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-4 text-start transition hover:bg-accent/40">
         <div className="min-w-0">
           <p className="text-sm font-semibold">{probe.name}</p>
           <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{probe.path}</p>
@@ -179,7 +179,7 @@ export default function Status() {
             )}
             {report && <p className="mt-2 text-xs text-muted-foreground">Last checked {new Date(report.checkedAt).toLocaleTimeString()}</p>}
           </div>
-          <button onClick={() => { void runChecks(); }} disabled={refreshing} className="pill-btn ml-auto shrink-0 self-center px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50">
+          <button onClick={() => { void runChecks(); }} disabled={refreshing} className="pill-btn ms-auto shrink-0 self-center px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50">
             {refreshing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
             Refresh
           </button>

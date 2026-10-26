@@ -10,6 +10,8 @@ export interface LanguageOption {
   locale: string;
   /** English name, used as the translation target in generator prompts. */
   englishName: string;
+  /** Writes right to left, so the layout has to mirror. */
+  rtl?: boolean;
 }
 
 export const DEFAULT_LANGUAGE = "en";
@@ -23,6 +25,16 @@ export const languages: LanguageOption[] = [
   { id: "pt", label: "Português", locale: "pt", englishName: "Portuguese" },
   { id: "zh", label: "中文（简体）", locale: "zh-CN", englishName: "Simplified Chinese" },
   { id: "ja", label: "日本語", locale: "ja", englishName: "Japanese" },
+  { id: "ko", label: "한국어", locale: "ko-KR", englishName: "Korean" },
+  { id: "hi", label: "हिन्दी", locale: "hi-IN", englishName: "Hindi" },
+  { id: "ru", label: "Русский", locale: "ru-RU", englishName: "Russian" },
+  { id: "pl", label: "Polski", locale: "pl-PL", englishName: "Polish" },
+  { id: "nl", label: "Nederlands", locale: "nl-NL", englishName: "Dutch" },
+  { id: "it", label: "Italiano", locale: "it-IT", englishName: "Italian" },
+  { id: "tr", label: "Türkçe", locale: "tr-TR", englishName: "Turkish" },
+  { id: "vi", label: "Tiếng Việt", locale: "vi-VN", englishName: "Vietnamese" },
+  { id: "id", label: "Bahasa Indonesia", locale: "id-ID", englishName: "Indonesian" },
+  { id: "ar", label: "العربية", locale: "ar", englishName: "Arabic", rtl: true },
 ];
 
 /** Accepts any stored/detected value and returns a supported language id. */
@@ -38,4 +50,9 @@ export function resolveLanguage(value: string | null | undefined): string {
 /** BCP-47 locale tag for a language id (for dates and `document.lang`). */
 export function languageLocale(id: string): string {
   return languages.find(language => language.id === id)?.locale ?? "en";
+}
+
+/** Text direction for a language id (for `document.dir` and mirrored layouts). */
+export function languageDirection(id: string): "ltr" | "rtl" {
+  return languages.find(language => language.id === id)?.rtl ? "rtl" : "ltr";
 }

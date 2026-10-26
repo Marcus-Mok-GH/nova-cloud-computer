@@ -47,8 +47,8 @@ export function UsernamePrompt({ user, onClose }: { user: PromptUser; onClose: (
           <div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
             <AtSign size={20} />
           </div>
-          <DialogTitle className="text-left text-xl font-extrabold tracking-tight">{t("username.title")}</DialogTitle>
-          <DialogDescription className="text-left leading-6">
+          <DialogTitle className="text-start text-xl font-extrabold tracking-tight">{t("username.title")}</DialogTitle>
+          <DialogDescription className="text-start leading-6">
             {t("username.body")}
           </DialogDescription>
         </DialogHeader>

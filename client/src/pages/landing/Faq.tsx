@@ -36,7 +36,7 @@ export default function Faq() {
               value={`question-${index}`}
               className="border-border"
             >
-              <AccordionTrigger className="py-5 text-left text-base font-semibold tracking-[-0.01em] text-foreground hover:no-underline">
+              <AccordionTrigger className="py-5 text-start text-base font-semibold tracking-[-0.01em] text-foreground hover:no-underline">
                 {item.q}
               </AccordionTrigger>
               <AccordionContent className="max-w-2xl text-sm leading-6 text-muted-foreground">

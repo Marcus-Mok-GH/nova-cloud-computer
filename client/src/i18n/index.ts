@@ -15,16 +15,45 @@ import { de } from "./de";
 import { pt } from "./pt";
 import { zh } from "./zh";
 import { ja } from "./ja";
+import { ko } from "./ko";
+import { hi } from "./hi";
+import { ru } from "./ru";
+import { pl } from "./pl";
+import { nl } from "./nl";
+import { it } from "./it";
+import { tr } from "./tr";
+import { vi } from "./vi";
+import { id } from "./id";
+import { ar } from "./ar";
 
 export {
   DEFAULT_LANGUAGE,
   languages,
+  languageDirection,
   languageLocale,
   resolveLanguage,
   type LanguageOption,
 } from "./languages";
 
-const dictionaries: Record<string, Translations> = { en, es, fr, de, pt, zh, ja };
+const dictionaries: Record<string, Translations> = {
+  en,
+  es,
+  fr,
+  de,
+  pt,
+  zh,
+  ja,
+  ko,
+  hi,
+  ru,
+  pl,
+  nl,
+  it,
+  tr,
+  vi,
+  id,
+  ar,
+};
 
 /** Values a translation's `{{token}}` placeholders can be filled with. */
 export type TranslationVars = Record<string, string | number | null | undefined>;

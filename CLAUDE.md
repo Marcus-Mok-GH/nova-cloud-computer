@@ -169,7 +169,7 @@ The support-bot Q&A route is the one exception: `needsDatabaseBootstrap` in `api
 
 **`shared/` is the anti-drift layer.** Anything both the server and the browser must agree on exactly — the ledger prefixes and attachment caps in `shared/const.ts`, agent modes (`shared/agentMode.ts`), follow-up chips (`shared/followUps.ts`), skill validation (`shared/skills.ts`), speech chunking (`shared/speech.ts`), the `/api/status` report shape (`shared/serviceStatus.ts`), text/timing helpers — is defined once there. Put a new shared rule there rather than duplicating it in a page and a router.
 
-**i18n.** `en.ts` is the base (flat dotted keys, e.g. `"common.save"`); the other six locales are typed as `{ [K in keyof typeof en]: string }`, so **TypeScript enforces key parity** — a missing key fails `pnpm check`, there is no separate parity test. Edit only `en.ts`, then run `pnpm i18n:translate`, which is incremental via `i18n/manifest.json`. Never hand-edit a non-English locale file.
+**i18n.** `en.ts` is the base (flat dotted keys, e.g. `"common.save"`); the other sixteen locales are typed as `{ [K in keyof typeof en]: string }`, so **TypeScript enforces key parity** — a missing key fails `pnpm check`, there is no separate parity test. Edit only `en.ts`, then run `pnpm i18n:translate`, which is incremental via `i18n/manifest.json`. Never hand-edit a non-English locale file.
 
 **The SPA shell must never be cached.** Browser routes are served by `api/spa.ts` with `no-store`; only content-hashed `/assets/*` are immutable. `pnpm check:spa-cache` enforces the specific mechanics (no rewrite to `/index.html`, the SPA rewrite must exclude `/api/` and `/assets/`, the required markers must survive in `api/spa.ts`). See `CONTRIBUTING.md`.
 

@@ -458,7 +458,7 @@ export default function Workspace() {
                 className="grid size-9 shrink-0 place-items-center rounded-lg border border-foreground/[0.12] bg-card/70 text-muted-foreground transition hover:-translate-x-0.5 hover:border-primary/45 hover:text-foreground dark:border-white/[0.12]"
                 aria-label="Back to chats"
               >
-                <ArrowLeft className="size-4" />
+                <ArrowLeft className="size-4 rtl:-scale-x-100" />
               </button>
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
                 <NovaLogo size={18} className="shrink-0" />
@@ -578,10 +578,10 @@ export default function Workspace() {
                         return row.live ? (
                           <div
                             key={row.key}
-                            className="chat-in flex w-full shrink-0 flex-col pl-0 sm:pl-12"
+                            className="chat-in flex w-full shrink-0 flex-col ps-0 sm:ps-12"
                           >
                             {novaLeadsRow(index) && (
-                              <p className="mb-1 ml-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                              <p className="mb-1 ms-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                                 Nova
                               </p>
                             )}
@@ -593,7 +593,7 @@ export default function Workspace() {
                         ) : (
                           <div
                             key={row.key}
-                            className="chat-in flex w-full shrink-0 pl-0 sm:pl-12"
+                            className="chat-in flex w-full shrink-0 ps-0 sm:ps-12"
                           >
                             <ToolRunGroup activities={row.activities} />
                           </div>
@@ -653,7 +653,7 @@ export default function Workspace() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]">
+                              <div className="border-s border-primary/40 bg-card/65 px-4 py-3.5 text-[15px] leading-7 shadow-[0_8px_30px_rgba(36,40,34,0.035)] dark:bg-white/[0.045]">
                                 <div className="break-words text-foreground">
                                   <MarkdownText text={row.content} />
                                   {streaming && (
@@ -704,7 +704,7 @@ export default function Workspace() {
                                       onClick={() =>
                                         void sendMessage(chatId, suggestion)
                                       }
-                                      className="border border-primary/35 bg-primary/[0.06] px-3.5 py-2 text-left text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12]"
+                                      className="border border-primary/35 bg-primary/[0.06] px-3.5 py-2 text-start text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12]"
                                     >
                                       {suggestion}
                                     </button>
@@ -732,7 +732,7 @@ export default function Workspace() {
                             <span className="size-1 animate-pulse rounded-full bg-primary" />
                           )}
                         </div>
-                        <div className="border-l border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
+                        <div className="border-s border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
                           <TypingIndicator />
                         </div>
                       </div>
@@ -783,7 +783,7 @@ export default function Workspace() {
                   <div
                     data-testid="queue-notice"
                     role="status"
-                    className="mx-2.5 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
+                    className="mx-2.5 mb-1.5 border-s-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
                   >
                     {queueNotice}
                   </div>
@@ -792,7 +792,7 @@ export default function Workspace() {
                   <div
                     data-testid="priority-notice"
                     role="status"
-                    className="mx-2.5 mb-1.5 border-l-2 border-emerald-500 bg-emerald-500/[0.08] px-3 py-2 text-xs font-semibold text-foreground"
+                    className="mx-2.5 mb-1.5 border-s-2 border-emerald-500 bg-emerald-500/[0.08] px-3 py-2 text-xs font-semibold text-foreground"
                   >
                     {priorityNotice}
                   </div>
@@ -827,7 +827,7 @@ export default function Workspace() {
                     event.target.value = "";
                   }}
                 />
-                <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]">
+                <div className="flex items-end gap-2 border border-foreground/[0.08] bg-background/55 p-2 ps-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]">
                   {pendingEnvVarRequest ? (
                     <EnvVarRequestComposer
                       key={pendingEnvVarRequest.id}
@@ -914,7 +914,7 @@ export default function Workspace() {
                 </div>
               </div>
               <p className="mt-2 hidden text-center text-[10px] font-medium text-muted-foreground sm:block">
-                <CornerDownLeft className="mr-1 inline size-3" />
+                <CornerDownLeft className="me-1 inline size-3" />
                 Shift+Enter for a new line
               </p>
             </div>
@@ -1031,7 +1031,7 @@ export default function Workspace() {
                         ? () => setLocation("/app/settings")
                         : undefined
                     }
-                    className="bg-card/85 px-4 py-4 text-left transition hover:bg-primary/[0.06] dark:bg-card/85 dark:hover:bg-white/[0.07]"
+                    className="bg-card/85 px-4 py-4 text-start transition hover:bg-primary/[0.06] dark:bg-card/85 dark:hover:bg-white/[0.07]"
                   >
                     <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
                       <span className="grid size-7 shrink-0 place-items-center bg-primary/10 text-primary">
@@ -1041,12 +1041,12 @@ export default function Workspace() {
                       <span
                         className={
                           connector.available
-                            ? "ml-auto flex shrink-0 items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
-                            : "ml-auto shrink-0 text-[10px] font-bold text-muted-foreground"
+                            ? "ms-auto flex shrink-0 items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
+                            : "ms-auto shrink-0 text-[10px] font-bold text-muted-foreground"
                         }
                       >
                         {connector.available && (
-                          <span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-500" />
+                          <span className="me-1 inline-block size-1.5 rounded-full bg-emerald-500" />
                         )}
                         {connector.available
                           ? "Ready"

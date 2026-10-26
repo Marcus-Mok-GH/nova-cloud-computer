@@ -123,7 +123,7 @@ export function AdminUserContent({ userId }: { userId: number }) {
                 >
                   <summary className="cursor-pointer text-sm font-semibold">
                     {chat.title}
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    <span className="ms-2 text-xs font-normal text-muted-foreground">
                       {messages.length} messages · {formatStamp(chat.updatedAt)}
                     </span>
                   </summary>
@@ -159,7 +159,7 @@ export function AdminUserContent({ userId }: { userId: number }) {
                       return (
                         <div key={message.id} className="flex flex-col">
                           <p
-                            className={`mb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground ${isUser ? "text-right" : ""}`}
+                            className={`mb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground ${isUser ? "text-end" : ""}`}
                           >
                             {isUser ? "User" : "Nova"} ·{" "}
                             {formatStamp(message.createdAt)}
@@ -172,7 +172,7 @@ export function AdminUserContent({ userId }: { userId: number }) {
                                 {message.content}
                               </div>
                             ) : (
-                              <div className="max-h-80 max-w-[92%] overflow-y-auto border border-border border-l-2 border-l-primary/40 bg-card/65 px-3.5 py-2.5 text-sm leading-6 shadow-sm dark:border-white/10 dark:bg-white/[0.045] sm:max-w-[75%]">
+                              <div className="max-h-80 max-w-[92%] overflow-y-auto border border-border border-s-2 border-s-primary/40 bg-card/65 px-3.5 py-2.5 text-sm leading-6 shadow-sm dark:border-white/10 dark:bg-white/[0.045] sm:max-w-[75%]">
                                 <div className="break-words text-foreground">
                                   <MarkdownText text={message.content} />
                                 </div>
@@ -232,7 +232,7 @@ export function AdminUserContent({ userId }: { userId: number }) {
                         ""
                       )}
                       {file.name}
-                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      <span className="ms-2 text-xs font-normal text-muted-foreground">
                         {formatBytes(file.sizeBytes)} · {file.mimeType} ·{" "}
                         {formatStamp(file.updatedAt)}
                       </span>
@@ -358,7 +358,7 @@ export function AdminApiErrorNotifications() {
                 {log.errorCode && (
                   <span className="font-mono text-[10px] text-muted-foreground">{log.errorCode}</span>
                 )}
-                <span className="ml-auto text-[11px] text-muted-foreground">{formatStamp(log.createdAt)}</span>
+                <span className="ms-auto text-[11px] text-muted-foreground">{formatStamp(log.createdAt)}</span>
               </div>
               <p className="mt-2 break-words text-sm text-foreground/90">{log.errorMessage}</p>
               <p className="mt-1 font-mono text-[10px] text-muted-foreground">

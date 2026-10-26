@@ -77,14 +77,14 @@ export default function CodeEditor({ value, language, onChange, onCursorChange, 
 
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden bg-card font-mono text-[13px] leading-6 dark:bg-[#0d0d0d]">
-      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 overflow-hidden border-r border-border/70 bg-card select-none dark:border-white/5 dark:bg-[#0d0d0d]" style={{ width: gutterWidth }}>
-        <div ref={gutterRef} className="text-right font-mono text-[12px] leading-6 text-muted-foreground/50" style={{ paddingTop: 12, paddingBottom: 12, willChange: "transform" }}>
-          {lines.map((_, index) => <div key={index} className="pr-3">{index + 1}</div>)}
+      <div className="pointer-events-none absolute inset-y-0 start-0 z-10 overflow-hidden border-e border-border/70 bg-card select-none dark:border-white/5 dark:bg-[#0d0d0d]" style={{ width: gutterWidth }}>
+        <div ref={gutterRef} className="text-end font-mono text-[12px] leading-6 text-muted-foreground/50" style={{ paddingTop: 12, paddingBottom: 12, willChange: "transform" }}>
+          {lines.map((_, index) => <div key={index} className="pe-3">{index + 1}</div>)}
         </div>
       </div>
 
       <div className="absolute inset-0 overflow-hidden" style={{ paddingLeft: gutterWidth }}>
-        <pre ref={highlightRef} aria-hidden="true" className="m-0 min-h-full whitespace-pre py-3 pl-3 pr-16 font-mono text-[13px] leading-6 text-foreground dark:text-foreground" style={{ willChange: "transform" }}>
+        <pre ref={highlightRef} aria-hidden="true" className="m-0 min-h-full whitespace-pre py-3 ps-3 pe-16 font-mono text-[13px] leading-6 text-foreground dark:text-foreground" style={{ willChange: "transform" }}>
           <HighlightedCode code={`${value}\n`} language={language} />
         </pre>
       </div>
@@ -105,7 +105,7 @@ export default function CodeEditor({ value, language, onChange, onCursorChange, 
         onKeyUp={reportCursor}
         onClick={reportCursor}
         onSelect={reportCursor}
-        className="absolute inset-0 resize-none overflow-auto border-0 bg-transparent py-3 pl-3 pr-16 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none [tab-size:2]"
+        className="absolute inset-0 resize-none overflow-auto border-0 bg-transparent py-3 ps-3 pe-16 font-mono text-[13px] leading-6 text-transparent caret-foreground outline-none [tab-size:2]"
         style={{ paddingLeft: gutterWidth + 12, lineHeight: `${LINE_HEIGHT}px` }}
       />
     </div>

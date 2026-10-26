@@ -178,7 +178,7 @@ function CollapsibleToolPanel({
         type="button"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+        className="flex w-full min-w-0 items-center gap-1 text-start transition-opacity hover:opacity-80"
       >
         <ToolActivityLine activity={activity} />
         <ChevronDown
@@ -400,7 +400,7 @@ export function toolChipContainerClass(
 ): string {
   const base =
     variant === "panel"
-      ? "flex w-full min-w-0 flex-col border border-l-2 border-l-primary/60 px-3 py-2 shadow-sm"
+      ? "flex w-full min-w-0 flex-col border border-s-2 border-s-primary/60 px-3 py-2 shadow-sm"
       : "flex min-w-0 items-center gap-1 border px-3 py-1.5 shadow-sm";
   const tone =
     activity.state === "running"
@@ -432,7 +432,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
         type="button"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1 text-left transition-opacity hover:opacity-80"
+        className="flex w-full min-w-0 items-center gap-1 text-start transition-opacity hover:opacity-80"
       >
         <span
           data-testid="thinking-tool-activity-line"
@@ -848,7 +848,7 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
         type="button"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-left shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
+        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-start shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
       >
         <ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
         <span
@@ -863,13 +863,13 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
           </span>
         )}
         <ChevronDown
-          className={`ml-auto size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          className={`ms-auto size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open && (
         <div
           data-testid="tool-run-group-detail"
-          className="mt-2 flex w-full min-w-0 flex-col gap-2 border-l border-foreground/[0.08] pl-3 dark:border-white/10"
+          className="mt-2 flex w-full min-w-0 flex-col gap-2 border-s border-foreground/[0.08] ps-3 dark:border-white/10"
         >
           {activities.map(activity => (
             <ActivityRow key={activity.id} activity={activity} />
@@ -919,7 +919,7 @@ export function LiveActivityCard({
         <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
           {working ? "Working" : "Steps"}
         </p>
-        <p className="ml-auto shrink-0 text-[10px] font-medium text-muted-foreground">
+        <p className="ms-auto shrink-0 text-[10px] font-medium text-muted-foreground">
           {activities.length} step{activities.length === 1 ? "" : "s"}
           {failed > 0 ? ` · ${failed} failed` : ""}
         </p>

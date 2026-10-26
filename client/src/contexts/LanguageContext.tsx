@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import {
   DEFAULT_LANGUAGE,
   languages,
+  languageDirection,
   languageLocale,
   resolveLanguage,
   translate,
@@ -118,6 +119,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       }
     }
     document.documentElement.lang = languageLocale(language);
+    document.documentElement.dir = languageDirection(language);
     try {
       localStorage.setItem(STORAGE_KEY, language);
     } catch {

@@ -53,7 +53,7 @@ export function SlashCommandMenu({
             onSelect(command);
           }}
           onMouseEnter={() => onActiveIndexChange(index)}
-          className={`flex w-full items-baseline gap-2.5 px-2.5 py-2 text-left transition ${
+          className={`flex w-full items-baseline gap-2.5 px-2.5 py-2 text-start transition ${
             index === activeIndex
               ? "bg-primary/[0.10] text-foreground"
               : "text-foreground/80 hover:bg-foreground/[0.05] dark:hover:bg-white/[0.06]"

@@ -40,10 +40,10 @@ export function getFolderTrail(folders: WorkspaceBrowserFolder[], activeFolderId
   while (currentId !== null && !visited.has(currentId)) {
     const folder = foldersById.get(currentId);
     if (!folder) break;
-    trail.unshift(folder);
+    trail.push(folder);
     visited.add(currentId);
     currentId = folder.parentId;
   }
 
-  return trail;
+  return trail.reverse();
 }

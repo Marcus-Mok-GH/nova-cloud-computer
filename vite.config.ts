@@ -25,7 +25,7 @@ function ensureLogDir() {
 
 function trimLogFile(logPath: string, maxSize: number) {
   try {
-    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) {
+    if (fs.statSync(logPath).size <= maxSize) {
       return;
     }
 

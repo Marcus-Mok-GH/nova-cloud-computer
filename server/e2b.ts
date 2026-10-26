@@ -13,10 +13,58 @@ const MAX_OUTPUT_BYTES = 12_000;
 const RUN_TIMEOUT_MS = 240_000;
 const PERSISTENT_SANDBOX_TIMEOUT_MS = 3_600_000;
 const DEFAULT_MAX_SANDBOX_CREATIONS = 50;
+const TIMEOUT_REFRESH_INTERVAL_MS = 1_800_000; // Refresh timeout every 30 minutes
 
 let sandboxCreationCount = 0;
 const sandboxExecutionLocks = new Map<string, Promise<void>>();
 const workspaceLifecycleLocks = new Map<string, Promise<void>>();
+
+/** Telemetry for sandbox operations. */
+type SandboxMetrics = {
+  sandboxCreations: number;
+  sandboxConnects: number;
+  sandboxPauses: number;
+  snapshotCreations: number;
+  snapshotLoads: number;
+  snapshotDeletions: number;
+  connectFailures: number;
+  pauseFailures: number;
+  timeoutRefreshes: number;
+  totalConnectLatencyMs: number;
+  totalCreateLatencyMs: number;
+};
+
+const metrics: SandboxMetrics = {
+  sandboxCreations: 0,
+  sandboxConnects: 0,
+  sandboxPauses: 0,
+  snapshotCreations: 0,
+  snapshotLoads: 0,
+  snapshotDeletions: 0,
+  connectFailures: 0,
+  pauseFailures: 0,
+  timeoutRefreshes: 0,
+  totalConnectLatencyMs: 0,
+  totalCreateLatencyMs: 0,
+};
+
+export function getSandboxMetrics(): Readonly<SandboxMetrics> {
+  return { ...metrics };
+}
+
+export function resetSandboxMetrics() {
+  metrics.sandboxCreations = 0;
+  metrics.sandboxConnects = 0;
+  metrics.sandboxPauses = 0;
+  metrics.snapshotCreations = 0;
+  metrics.snapshotLoads = 0;
+  metrics.snapshotDeletions = 0;
+  metrics.connectFailures = 0;
+  metrics.pauseFailures = 0;
+  metrics.timeoutRefreshes = 0;
+  metrics.totalConnectLatencyMs = 0;
+  metrics.totalCreateLatencyMs = 0;
+}
 
 /** Serialize the full restore/execute/persist lifecycle for one workspace. */
 export async function withE2BWorkspaceLock<T>(
@@ -99,6 +147,8 @@ export type E2BSandboxLike = {
   pause?: (options?: { keepMemory?: boolean }) => Promise<boolean>;
   kill?: () => Promise<boolean>;
   setTimeout?: (timeoutMs: number) => Promise<void>;
+  createSnapshot?: () => Promise<{ snapshotId: string }>;
+  keepAlive?: (timeoutMs: number) => Promise<void>;
 };
 
 export type E2BSandboxInfo = {
@@ -109,6 +159,11 @@ export type E2BSandboxInfo = {
 
 export type E2BClientLike = {
   create: (options?: Record<string, unknown>) => Promise<E2BSandboxLike>;
+  createFromSnapshot?: (
+    snapshotId: string,
+    options?: Record<string, unknown>
+  ) => Promise<E2BSandboxLike>;
+  deleteSnapshot?: (snapshotId: string) => Promise<boolean>;
   connect: (
     sandboxId: string,
     options?: Record<string, unknown>
@@ -182,6 +237,13 @@ export function getE2BClient(): E2BClientLike | undefined {
         ...(options ?? {}),
         apiKey,
       }) as unknown as Promise<E2BSandboxLike>,
+    createFromSnapshot: (snapshotId, options) =>
+      Sandbox.create(snapshotId, {
+        ...(options ?? {}),
+        apiKey,
+      } as never) as unknown as Promise<E2BSandboxLike>,
+    deleteSnapshot: snapshotId =>
+      Sandbox.deleteSnapshot(snapshotId, { apiKey }),
     connect: (sandboxId, options) =>
       Sandbox.connect(sandboxId, {
         ...(options ?? {}),
@@ -227,8 +289,10 @@ export async function pauseE2BSandbox(
   if (!sandbox?.pause) return false;
   try {
     const paused = await sandbox.pause({ keepMemory: true });
-    return paused !== false;
+    if (paused) metrics.sandboxPauses += 1;
+    return paused;
   } catch (error) {
+    metrics.pauseFailures += 1;
     console.error(
       "[E2B] sandbox pause failed",
       error instanceof Error ? error.message : error
@@ -367,6 +431,46 @@ export function desktopSandboxTimeoutMs() {
 }
 
 const persistentSandboxInFlight = new Map<string, Promise<E2BSandboxLike>>();
+const sandboxLastRefresh = new Map<string, number>();
+
+/**
+ * Refreshes a sandbox's timeout to prevent mid-run expiration. Should be called
+ * on reconnect and periodically during long-running operations.
+ */
+export async function refreshSandboxTimeout(
+  sandbox: E2BSandboxLike
+): Promise<boolean> {
+  const now = Date.now();
+  const lastRefresh = sandboxLastRefresh.get(sandbox.sandboxId) ?? 0;
+
+  // Only refresh if it's been at least 30 minutes since last refresh
+  if (now - lastRefresh < TIMEOUT_REFRESH_INTERVAL_MS) {
+    return true;
+  }
+
+  try {
+    if (sandbox.setTimeout) {
+      await sandbox.setTimeout(PERSISTENT_SANDBOX_TIMEOUT_MS);
+      metrics.timeoutRefreshes += 1;
+      sandboxLastRefresh.set(sandbox.sandboxId, now);
+      return true;
+    }
+    // Fallback to keepAlive if setTimeout doesn't exist
+    if (sandbox.keepAlive) {
+      await sandbox.keepAlive(PERSISTENT_SANDBOX_TIMEOUT_MS);
+      metrics.timeoutRefreshes += 1;
+      sandboxLastRefresh.set(sandbox.sandboxId, now);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.warn(
+      `[E2B] Failed to refresh timeout for sandbox ${sandbox.sandboxId}`,
+      error instanceof Error ? error.message : error
+    );
+    return false;
+  }
+}
 
 async function runCommand(
   sandbox: E2BSandboxLike,
@@ -397,17 +501,29 @@ async function createOrGetPersistentSandbox(
   knownSandboxId?: string | null
 ): Promise<E2BSandboxLike> {
   if (knownSandboxId) {
-    const sandbox = await client.connect(knownSandboxId, {
-      timeoutMs: PERSISTENT_SANDBOX_TIMEOUT_MS,
-    });
-    await sandbox.setTimeout?.(PERSISTENT_SANDBOX_TIMEOUT_MS);
-    return sandbox;
+    const connectStart = Date.now();
+    try {
+      const sandbox = await client.connect(knownSandboxId, {
+        timeoutMs: PERSISTENT_SANDBOX_TIMEOUT_MS,
+      });
+      metrics.sandboxConnects += 1;
+      metrics.totalConnectLatencyMs += Date.now() - connectStart;
+      // Refresh timeout on every reconnect to prevent mid-run expiration.
+      await refreshSandboxTimeout(sandbox);
+      return sandbox;
+    } catch (error) {
+      metrics.connectFailures += 1;
+      throw error;
+    }
   }
 
   reserveSandboxCreation();
+  const createStart = Date.now();
   const sandbox = await client.create(
     persistentSandboxConfig(workspaceId, ownerId)
   );
+  metrics.sandboxCreations += 1;
+  metrics.totalCreateLatencyMs += Date.now() - createStart;
   return sandbox;
 }
 
@@ -430,6 +546,40 @@ export async function ensurePersistentSandbox(
   persistentSandboxInFlight.set(key, pending);
   try {
     return await pending;
+  } finally {
+    if (persistentSandboxInFlight.get(key) === pending)
+      persistentSandboxInFlight.delete(key);
+  }
+}
+
+/** Create a replacement workspace sandbox from a durable E2B snapshot. */
+export async function createPersistentSandboxFromSnapshot(
+  client: E2BClientLike,
+  workspaceId: number,
+  ownerId: number,
+  snapshotId: string
+): Promise<E2BSandboxLike> {
+  if (!client.createFromSnapshot)
+    throw new Error("This E2B client cannot create from snapshots.");
+
+  const key = `${ownerId}:${workspaceId}:snapshot:${snapshotId}`;
+  const existing = persistentSandboxInFlight.get(key);
+  if (existing) return existing;
+
+  reserveSandboxCreation();
+  const createStart = Date.now();
+  const { template: _template, ...options } = persistentSandboxConfig(
+    workspaceId,
+    ownerId
+  );
+  const pending = client.createFromSnapshot(snapshotId, options);
+  persistentSandboxInFlight.set(key, pending);
+  try {
+    const sandbox = await pending;
+    metrics.sandboxCreations += 1;
+    metrics.snapshotLoads += 1;
+    metrics.totalCreateLatencyMs += Date.now() - createStart;
+    return sandbox;
   } finally {
     if (persistentSandboxInFlight.get(key) === pending)
       persistentSandboxInFlight.delete(key);
@@ -571,6 +721,50 @@ export async function destroyPersistentSandbox(sandboxId: string): Promise<boole
       `[E2B] Persistent sandbox ${sandboxId} could not be destroyed (treating as gone): ${safeE2BError(error)}`
     );
     return false;
+  }
+}
+
+/**
+ * Creates a snapshot of the sandbox state. Returns the snapshot ID on success,
+ * undefined on failure. A replacement sandbox can be created from this ID.
+ */
+export async function createSandboxSnapshot(
+  sandbox: E2BSandboxLike
+): Promise<string | undefined> {
+  if (!sandbox.createSnapshot) return undefined;
+  try {
+    const snapshot = await sandbox.createSnapshot();
+    const snapshotId = snapshot?.snapshotId;
+    if (!snapshotId) return undefined;
+    metrics.snapshotCreations += 1;
+    console.log(`[E2B] Created snapshot ${snapshotId} for sandbox ${sandbox.sandboxId}`);
+    return snapshotId;
+  } catch (error) {
+    console.warn(
+      `[E2B] Failed to create snapshot for sandbox ${sandbox.sandboxId}`,
+      error instanceof Error ? error.message : error
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Deletes an old snapshot after a replacement has been saved. Snapshot cleanup
+ * is best-effort so it never blocks workspace persistence.
+ */
+export async function deleteSandboxSnapshot(
+  snapshotId: string
+): Promise<void> {
+  const client = getE2BClient();
+  if (!client?.deleteSnapshot) return;
+  try {
+    const deleted = await client.deleteSnapshot(snapshotId);
+    if (deleted) metrics.snapshotDeletions += 1;
+  } catch (error) {
+    console.warn(
+      `[E2B] Failed to delete snapshot ${snapshotId}`,
+      error instanceof Error ? error.message : error
+    );
   }
 }
 

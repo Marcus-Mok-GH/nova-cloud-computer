@@ -1,16 +1,25 @@
 import {
   E2B_WORKSPACE_DIR,
   type E2BSandboxLike,
+  createPersistentSandboxFromSnapshot,
+  deleteSandboxSnapshot,
   ensurePersistentSandbox,
   getE2BClient,
   isE2BConfigured,
   pauseE2BSandbox,
   withE2BWorkspaceLock,
+  refreshSandboxTimeout,
+  createSandboxSnapshot,
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
 import { safeRelativePath } from "./workspace/paths";
 import { truncateOutput } from "./truncate";
-import { updateWorkspacePersistentSandbox } from "./db";
+import {
+  getWorkspaceComputer,
+  getWorkspaceFileRevision,
+  updateWorkspacePersistentSandbox,
+  updateWorkspaceSnapshot,
+} from "./db";
 
 /**
  * The sandbox-first workspace layer. Every agent run wakes the workspace's
@@ -139,7 +148,11 @@ export async function mirrorWorkspaceOp(
 export async function prepareAgentSandbox(
   ownerId: number,
   computer: {
-    workspace: { id: number; persistentSandboxId?: string | null };
+    workspace: {
+      id: number;
+      persistentSandboxId?: string | null;
+      snapshotId?: string | null;
+    };
     folders: FolderLike[];
   }
 ): Promise<E2BSandboxLike | undefined> {
@@ -151,32 +164,103 @@ export async function prepareAgentSandbox(
       ownerId,
       computer.workspace.id,
       async () => {
-        const woken = await ensurePersistentSandbox(
-          client,
-          computer.workspace.id,
-          ownerId,
-          computer.workspace.persistentSandboxId ?? null
+        const current = await getWorkspaceComputer(ownerId);
+        const workspace = current.workspace;
+        const snapshotIsCurrent = Boolean(
+          workspace.snapshotId &&
+            workspace.snapshotRevision === workspace.fileRevision
         );
-        // Files/folders stored in Neon Postgres are restored into the live
-        // sandbox filesystem before the run's first tool executes.
-        await restoreWorkspaceToE2B(ownerId, woken);
+        let woken: E2BSandboxLike | undefined;
+        let restoredFromSnapshot = false;
+        let snapshotNeedsRefresh = !snapshotIsCurrent;
+
+        if (workspace.persistentSandboxId) {
+          try {
+            woken = await ensurePersistentSandbox(
+              client,
+              workspace.id,
+              ownerId,
+              workspace.persistentSandboxId
+            );
+          } catch {
+            // A retained snapshot can recover a sandbox whose E2B ID expired.
+          }
+        }
+
+        if (!woken && snapshotIsCurrent && workspace.snapshotId) {
+          try {
+            woken = await createPersistentSandboxFromSnapshot(
+              client,
+              workspace.id,
+              ownerId,
+              workspace.snapshotId
+            );
+            restoredFromSnapshot = true;
+          } catch (error) {
+            snapshotNeedsRefresh = true;
+            console.warn(
+              `[Sandbox] snapshot recovery failed for workspace ${workspace.id}`,
+              error instanceof Error ? error.message : error
+            );
+          }
+        }
+
+        if (!woken) {
+          woken = await ensurePersistentSandbox(
+            client,
+            workspace.id,
+            ownerId
+          );
+        }
+
+        if (restoredFromSnapshot) {
+          const revisionAfterSnapshot = await getWorkspaceFileRevision(
+            workspace.id
+          );
+          if (revisionAfterSnapshot !== workspace.fileRevision) {
+            restoredFromSnapshot = false;
+            snapshotNeedsRefresh = true;
+          }
+        }
+
+        if (!restoredFromSnapshot) {
+          const activeSandbox = woken;
+          if (!activeSandbox)
+            throw new Error("Workspace sandbox was not created.");
+          // Files/folders stored in Neon Postgres are restored into the live
+          // sandbox before the run's first tool executes.
+          await restoreWorkspaceToE2B(ownerId, activeSandbox);
+
+          // Take a checkpoint only after restoring the durable workspace. The
+          // revision check avoids saving a snapshot if files changed during
+          // the restore or while E2B was creating the snapshot.
+          const revisionAfterRestore = await getWorkspaceFileRevision(
+            workspace.id
+          );
+          if (
+            snapshotNeedsRefresh &&
+            revisionAfterRestore === workspace.fileRevision
+          ) {
+            await saveWorkspaceSnapshot(
+              workspace.id,
+              activeSandbox,
+              revisionAfterRestore
+            );
+          }
+        }
+
+        if (!woken) throw new Error("Workspace sandbox was not created.");
+        if (woken.sandboxId !== workspace.persistentSandboxId) {
+          await updateWorkspacePersistentSandbox(
+            workspace.id,
+            woken.sandboxId
+          ).catch(() => {
+            // The id not persisting only costs a fresh sandbox next run.
+          });
+        }
         return woken;
       }
     );
-    // Remember the sandbox id so the next run connects instead of creating.
-    if (
-      sandbox?.sandboxId &&
-      sandbox.sandboxId !== computer.workspace.persistentSandboxId
-    ) {
-      try {
-        await updateWorkspacePersistentSandbox(
-          computer.workspace.id,
-          sandbox.sandboxId
-        );
-      } catch {
-        // The id not persisting only costs a fresh sandbox next run.
-      }
-    }
     return sandbox ?? undefined;
   } catch (error) {
     console.error(
@@ -209,6 +293,47 @@ export async function syncAgentSandbox(
     );
     return 0;
   }
+}
+
+/**
+ * Creates a snapshot after the durable workspace has been restored. If E2B
+ * loses the live sandbox, the snapshot can recover its files without uploads.
+ * Returns the snapshot ID on success, undefined on failure.
+ */
+export async function snapshotAgentSandbox(
+  sandbox: E2BSandboxLike | undefined
+): Promise<string | undefined> {
+  if (!sandbox || !isE2BConfigured()) return undefined;
+  try {
+    return await createSandboxSnapshot(sandbox);
+  } catch (error) {
+    console.warn(
+      "[Sandbox] snapshot creation failed (non-critical)",
+      error instanceof Error ? error.message : error
+    );
+    return undefined;
+  }
+}
+
+async function saveWorkspaceSnapshot(
+  workspaceId: number,
+  sandbox: E2BSandboxLike,
+  fileRevision: number
+) {
+  const snapshotId = await snapshotAgentSandbox(sandbox);
+  if (!snapshotId) return;
+
+  const previousSnapshotId = await updateWorkspaceSnapshot(
+    workspaceId,
+    snapshotId,
+    fileRevision
+  ).catch(() => undefined);
+  if (previousSnapshotId === undefined) {
+    await deleteSandboxSnapshot(snapshotId);
+    return;
+  }
+  if (previousSnapshotId && previousSnapshotId !== snapshotId)
+    await deleteSandboxSnapshot(previousSnapshotId);
 }
 
 /**
@@ -245,13 +370,17 @@ const BASH_OUTPUT_LIMIT = 8_000;
 /**
  * Runs a bash command in the live workspace sandbox, with the workspace
  * directory as cwd. Returns a model-ready result with exit code, stdout and
- * stderr; never throws.
+ * stderr; never throws. Refreshes the sandbox timeout before long commands
+ * to prevent mid-execution expiration.
  */
 export async function runBashOnSandbox(
   sandbox: E2BSandboxLike,
   command: string
 ): Promise<{ ok: boolean; result: string }> {
   try {
+    // Refresh timeout before potentially long-running commands
+    await refreshSandboxTimeout(sandbox);
+
     const run = await sandbox.commands.run(command, {
       cwd: E2B_WORKSPACE_DIR,
       timeoutMs: BASH_TIMEOUT_MS,

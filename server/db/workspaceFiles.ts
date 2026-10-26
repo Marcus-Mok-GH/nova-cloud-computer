@@ -118,7 +118,7 @@ export async function createWorkspaceFileForUser(ownerId: number, input: { name:
   }
 }
 
-export async function updateWorkspaceFileForUser(ownerId: number, fileId: number, input: { name?: string; content?: string; folderId?: number | null }) {
+export async function updateWorkspaceFileForUser(ownerId: number, fileId: number, input: { name?: string; content?: string; mimeType?: string; folderId?: number | null }) {
   const db = await requireDb();
   const file = await getFileForUser(ownerId, fileId);
   if (!file) return undefined;
@@ -129,6 +129,7 @@ export async function updateWorkspaceFileForUser(ownerId: number, fileId: number
   const updateSet: Partial<typeof workspaceFiles.$inferInsert> = { updatedAt: new Date() };
   if (input.name !== undefined) updateSet.name = input.name;
   if (input.content !== undefined) updateSet.content = input.content;
+  if (input.mimeType !== undefined) updateSet.mimeType = input.mimeType;
   if (input.folderId !== undefined) updateSet.folderId = input.folderId;
   try {
     return (await db.update(workspaceFiles).set(updateSet).where(eq(workspaceFiles.id, file.id)).returning())[0];

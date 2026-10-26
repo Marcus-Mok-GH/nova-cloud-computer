@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
+import { getSandboxMetrics } from "../e2b";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -26,4 +27,19 @@ export const systemRouter = router({
         success: delivered,
       } as const;
     }),
+
+  sandboxMetrics: adminProcedure.query(() => {
+    const metrics = getSandboxMetrics();
+    return {
+      ...metrics,
+      avgConnectLatencyMs:
+        metrics.sandboxConnects > 0
+          ? Math.round(metrics.totalConnectLatencyMs / metrics.sandboxConnects)
+          : 0,
+      avgCreateLatencyMs:
+        metrics.sandboxCreations > 0
+          ? Math.round(metrics.totalCreateLatencyMs / metrics.sandboxCreations)
+          : 0,
+    };
+  }),
 });

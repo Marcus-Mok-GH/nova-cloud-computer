@@ -25,7 +25,7 @@ function ensureLogDir() {
 
 function trimLogFile(logPath: string, maxSize: number) {
   try {
-    if (!fs.existsSync(logPath) || fs.statSync(logPath).size <= maxSize) {
+    if (fs.statSync(logPath).size <= maxSize) {
       return;
     }
 
@@ -38,11 +38,11 @@ function trimLogFile(logPath: string, maxSize: number) {
     for (let i = lines.length - 1; i >= 0; i--) {
       const lineBytes = Buffer.byteLength(`${lines[i]}\n`, "utf-8");
       if (keptBytes + lineBytes > targetSize) break;
-      keptLines.unshift(lines[i]);
+      keptLines.push(lines[i]);
       keptBytes += lineBytes;
     }
 
-    fs.writeFileSync(logPath, keptLines.join("\n"), "utf-8");
+    fs.writeFileSync(logPath, keptLines.reverse().join("\n"), "utf-8");
   } catch {
     /* ignore trim errors */
   }

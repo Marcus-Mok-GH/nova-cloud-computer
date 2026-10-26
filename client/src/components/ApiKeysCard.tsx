@@ -5,6 +5,7 @@ import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { Braces, Check, Clipboard, Loader2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { NOVA_PUBLIC_APP_URL } from "@shared/const";
 
 type ApiKeyRow = {
   id: number;
@@ -203,7 +204,7 @@ export default function ApiKeysCard() {
 
       <div className="mt-5 rounded-xl bg-muted/40 p-4">
         <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{t("settings.apiKeys.example")}</p>
-        <pre className="mt-2 overflow-x-auto rounded-lg bg-card p-3 font-mono text-xs leading-5">{`curl https://nova-cloud-computer.vercel.app/api/v1/chat/completions \\
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-card p-3 font-mono text-xs leading-5">{`curl ${NOVA_PUBLIC_APP_URL}/api/v1/chat/completions \\
   -H "Authorization: Bearer nova_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model": "nova-pro", "messages": [{"role": "user", "content": "Say hello"}]}'`}</pre>

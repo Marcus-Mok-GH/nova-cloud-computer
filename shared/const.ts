@@ -156,3 +156,14 @@ export const decodeOAuthState = (state: string): OAuthState => {
   }
   return { redirectUri: decoded };
 };
+
+/**
+ * The canonical public origin of the Nova deployment, without a trailing slash.
+ *
+ * Documentation samples, onboarding copy, and anything else that has to print
+ * an absolute URL read it from here so a domain change is a one-line edit
+ * rather than a hunt through the UI. This module is imported by the server
+ * bundle as well as the browser, so it deliberately holds a plain literal:
+ * `import.meta.env` does not exist in the Node build and would break it.
+ */
+export const NOVA_PUBLIC_APP_URL = "https://nova-cloud-computer.vercel.app";

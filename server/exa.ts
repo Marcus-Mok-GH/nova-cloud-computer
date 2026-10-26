@@ -10,6 +10,7 @@
  * `output.grounding`. */
 
 import { responseErrorDetail } from "@shared/_core/errors";
+import { pluralize } from "@shared/text";
 import { ENV } from "./_core/env";
 import { createSseLineFramer, sseDataPayload } from "./sse";
 
@@ -174,7 +175,7 @@ export async function runExaDeepResearch(options: ExaDeepResearchOptions): Promi
         foundResults = foundResults.concat(results);
         const sample = results.find(result => result?.title?.trim())?.title?.trim();
         options.onProgress?.(
-          `Searched the live web - found ${results.length} new source${results.length === 1 ? "" : "s"}${sample ? ` (e.g. "${sample.slice(0, 80)}")` : ""}`
+          `Searched the live web - found ${pluralize(results.length, "new source")}${sample ? ` (e.g. "${sample.slice(0, 80)}")` : ""}`
         );
         return;
       }

@@ -69,13 +69,13 @@ export function matchSlashCommands(
   commands: readonly SlashCommand[],
   query: string
 ): SlashCommand[] {
-  return commands
-    .map(command => ({ command, score: scoreCommand(query, command) }))
-    .filter(
-      (entry): entry is { command: SlashCommand; score: number } =>
-        entry.score !== null
-    )
-    .sort((a, b) => b.score - a.score)
+  const scored: Array<{ command: SlashCommand; score: number }> = [];
+  for (const command of commands) {
+    const score = scoreCommand(query, command);
+    if (score !== null) scored.push({ command, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored
     .slice(0, MAX_SLASH_SUGGESTIONS)
     .map(entry => entry.command);
 }

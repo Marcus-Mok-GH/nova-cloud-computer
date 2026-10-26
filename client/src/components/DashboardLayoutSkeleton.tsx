@@ -13,7 +13,7 @@ export function DashboardLayoutSkeleton() {
       </div>
 
       {/* Desktop sidebar skeleton */}
-      <div className="relative hidden w-[264px] border-r border-border bg-background p-4 pb-24 lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:flex-col lg:gap-6">
+      <div className="relative hidden w-[264px] border-e border-border bg-background p-4 pb-24 lg:fixed lg:inset-y-0 lg:start-0 lg:flex lg:flex-col lg:gap-6">
         <div className="flex items-center gap-3 px-2">
           <Skeleton className="h-8 w-8 rounded-md" />
           <Skeleton className="h-4 w-24" />
@@ -23,7 +23,7 @@ export function DashboardLayoutSkeleton() {
           <Skeleton className="h-10 w-full rounded-lg" />
           <Skeleton className="h-10 w-full rounded-lg" />
         </div>
-        <div className="absolute bottom-4 left-4 right-4">
+        <div className="absolute bottom-4 start-4 end-4">
           <div className="flex items-center gap-3 px-1">
             <Skeleton className="h-9 w-9 rounded-full" />
             <div className="flex-1 space-y-2">
@@ -34,7 +34,7 @@ export function DashboardLayoutSkeleton() {
         </div>
       </div>
 
-      <div className="min-h-[calc(100dvh-3.5rem)] p-4 pb-24 lg:min-h-dvh lg:pb-10 lg:pl-[264px]">
+      <div className="min-h-[calc(100dvh-3.5rem)] p-4 pb-24 lg:min-h-dvh lg:pb-10 lg:ps-[264px]">
         <div className="space-y-4">
           <Skeleton className="h-12 w-48 rounded-lg" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

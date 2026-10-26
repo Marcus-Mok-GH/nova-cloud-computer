@@ -86,7 +86,7 @@ export default function LandingNav() {
             value={language}
             onChange={event => setLanguage(event.target.value)}
             aria-label={t("settings.language.title")}
-            className="hidden h-9 max-w-[124px] rounded-full border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex"
+            className="hidden h-9 max-w-[168px] rounded-full border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex"
           >
             {languages.map(option => (
               <option key={option.id} value={option.id} lang={option.locale}>

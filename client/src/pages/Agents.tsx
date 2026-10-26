@@ -221,10 +221,10 @@ function AgentDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-left text-xl font-extrabold tracking-tight">
+          <DialogTitle className="text-start text-xl font-extrabold tracking-tight">
             {agent ? `Edit ${agent.name}` : "New agent"}
           </DialogTitle>
-          <DialogDescription className="text-left leading-6">
+          <DialogDescription className="text-start leading-6">
             {agent
               ? "Tune this agent's role, instructions, and wallet. The wallet budget can never drop below what it has already spent."
               : "Give your agent a name, a role, and a budget. Nova mints its email alias and phone handle automatically."}
@@ -347,10 +347,10 @@ function TeamDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-left text-xl font-extrabold tracking-tight">
+          <DialogTitle className="text-start text-xl font-extrabold tracking-tight">
             New agent team
           </DialogTitle>
-          <DialogDescription className="text-left leading-6">
+          <DialogDescription className="text-start leading-6">
             Put several agents in one group chat with a shared goal. They take
             turns working on it - you set the direction and make the final
             call.

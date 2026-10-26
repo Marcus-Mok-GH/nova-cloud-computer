@@ -86,7 +86,7 @@ export function AttachmentTray({
               type="button"
               onClick={() => onRemove(attachment.id)}
               aria-label={`Remove ${attachment.name}`}
-              className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+              className="absolute end-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
             >
               <X className="size-3" />
             </button>
@@ -108,7 +108,7 @@ export function AttachmentTray({
               type="button"
               onClick={() => onRemove(attachment.id)}
               aria-label={`Remove ${attachment.name}`}
-              className="absolute right-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
+              className="absolute end-0.5 top-0.5 grid size-5 place-items-center rounded-full bg-black/65 text-white transition hover:bg-black/85"
             >
               <X className="size-3" />
             </button>
@@ -394,7 +394,7 @@ export function EnvVarRequestComposer({
     <div data-testid="env-var-request" className="px-0.5 pb-0.5">
       <div
         role="status"
-        className="mx-2 mb-1.5 border-l-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
+        className="mx-2 mb-1.5 border-s-2 border-primary bg-primary/[0.06] px-3 py-2 text-xs font-semibold text-foreground"
       >
         Nova needs the value for{' '}
         <span className="font-bold">{request.name}</span>
@@ -413,7 +413,7 @@ export function EnvVarRequestComposer({
       </div>
       <form
         onSubmit={submit}
-        className="flex items-center gap-2 border border-foreground/[0.08] bg-background/55 p-2 pl-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]"
+        className="flex items-center gap-2 border border-foreground/[0.08] bg-background/55 p-2 ps-3.5 dark:border-white/[0.08] dark:bg-white/[0.035]"
       >
         <input
           type={visible ? "text" : "password"}

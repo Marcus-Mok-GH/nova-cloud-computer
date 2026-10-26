@@ -267,7 +267,7 @@ export default function ApiDocs() {
           <a href="/" className="flex items-center gap-2.5" aria-label="Nova home">
             <img src="/logo-96.png" alt="" width="27" height="27" className="rounded-[7px]" />
             <span className="text-[17px] font-bold tracking-[-0.02em]">Nova</span>
-            <span className="hidden border-l border-[#d6d2c9] pl-2.5 text-[11px] font-medium text-[#77766f] sm:inline dark:border-white/15 dark:text-[#a7aaa4]">API documentation</span>
+            <span className="hidden border-s border-[#d6d2c9] ps-2.5 text-[11px] font-medium text-[#77766f] sm:inline dark:border-white/15 dark:text-[#a7aaa4]">API documentation</span>
           </a>
           <div className="flex items-center gap-2">
             <button type="button" onClick={toggleTheme} className="grid size-10 place-items-center rounded-full border border-[#d9d6ce] text-[#686a65] transition hover:bg-[#ece9e2] hover:text-[#1f2529] sm:size-9 dark:border-white/15 dark:text-[#a7aaa4] dark:hover:bg-white/8 dark:hover:text-white" aria-label={theme === "light" ? "Use dark theme" : "Use light theme"}>
@@ -288,7 +288,7 @@ export default function ApiDocs() {
 
       <div className="mx-auto grid max-w-6xl gap-8 px-5 pt-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_220px] lg:gap-20 lg:pb-16">
         <div className="min-w-0">
-          <a href="/" className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-[#77766f] transition hover:text-[#b65f38] dark:text-[#a7aaa4] dark:hover:text-[#e59468]"><ArrowLeft className="size-4" />Back to Nova</a>
+          <a href="/" className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-[#77766f] transition hover:text-[#b65f38] dark:text-[#a7aaa4] dark:hover:text-[#e59468]"><ArrowLeft className="size-4 rtl:-scale-x-100" />Back to Nova</a>
           <div className="mt-8 max-w-3xl">
             <p className="text-sm font-semibold tracking-[0.04em] text-[#b65f38] dark:text-[#e59468]">Nova API / v1</p>
             <h1 className="mt-4 text-[clamp(2.2rem,8vw,2.9rem)] font-semibold leading-[1.06] tracking-[-0.04em] sm:mt-5 sm:text-[clamp(2.8rem,6vw,5rem)] sm:leading-[0.98] sm:tracking-[-0.065em]">Put Nova inside the work you already do.</h1>
@@ -370,10 +370,10 @@ export default function ApiDocs() {
             <div className="mt-7"><CodeBlock code={'{\n  "error": {\n    "message": "That API key has been revoked or no longer exists.",\n    "type": "invalid_request_error",\n    "code": "invalid_api_key"\n  }\n}'} label="error response" /></div>
           </section>
 
-          <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-[#dfdcd4] pt-6 text-sm sm:mt-20 sm:gap-4 sm:pt-7 dark:border-white/10"><a href="/" className="inline-flex min-h-9 items-center gap-2 font-semibold text-[#77766f] hover:text-[#b65f38] dark:text-[#a7aaa4] dark:hover:text-[#e59468]"><ArrowLeft className="size-4" />Back to Nova</a><button type="button" onClick={() => setLocation(isAuthenticated ? "/app/settings" : "/sign-in")} className="inline-flex min-h-9 items-center gap-2 font-semibold text-[#b65f38] hover:text-[#9f4f2d] dark:text-[#e59468]">Get an API key<ArrowUpRight className="size-4" /></button></div>
+          <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-[#dfdcd4] pt-6 text-sm sm:mt-20 sm:gap-4 sm:pt-7 dark:border-white/10"><a href="/" className="inline-flex min-h-9 items-center gap-2 font-semibold text-[#77766f] hover:text-[#b65f38] dark:text-[#a7aaa4] dark:hover:text-[#e59468]"><ArrowLeft className="size-4 rtl:-scale-x-100" />Back to Nova</a><button type="button" onClick={() => setLocation(isAuthenticated ? "/app/settings" : "/sign-in")} className="inline-flex min-h-9 items-center gap-2 font-semibold text-[#b65f38] hover:text-[#9f4f2d] dark:text-[#e59468]">Get an API key<ArrowUpRight className="size-4" /></button></div>
         </div>
 
-        <aside className="hidden lg:block"><div className="sticky top-28 max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain border-l border-[#d9d6ce] pl-6 dark:border-white/10"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#9a9c94]">On this page</p><nav className="mt-4 space-y-3 text-sm">{docSections.map(section => <a key={section.id} href={`#${section.id}`} className="block text-[#626660] transition hover:text-[#b65f38] dark:text-[#aeb3aa] dark:hover:text-[#e59468]">{section.label}</a>)}</nav><div className="mt-8 rounded-2xl bg-[#26343a] p-4 text-[#f4f0e8]"><p className="text-xs font-semibold">Ready to connect Nova?</p><p className="mt-2 text-xs leading-5 text-[#c2c8c2]">Create a key and make your first request in minutes.</p><button type="button" onClick={() => setLocation(isAuthenticated ? "/app/settings" : "/sign-in")} className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#e9a17b]">Get started<ArrowUpRight className="size-3.5" /></button></div></div></aside>
+        <aside className="hidden lg:block"><div className="sticky top-28 max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain border-s border-[#d9d6ce] ps-6 dark:border-white/10"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#9a9c94]">On this page</p><nav className="mt-4 space-y-3 text-sm">{docSections.map(section => <a key={section.id} href={`#${section.id}`} className="block text-[#626660] transition hover:text-[#b65f38] dark:text-[#aeb3aa] dark:hover:text-[#e59468]">{section.label}</a>)}</nav><div className="mt-8 rounded-2xl bg-[#26343a] p-4 text-[#f4f0e8]"><p className="text-xs font-semibold">Ready to connect Nova?</p><p className="mt-2 text-xs leading-5 text-[#c2c8c2]">Create a key and make your first request in minutes.</p><button type="button" onClick={() => setLocation(isAuthenticated ? "/app/settings" : "/sign-in")} className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#e9a17b]">Get started<ArrowUpRight className="size-3.5" /></button></div></div></aside>
       </div>
     </main>
   );

@@ -1,3 +1,30 @@
+2026-10-26 - the interface speaks ten more languages
+
+Nova's interface now ships in Korean, Hindi, Russian, Polish, Dutch, Italian,
+Turkish, Vietnamese, Indonesian, and Arabic, alongside the existing seven. The
+language registry drives all of it: a locale listed in `languages.ts` shows up
+in the landing-page and Settings pickers, gets translated by
+`pnpm i18n:translate`, and is reported through `document.lang`. Arabic reads
+right to left, which a layout built on physical utilities cannot express, so
+the client now uses Tailwind's logical equivalents (`ms`/`me`, `ps`/`pe`,
+`start`/`end`, `border-s`/`border-e`, `text-start`/`text-end`) throughout, the
+sidebar drawer, switch thumb, and hover nudges are direction-scoped with
+`ltr:`/`rtl:`, directional icons mirror themselves, and `LanguageContext` sets
+`document.dir` next to `document.lang`. Centring offsets such as
+`left-1/2 -translate-x-1/2` stay physical because they are symmetric already,
+as do the decorative blurred orbs on the signed-in home.
+
+Files: client/src/i18n/languages.ts, client/src/i18n/index.ts,
+client/src/i18n/{ko,hi,ru,pl,nl,it,tr,vi,id,ar}.ts, client/src/i18n/manifest.json,
+scripts/translate-locales.ts, client/src/contexts/LanguageContext.tsx,
+client/src/components/{DashboardLayout,DashboardLayoutSkeleton,LanguageCard,
+MemoryCard,NewChatButton,PersonalisationCard,SlashCommandMenu,SupportBot,
+ThemeCard,UsernamePrompt,CodeEditor,workspaceChat}.tsx, client/src/lib/*.tsx,
+client/src/pages/{Admin,Agents,ApiDocs,Chats,Deployments,Files,Home,More,SignIn,
+Skills,Status,Workspace,WorkspaceSettings}.tsx, client/src/pages/landing/{Faq,
+Hero,LandingNav}.tsx, client/src/components/ui/*.tsx, docs/i18n.md, CLAUDE.md.
+Tests: pnpm check, pnpm test (1486 passed), pnpm build.
+
 2026-10-20 - the Q&A assistant answers without the database
 
 The public Q&A assistant on the landing page and API docs answers from a

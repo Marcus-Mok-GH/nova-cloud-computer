@@ -26,7 +26,7 @@ export default function NewChatButton() {
       disabled={create.isPending}
       aria-label="New chat"
       title="New chat"
-      className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 z-40 grid size-14 place-items-center rounded-full bg-primary text-white shadow-[0_8px_24px_rgba(10,10,10,0.18)] transition hover:bg-primary/90 active:scale-95 disabled:opacity-60 dark:text-background"
+      className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] end-6 z-40 grid size-14 place-items-center rounded-full bg-primary text-white shadow-[0_8px_24px_rgba(10,10,10,0.18)] transition hover:bg-primary/90 active:scale-95 disabled:opacity-60 dark:text-background"
     >
       <Plus className="size-6" />
     </button>

@@ -46,11 +46,11 @@ export default function Chats() {
         <div className="mt-8 space-y-2">
           {chats.data?.length ? chats.data.map(chat => (
             <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_24px_rgba(10,10,10,0.07)] dark:border-white/10 dark:bg-card dark:hover:border-white/20">
-              <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+              <button onClick={() => setLocation(`/app?chatId=${chat.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-start">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><MessageSquareText className="size-4" /></span>
                 <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-bold text-foreground dark:text-foreground">{chat.title}</h2><p className="mt-1 text-xs text-muted-foreground">Open saved conversation</p></div>
                 {awayChats.includes(chat.id) && <span data-testid="chat-away" className="flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"><span className="size-1.5 rounded-full bg-emerald-500" />Updated</span>}
-                <ChevronRight className="size-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-muted-foreground dark:text-muted-foreground" />
+                <ChevronRight className="size-4 shrink-0 text-neutral-300 transition ltr:group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5 group-hover:text-muted-foreground dark:text-muted-foreground" />
               </button>
               <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground opacity-100 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>
             </div>

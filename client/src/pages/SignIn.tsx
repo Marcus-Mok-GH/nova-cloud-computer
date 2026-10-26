@@ -115,8 +115,8 @@ export default function SignIn() {
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background p-6 text-foreground">
       <div className="absolute -top-32 left-1/2 size-96 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" aria-hidden="true" />
-      <Link href="/" className="absolute left-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-        <ArrowLeft size={15} /> Back to site
+      <Link href="/" className="absolute start-5 top-5 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <ArrowLeft size={15} className="rtl:-scale-x-100" /> Back to site
       </Link>
 
       <section className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-[0_8px_30px_rgba(0,0,0,0.12)] sm:p-10">
@@ -138,7 +138,7 @@ export default function SignIn() {
                 <div className="mt-3 flex justify-center"><InputOTP maxLength={6} value={otp} onChange={setOtp} disabled={pending}><InputOTPGroup><InputOTPSlot index={0} /><InputOTPSlot index={1} /><InputOTPSlot index={2} /><InputOTPSlot index={3} /><InputOTPSlot index={4} /><InputOTPSlot index={5} /></InputOTPGroup></InputOTP></div>
               </label>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
-              <button className="pill-btn pill-btn-primary w-full" disabled={pending || otp.length !== 6} type="submit">{pending ? "Verifying..." : <>Sign in <ArrowRight size={15} /></>}</button>
+              <button className="pill-btn pill-btn-primary w-full" disabled={pending || otp.length !== 6} type="submit">{pending ? "Verifying..." : <>Sign in <ArrowRight size={15} className="rtl:-scale-x-100" /></>}</button>
               <button type="button" className="w-full text-center text-sm text-muted-foreground hover:text-foreground" onClick={() => { setSent(false); setOtp(""); setError(null); }} disabled={pending}>Use a different email</button>
             </form>
           </div>
@@ -149,7 +149,7 @@ export default function SignIn() {
               <input className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-4 text-base text-foreground outline-none transition placeholder:text-muted-foreground sm:text-sm focus:border-ring focus:ring-4 focus:ring-ring/15" name={EMAIL_INPUT_NAME} value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" />
             </label>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">{pending ? "Sending code..." : <>Email me a sign-in code <ArrowRight size={15} /></>}</button>
+            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">{pending ? "Sending code..." : <>Email me a sign-in code <ArrowRight size={15} className="rtl:-scale-x-100" /></>}</button>
           </form>
         )}
 

@@ -70,7 +70,24 @@ const TOKEN_BUDGET = Math.max(200, Number(process.env.TRANSLATE_TOKEN_BUDGET ?? 
  * (Spanish ~15 and Japanese ~19.6 tokens per entry).
  */
 const ENTRY_OVERHEAD_TOKENS = 6;
-const CHAR_TOKEN_RATE: Record<string, number> = { es: 0.23, fr: 0.23, de: 0.24, pt: 0.23, zh: 0.30, ja: 0.35 };
+const CHAR_TOKEN_RATE: Record<string, number> = {
+  es: 0.23,
+  fr: 0.23,
+  de: 0.24,
+  pt: 0.23,
+  zh: 0.30,
+  ja: 0.35,
+  ko: 0.32,
+  hi: 0.30,
+  ru: 0.25,
+  pl: 0.25,
+  nl: 0.24,
+  it: 0.23,
+  tr: 0.24,
+  vi: 0.28,
+  id: 0.23,
+  ar: 0.26,
+};
 const DEFAULT_CHAR_TOKEN_RATE = 0.26;
 const MAX_ATTEMPTS = 6;
 /** Window over which request starts are paced: 32s without a key, 1.5s with one. */

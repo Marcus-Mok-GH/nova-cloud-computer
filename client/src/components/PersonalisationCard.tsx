@@ -244,7 +244,7 @@ export default function PersonalisationCard() {
       <div className="mt-5 flex items-start gap-2 rounded-2xl border border-dashed bg-muted/10 p-4 text-xs leading-5 text-muted-foreground">
         <Sparkles size={14} className="mt-0.5 shrink-0 text-primary" />
         <span>
-          <Wand2 size={12} className="mr-1 inline" />
+          <Wand2 size={12} className="me-1 inline" />
           {t("settings.personalisation.guided.hint")}
         </span>
       </div>

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_LANGUAGE, languages, resolveLanguage, translate } from "@/i18n";
+import { DEFAULT_LANGUAGE, languages, languageDirection, resolveLanguage, translate } from "@/i18n";
 import { LanguageProvider, useTranslation } from "./LanguageContext";
 
 type LanguageModule = typeof import("./LanguageContext");
@@ -53,9 +53,21 @@ describe("language catalog", () => {
     expect(resolveLanguage("es-MX")).toBe("es");
     expect(resolveLanguage("zh-Hans-CN")).toBe("zh");
     expect(resolveLanguage("fr")).toBe("fr");
+    expect(resolveLanguage("ar-EG")).toBe("ar");
+    expect(resolveLanguage("pt-BR")).toBe("pt");
     expect(resolveLanguage("not-a-language")).toBe(DEFAULT_LANGUAGE);
     expect(resolveLanguage(null)).toBe(DEFAULT_LANGUAGE);
     expect(resolveLanguage("")).toBe(DEFAULT_LANGUAGE);
+  });
+
+  it("reports each language's text direction", () => {
+    expect(languageDirection("ar")).toBe("rtl");
+    expect(languages.filter(language => languageDirection(language.id) === "rtl")).toEqual([
+      expect.objectContaining({ id: "ar" }),
+    ]);
+    for (const id of languages.map(language => language.id).filter(id => id !== "ar")) {
+      expect(languageDirection(id)).toBe("ltr");
+    }
   });
 });
 

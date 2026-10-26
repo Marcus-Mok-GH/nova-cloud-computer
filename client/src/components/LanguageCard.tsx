@@ -25,7 +25,7 @@ export default function LanguageCard() {
               onClick={() => setLanguage(option.id)}
               aria-pressed={active}
               lang={option.locale}
-              className={`flex items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${active ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-primary/40 hover:bg-accent/40"}`}
+              className={`flex items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-start outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${active ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-primary/40 hover:bg-accent/40"}`}
             >
               <span className="text-sm font-bold">{option.label}</span>
               {active && <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary"><Check size={13} /> {t("common.active")}</span>}

@@ -42,7 +42,7 @@ function ThemeGroup({ title, icon, options }: { title: string; icon: React.React
               type="button"
               onClick={() => setThemeName(theme.id)}
               aria-pressed={active}
-              className={`rounded-2xl border p-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${active ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-primary/40 hover:bg-accent/40"}`}
+              className={`rounded-2xl border p-2.5 text-start outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${active ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-primary/40 hover:bg-accent/40"}`}
             >
               <ThemeSwatch theme={theme} />
               <div className="mt-2 flex items-center justify-between gap-2 px-0.5">

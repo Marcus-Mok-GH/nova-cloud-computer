@@ -195,7 +195,7 @@ export default function Deployments() {
                       {latest && (
                         <Button
                           variant="outline"
-                          className="ml-auto text-red-600 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                          className="ms-auto text-red-600 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
                           onClick={() => deleteDeployment(latest)}
                           disabled={removeDeployment.isPending}
                           aria-label={`Delete deployment ${latest.deploymentKey ?? latest.siteId}`}

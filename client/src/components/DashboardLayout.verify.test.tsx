@@ -53,9 +53,9 @@ describe("DashboardLayout single-menu check", () => {
     // the mobile drawer is hidden from md up and the desktop rail only shows from md up
     expect(html).toContain("md:hidden");
     // the desktop rail is a fully opaque surface (no see-through background)
-    expect(html).toContain("hidden border-r border-border bg-muted ");
+    expect(html).toContain("hidden border-e border-border bg-muted ");
     // content is full width on phones (left padding only from md)
-    expect(html).toMatch(/<main class="min-h-0 min-w-0 flex-1[^"]*md:pl-/);
+    expect(html).toMatch(/<main class="min-h-0 min-w-0 flex-1[^"]*md:ps-/);
   });
 });
 

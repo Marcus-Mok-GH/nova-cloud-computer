@@ -148,7 +148,7 @@ export default function SupportBot() {
           role="dialog"
           aria-modal="false"
           aria-labelledby={`${PANEL_ID}-title`}
-          className="fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-50 flex h-[min(68dvh,560px)] flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground shadow-[0_24px_80px_-20px_rgba(15,21,21,0.45)] sm:inset-x-auto sm:right-6 sm:w-[380px]"
+          className="fixed inset-x-3 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-50 flex h-[min(68dvh,560px)] flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground shadow-[0_24px_80px_-20px_rgba(15,21,21,0.45)] sm:inset-x-auto sm:end-6 sm:w-[380px]"
         >
           <header className="flex items-center gap-3 border-b border-border px-4 py-3.5">
             <NovaLogo size={32} />
@@ -199,7 +199,7 @@ export default function SupportBot() {
                       key={question}
                       type="button"
                       onClick={() => send(question)}
-                      className="rounded-full border border-border bg-background px-3 py-1.5 text-left text-xs font-medium text-foreground transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="rounded-full border border-border bg-background px-3 py-1.5 text-start text-xs font-medium text-foreground transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {question}
                     </button>
@@ -308,7 +308,7 @@ export default function SupportBot() {
         aria-controls={PANEL_ID}
         aria-label={open ? "Close Nova Q&A" : "Ask Nova a question"}
         title={open ? "Close Nova Q&A" : "Ask Nova"}
-        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-5 z-50 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_12px_30px_-8px_rgba(15,21,21,0.55)] transition hover:-translate-y-0.5 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:right-6"
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] end-5 z-50 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_12px_30px_-8px_rgba(15,21,21,0.55)] transition hover:-translate-y-0.5 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:end-6"
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
       </button>

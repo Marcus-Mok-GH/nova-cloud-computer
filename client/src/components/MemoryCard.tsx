@@ -88,7 +88,7 @@ export default function MemoryCard() {
         ) : records.length === 0 ? (
           <p className="mt-3 rounded-xl border border-dashed bg-muted/10 p-4 text-xs text-muted-foreground">{t("settings.memory.empty")}</p>
         ) : (
-          <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+          <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto pe-1">
             {records.map(record => (
               <li key={record.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-background/60 p-4">
                 <div className="min-w-0">

@@ -131,7 +131,7 @@ export function MarkdownText({ text }: { text: string }) {
         quoted.push(q[1]);
         i += 1;
       }
-      blocks.push(<blockquote key={nextKey()} className="border-l-2 border-primary/40 pl-3 italic text-muted-foreground">{renderParagraphLines(quoted, `q${key}`)}</blockquote>);
+      blocks.push(<blockquote key={nextKey()} className="border-s-2 border-primary/40 ps-3 italic text-muted-foreground">{renderParagraphLines(quoted, `q${key}`)}</blockquote>);
       continue;
     }
 
@@ -145,7 +145,7 @@ export function MarkdownText({ text }: { text: string }) {
         items.push(b[1]);
         i += 1;
       }
-      blocks.push(<ul key={nextKey()} className="list-disc space-y-1 pl-5">{items.map((item, idx) => <li key={idx}>{renderInline(item, `ul${key}-${idx}`)}</li>)}</ul>);
+      blocks.push(<ul key={nextKey()} className="list-disc space-y-1 ps-5">{items.map((item, idx) => <li key={idx}>{renderInline(item, `ul${key}-${idx}`)}</li>)}</ul>);
       continue;
     }
 
@@ -159,7 +159,7 @@ export function MarkdownText({ text }: { text: string }) {
         items.push(o[1]);
         i += 1;
       }
-      blocks.push(<ol key={nextKey()} className="list-decimal space-y-1 pl-5">{items.map((item, idx) => <li key={idx}>{renderInline(item, `ol${key}-${idx}`)}</li>)}</ol>);
+      blocks.push(<ol key={nextKey()} className="list-decimal space-y-1 ps-5">{items.map((item, idx) => <li key={idx}>{renderInline(item, `ol${key}-${idx}`)}</li>)}</ol>);
       continue;
     }
 

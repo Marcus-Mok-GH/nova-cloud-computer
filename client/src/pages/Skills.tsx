@@ -156,10 +156,10 @@ function SkillDialog({
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-left text-xl font-extrabold tracking-tight">
+          <DialogTitle className="text-start text-xl font-extrabold tracking-tight">
             {skill ? `Edit ${skill.name}` : "New skill"}
           </DialogTitle>
-          <DialogDescription className="text-left leading-6">
+          <DialogDescription className="text-start leading-6">
             {skill
               ? "Change the name, when Nova should use it, or the steps it follows."
               : "What it is called, when Nova should use it, and the steps to follow."}

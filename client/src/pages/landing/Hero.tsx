@@ -33,7 +33,7 @@ export default function Hero() {
               variant="ghost"
               label={t("landing.hero.secondary")}
               href="#how-it-works"
-              icon={<ChevronRight className="size-4" />}
+              icon={<ChevronRight className="size-4 rtl:-scale-x-100" />}
             />
           </div>
           <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
@@ -47,7 +47,7 @@ export default function Hero() {
             )}
           </ul>
         </div>
-        <div className="rise-in-delay-1 relative min-w-0 lg:-mr-10">
+        <div className="rise-in-delay-1 relative min-w-0 lg:-me-10">
           <ProductCapture
             src="/landing/workspace-home.png"
             alt={t("landing.capture.workspace.alt")}
@@ -55,7 +55,7 @@ export default function Hero() {
             loading="eager"
             className="lg:rotate-[0.5deg]"
           />
-          <p className="mt-3 px-1 text-xs text-muted-foreground sm:text-right">
+          <p className="mt-3 px-1 text-xs text-muted-foreground sm:text-end">
             {t("landing.hero.caption")}
           </p>
         </div>

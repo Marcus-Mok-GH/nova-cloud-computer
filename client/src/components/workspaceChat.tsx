@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import DashboardLayout from "@/components/DashboardLayout";
 import NovaLogo from "@/components/NovaLogo";
+import { formatFileSize } from "@/lib/formatFileSize";
 import {
   speakMessage,
   stopAllSpeech,
@@ -43,13 +44,6 @@ import {
   TTS_STOP_EVENT,
 } from "@/lib/speech";
 import type { ChatComposerAttachment } from "@/lib/fileAttachments";
-
-/** Compact "1.2 MB" label for a file chip in the attachment tray. */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /** The tray glyph for a non-image attachment, chosen by content type. */
 function FileAttachmentGlyph({ mimeType }: { mimeType: string }) {

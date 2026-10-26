@@ -22,6 +22,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { MarkdownText } from "@/lib/markdown";
 import { formatFileSize } from "@/lib/formatFileSize";
+import { pluralize } from "@shared/text";
 import {
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
@@ -281,7 +282,7 @@ export function AdminApiErrorNotifications() {
       await utils.admin.apiErrorLogs.invalidate();
       toast.success(
         result.cleared > 0
-          ? `Cleared ${result.cleared} API error notification${result.cleared === 1 ? "" : "s"}.`
+          ? `Cleared ${pluralize(result.cleared, "API error notification")}.`
           : "API error log is already empty."
       );
     },
@@ -298,7 +299,7 @@ export function AdminApiErrorNotifications() {
         <h2 className="flex items-center gap-2 text-sm font-bold">
           <Bell className="size-4" /> Notifications
           <span className="text-xs font-normal text-muted-foreground">
-            {logsQuery.isLoading ? "…" : `${logs.length} failed Nova request${logs.length === 1 ? "" : "s"}`}
+            {logsQuery.isLoading ? "…" : pluralize(logs.length, "failed Nova request")}
           </span>
         </h2>
         <div className="flex items-center gap-2">

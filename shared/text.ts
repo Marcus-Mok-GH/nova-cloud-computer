@@ -8,6 +8,14 @@ export const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * A count with its noun pluralised: `pluralize(1, "file")` is `"1 file"` and
+ * `pluralize(3, "file")` is `"3 files"`. Used wherever a UI string or agent
+ * message has to name a count, so the suffix rule lives in one place.
+ */
+export const pluralize = (count: number, noun: string): string =>
+  `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/**
  * A UTC `YYYYMMDDHHMMSS` stamp for generated file names, so repeated captures
  * of the same thing sort in time order and do not collide.
  */

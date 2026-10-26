@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, Check, ChevronRight, Copy, ExternalLink, Globe, Loader2, Rocket, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { pluralize } from "@shared/text";
 
 type DeploymentRow = {
   id: number;
@@ -281,7 +282,7 @@ export default function Deployments() {
                           )}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {row.fileCount} file{row.fileCount === 1 ? "" : "s"} · {formatStamp(row.createdAt)}
+                          {pluralize(row.fileCount, "file")} · {formatStamp(row.createdAt)}
                         </p>
                       </div>
                       <StatusChip status={row.status} />

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, MinusCircle, RefreshCw, XCircle, type LucideIcon } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import type { ServiceHealth, ServiceState, ServiceStatusReport } from "@shared/serviceStatus";
+import { pluralize } from "@shared/text";
 
 type PageProbe = { path: string; name: string; description: string; ok: boolean; latencyMs: number | null; checked: boolean };
 
@@ -171,9 +172,9 @@ export default function Status() {
               <>
                 <p className="text-sm font-bold text-red-700 dark:text-red-300">{serviceIssues.length + downPages.length} issue{serviceIssues.length + downPages.length === 1 ? "" : "s"} need{serviceIssues.length + downPages.length === 1 ? "s" : ""} attention</p>
                 <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                  {serviceIssues.length > 0 && `${serviceIssues.length} service${serviceIssues.length === 1 ? "" : "s"} down or degraded`}
+                  {serviceIssues.length > 0 && `${pluralize(serviceIssues.length, "service")} down or degraded`}
                   {serviceIssues.length > 0 && downPages.length > 0 && " · "}
-                  {downPages.length > 0 && `${downPages.length} page${downPages.length === 1 ? "" : "s"} failing to load`}
+                  {downPages.length > 0 && `${pluralize(downPages.length, "page")} failing to load`}
                 </p>
               </>
             )}

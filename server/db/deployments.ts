@@ -5,13 +5,24 @@ import { getOrCreateWorkspace } from "./workspace";
 
 export type SiteDeploymentRow = typeof siteDeployments.$inferSelect;
 
+/** The database handle and the caller's workspace, in the order every helper here needs them. */
+async function workspaceContext(ownerId: number) {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  return { db, workspace };
+}
+
+/** A workspace's rows for sites that are still hosted (a taken-down site never reappears). */
+function hostedInWorkspace(workspaceId: number) {
+  return and(eq(siteDeployments.workspaceId, workspaceId), ne(siteDeployments.status, "deleted"));
+}
+
 /** Latest website deployment for the workspace, for the live URL. Deleted
  * deployments are excluded so a taken-down site never reappears on the page. */
 export async function getLatestSiteDeploymentForUser(ownerId: number) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   const [latest] = await db.select().from(siteDeployments)
-    .where(and(eq(siteDeployments.workspaceId, workspace.id), ne(siteDeployments.status, "deleted")))
+    .where(hostedInWorkspace(workspace.id))
     .orderBy(desc(siteDeployments.createdAt))
     .limit(1);
   return latest ?? null;
@@ -20,18 +31,16 @@ export async function getLatestSiteDeploymentForUser(ownerId: number) {
 /** Recent website deployments, newest first. Deleted deployments are excluded
  * so the Deployments page only shows sites that are still hosted. */
 export async function listSiteDeploymentsForUser(ownerId: number, limit = 10) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   return db.select().from(siteDeployments)
-    .where(and(eq(siteDeployments.workspaceId, workspace.id), ne(siteDeployments.status, "deleted")))
+    .where(hostedInWorkspace(workspace.id))
     .orderBy(desc(siteDeployments.createdAt))
     .limit(limit);
 }
 
 /** Marks every deployment record of one Netlify site as deleted. Returns how many rows changed. */
 export async function markSiteDeploymentsDeletedForUser(ownerId: number, siteId: string) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   const rows = await db.update(siteDeployments)
     .set({ status: "deleted", updatedAt: new Date() })
     .where(and(eq(siteDeployments.siteId, siteId), eq(siteDeployments.workspaceId, workspace.id)))
@@ -53,8 +62,7 @@ export type SiteDeploymentRegistryEntry = {
 };
 
 export async function listSiteDeploymentRegistryForUser(ownerId: number): Promise<SiteDeploymentRegistryEntry[]> {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   // Newest first: the first row seen per key is that deployment's latest run.
   const rows = await db.select().from(siteDeployments)
     .where(eq(siteDeployments.workspaceId, workspace.id))
@@ -97,8 +105,7 @@ export async function nextSiteDeploymentKeyForUser(ownerId: number): Promise<str
 
 /** Rewrites a deployment's short description on every run row that carries the key. */
 export async function updateSiteDeploymentDescriptionForUser(ownerId: number, key: string, description: string) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   const rows = await db.update(siteDeployments)
     .set({ description: description.slice(0, 240), updatedAt: new Date() })
     .where(and(eq(siteDeployments.deploymentKey, key), eq(siteDeployments.workspaceId, workspace.id)))
@@ -111,8 +118,7 @@ export async function recordSiteDeployment(
   ownerId: number,
   input: { siteId: string; siteName: string | null; siteUrl: string; fileCount: number; status: "deploying" | "live" | "failed"; deploymentKey?: string; description?: string | null; error?: string }
 ) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   const [row] = await db.insert(siteDeployments).values({
     workspaceId: workspace.id,
     siteId: input.siteId,
@@ -134,8 +140,7 @@ export async function updateSiteDeploymentStatusForUser(
   status: "live" | "failed",
   error?: string
 ) {
-  const db = await requireDb();
-  const workspace = await getOrCreateWorkspace(ownerId);
+  const { db, workspace } = await workspaceContext(ownerId);
   const [row] = await db.update(siteDeployments)
     .set({ status, ...(error ? { error: error.slice(0, 1200) } : {}), updatedAt: new Date() })
     .where(and(eq(siteDeployments.id, deploymentId), eq(siteDeployments.workspaceId, workspace.id)))

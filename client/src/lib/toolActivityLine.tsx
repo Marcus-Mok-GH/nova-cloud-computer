@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
 import { MarkdownText } from "@/lib/markdown";
+import { pluralize } from "@shared/text";
 
 /* ------------------------------------------------------------------ *
  * Shared building blocks
@@ -855,7 +856,7 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
           data-testid="tool-run-group-summary"
           className="min-w-0 truncate text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         >
-          Used {count} tool{count === 1 ? "" : "s"}
+          Used {pluralize(count, "tool")}
         </span>
         {failed > 0 && (
           <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
@@ -920,7 +921,7 @@ export function LiveActivityCard({
           {working ? "Working" : "Steps"}
         </p>
         <p className="ms-auto shrink-0 text-[10px] font-medium text-muted-foreground">
-          {activities.length} step{activities.length === 1 ? "" : "s"}
+          {pluralize(activities.length, "step")}
           {failed > 0 ? ` · ${failed} failed` : ""}
         </p>
       </div>
@@ -930,7 +931,7 @@ export function LiveActivityCard({
           onClick={() => setShowAll(true)}
           className="w-fit text-[11px] font-semibold text-muted-foreground transition hover:text-foreground"
         >
-          + {hiddenCount} earlier step{hiddenCount === 1 ? "" : "s"}
+          + {pluralize(hiddenCount, "earlier step")}
         </button>
       )}
       <div className="flex min-w-0 flex-col gap-2">

@@ -10,6 +10,7 @@ import {
   updateWorkspacePersistentSandbox,
 } from "./db";
 import { getE2BClient, runE2BTaskInPersistentSandbox } from "./e2b";
+import { pluralize } from "@shared/text";
 
 const ERROR_LIMIT = 1000;
 
@@ -82,10 +83,6 @@ function recentEntries<T extends { updatedAt: Date }>(list: T[], limit = 6) {
     )
     .slice(0, limit);
 }
-/** Pluralizes `word` based on `count` (e.g. "1 file", "2 files"). */
-function plural(count: number, word: string) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
 export function getAutomationRunKey(kind: "workspace_digest", now: Date) {
   return `${kind}:${utcDateKey(now)}`;
 }
@@ -106,9 +103,9 @@ export function buildWorkspaceBriefing(
     "",
     "## Snapshot",
     "",
-    `- ${plural(input.folders.length, "folder")}`,
-    `- ${plural(input.files.length, "file")}`,
-    `- ${plural(input.chats.length, "saved conversation")}`,
+    `- ${pluralize(input.folders.length, "folder")}`,
+    `- ${pluralize(input.files.length, "file")}`,
+    `- ${pluralize(input.chats.length, "saved conversation")}`,
     "",
     "## Recently updated files",
     "",

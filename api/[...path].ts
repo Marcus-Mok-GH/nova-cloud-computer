@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
-import { isSupportBotRequestPath } from "../server/_core/supportBotPath";
+import { isSupportBotRequestPath } from "../server/_core/supportBotPath.js";
 
 const require = createRequire(import.meta.url);
 

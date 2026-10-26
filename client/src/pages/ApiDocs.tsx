@@ -4,16 +4,17 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useTheme } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
+import { NOVA_PUBLIC_APP_URL } from "@shared/const";
 
 const curlExample = [
-  "curl https://your-nova-domain.com/api/v1/chat/completions \\",
+  `curl ${NOVA_PUBLIC_APP_URL}/api/v1/chat/completions \\`,
   "  -H 'Authorization: Bearer nova_sk_your_key' \\",
   "  -H 'Content-Type: application/json' \\",
   '  -d \'{"model":"nova-pro","messages":[{"role":"user","content":"Give me three names for a coffee shop."}]}\'',
 ].join("\n");
 
 const javascriptExample = [
-  "const response = await fetch(\"https://your-nova-domain.com/api/v1/chat/completions\", {",
+  `const response = await fetch("${NOVA_PUBLIC_APP_URL}/api/v1/chat/completions", {`,
   '  method: "POST",',
   "  headers: {",
   '    Authorization: "Bearer nova_sk_your_key",',
@@ -51,7 +52,7 @@ const modelsExample = [
 ].join("\n");
 
 const streamExample = [
-  "curl -N https://your-nova-domain.com/api/v1/chat/completions \\",
+  `curl -N ${NOVA_PUBLIC_APP_URL}/api/v1/chat/completions \\`,
   "  -H 'Authorization: Bearer nova_sk_your_key' \\",
   "  -H 'Content-Type: application/json' \\",
   '  -d \'{"model":"nova-pro","stream":true,"messages":[{"role":"user","content":"Count to three."}]}\'',

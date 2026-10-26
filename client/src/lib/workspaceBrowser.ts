@@ -33,7 +33,8 @@ export function getWorkspaceContents<
 }
 
 export function getFolderTrail(folders: WorkspaceBrowserFolder[], activeFolderId: number | null) {
-  const foldersById = new Map(folders.map(folder => [folder.id, folder]));
+  const foldersById = new Map<number, WorkspaceBrowserFolder>();
+  for (const folder of folders) foldersById.set(folder.id, folder);
   const trail: WorkspaceBrowserFolder[] = [];
   const visited = new Set<number>();
   let currentId = activeFolderId;

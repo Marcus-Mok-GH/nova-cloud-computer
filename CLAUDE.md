@@ -29,12 +29,12 @@ Single test file:
 
 ```bash
 pnpm exec vitest run server/peakQueue.test.ts
-pnpm exec vitest run client/src/lib/chatMessages.test.ts
+pnpm exec vitest run client/src/pages/Home.render.test.tsx
 ```
 
 Gotchas that will bite you:
 
-- `tsconfig.json` **excludes `**/\*.test.ts`**, so `pnpm check` never type-checks test files — a type error that exists only in a test passes CI.
+- `tsconfig.json` **excludes `**/*.test.ts`**, so `pnpm check` never type-checks test files — a type error that exists only in a test passes CI.
 - CI (`.github/workflows/pr-validation.yml`) runs `check` → `build` → `test`, then boots `dist/index.js` on `PORT=4176` and curls `/api/health`. **The build must precede the tests**: `api/[...path].ts` lazily `require`s the bundled `dist/server/app.cjs`, and the tests that exercise the real request-dispatch path need that artifact on disk.
 - Migrations live in `drizzle/neon/` (schema `drizzle/schema.ts`, config `drizzle.config.ts`, which prefers `DATABASE_URL_UNPOOLED` over `DATABASE_URL` because drizzle-kit holds a dedicated DDL connection).
 - Vitest runs with `environment: "node"` (no jsdom anywhere) and `NOVA_PEAK_QUEUE=off` for determinism.
@@ -50,7 +50,7 @@ client/src/             React 19 SPA (Vite 7, Tailwind 4, Radix UI, wouter, TanS
   components/           DashboardLayout, ui/ (shadcn/Radix), workspaceChat (presentation)
   hooks/                useWorkspaceChat (chat behaviour), useAuth
   lib/                  trpc client, neonAuth, chatMessages, attachments, awayChats, supportBot
-  i18n/                 en (base) + de/es/fr/ja/pt/zh, manifest.json for the translation script
+  i18n/                 en (base) + ar/de/es/fr/hi/id/it/ja/ko/nl/pl/pt/ru/tr/vi/zh, manifest.json
 server/                 Express + tRPC v11 backend
   _core/                env, context, trpc, cookies, sdk, heartbeat, supportBotPath, vite
   app.ts                Express app + route mounting
@@ -88,14 +88,6 @@ The SPA talks to the backend over **both** tRPC and plain Express routes, and it
   - `POST /api/scheduled/automation`, `POST /api/scheduled/user-automation` (cron callbacks; rejected unless `sdk.authenticateRequest` reports `isCron`)
 
 `api/[...path].ts` decides what serves each of those. `/api/neon-auth/*` is proxied to `NEON_AUTH_BASE_URL` (stripping upstream `Domain`/`Partitioned` attributes so the CHIPS cookie works first-party). `isCoDeployedApiPath` is the allowlist of namespaces that must be handled in-process — `trpc`, `chat`, `telegram`, `agent`, `agentmail`, `health`, `status`, `speech`, `v1`, `user-automations`, `scheduled` — because they depend on Nova's own session or server-only credentials. Everything else is proxied to `API_SERVICE_URL` when that variable is set, and otherwise falls through to the co-deployed app.
-
-### tRPC router and data model
-
-`server/routers.ts` exports one `appRouter` mounting `system`, `admin`, `auth`, `credits`, `billing`, `apiKeys`, `workspace`, `composio`, `telegram`, `ai`, `support`, `deployments`, `terminal`, `agentVm`, `automations`, `folders`, `files`, `skills`, `chats`, `agents`, `models`, `projects`, `tasks` (plus `server/adminRouter.ts` and `server/_core/systemRouter.ts` for the admin/system namespaces).
-
-Data access is a **separate layer** in `server/db/`, split by domain (chats, credits, automations, workspaceFiles, inferenceQueue, processes, priority, …). Routers validate with zod and delegate — a new query belongs in `server/db/`, not inline in the router body.
-
-Notable tables in `drizzle/schema.ts`: `users` / `workspaces` / `workspace_settings`; `chats` / `chat_messages` / `conversation_memories`; `workspace_folders` / `workspace_files`; `agent_profiles` / `chat_agents` / `agent_approvals` / `agent_emails`; `automations` / `automation_runs` / `user_automations`; `projects` / `tasks`; `workspace_skills`; `custom_models` / `workspace_env_vars` / `env_var_requests` (BYOK and secrets); `api_keys` (the `nova_sk_...` keys that authenticate `/api/v1`); `agent_runs` / `agent_vm_runs`; `inference_queue` / `priority_purchases` (peak admission); `running_processes` (the resumable-work ledger); `daily_credits` / `mistral_inference_allowances` (billing); `telegram_bot_settings` / `telegram_update_log`; `site_deployments`; `nova_api_error_logs`.
 
 ### Auth
 
@@ -144,7 +136,7 @@ Exactly one item runs at a time, and that invariant is enforced in SQL rather th
 
 ### Model routing
 
-`server/aiGateway.ts` owns model selection and walks a fixed chain: `deepseek-v4.1-flash:free` → `mimo-v2.6-flash:free` → an optional `glm-5.3-flash` on a _different_ provider so it survives a Token Harbor outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
+`server/aiGateway.ts` owns model selection and walks a fixed chain: `deepseek-4.1-flash:free` → `mimo-v2.6-flash:free` → an optional `glm-5.3-flash` on a _different_ provider so it survives a Token Harbor outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
 
 BYOK is a full bypass, not a hop: a workspace with an active custom model routes through `server/byokGateway.ts` from `workspace/workspaceRetry.ts` (`customModel ? chatWithCustomModel : chatWithAiGateway`), skipping gateway credits, the sanitized error copy, and admin error logging. `server/nim.ts` is a _separate_ client for the thinker and sandbox subagents and is not part of the fallback chain.
 
@@ -174,7 +166,7 @@ The support-bot Q&A route is the one exception: `needsDatabaseBootstrap` in `api
 
 **The SPA shell must never be cached.** Browser routes are served by `api/spa.ts` with `no-store`; only content-hashed `/assets/*` are immutable. `pnpm check:spa-cache` enforces the specific mechanics (no rewrite to `/index.html`, the SPA rewrite must exclude `/api/` and `/assets/`, the required markers must survive in `api/spa.ts`). See `CONTRIBUTING.md`.
 
-**Client render tests** (`client/src/**/*.render.test.tsx`, 16 files) run in the node environment with no DOM: they `vi.mock` `@/components/DashboardLayout`, `@/lib/trpc`, `wouter`, and `sonner`, hold state in a `vi.hoisted` object, then assert on `renderToStaticMarkup(<Component />)` output. No events, no interaction — match that pattern instead of reaching for jsdom.
+**Client render tests** (`client/src/**/*.render.test.tsx`) run in the node environment with no DOM: they `vi.mock` `@/components/DashboardLayout`, `@/lib/trpc`, `wouter`, and `sonner`, hold state in a `vi.hoisted` object, then assert on `renderToStaticMarkup(<Component />)` output. No events, no interaction — match that pattern instead of reaching for jsdom.
 
 ## Path Aliases & Config
 
@@ -185,7 +177,7 @@ The support-bot Q&A route is the one exception: `needsDatabaseBootstrap` in `api
 
 ## Environment (see `server/_core/env.ts`)
 
-Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `TOKENHARBOR_API_KEY` / `TOKENHARBOR_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Optional remote-API escape hatch: `API_SERVICE_URL`.
+Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `TOKENHARBOR_API_KEY` / `TOKENHARBOR_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Durable-run chaining: `AGENT_CONTINUE_SECRET` (unset ⇒ the three internal resume endpoints 404). Optional remote-API escape hatch: `API_SERVICE_URL`.
 
 Secrets are server-only — never expose them to the browser. Client-visible values must be `VITE_`-prefixed.
 

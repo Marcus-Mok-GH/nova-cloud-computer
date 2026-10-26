@@ -55,7 +55,13 @@ const telegramCredentials = vi.fn(async () => undefined);
 const getDatabaseTime = vi.fn(async () => new Date("2026-09-16T05:00:00.000Z"));
 const hasAgentStopAfter = vi.fn(async () => false);
 const computer = vi.fn(async () => ({
-  workspace: { id: 41, persistentSandboxId: "sbx-vm" },
+  workspace: {
+    id: 41,
+    persistentSandboxId: "sbx-vm",
+    snapshotId: null,
+    fileRevision: 0,
+    snapshotRevision: null,
+  },
   folders: [
     { id: 10, name: "Notes" },
     { id: 11, name: "Archive" },
@@ -103,6 +109,8 @@ vi.mock("./db", () => ({
   updateWorkspaceBrowserSandbox: vi.fn(async () => undefined),
   createWorkspaceFolderForUser: createFolder,
   getWorkspaceComputer: computer,
+  getWorkspaceFileRevision: vi.fn(async () => 0),
+  updateWorkspaceSnapshot: vi.fn(async () => null),
   updateWorkspaceFolderForUser: updateFolder,
   updateWorkspaceFileForUser: updateFile,
   deleteWorkspaceFileForUser: deleteFile,
@@ -244,6 +252,10 @@ vi.mock("./e2b", () => ({
   isE2BConfigured: vi.fn(() => false),
   runE2BTaskInPersistentSandbox: vi.fn(),
   ensurePersistentSandbox: vi.fn(),
+  createPersistentSandboxFromSnapshot: vi.fn(),
+  createSandboxSnapshot: vi.fn(async () => "snapshot-test"),
+  deleteSandboxSnapshot: vi.fn(async () => undefined),
+  refreshSandboxTimeout: vi.fn(async () => undefined),
   getE2BSandboxStatus: vi.fn(),
   withE2BWorkspaceLock: vi.fn((_owner, _workspace, operation) => operation()),
   // Mirrors the real primitive: a sandbox with no pause method is left alone.

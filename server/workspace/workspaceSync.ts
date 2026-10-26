@@ -169,11 +169,14 @@ export async function persistE2BWorkspace(
       let saved = existing;
       if (saved) {
         if (saved.content !== content || saved.mimeType !== mimeType) {
-          saved =
-            (await updateWorkspaceFileForUser(ownerId, saved.id, {
-              content,
-              folderId,
-            })) ?? saved;
+          const updated = await updateWorkspaceFileForUser(ownerId, saved.id, {
+            content,
+            mimeType,
+            folderId,
+          });
+          if (updated) {
+            saved = updated;
+          }
         }
       } else {
         saved =

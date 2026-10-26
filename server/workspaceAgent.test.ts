@@ -1964,7 +1964,8 @@ describe("Nova tool-calling workspace agent", () => {
               },
             ],
           })
-        );
+        )
+        .mockResolvedValueOnce(endTurnReply({ reply: "Files listed." }));
 
       const run = runWorkspaceAgent(1, 3, "list my files with bash");
       try {

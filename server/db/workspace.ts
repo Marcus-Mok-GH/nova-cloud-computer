@@ -1,6 +1,10 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { workspaceFiles, workspaceFolders, workspaces } from "../../drizzle/schema";
-import { destroyPersistentSandbox, initWorkspacePersistentVm } from "../e2b";
+import {
+  deleteSandboxSnapshot,
+  destroyPersistentSandbox,
+  initWorkspacePersistentVm,
+} from "../e2b";
 import { requireDb } from "./core";
 import { cancelActiveAgentVmRunsForUser } from "./agentRuns";
 
@@ -79,15 +83,24 @@ export async function factoryResetWorkspaceForUser(ownerId: number) {
   // provisions a fresh one from the base template. The browse tool's desktop
   // sandbox is a second machine with its own Chrome session, so it goes too -
   // otherwise "start from scratch" would leave the user's logged-in browser
-  // sitting there.
+  // sitting there. Snapshots are also cleared since they reference the old
+  // sandbox's filesystem state.
   const previousSandboxId = workspace.persistentSandboxId ?? null;
+  const previousSnapshotId = workspace.snapshotId ?? null;
   if (previousSandboxId) await destroyPersistentSandbox(previousSandboxId);
   if (workspace.browserSandboxId)
     await destroyPersistentSandbox(workspace.browserSandboxId);
   await db
     .update(workspaces)
-    .set({ persistentSandboxId: null, browserSandboxId: null })
+    .set({
+      persistentSandboxId: null,
+      browserSandboxId: null,
+      snapshotId: null,
+      snapshotRevision: null,
+      fileRevision: sql`${workspaces.fileRevision} + 1`,
+    })
     .where(eq(workspaces.id, workspace.id));
+  if (previousSnapshotId) await deleteSandboxSnapshot(previousSnapshotId);
 
   const sandboxId = await initWorkspacePersistentVm(workspace.id, ownerId, null);
   return {
@@ -103,6 +116,56 @@ export async function factoryResetWorkspaceForUser(ownerId: number) {
 export async function updateWorkspacePersistentSandbox(workspaceId: number, sandboxId: string) {
   const db = await requireDb();
   await db.update(workspaces).set({ persistentSandboxId: sandboxId }).where(eq(workspaces.id, workspaceId));
+}
+
+/** Records a sandbox snapshot only if workspace files have not changed since it was created. */
+export async function updateWorkspaceSnapshot(
+  workspaceId: number,
+  snapshotId: string | null,
+  expectedFileRevision: number
+): Promise<string | null | undefined> {
+  const db = await requireDb();
+  const current = (
+    await db
+      .select({ snapshotId: workspaces.snapshotId })
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.id, workspaceId),
+          eq(workspaces.fileRevision, expectedFileRevision)
+        )
+      )
+      .limit(1)
+  )[0];
+  if (!current) return undefined;
+
+  const updated = await db
+    .update(workspaces)
+    .set({
+      snapshotId,
+      snapshotRevision: snapshotId ? expectedFileRevision : null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workspaces.id, workspaceId),
+        eq(workspaces.fileRevision, expectedFileRevision)
+      )
+    )
+    .returning({ id: workspaces.id });
+  return updated.length > 0 ? current.snapshotId ?? null : undefined;
+}
+
+export async function getWorkspaceFileRevision(workspaceId: number) {
+  const db = await requireDb();
+  const row = (
+    await db
+      .select({ fileRevision: workspaces.fileRevision })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .limit(1)
+  )[0];
+  return row?.fileRevision;
 }
 
 /** Records (or clears) the workspace's desktop-GUI sandbox - the browse tool's

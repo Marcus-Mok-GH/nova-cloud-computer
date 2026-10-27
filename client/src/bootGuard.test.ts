@@ -110,15 +110,15 @@ const themeIds = (mode: "light" | "dark") =>
 
 describe("boot guard theme application", () => {
   it("applies a saved dark palette before React hydrates", () => {
-    const state = runBootGuard({ "nova.theme": "nebula" });
-    expect(state.attributes["data-theme"]).toBe("nebula");
+    const state = runBootGuard({ "nova.theme": "midnight" });
+    expect(state.attributes["data-theme"]).toBe("midnight");
     expect(state.classes.has("dark")).toBe(true);
     expect(state.style.colorScheme).toBe("dark");
   });
 
   it("applies a saved light palette without the dark class", () => {
-    const state = runBootGuard({ "nova.theme": "ocean" });
-    expect(state.attributes["data-theme"]).toBe("ocean");
+    const state = runBootGuard({ "nova.theme": "daylight" });
+    expect(state.attributes["data-theme"]).toBe("daylight");
     expect(state.classes.has("dark")).toBe(false);
     expect(state.style.colorScheme).toBe("light");
   });
@@ -134,8 +134,8 @@ describe("boot guard theme application", () => {
   });
 
   it("prefers the current key over the legacy one", () => {
-    const state = runBootGuard({ "nova.theme": "pine", theme: "light" });
-    expect(state.attributes["data-theme"]).toBe("pine");
+    const state = runBootGuard({ "nova.theme": "midnight", theme: "light" });
+    expect(state.attributes["data-theme"]).toBe("midnight");
     expect(state.classes.has("dark")).toBe(true);
   });
 

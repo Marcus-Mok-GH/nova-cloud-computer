@@ -65,7 +65,7 @@ export default function Terminal() {
       fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
       scrollback: 5000,
       convertEol: false,
-      theme: { background: "#101014" },
+      theme: { background: "var(--background)" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -176,7 +176,7 @@ export default function Terminal() {
           ref={shellRef}
           data-testid="terminal-shell"
           aria-label="Agent VM terminal"
-          className="min-h-[60vh] overflow-hidden rounded-xl border border-border bg-[#101014] p-2"
+          className="min-h-[60vh] overflow-hidden rounded-xl border border-border bg-[var(--background)] p-2"
           onClick={() => termRef.current?.focus()}
         />
       </div>

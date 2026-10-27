@@ -13,18 +13,10 @@ export interface ThemeOption {
   descriptionKey: TranslationKey;
 }
 
-/** Every selectable theme. Keep in sync with the palettes in index.css. */
+/** Every selectable palette. Keep in sync with the blocks in index.css. */
 export const themes: ThemeOption[] = [
   { id: "daylight", labelKey: "settings.theme.name.daylight", mode: "light", descriptionKey: "settings.theme.desc.daylight" },
-  { id: "ocean", labelKey: "settings.theme.name.ocean", mode: "light", descriptionKey: "settings.theme.desc.ocean" },
-  { id: "meadow", labelKey: "settings.theme.name.meadow", mode: "light", descriptionKey: "settings.theme.desc.meadow" },
-  { id: "blossom", labelKey: "settings.theme.name.blossom", mode: "light", descriptionKey: "settings.theme.desc.blossom" },
-  { id: "sandstone", labelKey: "settings.theme.name.sandstone", mode: "light", descriptionKey: "settings.theme.desc.sandstone" },
   { id: "midnight", labelKey: "settings.theme.name.midnight", mode: "dark", descriptionKey: "settings.theme.desc.midnight" },
-  { id: "deepsea", labelKey: "settings.theme.name.deepsea", mode: "dark", descriptionKey: "settings.theme.desc.deepsea" },
-  { id: "pine", labelKey: "settings.theme.name.pine", mode: "dark", descriptionKey: "settings.theme.desc.pine" },
-  { id: "nebula", labelKey: "settings.theme.name.nebula", mode: "dark", descriptionKey: "settings.theme.desc.nebula" },
-  { id: "ember", labelKey: "settings.theme.name.ember", mode: "dark", descriptionKey: "settings.theme.desc.ember" },
 ];
 
 export const DEFAULT_LIGHT_THEME = "daylight";

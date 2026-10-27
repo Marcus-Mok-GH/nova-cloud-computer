@@ -65,7 +65,7 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Clear all memory");
     expect(markup).toContain("Appearance");
     expect(markup).toContain("Daylight");
-    expect(markup).toContain("Deep sea");
+    expect(markup).toContain("Midnight");
     expect(markup).toContain("How Nova should help");
     expect(markup).toContain("Factory reset workspace");
     expect(markup).toContain("Reset everything from scratch");

@@ -23,7 +23,7 @@ function renderThemeName(module: ThemeModule): string {
  * one-time hydration flag cannot leak into other tests.
  */
 async function loadWithStoredTheme() {
-  const stored = new Map<string, string>([["nova.theme", "nebula"]]);
+  const stored = new Map<string, string>([["nova.theme", "midnight"]]);
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => stored.get(key) ?? null,
     setItem: (key: string, value: string) => {
@@ -45,8 +45,8 @@ describe("ThemeContext theme catalog", () => {
   it("exposes unique light and dark themes", () => {
     const ids = themes.map(theme => theme.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(themes.filter(theme => theme.mode === "light").length).toBeGreaterThan(1);
-    expect(themes.filter(theme => theme.mode === "dark").length).toBeGreaterThan(1);
+    expect(themes.filter(theme => theme.mode === "light").length).toBeGreaterThan(0);
+    expect(themes.filter(theme => theme.mode === "dark").length).toBeGreaterThan(0);
   });
 
   it("keeps the default theme ids valid and correctly typed", () => {
@@ -55,8 +55,8 @@ describe("ThemeContext theme catalog", () => {
   });
 
   it("resolves palette ids and legacy light/dark values", () => {
-    expect(resolveThemeId("ocean")).toBe("ocean");
-    expect(resolveThemeId("deepsea")).toBe("deepsea");
+    expect(resolveThemeId("daylight")).toBe("daylight");
+    expect(resolveThemeId("midnight")).toBe("midnight");
     expect(resolveThemeId("light")).toBe(DEFAULT_LIGHT_THEME);
     expect(resolveThemeId("dark")).toBe(DEFAULT_DARK_THEME);
     expect(resolveThemeId(null)).toBe(DEFAULT_LIGHT_THEME);
@@ -69,7 +69,7 @@ describe("ThemeContext theme catalog", () => {
 
   it("renders children for any configured default theme", () => {
     const markup = renderToStaticMarkup(
-      <ThemeProvider defaultTheme="pine">
+      <ThemeProvider defaultTheme="midnight">
         <span>theme child</span>
       </ThemeProvider>
     );
@@ -80,7 +80,7 @@ describe("ThemeContext theme catalog", () => {
 describe("ThemeContext hydration pass", () => {
   it("reads the stored palette on a normal client render", async () => {
     const module = await loadWithStoredTheme();
-    expect(renderThemeName(module)).toBe("nebula");
+    expect(renderThemeName(module)).toBe("midnight");
   });
 
   it("defers the stored palette so the hydration render matches the server markup", async () => {

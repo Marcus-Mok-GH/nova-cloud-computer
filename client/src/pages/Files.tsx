@@ -129,7 +129,7 @@ export default function Files() {
             {tabs.map(tab => {
               const isActive = tab.id === activeId;
               const dirty = isDirty(tab);
-              return <div key={tab.id} role="tab" aria-selected={isActive} className={`group relative flex min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 border-e border-border/70 px-3 text-[13px] transition dark:border-white/10 ${isActive ? "bg-card text-foreground shadow-[inset_0_2px_0_0_var(--primary)] dark:bg-[#0d0d0d]" : "text-muted-foreground hover:bg-neutral-200/40 dark:hover:bg-card/10"}`}>
+              return <div key={tab.id} role="tab" aria-selected={isActive} className={`group relative flex min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 border-e border-border/70 px-3 text-[13px] transition dark:border-white/10 ${isActive ? "bg-card text-foreground shadow-[inset_0_2px_0_0_var(--primary)] dark:bg-[var(--background)]" : "text-muted-foreground hover:bg-neutral-200/40 dark:hover:bg-card/10"}`}>
                 <button onClick={() => setActiveId(tab.id)} className="flex min-w-0 items-center gap-1.5 py-2" title={tab.name}>
                   <File className={`size-3.5 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
                   <span className={`min-w-0 truncate ${dirty ? "italic" : ""}`}>{tab.name}</span>
@@ -139,7 +139,7 @@ export default function Files() {
               </div>;
             })}
           </div>
-          <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card px-3 text-xs text-muted-foreground dark:border-white/10 dark:bg-[#0d0d0d]">
+          <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card px-3 text-xs text-muted-foreground dark:border-white/10 dark:bg-[var(--background)]">
             <Folder className="size-3 shrink-0 text-primary/70" /><span className="truncate">workspace</span>
             {breadcrumb.map(folder => <React.Fragment key={folder.id}><ChevronRight className="size-3 shrink-0 rtl:-scale-x-100" /><span className="truncate hover:text-foreground dark:hover:text-white">{folder.name}</span></React.Fragment>)}
             <ChevronRight className="size-3 shrink-0 rtl:-scale-x-100" /><File className="size-3 shrink-0 text-primary/70" /><span className="truncate font-medium text-foreground/80 dark:text-foreground">{activeFile.name}</span>

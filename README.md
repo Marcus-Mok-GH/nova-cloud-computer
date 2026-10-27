@@ -10,7 +10,7 @@ A full-stack, AI-agent-powered cloud computer. Nova gives each user a persistent
 
 Nova is a personal cloud computer platform. Users sign in, get a persistent workspace, and interact with an AI agent that operates on their files, runs scheduled automations, manages projects and tasks, and can execute work in isolated E2B sandboxes.
 
-The stack is a single monorepo with a React client, an Express + tRPC server, a Neon (Postgres) database via Drizzle ORM, and an AI-powered agent. A server-to-server AI gateway powers AI-agent inference, while E2B sandboxes handle autonomous task execution.
+The stack is a single monorepo with a React client, an Express + tRPC server, a Neon-hosted Postgres database accessed through a shared `pg` connection pool and Drizzle ORM, and an AI-powered agent. A server-to-server AI gateway powers AI-agent inference, while E2B sandboxes handle autonomous task execution.
 
 ---
 
@@ -46,7 +46,7 @@ The stack is a single monorepo with a React client, an Express + tRPC server, a 
 
 - **Client** - React 19 SPA built with Vite, Tailwind CSS 4, Radix UI, tRPC + TanStack Query, wouter routing.
 - **Server** - Express + tRPC (v11), session auth via Neon, scheduled automation callbacks, an inbound Telegram webhook that lets users message their Nova agent from Telegram, and an inbound AgentMail webhook that opens a new chat for a mail sent to the agent's inbox and answers it in the same email thread.
-- **Database** - Neon serverless Postgres, Drizzle ORM, migrations in `drizzle/neon/`.
+- **Database** - Neon Postgres via Drizzle ORM and a shared `node-postgres` pool; app traffic uses the pooled `DATABASE_URL`, while migrations prefer `DATABASE_URL_UNPOOLED`. Migration files are in `drizzle/neon/`.
 - **Agent** - Conversational workspace work and automation planning run through the AI gateway.
 - **Inference** - A server-to-server AI gateway provides AI-agent inference.
 - **Agent VMs** - E2B Sandboxes for server-side agent execution; per-workspace persistent sandbox support with automatic pause/resume.
@@ -121,7 +121,12 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 
 | Variable                     | Purpose                                                                         |
 | ---------------------------- | ------------------------------------------------------------------------------- |
-| `DATABASE_URL`               | Neon Postgres connection string                                                 |
+| `DATABASE_URL`               | Pooled Neon Postgres connection string for application traffic                  |
+| `DATABASE_URL_UNPOOLED`      | Optional direct Neon connection string used for database migrations            |
+| `NOVA_DB_POOL_MAX`            | Optional maximum pooled connections per server instance (defaults to `5`)       |
+| `NOVA_DB_CONNECT_TIMEOUT_MS`  | Optional connection timeout (defaults to `10000`)                               |
+| `NOVA_DB_IDLE_TIMEOUT_MS`     | Optional idle connection timeout (defaults to `30000`)                          |
+| `NOVA_DB_STATEMENT_TIMEOUT_MS` | Optional query timeout (defaults to `30000`)                                  |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
 | `TOKENHARBOR_API_KEY`         | Server-only Token Harbor key (`thk_live_...`) powering the built-in AI gateway    |
@@ -141,6 +146,9 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
+
+Remote database TLS certificates are verified, including when a connection URL
+uses `sslmode=require`; only `sslmode=disable` turns TLS off.
 
 The built-in gateway serves Token Harbor's free
 `deepseek-v4.1-flash:free` with `mimo-v2.6-flash:free` (Xiaomi MiMo) as the

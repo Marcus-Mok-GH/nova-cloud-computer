@@ -2,11 +2,25 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { querySpy } = vi.hoisted(() => ({
-  querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => [] as unknown[]),
+const { querySpy, clientConfigSpy } = vi.hoisted(() => ({
+  querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => ({ rows: [] as unknown[] })),
+  clientConfigSpy: vi.fn(),
 }));
 
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({ query: querySpy })) }));
+// The migrator builds its own `pg.Client`; intercept that class so every
+// statement it issues is observable while `connect`/`end` stay inert.
+vi.mock("pg", () => {
+  class Client {
+    constructor(config: unknown) {
+      clientConfigSpy(config);
+    }
+
+    query = (statement: string, params?: unknown[]) => querySpy(statement, params);
+    connect = async () => undefined;
+    end = async () => undefined;
+  }
+  return { default: { Client }, Client };
+});
 
 const { ensureDatabaseSchema, resetSchemaBootstrapForTests, resolveMigrationsFolder } =
   await import("./migrate");
@@ -28,7 +42,8 @@ describe("automatic database schema bootstrap", () => {
 
   beforeEach(() => {
     querySpy.mockClear();
-    querySpy.mockResolvedValue([]);
+    clientConfigSpy.mockClear();
+    querySpy.mockResolvedValue({ rows: [] });
     resetSchemaBootstrapForTests();
     delete process.env.DATABASE_URL;
     delete process.env.DATABASE_URL_UNPOOLED;
@@ -63,6 +78,12 @@ describe("automatic database schema bootstrap", () => {
     expect(ran.some(statement => /CREATE TABLE (IF NOT EXISTS )?"users"/.test(statement))).toBe(true);
     // Each applied migration is recorded once, so later boots skip it.
     expect(ran.filter(statement => statement.startsWith('INSERT INTO "drizzle"."__drizzle_migrations"'))).toHaveLength(journalEntryCount());
+    expect(clientConfigSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionTimeoutMillis: 10_000,
+        statement_timeout: 30_000,
+      })
+    );
   });
 
   it("keeps the newest migration safe to re-run", () => {
@@ -143,9 +164,11 @@ describe("automatic database schema bootstrap", () => {
 
   it("skips migrations already recorded by a prior run", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
-    querySpy.mockImplementation(async (statement: string) =>
-      statement.startsWith("SELECT created_at") ? [{ created_at: Number.MAX_SAFE_INTEGER }] : []
-    );
+    querySpy.mockImplementation(async (statement: string) => ({
+      rows: statement.startsWith("SELECT created_at")
+        ? [{ created_at: Number.MAX_SAFE_INTEGER }]
+        : [],
+    }));
     await expect(ensureDatabaseSchema()).resolves.toBe(true);
     expect(statements().filter(statement => statement.startsWith("INSERT INTO"))).toHaveLength(0);
   });

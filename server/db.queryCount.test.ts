@@ -64,8 +64,8 @@ const fakeDb = {
   delete: () => ({ where: async () => undefined }),
 };
 
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({})) }));
-vi.mock("drizzle-orm/neon-http", () => ({ drizzle: vi.fn(() => fakeDb) }));
+vi.mock("pg", () => ({ default: { Pool: vi.fn(() => ({ on: vi.fn(), end: vi.fn() })) } }));
+vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: vi.fn(() => fakeDb) }));
 
 const { getActiveAgentRunInChat, getChatForUser, getWorkspaceComputer } = await import("./db");
 

@@ -16,8 +16,8 @@ const fakeDb = {
   execute: vi.fn(async () => { if (executeShouldThrow) throw new Error("table missing"); }),
 };
 
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({})) }));
-vi.mock("drizzle-orm/neon-http", () => ({ drizzle: vi.fn(() => fakeDb) }));
+vi.mock("pg", () => ({ default: { Pool: vi.fn(() => ({ on: vi.fn(), end: vi.fn() })) } }));
+vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: vi.fn(() => fakeDb) }));
 
 const { claimTelegramUpdate } = await import("./db");
 

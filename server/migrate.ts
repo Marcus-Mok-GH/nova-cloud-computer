@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { neon } from "@neondatabase/serverless";
+import pg from "pg";
+import { getDatabaseTimeoutSettings, resolveSsl } from "./db/core";
 
 /**
  * Automatic schema bootstrap.
@@ -14,10 +15,10 @@ import { neon } from "@neondatabase/serverless";
  * idempotent: applied migrations are recorded in `drizzle.__drizzle_migrations`
  * exactly as `drizzle-kit migrate` records them, and only pending ones run.
  *
- * The SQL runs through the Neon HTTP driver directly instead of
- * `drizzle-orm/neon-http/migrator`. That migrator maps every result with
- * `rows.map(...)`, but Neon returns `rows: null` for DDL statements such as
- * `CREATE TABLE`, so it throws before creating anything.
+ * The SQL runs over a dedicated `pg.Client` (the same driver and TLS rules as
+ * the application pool) instead of `drizzle-orm/neon-http/migrator`, which
+ * maps every result with `rows.map(...)` and throws on DDL statements that
+ * return no rows.
  */
 
 const MIGRATIONS_SCHEMA = "drizzle";
@@ -72,8 +73,11 @@ function readMigrationFiles(migrationsFolder: string): MigrationFile[] {
   });
 }
 
-/** The subset of the Neon query function the migrator needs. */
-type MigrationQuery = (query: string, params?: unknown[]) => Promise<unknown>;
+/** The subset of the pooled query function the migrator needs. */
+type MigrationQuery = (
+  query: string,
+  params?: unknown[]
+) => Promise<pg.QueryResult<Record<string, unknown>>>;
 
 async function applyMigrations(query: MigrationQuery, migrations: MigrationFile[]): Promise<void> {
   await query(`CREATE SCHEMA IF NOT EXISTS "${MIGRATIONS_SCHEMA}"`);
@@ -81,11 +85,16 @@ async function applyMigrations(query: MigrationQuery, migrations: MigrationFile[
     `CREATE TABLE IF NOT EXISTS "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" (` +
       `id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`
   );
-  const applied = (await query(
+  const applied = await query(
     `SELECT created_at FROM "${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}" ` +
       `ORDER BY created_at DESC LIMIT 1`
-  )) as Array<{ created_at: string | number }> | null;
-  const lastAppliedMillis = applied?.[0] ? Number(applied[0].created_at) : undefined;
+  );
+  const lastApplied = applied.rows[0] as
+    | { created_at: string | number }
+    | undefined;
+  const lastAppliedMillis = lastApplied
+    ? Number(lastApplied.created_at)
+    : undefined;
   for (const migration of migrations) {
     if (
       lastAppliedMillis !== undefined &&
@@ -130,7 +139,8 @@ async function runMigrations(): Promise<boolean> {
     console.log("[Database] Automatic migrations disabled (NOVA_AUTO_MIGRATE=off).");
     return false;
   }
-  const databaseUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  const databaseUrl =
+    process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     console.log("[Database] Skipping automatic migrations: no database URL configured.");
     return false;
@@ -141,8 +151,17 @@ async function runMigrations(): Promise<boolean> {
     return false;
   }
   const migrations = readMigrationFiles(migrationsFolder);
-  const sql = neon(databaseUrl);
-  await applyMigrations((query, params) => sql.query(query, params) as Promise<unknown>, migrations);
+  const client = new pg.Client({
+    connectionString: databaseUrl,
+    ssl: resolveSsl(databaseUrl),
+    ...getDatabaseTimeoutSettings(),
+  });
+  try {
+    await client.connect();
+    await applyMigrations((query, params) => client.query(query, params), migrations);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
   console.log("[Database] Schema is up to date.");
   return true;
 }

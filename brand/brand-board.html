@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en" data-theme="daylight">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nova Cloud Computer — Brand Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Serif+Display&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--nova-font-sans);
+    background: var(--background);
+    color: var(--foreground);
+    line-height: var(--nova-leading-relaxed);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 1180px; margin: 0 auto; padding: 0 var(--nova-space-8); }
+
+  /* ---------- Masthead ---------- */
+  .masthead {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--nova-space-6);
+    padding: var(--nova-space-6) 0;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in oklch, var(--background) 88%, transparent);
+    backdrop-filter: blur(14px);
+  }
+  .masthead__brand { display: flex; align-items: center; gap: var(--nova-space-3); }
+  .masthead__mark { width: 36px; height: 36px; display: block; }
+  .masthead__mark--dark { display: none; }
+  [data-theme="midnight"] .masthead__mark--light { display: none; }
+  [data-theme="midnight"] .masthead__mark--dark { display: block; }
+  .masthead__name {
+    font-family: var(--nova-font-display); font-size: var(--nova-text-xl);
+    letter-spacing: var(--nova-tracking-display); line-height: 1;
+  }
+  .masthead__meta { font-size: var(--nova-text-xs); color: var(--muted-foreground); letter-spacing: 0.06em; text-transform: uppercase; }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: var(--nova-space-2);
+    height: 36px; padding: 0 var(--nova-space-4);
+    border: 1px solid var(--input); border-radius: var(--nova-radius-pill);
+    background: var(--card); color: var(--foreground);
+    font: inherit; font-size: var(--nova-text-sm); cursor: pointer;
+    transition: background var(--nova-duration-fast) var(--nova-ease),
+                border-color var(--nova-duration-fast) var(--nova-ease);
+  }
+  .toggle:hover { background: var(--muted); }
+  .toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* ---------- Sections ---------- */
+  section { padding: var(--nova-space-16) 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: 0; }
+
+  .eyebrow {
+    display: block; font-size: var(--nova-text-xs); letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted-foreground); margin-bottom: var(--nova-space-3);
+  }
+  h2 {
+    font-family: var(--nova-font-display); font-weight: 400;
+    font-size: var(--nova-text-3xl); line-height: var(--nova-leading-tight);
+    letter-spacing: var(--nova-tracking-display);
+    margin: 0 0 var(--nova-space-3); text-wrap: balance;
+  }
+  .lede { max-width: 62ch; color: var(--muted-foreground); font-size: var(--nova-text-lg); margin: 0 0 var(--nova-space-8); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: var(--nova-space-24) 0 var(--nova-space-16); border-bottom: 1px solid var(--border); }
+  .hero h1 {
+    font-family: var(--nova-font-display); font-weight: 400;
+    font-size: clamp(2.25rem, 6vw, var(--nova-text-5xl));
+    line-height: var(--nova-leading-tight); letter-spacing: var(--nova-tracking-display);
+    margin: 0 0 var(--nova-space-6); max-width: 20ch;
+  }
+  .hero p { max-width: 56ch; font-size: var(--nova-text-lg); color: var(--muted-foreground); margin: 0 0 var(--nova-space-8); }
+  .hero__row { display: flex; flex-wrap: wrap; gap: var(--nova-space-3); }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 40px; padding: 0 20px; border-radius: var(--nova-radius-md);
+    font: inherit; font-size: var(--nova-text-sm); font-weight: 500;
+    border: 1px solid transparent; cursor: pointer; text-decoration: none;
+    transition: background var(--nova-duration-fast) var(--nova-ease),
+                color var(--nova-duration-fast) var(--nova-ease),
+                border-color var(--nova-duration-fast) var(--nova-ease);
+  }
+  .btn--primary { background: var(--primary); color: var(--primary-foreground); }
+  .btn--primary:hover { background: color-mix(in oklch, var(--primary) 88%, var(--foreground)); }
+  .btn--secondary { background: var(--card); color: var(--foreground); border-color: var(--border); }
+  .btn--secondary:hover { background: var(--muted); }
+  .btn--ghost { background: transparent; color: var(--foreground); }
+  .btn--ghost:hover { background: var(--muted); }
+  .btn--destructive { background: transparent; color: var(--destructive); }
+  .btn--destructive:hover { background: color-mix(in oklch, var(--destructive) 14%, transparent); }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* ---------- Swatches ---------- */
+  .grid { display: grid; gap: var(--nova-space-4); }
+  .grid--4 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .grid--3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .grid--2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+  .swatch {
+    border: 1px solid var(--border); border-radius: var(--nova-radius-lg);
+    overflow: hidden; background: var(--card); box-shadow: var(--nova-shadow-soft);
+  }
+  .swatch__chip { height: 88px; }
+  .swatch__body { padding: var(--nova-space-3) var(--nova-space-4) var(--nova-space-4); }
+  .swatch__name { font-size: var(--nova-text-sm); font-weight: 500; margin: 0 0 2px; }
+  .swatch__value {
+    font-family: var(--nova-font-mono); font-size: 11px;
+    color: var(--muted-foreground); word-break: break-all; line-height: 1.5; margin: 0;
+  }
+
+  /* ---------- Type scale ---------- */
+  .type-row {
+    display: grid; grid-template-columns: 132px 1fr; gap: var(--nova-space-6);
+    align-items: baseline; padding: var(--nova-space-4) 0; border-bottom: 1px solid var(--border);
+  }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row__label {
+    font-family: var(--nova-font-mono); font-size: 11px; color: var(--muted-foreground);
+    letter-spacing: 0.04em; line-height: 1.6;
+  }
+  .type-row__specimen { margin: 0; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- Cards / panels ---------- */
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--nova-radius-lg); padding: var(--nova-space-6);
+    box-shadow: var(--nova-shadow-soft);
+  }
+  .panel h3 {
+    font-family: var(--nova-font-display); font-weight: 400; font-size: var(--nova-text-xl);
+    margin: 0 0 var(--nova-space-2); letter-spacing: var(--nova-tracking-display);
+  }
+  .panel p { margin: 0; color: var(--muted-foreground); font-size: var(--nova-text-sm); }
+
+  .field { display: grid; gap: var(--nova-space-2); margin-top: var(--nova-space-4); }
+  .field label { font-size: var(--nova-text-sm); font-weight: 500; }
+  .field input {
+    height: 40px; padding: 0 var(--nova-space-4); font: inherit; font-size: var(--nova-text-sm);
+    background: var(--card); color: var(--foreground);
+    border: 1px solid var(--input); border-radius: var(--nova-radius-md);
+    transition: border-color var(--nova-duration-fast) var(--nova-ease);
+  }
+  .field input::placeholder { color: color-mix(in oklch, var(--muted-foreground) 60%, transparent); }
+  .field input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* ---------- Logo plates ---------- */
+  .plate {
+    display: grid; place-items: center; min-height: 200px;
+    border: 1px solid var(--border); border-radius: var(--nova-radius-lg);
+    padding: var(--nova-space-8);
+  }
+  .plate img { width: 96px; height: 96px; display: block; }
+  .plate--cloud { background: var(--nova-cloud); }
+  .plate--mist { background: var(--nova-mist); }
+  .plate--night { background: var(--nova-night); }
+  .plate__caption {
+    font-family: var(--nova-font-mono); font-size: 11px; color: var(--muted-foreground);
+    margin-top: var(--nova-space-3); display: block; text-align: center;
+  }
+
+  /* ---------- Tokens table ---------- */
+  .row {
+    display: grid; grid-template-columns: 200px 1fr; gap: var(--nova-space-6);
+    padding: var(--nova-space-3) 0; border-bottom: 1px solid var(--border);
+    font-size: var(--nova-text-sm); align-items: center;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row code { font-family: var(--nova-font-mono); font-size: 12px; color: var(--muted-foreground); }
+  .row__preview { display: flex; align-items: center; gap: var(--nova-space-3); }
+  .swatch-dot { border-radius: var(--nova-radius-sm); background: var(--muted); border: 1px solid var(--border); }
+
+  .radius-demo { background: var(--muted); border: 1px solid var(--border); height: 56px; }
+  .shadow-demo { background: var(--card); border: 1px solid var(--border); height: 56px; border-radius: var(--nova-radius-md); }
+
+  /* ---------- Do / Don't ---------- */
+  .rule-list { list-style: none; padding: 0; margin: var(--nova-space-4) 0 0; display: grid; gap: var(--nova-space-3); }
+  .rule-list li { display: grid; grid-template-columns: 20px 1fr; gap: var(--nova-space-3); font-size: var(--nova-text-sm); }
+  .rule-list .yes { color: var(--nova-success); }
+  .rule-list .no { color: var(--nova-danger); }
+
+  footer { padding: var(--nova-space-12) 0; color: var(--muted-foreground); font-size: var(--nova-text-sm); }
+  footer strong { color: var(--foreground); font-weight: 500; }
+
+  @media (max-width: 720px) {
+    .shell { padding: 0 var(--nova-space-4); }
+    section { padding: var(--nova-space-12) 0; }
+    .type-row, .row { grid-template-columns: 1fr; gap: var(--nova-space-2); }
+    .masthead__meta { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="masthead__brand">
+      <img class="masthead__mark masthead__mark--light" src="./logo/logo-96.png" alt="Nova Cloud Computer mark" width="36" height="36" />
+      <img class="masthead__mark masthead__mark--dark" src="./logo/logo-96.png" alt="" width="36" height="36" />
+      <span class="masthead__name">Nova</span>
+      <span class="masthead__meta">Brand board · v1</span>
+    </div>
+    <button class="toggle" id="themeToggle" type="button" aria-live="polite">
+      <span id="themeLabel">Daylight</span>
+    </button>
+  </header>
+
+  <section class="hero" style="border-bottom:1px solid var(--border)">
+    <span class="eyebrow">Soft · Lightweight · Quiet</span>
+    <h1>A cloud computer that feels like paper.</h1>
+    <p>Nova's brand is warm neutrals, one sunrise accent, and generous space. Nothing shouts. Everything breathes.</p>
+    <div class="hero__row">
+      <a class="btn btn--primary" href="#colour">Explore the palette</a>
+      <a class="btn btn--secondary" href="#type">See the type scale</a>
+      <a class="btn btn--ghost" href="#logo">Logo usage</a>
+    </div>
+  </section>
+
+  <section id="colour">
+    <span class="eyebrow">01 — Colour</span>
+    <h2>The palette is a morning, not a screen.</h2>
+    <p class="lede">Surfaces are warm off-white, the accent is a single ember, and dark mode is charcoal with a warm cast — never pure black. Every value is authored in OKLCH in <code>tokens.css</code>.</p>
+
+    <div class="grid grid--4">
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-cloud)"></div><div class="swatch__body"><p class="swatch__name">Cloud</p><p class="swatch__value">--nova-cloud<br />oklch(0.981 0.0079 73.7)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-mist)"></div><div class="swatch__body"><p class="swatch__name">Mist</p><p class="swatch__value">--nova-mist<br />oklch(0.947 0.0148 70.9)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-feather);border-bottom:1px solid var(--border)"></div><div class="swatch__body"><p class="swatch__name">Feather</p><p class="swatch__value">--nova-feather<br />oklch(1 0 0)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-apricot)"></div><div class="swatch__body"><p class="swatch__name">Apricot</p><p class="swatch__value">--nova-apricot<br />oklch(0.957 0.0238 63.5)</p></div></div>
+
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-glow)"></div><div class="swatch__body"><p class="swatch__name">Glow</p><p class="swatch__value">--nova-glow<br />oklch(0.909 0.0608 62.9)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-sunrise)"></div><div class="swatch__body"><p class="swatch__name">Sunrise</p><p class="swatch__value">--nova-sunrise<br />oklch(0.730 0.1531 54.5)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-ember)"></div><div class="swatch__body"><p class="swatch__name">Ember</p><p class="swatch__value">--nova-ember<br />oklch(0.625 0.1563 43.8)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-ember-strong)"></div><div class="swatch__body"><p class="swatch__name">Ember strong</p><p class="swatch__value">--nova-ember-strong<br />oklch(0.555 0.1495 42.0)</p></div></div>
+
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-ink)"></div><div class="swatch__body"><p class="swatch__name">Ink</p><p class="swatch__value">--nova-ink<br />oklch(0.257 0.0167 50.7)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-bark)"></div><div class="swatch__body"><p class="swatch__name">Bark</p><p class="swatch__value">--nova-bark<br />oklch(0.443 0.0237 54.7)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-line)"></div><div class="swatch__body"><p class="swatch__name">Line</p><p class="swatch__value">--nova-line<br />oklch(0.906 0.0202 70.0)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-line-strong)"></div><div class="swatch__body"><p class="swatch__name">Line strong</p><p class="swatch__value">--nova-line-strong<br />oklch(0.856 0.0275 69.2)</p></div></div>
+
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-success)"></div><div class="swatch__body"><p class="swatch__name">Success</p><p class="swatch__value">--nova-success<br />oklch(0.583 0.0838 148.4)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-warning)"></div><div class="swatch__body"><p class="swatch__name">Warning</p><p class="swatch__value">--nova-warning<br />oklch(0.640 0.1183 75.9)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-danger)"></div><div class="swatch__body"><p class="swatch__name">Danger</p><p class="swatch__value">--nova-danger<br />oklch(0.576 0.1414 30.5)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-info)"></div><div class="swatch__body"><p class="swatch__name">Info</p><p class="swatch__value">--nova-info<br />oklch(0.571 0.0756 250.5)</p></div></div>
+
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-night)"></div><div class="swatch__body"><p class="swatch__name">Night</p><p class="swatch__value">--nova-night<br />oklch(0.190 0.0102 67.1)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-night-card)"></div><div class="swatch__body"><p class="swatch__name">Night card</p><p class="swatch__value">--nova-night-card<br />oklch(0.223 0.0134 61.9)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--nova-night-line)"></div><div class="swatch__body"><p class="swatch__name">Night line</p><p class="swatch__value">--nova-night-line<br />oklch(0.314 0.0223 61.2)</p></div></div>
+      <div class="swatch"><div class="swatch__chip" style="background:var(--primary)"></div><div class="swatch__body"><p class="swatch__name">Primary (semantic)</p><p class="swatch__value">--primary<br />maps to ember / sunrise</p></div></div>
+    </div>
+  </section>
+
+  <section id="type">
+    <span class="eyebrow">02 — Typography</span>
+    <h2>DM Serif Display for moments, DM Sans for work.</h2>
+    <p class="lede">Display type carries the softness. Body type stays quiet and highly legible. Headings use sentence case, tight tracking, and generous leading.</p>
+
+    <div class="panel" style="margin-bottom:var(--nova-space-6)">
+      <div class="row"><code>--nova-font-display</code><span style="font-family:var(--nova-font-display);font-size:var(--nova-text-2xl)">DM Serif Display</span></div>
+      <div class="row"><code>--nova-font-sans</code><span style="font-size:var(--nova-text-lg)">DM Sans — the workhorse for UI and prose</span></div>
+      <div class="row"><code>--nova-font-mono</code><span style="font-family:var(--nova-font-mono);font-size:var(--nova-text-sm)">mono / 0123456789</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="type-row"><div class="type-row__label">5xl · 60px<br />display</div><p class="type-row__specimen nova-display" style="font-size:var(--nova-text-5xl)">Soft by default</p></div>
+      <div class="type-row"><div class="type-row__label">4xl · 48px<br />display</div><p class="type-row__specimen nova-display" style="font-size:var(--nova-text-4xl)">Your workspace</p></div>
+      <div class="type-row"><div class="type-row__label">3xl · 36px<br />display</div><p class="type-row__specimen nova-display" style="font-size:var(--nova-text-3xl)">Files, ready when you are</p></div>
+      <div class="type-row"><div class="type-row__label">2xl · 28px<br />display</div><p class="type-row__specimen nova-display" style="font-size:var(--nova-text-2xl)">A quieter cloud</p></div>
+      <div class="type-row"><div class="type-row__label">xl · 22px<br />sans 500</div><p class="type-row__specimen" style="font-size:var(--nova-text-xl);font-weight:500">Panel headings and card titles</p></div>
+      <div class="type-row"><div class="type-row__label">lg · 18px<br />sans 400</div><p class="type-row__specimen" style="font-size:var(--nova-text-lg)">Lede paragraphs introduce a section in one calm sentence.</p></div>
+      <div class="type-row"><div class="type-row__label">base · 16px<br />sans 400</div><p class="type-row__specimen" style="font-size:var(--nova-text-base)">Body copy runs at 1.65 leading. Long-form text should never feel dense.</p></div>
+      <div class="type-row"><div class="type-row__label">sm · 14px<br />sans 400</div><p class="type-row__specimen" style="font-size:var(--nova-text-sm);color:var(--muted-foreground)">Secondary detail, captions, and helper text sit at 14px in bark.</p></div>
+      <div class="type-row"><div class="type-row__label">xs · 12px<br />sans 500</div><p class="type-row__specimen" style="font-size:var(--nova-text-xs);letter-spacing:0.14em;text-transform:uppercase;color:var(--muted-foreground)">Eyebrow label</p></div>
+    </div>
+  </section>
+
+  <section id="logo">
+    <span class="eyebrow">03 — Logo</span>
+    <h2>One mark, two surfaces, no effects.</h2>
+    <p class="lede">The mark is never recoloured, never glowed, never rotated. Keep 25% of its height clear on every side, and switch to the dark variant below oklch(0.35).</p>
+
+    <div class="grid grid--3">
+      <div>
+        <div class="plate plate--cloud"><img src="./logo/brand-icon-1024.png" alt="Nova mark on cloud" /></div>
+        <span class="plate__caption">brand-icon-1024.png on cloud</span>
+      </div>
+      <div>
+        <div class="plate plate--mist"><img src="./logo/brand-icon-1024.png" alt="Nova mark on mist" /></div>
+        <span class="plate__caption">brand-icon-1024.png on mist</span>
+      </div>
+      <div>
+        <div class="plate plate--night"><img src="./logo/brand-icon-dark-1024.png" alt="Nova mark on night" /></div>
+        <span class="plate__caption">brand-icon-dark-1024.png on night</span>
+      </div>
+    </div>
+
+    <div class="grid grid--2" style="margin-top:var(--nova-space-6)">
+      <div class="panel">
+        <h3>Do</h3>
+        <ul class="rule-list">
+          <li><span class="yes">✓</span><span>Use the light mark on cloud, mist, or feather surfaces.</span></li>
+          <li><span class="yes">✓</span><span>Keep a clear space equal to 25% of the mark's height.</span></li>
+          <li><span class="yes">✓</span><span>Hold a minimum size of 24px; below that, use the favicon crop.</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Don't</h3>
+        <ul class="rule-list">
+          <li><span class="no">✕</span><span>Recolour the mark to ember or any status colour.</span></li>
+          <li><span class="no">✕</span><span>Add glow, drop shadow, outline, stretch, or rotation.</span></li>
+          <li><span class="no">✕</span><span>Place the mark on ember, sunrise, or a photograph.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:var(--nova-space-6)">
+      <h3>Asset inventory</h3>
+      <div class="row"><code>brand-icon-1024.png</code><span>Primary mark, light surfaces, 1024px</span></div>
+      <div class="row"><code>brand-icon-dark-1024.png</code><span>Primary mark, dark surfaces, 1024px</span></div>
+      <div class="row"><code>logo-96.png</code><span>Compact mark for the app header</span></div>
+      <div class="row"><code>favicon-32.png / favicon-dark-32.png</code><span>Browser tab</span></div>
+      <div class="row"><code>apple-touch-icon.png</code><span>iOS home screen</span></div>
+    </div>
+  </section>
+
+  <section id="components">
+    <span class="eyebrow">04 — Components</span>
+    <h2>Quiet controls, visible focus.</h2>
+    <p class="lede">One primary action per view. Hover darkens one step — buttons never move or scale. Focus is always a visible 2px halo in ember.</p>
+
+    <div class="grid grid--2">
+      <div class="panel">
+        <h3>Buttons</h3>
+        <p>Primary, secondary, ghost, destructive.</p>
+        <div class="hero__row" style="margin-top:var(--nova-space-4)">
+          <button class="btn btn--primary" type="button">Get started</button>
+          <button class="btn btn--secondary" type="button">Learn more</button>
+          <button class="btn btn--ghost" type="button">Skip</button>
+          <button class="btn btn--destructive" type="button">Delete</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Inputs</h3>
+        <p>40px height, visible focus halo, warm placeholder.</p>
+        <div class="field">
+          <label for="workspaceName">Workspace name</label>
+          <input id="workspaceName" type="text" placeholder="Your workspace" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Card</h3>
+        <p>Feather on cloud, hairline border, 16px radius, soft shadow, 24px padding.</p>
+      </div>
+
+      <div class="panel">
+        <h3>Empty state</h3>
+        <p style="margin-top:var(--nova-space-6);text-align:center">
+          <span style="display:block;font-size:var(--nova-text-lg);color:var(--foreground);margin-bottom:var(--nova-space-3)">No files yet</span>
+          <span class="btn btn--primary" role="button" tabindex="0">Upload a file</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="structure">
+    <span class="eyebrow">05 — Structure</span>
+    <h2>Space is the brand.</h2>
+    <p class="lede">Rhythm runs on a 4px base. Radii are generous and pill-friendly. Shadows are wide, low-contrast, and warm — elevation should feel like light, not depth.</p>
+
+    <div class="grid grid--2">
+      <div class="panel">
+        <h3>Radii</h3>
+        <div class="grid grid--3" style="margin-top:var(--nova-space-4);gap:var(--nova-space-3)">
+          <div><div class="radius-demo" style="border-radius:var(--nova-radius-sm)"></div><p class="swatch__value" style="margin-top:6px">sm · 8px</p></div>
+          <div><div class="radius-demo" style="border-radius:var(--nova-radius-md)"></div><p class="swatch__value" style="margin-top:6px">md · 12px</p></div>
+          <div><div class="radius-demo" style="border-radius:var(--nova-radius-lg)"></div><p class="swatch__value" style="margin-top:6px">lg · 16px</p></div>
+          <div><div class="radius-demo" style="border-radius:var(--nova-radius-xl)"></div><p class="swatch__value" style="margin-top:6px">xl · 24px</p></div>
+          <div><div class="radius-demo" style="border-radius:var(--nova-radius-pill)"></div><p class="swatch__value" style="margin-top:6px">pill · 999px</p></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Elevation</h3>
+        <div class="grid" style="margin-top:var(--nova-space-4);gap:var(--nova-space-4)">
+          <div><div class="shadow-demo" style="box-shadow:var(--nova-shadow-soft)"></div><p class="swatch__value" style="margin-top:6px">--nova-shadow-soft</p></div>
+          <div><div class="shadow-demo" style="box-shadow:var(--nova-shadow-lift)"></div><p class="swatch__value" style="margin-top:6px">--nova-shadow-lift</p></div>
+          <div><div class="shadow-demo" style="box-shadow:var(--nova-shadow-glow)"></div><p class="swatch__value" style="margin-top:6px">--nova-shadow-glow</p></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Spacing</h3>
+        <div class="row"><code>--nova-space-4</code><span>16px — default padding unit</span></div>
+        <div class="row"><code>--nova-space-6</code><span>24px — card padding</span></div>
+        <div class="row"><code>--nova-space-8</code><span>32px — section gutter</span></div>
+        <div class="row"><code>--nova-space-16</code><span>64px — section rhythm</span></div>
+        <div class="row"><code>--nova-space-24</code><span>96px — hero breathing room</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>Motion</h3>
+        <div class="row"><code>--nova-ease</code><span>cubic-bezier(0.22, 1, 0.36, 1)</span></div>
+        <div class="row"><code>--nova-duration-fast</code><span>140ms — hover, focus</span></div>
+        <div class="row"><code>--nova-duration-base</code><span>240ms — reveals</span></div>
+        <div class="row"><code>--nova-duration-slow</code><span>420ms — layout shifts</span></div>
+        <p style="margin-top:var(--nova-space-4)">Never snappy. Honour <code>prefers-reduced-motion</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="writing">
+    <span class="eyebrow">06 — Writing</span>
+    <h2>Plain, short, second person.</h2>
+    <p class="lede">Sentence case everywhere. Buttons are one to three words. Errors say what happened and what to do next, in one sentence. No exclamation marks, no emoji in product UI.</p>
+
+    <div class="panel">
+      <div class="row"><code>Instead of</code><span style="color:var(--muted-foreground);text-decoration:line-through">Oops! Something went wrong.</span></div>
+      <div class="row"><code>Write</code><span>Couldn't save your file. Try again.</span></div>
+      <div class="row"><code>Instead of</code><span style="color:var(--muted-foreground);text-decoration:line-through">Click Here To Get Started!</span></div>
+      <div class="row"><code>Write</code><span>Get started</span></div>
+      <div class="row"><code>Instead of</code><span style="color:var(--muted-foreground);text-decoration:line-through">Your Agentic Workspace Awaits</span></div>
+      <div class="row"><code>Write</code><span>Your workspace</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>Nova Cloud Computer — Brand Board v1.</strong>
+    Colour, type, spacing, radii, shadows, and motion all resolve from <code>brand/tokens.css</code>. Logo files live in <code>brand/logo/</code>. Written rules are in <code>brand/BRAND.md</code>.
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var button = document.getElementById('themeToggle');
+    var label = document.getElementById('themeLabel');
+    var storageKey = 'nova-brand-board-theme';
+
+    var themes = [
+      { id: 'daylight', name: 'Daylight' },
+      { id: 'midnight', name: 'Midnight' }
+    ];
+
+    function apply(id) {
+      var match = themes.filter(function (t) { return t.id === id; })[0] || themes[0];
+      root.setAttribute('data-theme', match.id);
+      if (match.id === 'midnight') {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+      label.textContent = match.name;
+      try { localStorage.setItem(storageKey, match.id); } catch (e) {}
+    }
+
+    button.addEventListener('click', function () {
+      var current = root.getAttribute('data-theme');
+      apply(current === 'midnight' ? 'daylight' : 'midnight');
+    });
+
+    var saved = null;
+    try { saved = localStorage.getItem(storageKey); } catch (e) {}
+    apply(saved === 'midnight' ? 'midnight' : 'daylight');
+  })();
+</script>
+</body>
+</html>

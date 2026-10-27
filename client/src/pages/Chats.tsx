@@ -55,7 +55,7 @@ export default function Chats() {
               <button onClick={() => deleteChat(chat.id, chat.title)} disabled={deletingId === chat.id} className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground opacity-100 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400" aria-label={`Delete ${chat.title}`} title="Delete chat"><Trash2 className="size-4" /></button>
             </div>
           )) : (
-            <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-white/10 bg-card text-center dark:bg-[#141414]"><div><Sparkles className="mx-auto size-5 text-primary" /><p className="mt-3 text-sm text-muted-foreground dark:text-muted-foreground">Begin a conversation with Nova from your workspace.</p></div></div>
+            <div className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-white/10 bg-card text-center dark:bg-[var(--card)]"><div><Sparkles className="mx-auto size-5 text-primary" /><p className="mt-3 text-sm text-muted-foreground dark:text-muted-foreground">Begin a conversation with Nova from your workspace.</p></div></div>
           )}
         </div>
         <NewChatButton />

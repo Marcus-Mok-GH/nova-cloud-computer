@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { MonitorSmartphone, RefreshCw, SquareTerminal, XCircle } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
+import { useTheme } from "@/contexts/ThemeContext";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
@@ -54,6 +55,11 @@ export default function Terminal() {
     }
   };
 
+  // xterm.js cannot parse CSS custom properties, so resolve --background to
+  // a concrete color before handing it over.
+  const resolveSurfaceColor = () =>
+    getComputedStyle(document.documentElement).getPropertyValue("--background").trim() || undefined;
+
   // Mount the terminal once; polling and key forwarding stay attached to its
   // session so reopening the tab shows the retained scrollback.
   useEffect(() => {
@@ -65,7 +71,7 @@ export default function Terminal() {
       fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
       scrollback: 5000,
       convertEol: false,
-      theme: { background: "#101014" },
+      theme: { background: resolveSurfaceColor() },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -89,7 +95,14 @@ export default function Terminal() {
     });
     observer.observe(host);
 
+    // Re-apply the resolved surface colour whenever the palette flips on <html>.
+    const themeObserver = new MutationObserver(() => {
+      term.options.theme = { ...term.options.theme, background: resolveSurfaceColor() };
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
+
     return () => {
+      themeObserver.disconnect();
       observer.disconnect();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
       term.dispose();
@@ -176,7 +189,7 @@ export default function Terminal() {
           ref={shellRef}
           data-testid="terminal-shell"
           aria-label="Agent VM terminal"
-          className="min-h-[60vh] overflow-hidden rounded-xl border border-border bg-[#101014] p-2"
+          className="min-h-[60vh] overflow-hidden rounded-xl border border-border bg-[var(--background)] p-2"
           onClick={() => termRef.current?.focus()}
         />
       </div>

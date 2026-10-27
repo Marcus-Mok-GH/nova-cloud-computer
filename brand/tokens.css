@@ -1,0 +1,175 @@
+/* ============================================================
+   Nova Cloud Computer — Brand Tokens (Soft / Lightweight)
+   ------------------------------------------------------------
+   Drop-in layer that maps the Nova brand palette onto the app's
+   existing shadcn/Tailwind variable contract in
+   client/src/index.css. Every value is authored in OKLCH so it
+   matches the codebase's colour system exactly.
+
+   Usage:
+     @import "./tokens.css";
+   ...or copy the blocks into client/src/index.css.
+   ============================================================ */
+
+/* ---------- 1. Raw brand scale (reference) ---------- */
+:root {
+  /* Surfaces — airy, paper-like */
+  --nova-cloud:        oklch(0.981 0.0079 73.7);  /* #FCF8F3 page */
+  --nova-mist:         oklch(0.947 0.0148 70.9);  /* #F4ECE3 sunken */
+  --nova-feather:      oklch(1 0 0);              /* #FFFFFF raised */
+  --nova-apricot:      oklch(0.957 0.0238 63.5);  /* #FDEEE1 tint */
+
+  /* Accent — soft sunrise warmth */
+  --nova-glow:         oklch(0.909 0.0608 62.9);  /* #FFD9B8 highlight */
+  --nova-sunrise:      oklch(0.730 0.1531 54.5);  /* #F08A3C */
+  --nova-ember:        oklch(0.625 0.1563 43.8);  /* #D2622C primary */
+  --nova-ember-strong: oklch(0.555 0.1495 42.0);  /* #B84E1E pressed */
+
+  /* Text */
+  --nova-ink:          oklch(0.257 0.0167 50.7);  /* #2A211C */
+  --nova-bark:         oklch(0.443 0.0237 54.7);  /* #5E5047 */
+
+  /* Hairlines */
+  --nova-line:         oklch(0.906 0.0202 70.0);  /* #E9DED2 */
+  --nova-line-strong:  oklch(0.856 0.0275 69.2);  /* #DCCDBD */
+
+  /* Semantic */
+  --nova-success:      oklch(0.583 0.0838 148.4); /* #57895F */
+  --nova-warning:      oklch(0.640 0.1183 75.9);  /* #B5812A */
+  --nova-danger:       oklch(0.576 0.1414 30.5);  /* #BE5343 */
+  --nova-info:         oklch(0.571 0.0756 250.5); /* #557BA3 */
+
+  /* Night surfaces (warm charcoal, never pure black) */
+  --nova-night:        oklch(0.190 0.0102 67.1);  /* #17130F */
+  --nova-night-card:   oklch(0.223 0.0134 61.9);  /* #201A15 */
+  --nova-night-line:   oklch(0.314 0.0223 61.2);  /* #3A2F26 */
+
+  /* Soft elevation — low-contrast, wide, warm */
+  --nova-shadow-soft:  0 1px 2px oklch(0.257 0.0167 50.7 / 0.04),
+                       0 8px 24px oklch(0.257 0.0167 50.7 / 0.06);
+  --nova-shadow-lift:  0 2px 4px oklch(0.257 0.0167 50.7 / 0.05),
+                       0 18px 40px oklch(0.257 0.0167 50.7 / 0.08);
+  --nova-shadow-glow:  0 8px 32px oklch(0.730 0.1531 54.5 / 0.18);
+
+  /* Rhythm — light, breathing spacing */
+  --nova-space-1: 0.25rem;
+  --nova-space-2: 0.5rem;
+  --nova-space-3: 0.75rem;
+  --nova-space-4: 1rem;
+  --nova-space-6: 1.5rem;
+  --nova-space-8: 2rem;
+  --nova-space-12: 3rem;
+  --nova-space-16: 4rem;
+  --nova-space-24: 6rem;
+
+  /* Radii — generous, pill-friendly */
+  --nova-radius-sm: 0.5rem;
+  --nova-radius-md: 0.75rem;
+  --nova-radius-lg: 1rem;
+  --nova-radius-xl: 1.5rem;
+  --nova-radius-pill: 999px;
+
+  /* Motion — eased, never snappy */
+  --nova-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --nova-duration-fast: 140ms;
+  --nova-duration-base: 240ms;
+  --nova-duration-slow: 420ms;
+}
+
+/* ---------- 2. App variable mapping (light) ---------- */
+:root,
+[data-theme="daylight"] {
+  --background: var(--nova-cloud);
+  --foreground: var(--nova-ink);
+  --card: var(--nova-feather);
+  --card-foreground: var(--nova-ink);
+  --popover: var(--nova-feather);
+  --popover-foreground: var(--nova-ink);
+  --primary: var(--nova-ember);
+  --primary-foreground: var(--nova-feather);
+  --secondary: var(--nova-mist);
+  --secondary-foreground: var(--nova-bark);
+  --muted: var(--nova-mist);
+  --muted-foreground: var(--nova-bark);
+  --accent: var(--nova-apricot);
+  --accent-foreground: var(--nova-ember-strong);
+  --destructive: var(--nova-danger);
+  --border: var(--nova-line);
+  --input: var(--nova-line-strong);
+  --ring: var(--nova-ember);
+  --surface: var(--nova-mist);
+}
+
+/* ---------- 3. App variable mapping (dark) ---------- */
+.dark,
+[data-theme="midnight"] {
+  --background: var(--nova-night);
+  --foreground: oklch(0.955 0.006 70);
+  --card: var(--nova-night-card);
+  --card-foreground: oklch(0.955 0.006 70);
+  --popover: var(--nova-night-card);
+  --popover-foreground: oklch(0.955 0.006 70);
+  --primary: var(--nova-sunrise);
+  --primary-foreground: var(--nova-night);
+  --secondary: oklch(0.26 0.014 62);
+  --secondary-foreground: oklch(0.93 0.008 70);
+  --muted: oklch(0.24 0.012 62);
+  --muted-foreground: oklch(0.72 0.014 68);
+  --accent: oklch(0.28 0.030 55);
+  --accent-foreground: var(--nova-glow);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: var(--nova-sunrise);
+  --surface: oklch(0.17 0.009 65);
+}
+
+/* ---------- 4. Typography ---------- */
+:root {
+  --nova-font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Arial, sans-serif;
+  --nova-font-display: "DM Serif Display", ui-serif, Georgia, serif;
+  --nova-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Soft type scale — 1.200 minor third, tightened display tracking */
+  --nova-text-xs: 0.75rem;    /* 12 */
+  --nova-text-sm: 0.875rem;   /* 14 */
+  --nova-text-base: 1rem;     /* 16 */
+  --nova-text-lg: 1.125rem;   /* 18 */
+  --nova-text-xl: 1.375rem;   /* 22 */
+  --nova-text-2xl: 1.75rem;   /* 28 */
+  --nova-text-3xl: 2.25rem;   /* 36 */
+  --nova-text-4xl: 3rem;      /* 48 */
+  --nova-text-5xl: 3.75rem;   /* 60 */
+
+  --nova-leading-tight: 1.15;
+  --nova-leading-snug: 1.35;
+  --nova-leading-relaxed: 1.65;
+  --nova-tracking-display: -0.02em;
+  --nova-tracking-body: 0;
+}
+
+/* ---------- 5. Utility classes ---------- */
+.nova-display {
+  font-family: var(--nova-font-display);
+  font-weight: 400;
+  letter-spacing: var(--nova-tracking-display);
+  line-height: var(--nova-leading-tight);
+}
+
+.nova-surface {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--nova-radius-lg);
+  box-shadow: var(--nova-shadow-soft);
+}
+
+.nova-hairline {
+  border: 1px solid var(--border);
+}
+
+.nova-focus:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--nova-radius-sm);
+}

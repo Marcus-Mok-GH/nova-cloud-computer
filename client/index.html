@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121514" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCF8F3" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#17130F" />
     <meta name="description" content="A private cloud workspace for files, conversations, a terminal, and scheduled tasks. Ask Nova's AI agent to work in it and keep routines running in the cloud." />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" href="/favicon-dark-32.png" />
@@ -25,8 +25,8 @@
       //    blank with no way out.
       (function () {
         var KEY = "nova_boot_reload";
-        var DARK = { midnight: 1, deepsea: 1, pine: 1, nebula: 1, ember: 1 };
-        var LIGHT = { daylight: 1, ocean: 1, meadow: 1, blossom: 1, sandstone: 1 };
+        var DARK = { midnight: 1 };
+        var LIGHT = { daylight: 1 };
 
         // Keep in sync with ThemeContext: unknown values fall back to the
         // default light theme, so we simply leave the document untouched.
@@ -200,15 +200,15 @@
     <div id="root"></div>
     <!-- Boot screen: painted by the HTML parser before any JavaScript runs, so
          there is always something on screen. Hidden as soon as React renders. -->
-    <div id="boot" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:var(--background,#faf7f2);color:var(--foreground,#241f17);font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
+    <div id="boot" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:var(--background,#FCF8F3);color:var(--foreground,#2A211C);font-family:"DM Sans",ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
       <div>
         <p id="boot-title" style="margin:0;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Starting Nova&hellip;</p>
         <p id="boot-sub" style="margin:8px 0 0;font-size:14px;line-height:1.5;opacity:0.7;">Loading your workspace.</p>
-        <button id="boot-retry" type="button" hidden style="margin-top:18px;padding:10px 20px;border:0;border-radius:999px;background:var(--primary,#e2662a);color:var(--primary-foreground,#fff);font:inherit;font-size:14px;font-weight:600;cursor:pointer;">Reload Nova</button>
+        <button id="boot-retry" type="button" hidden style="margin-top:18px;padding:10px 20px;border:0;border-radius:999px;background:var(--primary,#D2622C);color:var(--primary-foreground,#FFFFFF);font:inherit;font-size:14px;font-weight:600;cursor:pointer;">Reload Nova</button>
       </div>
     </div>
     <noscript>
-      <div style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:#faf7f2;color:#241f17;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:#FCF8F3;color:#2A211C;font-family:"DM Sans",ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
         <div>
           <p style="margin:0;font-size:18px;font-weight:700;">Nova needs JavaScript</p>
           <p style="margin:8px 0 0;font-size:14px;line-height:1.5;">Enable JavaScript for this site, then reload the page.</p>

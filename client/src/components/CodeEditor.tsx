@@ -76,8 +76,8 @@ export default function CodeEditor({ value, language, onChange, onCursorChange, 
   };
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-card font-mono text-[13px] leading-6 dark:bg-[#0d0d0d]">
-      <div className="pointer-events-none absolute inset-y-0 start-0 z-10 overflow-hidden border-e border-border/70 bg-card select-none dark:border-white/5 dark:bg-[#0d0d0d]" style={{ width: gutterWidth }}>
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-card font-mono text-[13px] leading-6 dark:bg-[var(--background)]">
+      <div className="pointer-events-none absolute inset-y-0 start-0 z-10 overflow-hidden border-e border-border/70 bg-card select-none dark:border-white/5 dark:bg-[var(--background)]" style={{ width: gutterWidth }}>
         <div ref={gutterRef} className="text-end font-mono text-[12px] leading-6 text-muted-foreground/50" style={{ paddingTop: 12, paddingBottom: 12, willChange: "transform" }}>
           {lines.map((_, index) => <div key={index} className="pe-3">{index + 1}</div>)}
         </div>

@@ -9,14 +9,15 @@ import { toast } from "sonner";
 import { ChevronDown, ChevronRight, ChevronsDownUp, File, FilePlus2, Folder, FolderOpen, FolderPlus, HardDrive, Search, Trash2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 
-type OpenFile = { id: number; name: string; content: string; mimeType?: string | null; folderId?: number | null };
+type FileMetadata = { id: number; name: string; mimeType: string; folderId: number | null };
+type OpenFile = FileMetadata & { content: string };
 type SearchSnippet = { line: number; text: string };
 type SearchResult = { id: number; name: string; folderId: number | null; mimeType: string; matchedName: boolean; matchCount: number; snippets: SearchSnippet[]; score: number };
 
 /** Toggle label for the regular-expression search mode. */
 const REGEX_LABEL = ".*";
 type Creating = { kind: "file" | "folder"; parentId: number | null };
-type TreeProps = { folders: any[]; files: any[]; parentId: number | null; depth: number; activeFolderId: number | null; expanded: Set<number>; setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>; selectFolder: (id: number | null) => void; open: (file: OpenFile) => void; remove: (file: any, e?: React.MouseEvent) => void; creating: Creating | null; finishCreate: (name: string) => void; cancelCreate: () => void };
+type TreeProps = { folders: any[]; files: FileMetadata[]; parentId: number | null; depth: number; activeFolderId: number | null; expanded: Set<number>; setExpanded: React.Dispatch<React.SetStateAction<Set<number>>>; selectFolder: (id: number | null) => void; open: (file: FileMetadata) => void; remove: (file: FileMetadata, e?: React.MouseEvent) => void; creating: Creating | null; finishCreate: (name: string) => void; cancelCreate: () => void };
 
 export default function Files() {
   const computer = trpc.workspace.computer.useQuery(undefined, { retry: false });
@@ -73,9 +74,19 @@ export default function Files() {
     else createFile.mutate({ name, content: "", folderId: target.parentId });
   };
   const collapseAll = () => { setExpanded(new Set()); setActiveFolderId(null); setCreating(null); };
-  const open = (file: OpenFile) => {
-    setTabs(prev => prev.some(tab => tab.id === file.id) ? prev : [...prev, { id: file.id, name: file.name, content: file.content ?? "", mimeType: file.mimeType, folderId: file.folderId }]);
-    setActiveId(file.id);
+  const open = async (file: FileMetadata) => {
+    const existing = tabs.find(tab => tab.id === file.id);
+    if (existing) {
+      setActiveId(file.id);
+      return;
+    }
+    try {
+      const loaded = await utils.files.get.fetch({ id: file.id });
+      setTabs(prev => prev.some(tab => tab.id === loaded.id) ? prev : [...prev, loaded]);
+      setActiveId(loaded.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nova could not open that file.");
+    }
   };
   const closeTab = (id: number, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -88,7 +99,7 @@ export default function Files() {
   const changeDraft = (value: string) => { if (activeFile) setDrafts(prev => ({ ...prev, [activeFile.id]: value })); };
   const save = () => { if (activeFile && isDirty(activeFile)) saveFile.mutate({ id: activeFile.id, content: draft }); };
   const selectFolder = (id: number | null) => { setActiveFolderId(id); if (id !== null) setExpanded(p => new Set(p).add(id)); };
-  const remove = (file: any, e?: React.MouseEvent) => { e?.stopPropagation(); if (window.confirm(`Delete “${file.name}”? This cannot be undone.`)) deleteFile.mutate({ id: file.id }); };
+  const remove = (file: FileMetadata, e?: React.MouseEvent) => { e?.stopPropagation(); if (window.confirm(`Delete “${file.name}”? This cannot be undone.`)) deleteFile.mutate({ id: file.id }); };
 
   if (computer.isError) return <DashboardLayout><div className="grid min-h-[65vh] place-items-center"><div className="text-center"><h1 className="text-xl font-bold">Nova could not open your files.</h1><Button onClick={() => computer.refetch()} className="mt-4">Try again</Button></div></div></DashboardLayout>;
 
@@ -172,8 +183,8 @@ type FileSearchResultsProps = {
   query: string;
   regex: boolean;
   folders: any[];
-  files: any[];
-  onOpen: (file: OpenFile) => void;
+  files: FileMetadata[];
+  onOpen: (file: FileMetadata) => void;
 };
 
 /** Search-result list shown in the Explorer while a query is active. */

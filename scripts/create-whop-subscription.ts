@@ -89,7 +89,7 @@ async function main() {
 
   console.log("\n✅ Setup complete!");
   console.log("\n--- Environment Variables to Add ---");
-  console.log(`WHOP_API_KEY=${WHOP_API_KEY}`);
+  console.log("WHOP_API_KEY=<already set in your environment — do not paste it here>");
   console.log(`WHOP_PRODUCT_ID=${product.id}`);
   console.log(`WHOP_PLAN_ID=${plan.id}`);
   console.log(`WHOP_VARIANT_ID=${variant.id}`);

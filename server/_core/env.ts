@@ -215,6 +215,8 @@ export const ENV = {
       : ""),
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
+  /** Whop webhook signing secret (`whsec_...`). Empty disables the Whop webhook endpoint. */
+  whopWebhookSecret: process.env.WHOP_WEBHOOK_SECRET ?? "",
   /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */
   ...resolveTranscriptionConfig(),
   /** Composio REST base URL (defaults to the hosted v3.1 API). */

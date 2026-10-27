@@ -23,6 +23,7 @@ import { verifyAgentMailWebhookSignature } from "./agentmail";
 import { executeTelegramAgentRun, executeWebAgentRun, CONTINUATION_PROMPT, NOVA_WEB_APP_URL } from "./agentRuns";
 import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
+import { handleWhopWebhook, isWhopConfigured } from "./whop";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
 import { MAX_SPEECH_REQUEST_CHARS, synthesizeSpeech } from "./speech";
@@ -272,6 +273,27 @@ app.post("/api/agent/queue/advance", async (req, res) => {
 
 app.post("/api/telegram/webhook/default", (req, res) => { const token = ENV.defaultTelegramBotToken; if (!token) return res.status(404).json({ error: "bot-not-configured" }); const requestStartedAtMs = Date.now(); res.status(200).json({ ok: true, accepted: true }); trackBackgroundWork(handleTelegramUpdate(token, req, backgroundWebhookSink(), { requestStartedAtMs }).catch(error => console.error("[Telegram webhook] background processing failed", error))); });
 app.post("/api/telegram/webhook/:token", (req, res) => { const token = req.params.token; if (!token) return res.status(400).json({ error: "missing-token" }); const requestStartedAtMs = Date.now(); res.status(200).json({ ok: true, accepted: true }); trackBackgroundWork(handleTelegramUpdate(token, req, backgroundWebhookSink(), { requestStartedAtMs }).catch(error => console.error("[Telegram webhook] background processing failed", error))); });
+app.post(
+  "/api/whop/webhook",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  async (req: express.Request, res: express.Response) => {
+    if (!isWhopConfigured() || !process.env.WHOP_WEBHOOK_SECRET?.trim()) {
+      return res.status(404).json({ error: "whop-webhooks-disabled" });
+    }
+    try {
+      const outcome = await handleWhopWebhook(req.body as Buffer, {
+        "webhook-id": req.headers["webhook-id"] as string | undefined,
+        "webhook-timestamp": req.headers["webhook-timestamp"] as string | undefined,
+        "webhook-signature": req.headers["webhook-signature"] as string | undefined,
+      });
+      return res.status(200).json({ ok: true, ...outcome });
+    } catch (error) {
+      console.error("[Whop] webhook verification failed", error);
+      return res.status(400).json({ error: "bad-signature" });
+    }
+  }
+);
+
 
 app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));
 app.get("/api/status", async (req: express.Request, res: express.Response) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await collectServiceStatus(user.id)); } catch (error) { if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message }); console.error("Status endpoint error", error); return res.status(500).json({ error: "Could not collect service status." }); } });

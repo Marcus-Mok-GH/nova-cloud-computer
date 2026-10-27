@@ -153,6 +153,20 @@ vi.mock("@/lib/trpc", () => ({
       send: { useMutation: () => mutation },
       stop: { useMutation: () => mutation },
       revert: { useMutation: () => mutation },
+      models: {
+        useQuery: () => ({
+          data: {
+            models: [{ id: "nova-pro", label: "Nova Pro", description: "", tier: "free" }],
+            current: "nova-pro",
+            plan: "free" as const,
+          },
+          isLoading: false,
+        }),
+      },
+      setModel: { useMutation: () => mutation },
+    },
+    billing: {
+      createCheckout: { useMutation: () => mutation },
     },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({

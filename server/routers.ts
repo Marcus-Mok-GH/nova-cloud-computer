@@ -58,8 +58,14 @@ import {
   cancelWaitingInferenceQueueItemsForUser,
   getPriorityStatusForUser,
   purchasePriorityForUser,
+  getMonthlyCreditStatusForUser,
+  getSubscriptionForUser,
+  setChatModelForUser,
+  setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
-import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
+import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
+import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
+import { createWhopCheckout, getWhopPlanId, isWhopConfigured, whopConfigurationMessage } from "./whop";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
@@ -283,6 +289,67 @@ export const appRouter = router({
      * the purchase. Buying again restarts the hour; there is nothing to cancel.
      */
     purchasePriority: protectedProcedure.mutation(({ ctx }) => purchasePriorityForUser(ctx.user.id)),
+    /**
+     * The Nova Pro subscription as the account sees it: plan, Whop checkout
+     * availability, and the paid credit balance. `monthlyCredits.balance`
+     * includes every unspent monthly allocation still inside the carry-over
+     * window, so nothing vanishes at the month boundary.
+     */
+    subscription: protectedProcedure.query(async ({ ctx }) => {
+      const [subscription, monthlyCredits] = await Promise.all([
+        getSubscriptionForUser(ctx.user.id),
+        getMonthlyCreditStatusForUser(ctx.user.id),
+      ]);
+      return {
+        plan: subscription.plan,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        configured: isWhopConfigured(),
+        priceCents: PAID_PLAN_PRICE_CENTS,
+        currency: PAID_PLAN_CURRENCY,
+        monthlyCredits,
+      };
+    }),
+    /**
+     * Starts Whop checkout for the monthly Nova Pro subscription. The account
+     * flips to paid when the membership webhook arrives - never here.
+     */
+    createCheckout: protectedProcedure
+      .input(z.object({ redirectUrl: z.string().url().max(2000).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        if (!isWhopConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopConfigurationMessage() });
+        }
+        const existing = await getSubscriptionForUser(ctx.user.id);
+        if (existing.plan === "paid" && !existing.cancelAtPeriodEnd) {
+          throw new TRPCError({ code: "CONFLICT", message: "Nova Pro is already active on this account." });
+        }
+        try {
+          const checkout = await createWhopCheckout({
+            ownerId: ctx.user.id,
+            planId: getWhopPlanId(),
+            redirectUrl: input?.redirectUrl,
+          });
+          // Remembering the checkout id lets a webhook that arrives without
+          // metadata still resolve this account later.
+          await setWhopCheckoutConfigIdForUser(ctx.user.id, checkout.id).catch(() => undefined);
+          return { url: checkout.purchaseUrl };
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop checkout creation failed", message);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Nova could not open checkout just now - try again in a moment." });
+        }
+      }),
+    /** Whop's hosted page for managing (cancelling) the subscription. */
+    portal: protectedProcedure.mutation(async ({ ctx }) => {
+      const url = process.env.WHOP_PORTAL_URL?.trim();
+      if (!url) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Manage your subscription from your Whop account (whop.com) - it renews or cancels there." });
+      }
+      return { url };
+    }),
   }),
   apiKeys: router({
     list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),
@@ -581,7 +648,41 @@ export const appRouter = router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
     messages: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),
     /** Reverts a conversation to an earlier message for the regenerate flow: deletes that message and everything after it. */
-    revert: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), messageId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await revertChatToMessageForUser(ctx.user.id, input.chatId, input.messageId); if (!result) throwIfNotFound(result, "conversation message"); return { success: true as const, deleted: result.deletedCount }; }),
+    revert: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), messageId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await revertChatToMessageForUser(ctx.user.id, input.chatId, input.messageId); if (!result) throwIfNotFound(result, "conversation message"); return { success: true as const, deleted: result.deletedCount }; }),    /**
+     * The chat's model catalogue plus the caller's current selection and
+     * plan. Free accounts see every model (the selector locks the premium
+     * entries); the response is also how the composer learns that upgrading
+     * unlocks them.
+     */
+    models: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
+      const chat = await getChatForUser(ctx.user.id, input.chatId);
+      if (!chat) throwIfNotFound(chat, "conversation");
+      const subscription = await getSubscriptionForUser(ctx.user.id);
+      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, plan: subscription.plan };
+    }),
+    /**
+     * Sets the chat's model. Premium ids are gated on an active paid plan
+     * here as well as in the composer, so the rule holds for every client.
+     */
+    setModel: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), model: z.string().trim().min(1).max(64).nullable() })).mutation(async ({ ctx, input }) => {
+      const chat = await getChatForUser(ctx.user.id, input.chatId);
+      if (!chat) throwIfNotFound(chat, "conversation");
+      const modelId = input.model ?? FREE_CHAT_MODEL_ID;
+      const catalogueEntry = getChatModelById(modelId);
+      if (!catalogueEntry) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
+      }
+      if (catalogueEntry.tier === "pro") {
+        const subscription = await getSubscriptionForUser(ctx.user.id);
+        if (subscription.plan !== "paid") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
+        }
+      }
+      const stored = modelId === FREE_CHAT_MODEL_ID ? null : modelId;
+      const updated = await setChatModelForUser(ctx.user.id, input.chatId, stored);
+      if (!updated) throwIfNotFound(updated, "conversation");
+      return { success: true as const, model: updated.model ?? FREE_CHAT_MODEL_ID };
+    }),
     runStatus: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");

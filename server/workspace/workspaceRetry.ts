@@ -131,10 +131,16 @@ export async function chatWithGatewayRetry(
      * per-call lookup for direct callers of this helper.
      */
     customModel?: CustomModel | null;
+    /**
+     * Explicit model id for this run (the chat's selected model). When unset
+     * the gateway falls back to its default model chain.
+     */
+    model?: string;
   }
 ) {
   const gatewayOptions = (streamedChars: { count: number }) => ({
     tools: options.tools,
+    ...(options.model ? { model: options.model } : {}),
     ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.onChunk

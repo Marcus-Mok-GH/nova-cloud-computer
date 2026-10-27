@@ -59,7 +59,6 @@ import {
   getInferenceQueuePosition,
   cancelWaitingInferenceQueueItemsForUser,
   getPriorityStatusForUser,
-  purchasePriorityForUser,
   getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
   setChatModelForUser,
@@ -67,7 +66,15 @@ import {
   activatePriorityWindowForUser } from "./db";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
 import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
-import { createWhopCheckout, getWhopPlanId, isWhopConfigured, whopConfigurationMessage } from "./whop";
+import {
+  createWhopCheckout,
+  createWhopPriorityCheckout,
+  getWhopPlanId,
+  getWhopPriorityPlanId,
+  isWhopConfigured,
+  whopConfigurationMessage,
+  whopPriorityConfigurationMessage,
+} from "./whop";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
@@ -286,11 +293,40 @@ export const appRouter = router({
   billing: router({
     status: protectedProcedure.query(({ ctx }) => getPriorityStatusForUser(ctx.user.id)),
     /**
-     * Test mode: no payment step. Records the priority purchase, which makes the
-     * account's queued requests jump ahead of standard ones for one hour from
-     * the purchase. Buying again restarts the hour; there is nothing to cancel.
+     * Starts Whop checkout for a one-time S$4.99 priority purchase. Priority is
+     * armed only after Whop confirms payment via webhook — never here.
      */
-    purchasePriority: protectedProcedure.mutation(({ ctx }) => purchasePriorityForUser(ctx.user.id)),
+    purchasePriority: protectedProcedure
+      .input(z.object({ redirectUrl: z.string().url().max(2000).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        if (!isWhopConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopPriorityConfigurationMessage() });
+        }
+        const planId = getWhopPriorityPlanId();
+        if (!planId) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopPriorityConfigurationMessage() });
+        }
+        const existing = await getPriorityStatusForUser(ctx.user.id);
+        if (existing.priority || existing.armed) {
+          throw new TRPCError({ code: "CONFLICT", message: "Priority is already active or armed on this account." });
+        }
+        try {
+          const checkout = await createWhopPriorityCheckout({
+            ownerId: ctx.user.id,
+            planId,
+            redirectUrl: input?.redirectUrl,
+          });
+          return { url: checkout.purchaseUrl };
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop priority checkout creation failed", message);
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "Nova could not open priority checkout just now - try again in a moment.",
+          });
+        }
+      }),
     /**
      * The Nova Pro subscription as the account sees it: plan, Whop checkout
      * availability, and the paid credit balance. `monthlyCredits.balance`

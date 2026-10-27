@@ -40,27 +40,21 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
 }
 
 /**
- * Billing tab: a one-time purchase of priority queue placement. Payment is
- * intentionally bypassed while the tier is under test - the button records the
- * purchase directly, and the card shows a live countdown of the one-hour
- * window so it is obvious how much priority time is left. When it lapses the
- * account returns to standard placement and can buy again.
+ * Billing tab: a one-time S$4.99 purchase of priority queue placement via Whop.
+ * The button opens checkout; priority is armed only after Whop confirms payment.
+ * The card shows a live countdown of the one-hour window so it is obvious how
+ * much priority time is left. When it lapses the account returns to standard
+ * placement and can buy again.
  */
 export default function BillingCard() {
   const utils = trpc.useUtils();
   const { t, locale } = useTranslation();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });
   const purchase = trpc.billing.purchasePriority.useMutation({
-    onSuccess: async result => {
-      await utils.billing.status.invalidate();
-      if (result.armed) {
-        toast.success(t("settings.billing.buy.success"));
-      } else {
-        toast.error(t("settings.billing.buy.error"));
-      }
+    onSuccess: ({ url }) => {
+      window.location.href = url;
     },
-    onError: error =>
-      toast.error(error.message || t("settings.billing.buy.error")),
+    onError: error => toast.error(error.message || t("settings.billing.buy.error")),
   });
   const priority = status.data?.priority ?? false;
   const armed = status.data?.armed ?? false;
@@ -80,6 +74,7 @@ export default function BillingCard() {
   // to standard and offers the button again.
   const active = priority && remainingMs !== null && remainingMs > 0;
   const refetchedOnExpiry = useRef(false);
+  const handledReturn = useRef(false);
   useEffect(() => {
     if (!priority) {
       refetchedOnExpiry.current = false;
@@ -90,6 +85,29 @@ export default function BillingCard() {
       void status.refetch();
     }
   }, [priority, remainingMs, status]);
+  useEffect(() => {
+    if (handledReturn.current || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const priorityResult = params.get("priority");
+    if (priorityResult !== "success" && priorityResult !== "cancelled") return;
+    handledReturn.current = true;
+    params.delete("priority");
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", next);
+    if (priorityResult === "cancelled") {
+      toast.error(t("settings.billing.buy.cancelled"));
+      return;
+    }
+    void (async () => {
+      const result = await status.refetch();
+      await utils.billing.status.invalidate();
+      if (result.data?.armed || result.data?.priority) {
+        toast.success(t("settings.billing.buy.success"));
+      } else {
+        toast.info(t("settings.billing.buy.pending"));
+      }
+    })();
+  }, [status, t, utils.billing.status]);
   const progress = remainingMs === null ? 0 : Math.min(100, Math.max(0, (remainingMs / PRIORITY_DURATION_MS) * 100));
   return (
     <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7">
@@ -163,7 +181,11 @@ export default function BillingCard() {
           </p>
           <Button
             className="mt-4"
-            onClick={() => purchase.mutate()}
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("priority", "success");
+              purchase.mutate({ redirectUrl: url.toString() });
+            }}
             disabled={purchase.isPending || status.isLoading}
           >
             {purchase.isPending && <Loader2 className="animate-spin" size={15} />}

@@ -110,19 +110,20 @@ export default function LandingNav() {
               menuOpen ? t("landing.nav.closeMenu") : t("landing.nav.menu")
             }
           >
-            {menuOpen ? (
-              <X className="size-4" />
-            ) : (
-              <span className="text-lg leading-none">&#9776;</span>
-            )}
+            <span className="relative size-4" aria-hidden="true">
+              <span className={`absolute left-0 top-[3px] h-px w-4 rounded-full bg-current transition-[top,transform] duration-200 ease-out motion-reduce:transition-none ${menuOpen ? "top-[7px] rotate-45" : ""}`} />
+              <span className={`absolute left-0 top-[7px] h-px w-4 rounded-full bg-current transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${menuOpen ? "scale-x-0 opacity-0" : ""}`} />
+              <span className={`absolute left-0 top-[11px] h-px w-4 rounded-full bg-current transition-[top,transform] duration-200 ease-out motion-reduce:transition-none ${menuOpen ? "top-[7px] -rotate-45" : ""}`} />
+            </span>
           </button>
         </div>
       </div>
 
       <nav
         id="landing-mobile-nav"
-        hidden={!menuOpen}
-        className="border-t border-border px-5 pb-4 pt-3 lg:hidden"
+        aria-hidden={!menuOpen}
+        inert={!menuOpen}
+        className={`overflow-y-auto border-t border-border px-5 lg:hidden transition-[max-height,opacity,transform,padding] duration-300 ease-[var(--nova-ease)] motion-reduce:transition-none ${menuOpen ? "max-h-[80vh] translate-y-0 py-3 opacity-100" : "pointer-events-none max-h-0 -translate-y-2 border-transparent py-0 opacity-0"}`}
         aria-label={t("landing.nav.aria")}
       >
         <div className="flex flex-col gap-1">

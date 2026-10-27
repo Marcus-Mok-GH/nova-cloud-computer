@@ -3,10 +3,19 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { querySpy } = vi.hoisted(() => ({
-  querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => [] as unknown[]),
+  querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => ({ rows: [] as unknown[] })),
 }));
 
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({ query: querySpy })) }));
+// The migrator builds its own `pg.Client`; intercept that class so every
+// statement it issues is observable while `connect`/`end` stay inert.
+vi.mock("pg", () => {
+  class Client {
+    query = (statement: string, params?: unknown[]) => querySpy(statement, params);
+    connect = async () => undefined;
+    end = async () => undefined;
+  }
+  return { default: { Client }, Client };
+});
 
 const { ensureDatabaseSchema, resetSchemaBootstrapForTests, resolveMigrationsFolder } =
   await import("./migrate");
@@ -28,7 +37,7 @@ describe("automatic database schema bootstrap", () => {
 
   beforeEach(() => {
     querySpy.mockClear();
-    querySpy.mockResolvedValue([]);
+    querySpy.mockResolvedValue({ rows: [] });
     resetSchemaBootstrapForTests();
     delete process.env.DATABASE_URL;
     delete process.env.DATABASE_URL_UNPOOLED;
@@ -143,9 +152,11 @@ describe("automatic database schema bootstrap", () => {
 
   it("skips migrations already recorded by a prior run", async () => {
     process.env.DATABASE_URL = "postgresql://user:password@localhost:5432/nova";
-    querySpy.mockImplementation(async (statement: string) =>
-      statement.startsWith("SELECT created_at") ? [{ created_at: Number.MAX_SAFE_INTEGER }] : []
-    );
+    querySpy.mockImplementation(async (statement: string) => ({
+      rows: statement.startsWith("SELECT created_at")
+        ? [{ created_at: Number.MAX_SAFE_INTEGER }]
+        : [],
+    }));
     await expect(ensureDatabaseSchema()).resolves.toBe(true);
     expect(statements().filter(statement => statement.startsWith("INSERT INTO"))).toHaveLength(0);
   });

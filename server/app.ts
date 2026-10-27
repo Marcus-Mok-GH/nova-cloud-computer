@@ -1,6 +1,6 @@
 import express from "express";
 import { NOVA_SIGNATURE_HEADER, verifySelfCallSignature } from "./selfCall";
-import { getDb } from "./db";
+import { getDb, pingDatabase } from "./db";
 import { collectServiceStatus } from "./status";
 import { inferenceApiRouter } from "./inferenceApi";
 import { HttpError } from "@shared/_core/errors";
@@ -40,6 +40,11 @@ export { ensureDatabaseSchema } from "./migrate";
 export { kickRunningProcessRecovery } from "./runningProcesses";
 import { MAX_PROCESS_RESUME_ATTEMPTS, PROCESS_STALE_AFTER_MS, resumeRunningProcess } from "./runningProcesses";
 import type { RunningProcess } from "../drizzle/schema";
+
+/** Kept short so a hung database cannot stall deploy readiness checks. */
+const HEALTH_DATABASE_PROBE_TIMEOUT_MS = 1500;
+const HEALTH_DATABASE_WARNING_INTERVAL_MS = 60_000;
+let lastHealthDatabaseWarningAt = 0;
 
 const MAX_TELEGRAM_CHATS = 100;
 async function pruneChatsIfNeeded(ownerId: number): Promise<void> { const chats = await listChatsForUser(ownerId); if (chats.length > MAX_TELEGRAM_CHATS) { const toDelete = chats.slice(MAX_TELEGRAM_CHATS); await Promise.all(toDelete.map(c => deleteChatForUser(ownerId, c.id))); console.info(`[Telegram webhook] pruned ${toDelete.length} stale chats for owner ${ownerId}`); } }
@@ -295,7 +300,27 @@ app.post(
 );
 
 
-app.get("/api/health", (_req: express.Request, res: express.Response) => res.status(200).json({ ok: true, service: "nova" }));
+/**
+ * Liveness plus a cheap database probe. The status code stays 200 whenever the
+ * process itself is serving so deploy/CI readiness checks keep their contract;
+ * `database.ok` reports whether the pool could reach Postgres. Errors are
+ * throttled in logs and omitted from the public response.
+ */
+app.get("/api/health", async (_req: express.Request, res: express.Response) => {
+  const database = await pingDatabase(HEALTH_DATABASE_PROBE_TIMEOUT_MS);
+  if (
+    !database.ok &&
+    Date.now() - lastHealthDatabaseWarningAt >= HEALTH_DATABASE_WARNING_INTERVAL_MS
+  ) {
+    lastHealthDatabaseWarningAt = Date.now();
+    console.error("[Health] Database probe failed", database.error ?? "unknown error");
+  }
+  return res.status(200).json({
+    ok: true,
+    service: "nova",
+    database: { ok: database.ok, latencyMs: database.latencyMs },
+  });
+});
 app.get("/api/status", async (req: express.Request, res: express.Response) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await collectServiceStatus(user.id)); } catch (error) { if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message }); console.error("Status endpoint error", error); return res.status(500).json({ error: "Could not collect service status." }); } });
 
 /**

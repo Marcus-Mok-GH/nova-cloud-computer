@@ -6,6 +6,7 @@ import { app } from "./app";
 import { ENV } from "./_core/env";
 import { ensureDatabaseSchema } from "./migrate";
 import { configureTelegramWebhook } from "./telegram";
+import { closeDatabase } from "./db/core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,21 @@ async function startServer() {
   // This is best-effort and never blocks the server on a database outage.
   await ensureDatabaseSchema();
   const server = createServer(app);
+  let shutdownStarted = false;
+  const shutdown = (signal: string) => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    console.log(`[Nova] ${signal} received; closing HTTP server and database pool.`);
+    server.close(error => {
+      if (error) {
+        console.error("[Nova] HTTP server shutdown failed", error);
+        process.exitCode = 1;
+      }
+      void closeDatabase();
+    });
+  };
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
 
   // API and scheduled routes are mounted by ./app before this static fallback.
   const staticPath =

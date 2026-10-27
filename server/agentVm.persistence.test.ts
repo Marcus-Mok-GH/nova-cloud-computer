@@ -46,8 +46,8 @@ const fakeDb = {
   delete: vi.fn(),
 };
 
-vi.mock("@neondatabase/serverless", () => ({ neon: vi.fn(() => ({})) }));
-vi.mock("drizzle-orm/neon-http", () => ({ drizzle: vi.fn(() => fakeDb) }));
+vi.mock("pg", () => ({ default: { Pool: vi.fn(() => ({ on: vi.fn(), end: vi.fn() })) } }));
+vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: vi.fn(() => fakeDb) }));
 vi.mock("./modelSecrets", () => ({ encryptModelApiKey: vi.fn(), decryptModelApiKey: vi.fn(), encryptPrivateCredential: vi.fn(), decryptPrivateCredential: vi.fn() }));
 
 const { countAgentVmRunsForUser, createAgentVmRunForUser, getActiveAgentVmRunForUser, listAgentVmRunsForUser, updateAgentVmRunForUser } = await import("./db");

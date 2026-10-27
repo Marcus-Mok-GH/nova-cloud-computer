@@ -19,9 +19,6 @@ importers:
       '@neondatabase/neon-js':
         specifier: 0.7.0-beta
         version: 0.7.0-beta(c09be659edb2dff32a34d391f1de25be)
-      '@neondatabase/serverless':
-        specifier: ^1.1.0
-        version: 1.1.0
       '@opencode/cli':
         specifier: 2.0.28
         version: 2.0.28
@@ -5835,7 +5832,8 @@ snapshots:
     dependencies:
       '@supabase/postgrest-js': 2.79.0
 
-  '@neondatabase/serverless@1.1.0': {}
+  '@neondatabase/serverless@1.1.0':
+    optional: true
 
   '@noble/ciphers@2.3.0': {}
 

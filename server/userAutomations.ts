@@ -1,13 +1,17 @@
 import { asc, and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
 import { createWorkspaceFileForUser, createChatForUser, getChatForUser, getOrCreateWorkspace } from "./db";
+import { requireDb } from "./db/core";
 import { executeWebAgentRun } from "./agentRuns";
 import { buildAutonomousMissionPrompt } from "./autonomousMission";
 import { userAutomations, type UserAutomation } from "../drizzle/schema";
 
-let db: ReturnType<typeof drizzle> | null = null;
-async function getDb() { if (!db && process.env.DATABASE_URL) db = drizzle(neon(process.env.DATABASE_URL));  if (!db) throw new Error("Nova can't reach your workspace data right now. Please try again shortly."); return db; }
+async function getDb() {
+  try {
+    return await requireDb();
+  } catch {
+    throw new Error("Nova can't reach your workspace data right now. Please try again shortly.");
+  }
+}
 
 export const USER_AUTOMATION_CRONS = { hourly: "0 0 * * * *", daily: "0 0 9 * * *", weekdays: "0 0 9 * * 1-5", weekly: "0 0 9 * * 1" } as const;
 export type UserAutomationFrequency = keyof typeof USER_AUTOMATION_CRONS | "custom";

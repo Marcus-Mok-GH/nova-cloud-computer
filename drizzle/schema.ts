@@ -72,6 +72,8 @@ export const chats = pgTable("chats", {
    * two of its messages arrive at the same instant; null on every other chat.
    */
   emailThreadId: varchar("emailThreadId", { length: 200 }),
+  /** The chat's selected model id from shared/models.ts; null = the default free model (nova-pro). */
+  model: varchar("model", { length: 64 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [
@@ -140,6 +142,15 @@ export const novaApiErrorLogs = pgTable("nova_api_error_logs", {
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [index("nova_api_error_logs_created_idx").on(table.createdAt), index("nova_api_error_logs_owner_created_idx").on(table.ownerId, table.createdAt)]);
 export type NovaApiErrorLog = typeof novaApiErrorLogs.$inferSelect;
+export const userSubscriptions = pgTable("user_subscriptions", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), plan: varchar("plan", { length: 24 }).default("free").notNull(), status: varchar("status", { length: 24 }).default("inactive").notNull(), provider: varchar("provider", { length: 24 }).default("whop").notNull(), whopMembershipId: varchar("whopMembershipId", { length: 64 }), whopUserId: varchar("whopUserId", { length: 64 }), whopCheckoutConfigId: varchar("whopCheckoutConfigId", { length: 64 }), currentPeriodStart: timestamp("currentPeriodStart", { withTimezone: true }), currentPeriodEnd: timestamp("currentPeriodEnd", { withTimezone: true }), cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").default(false).notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("user_subscriptions_owner_unique").on(table.ownerId), index("user_subscriptions_membership_idx").on(table.whopMembershipId)]);
+
+export const monthlyCredits = pgTable("monthly_credits", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), creditMonth: varchar("creditMonth", { length: 7 }).notNull(), allocatedCredits: integer("allocatedCredits").notNull(), usedCredits: integer("usedCredits").default(0).notNull(), inputTokens: integer("inputTokens").default(0).notNull(), outputTokens: integer("outputTokens").default(0).notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("monthly_credits_owner_month_unique").on(table.ownerId, table.creditMonth), index("monthly_credits_owner_month_idx").on(table.ownerId, table.creditMonth)]);
+
+export const whopWebhookEvents = pgTable("whop_webhook_events", { id: serial("id").primaryKey(), eventId: varchar("eventId", { length: 128 }).notNull(), eventType: varchar("eventType", { length: 64 }), membershipId: varchar("membershipId", { length: 64 }), receivedAt: timestamp("receivedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("whop_webhook_events_event_unique").on(table.eventId)]);
+
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
+export type MonthlyCredit = typeof monthlyCredits.$inferSelect;
+
 export type Workspace = typeof workspaces.$inferSelect; export type Project = typeof projects.$inferSelect; export type Task = typeof tasks.$inferSelect; export type CustomModel = typeof customModels.$inferSelect; export type WorkspaceSettings = typeof workspaceSettings.$inferSelect; export type WorkspaceEnvVar = typeof workspaceEnvVars.$inferSelect; export type WorkspaceFolder = typeof workspaceFolders.$inferSelect; export type WorkspaceFile = typeof workspaceFiles.$inferSelect; export type WorkspaceSkill = typeof workspaceSkills.$inferSelect; export type Chat = typeof chats.$inferSelect; export type ChatMessage = typeof chatMessages.$inferSelect; export type ConversationMemory = typeof conversationMemories.$inferSelect; export type TelegramBotSettings = typeof telegramBotSettings.$inferSelect; export type ApiKey = typeof apiKeys.$inferSelect; export type InferenceAllowance = typeof inferenceAllowances.$inferSelect; export type DailyCredit = typeof dailyCredits.$inferSelect; export type AgentVmRun = typeof agentVmRuns.$inferSelect; export type AgentStopRequest = typeof agentStopRequests.$inferSelect; export type TelegramUpdateLog = typeof telegramUpdateLog.$inferSelect; export type Automation = typeof automations.$inferSelect; export type AutomationRun = typeof automationRuns.$inferSelect; export type UserAutomation = typeof userAutomations.$inferSelect;
 
 export const siteDeployments = pgTable("site_deployments", {

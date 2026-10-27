@@ -43,7 +43,7 @@ import {
 import { latestGoalState } from "@shared/goal";
 import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
 import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
-import { GoalBadge } from "@/components/GoalBadge";
+import { GoalBadge } from "@/components/GoalBadge";import { ModelSelector } from "@/components/ModelSelector";
 import {
   matchSlashCommands,
   slashCommandInsertion,
@@ -797,7 +797,12 @@ export default function Workspace() {
                     {priorityNotice}
                   </div>
                 )}
-                <div className="flex items-center justify-end px-2.5 pb-1.5">
+                <div className="flex items-center justify-between gap-2 px-2.5 pb-1.5">
+                  {chatId ? (
+                    <ModelSelector chatId={chatId} />
+                  ) : (
+                    <span />
+                  )}
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
                     Enter to send · / for commands
                   </span>

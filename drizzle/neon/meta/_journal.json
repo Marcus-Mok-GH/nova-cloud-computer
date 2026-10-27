@@ -386,6 +386,13 @@
       "when": 1792990737498,
       "tag": "0054_tough_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793090593776,
+      "tag": "0055_whop_subscription_premium_models",
+      "breakpoints": true
     }
   ]
 }

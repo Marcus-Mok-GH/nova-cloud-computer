@@ -9,6 +9,7 @@ vi.mock("./db", () => ({
   getActiveCustomModelForUser: vi.fn(async () => null),
   getInferenceAllowanceForUser: getAllowance,
   claimInferenceRequestForUser: claim,
+  isPaidPlanForUser: vi.fn(async () => false),
 }));
 
 const {

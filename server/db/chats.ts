@@ -33,6 +33,17 @@ export async function listChatsByWorkspaceId(workspaceId: number) {
   const db = await requireDb();
   return db.select().from(chats).where(eq(chats.workspaceId, workspaceId)).orderBy(desc(chats.updatedAt));
 }
+/**
+ * Sets the chat's selected model (`null` restores the default free model).
+ * Catalogue validation and plan gating happen in the router before this
+ * write; here the value is stored verbatim so the next run reads it.
+ */
+export async function setChatModelForUser(ownerId: number, chatId: string, model: string | null) {
+  const db = await requireDb();
+  const chat = await getChatForUser(ownerId, chatId);
+  if (!chat) return undefined;
+  return (await db.update(chats).set({ model, updatedAt: new Date() }).where(eq(chats.id, chat.id)).returning())[0];
+}
 
 export async function createChatForUser(ownerId: number, title: string) {
   const db = await requireDb();

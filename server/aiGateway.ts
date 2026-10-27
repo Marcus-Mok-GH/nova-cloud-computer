@@ -1,11 +1,15 @@
 import {
   claimDailyCreditForUser,
   claimInferenceRequestForUser,
+  claimMonthlyCreditForUser,
   getInferenceAllowanceForUser,
+  isPaidPlanForUser,
   settleDailyCreditUsageForUser,
+  settleMonthlyCreditUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
 import { createSseLineFramer, sseDataPayload } from "./sse";
+import { getChatModelById } from "@shared/models";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -200,6 +204,23 @@ export function gatewayModelChain(): GatewayChainEntry[] {
   if (alreadyServedHere) return chain;
   chain.push({ model: seekai, baseUrl: seekaiUrl, token: seekaiTokenValue });
   return chain;
+}
+/**
+ * Builds the routing chain for a single chat request. When the caller names an
+ * explicit upstream model (a chat's selected premium model), that model leads
+ * and the default primary → fallback chain follows as the safety net, so a
+ * failing premium model degrades to a working one instead of erroring the run.
+ * The override is deduped: naming the model already serving the primary hop
+ * keeps the chain byte-identical to the default one.
+ */
+export function chatModelChain(explicitModel?: string): GatewayChainEntry[] {
+  const base = gatewayModelChain();
+  const requested = explicitModel?.trim();
+  if (!requested) return base;
+  const alreadyLeading = base[0]?.model === requested && !base[0]?.baseUrl;
+  if (alreadyLeading) return base;
+  const rest = base.filter(entry => entry.model !== requested || entry.baseUrl);
+  return [{ model: requested }, ...rest];
 }
 
 /** The endpoint override for a hop, or undefined for the primary gateway. */
@@ -648,6 +669,16 @@ async function readGatewayStreamedCompletion(
 }
 
 async function claimDailyCreditOrThrow(ownerId: number) {
+  if (await isPaidPlanForUser(ownerId)) {
+    const monthlyClaim = await claimMonthlyCreditForUser(ownerId);
+    if (!monthlyClaim) {
+      throw new AiGatewayClientError(
+        "Your monthly Nova credits are used up. Unused credits carry over for up to a year, and your next 10,000 credits arrive at the start of next month.",
+        "credits_exhausted"
+      );
+    }
+    return;
+  }
   const claim = await claimDailyCreditForUser(ownerId);
   if (!claim) {
     throw new AiGatewayClientError(
@@ -660,7 +691,11 @@ async function claimDailyCreditOrThrow(ownerId: number) {
 async function settleGatewayCredit(ownerId: number, model: string | undefined, usage: GatewayCompletion["usage"] | null) {
   const chargedCredits = calculateInferenceCredits(model, usage);
   try {
-    await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
+    if (await isPaidPlanForUser(ownerId)) {
+      await settleMonthlyCreditUsageForUser(ownerId, chargedCredits, usage);
+    } else {
+      await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
+    }
   } catch (error) {
     console.error("[Credits] Could not settle provider token usage", error instanceof Error ? error.message : error);
   }
@@ -1141,7 +1176,13 @@ export async function chatWithAiGateway(
   messages: GatewayChatMessage[],
   options: {
     tools?: GatewayToolDefinition[];
-    /** Accepted for call-site compatibility; ignored - the gateway walks its primary → fallback chain. */
+    /**
+     * Explicit upstream model id (e.g. the chat's selected premium model).
+     * When set it becomes the head of the routing chain and the default
+     * primary → fallback chain follows behind it, so a failure on the chosen
+     * model still degrades to a working model instead of erroring out.
+     * Omitted = the built-in chain, which is exactly what `nova-pro` means.
+     */
     model?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
@@ -1151,6 +1192,19 @@ export async function chatWithAiGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
+  // Premium models are a paid-plan feature, and this check runs on the send
+  // path so a model id can never be smuggled past the composer's own gate.
+  // The free model (or an id the catalogue does not know) falls through to
+  // the built-in chain, which is exactly what `nova-pro` means.
+  const selectedModel = getChatModelById(options.model);
+  if (selectedModel && selectedModel.tier === "pro") {
+    if (!(await isPaidPlanForUser(ownerId))) {
+      throw new AiGatewayClientError(
+        "Premium models require an active Nova Pro subscription. Upgrade to switch models, or keep using the free Nova Pro model.",
+        "client_error"
+      );
+    }
+  }
   await assertAiGatewayReady();
   await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
@@ -1161,10 +1215,15 @@ export async function chatWithAiGateway(
       "allowance_reached"
     );
   }
-  // Primary → fallback chain: a per-call model override is ignored for the
-  // same reason as completeWithAiGateway. The allowance was already claimed
-  // once, so the fallback reuses it without double-charging.
-  const chain = gatewayModelChain();
+  // Routing chain: an explicit per-call model (the chat's selected model)
+  // leads, with the default primary → fallback chain behind it as the safety
+  // net. The allowance was claimed once above, so a fallback hop reuses the
+  // same claim without double-charging.
+  const chain = chatModelChain(
+    selectedModel && selectedModel.tier === "pro"
+      ? (selectedModel.upstreamModel ?? selectedModel.id)
+      : undefined
+  );
   let streamedBeforeFallback = false;
   const trackingOnChunk = options.onChunk
     ? (chunk: string) => {

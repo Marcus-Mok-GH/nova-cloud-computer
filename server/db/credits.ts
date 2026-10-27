@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
-import { dailyCredits, inferenceAllowances } from "../../drizzle/schema";
-import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, getCreditDay, getDailyCreditPolicyForRole, type InferenceTokenUsage } from "../credits";
+import { dailyCredits, inferenceAllowances, userSubscriptions, whopWebhookEvents } from "../../drizzle/schema";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, PAID_PLAN_CARRY_OVER_MONTHS, getCarryOverFloorMonth, getCreditDay, getCreditMonth, getDailyCreditPolicyForRole, getMonthlyCreditAllocationForRole, type InferenceTokenUsage, type PlanTier } from "../credits";
 import { requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 import { getUserRole } from "./users";
@@ -124,4 +124,336 @@ export async function settleDailyCreditUsageForUser(ownerId: number, chargedCred
   const rows = Array.isArray(result) ? result : result.rows ?? [];
   const settled = rows[0];
   return settled ? { usedCredits: Number(settled.usedCredits), inputTokens: Number(settled.inputTokens), outputTokens: Number(settled.outputTokens) } : undefined;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Paid plan ledger (Nova Pro)
+ *
+ * A paid subscription allocates `PAID_PLAN_MONTHLY_CREDITS` at the start of
+ * each UTC month. Nothing expires at the month boundary: the spendable balance
+ * is the sum of unspent allocation across every month still inside the
+ * carry-over window, spent oldest-first.
+ * ------------------------------------------------------------------------- */
+
+export type SubscriptionSummary = {
+  plan: PlanTier;
+  status: string;
+  provider: string;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  whopCheckoutConfigId: string | null;
+};
+
+function isSubscriptionActive(status: string, periodEnd: Date | null) {
+  if (status !== "active" && status !== "trialing") return false;
+  return periodEnd === null || periodEnd.getTime() > Date.now();
+}
+
+/** The owner's subscription as billing and plan gating should see it. */
+export async function getSubscriptionForUser(ownerId: number): Promise<SubscriptionSummary> {
+  const db = await requireDb();
+  const [row] = await db.select().from(userSubscriptions).where(eq(userSubscriptions.ownerId, ownerId)).limit(1);
+  if (!row) {
+    return { plan: "free", status: "inactive", provider: "whop", currentPeriodEnd: null, cancelAtPeriodEnd: false, whopCheckoutConfigId: null };
+  }
+  const periodEnd = row.currentPeriodEnd ?? null;
+  const active = row.plan === "paid" && isSubscriptionActive(row.status, periodEnd);
+  return {
+    plan: active ? "paid" : "free",
+    status: row.status,
+    provider: row.provider,
+    currentPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+    whopCheckoutConfigId: row.whopCheckoutConfigId ?? null,
+  };
+}
+
+/** Whether the owner is entitled to the paid plan right now. */
+export async function isPaidPlanForUser(ownerId: number) {
+  return (await getSubscriptionForUser(ownerId)).plan === "paid";
+}
+
+/**
+ * Creates (or raises) the current month's allocation for a paid owner. Safe to
+ * call repeatedly: the row is keyed by (ownerId, creditMonth) and the stored
+ * allocation never shrinks.
+ */
+export async function ensureMonthlyAllocationForUser(ownerId: number) {
+  const role = await getUserRole(ownerId);
+  const allocation = getMonthlyCreditAllocationForRole(role);
+  if (allocation === null) return null;
+  const db = await requireDb();
+  const creditMonth = getCreditMonth();
+  const result = await db.execute(sql`
+    INSERT INTO "monthly_credits" ("ownerId", "creditMonth", "allocatedCredits", "usedCredits", "createdAt", "updatedAt")
+    VALUES (${ownerId}, ${creditMonth}, ${allocation}, 0, now(), now())
+    ON CONFLICT ("ownerId", "creditMonth") DO UPDATE
+    SET "allocatedCredits" = GREATEST("monthly_credits"."allocatedCredits", ${allocation}),
+        "updatedAt" = now()
+    RETURNING "allocatedCredits", "usedCredits"
+  `) as unknown as { rows?: Array<{ allocatedCredits: number; usedCredits: number }> } | Array<{ allocatedCredits: number; usedCredits: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  const row = rows[0];
+  return row ? { allocatedCredits: Number(row.allocatedCredits), usedCredits: Number(row.usedCredits) } : null;
+}
+
+type MonthlyCreditRow = { creditMonth: string; allocatedCredits: number; usedCredits: number };
+
+export type MonthlyCreditStatus = {
+  plan: PlanTier;
+  creditMonth: string;
+  monthlyAllocation: number;
+  balanceCredits: number;
+  usedCreditsThisMonth: number;
+  carriedOverCredits: number;
+  carryOverMonths: number;
+  inputTokens: number;
+  outputTokens: number;
+  creditValueCents: number;
+};
+
+/** Spendable paid-plan balance, including unspent credits carried over. */
+export async function getMonthlyCreditStatusForUser(ownerId: number): Promise<MonthlyCreditStatus> {
+  const subscription = await getSubscriptionForUser(ownerId);
+  const creditMonth = getCreditMonth();
+  const base = {
+    plan: subscription.plan,
+    creditMonth,
+    monthlyAllocation: 0,
+    balanceCredits: 0,
+    usedCreditsThisMonth: 0,
+    carriedOverCredits: 0,
+    carryOverMonths: PAID_PLAN_CARRY_OVER_MONTHS,
+    inputTokens: 0,
+    outputTokens: 0,
+    creditValueCents: CREDIT_VALUE_CENTS,
+  };
+  if (subscription.plan !== "paid") return base;
+  const current = await ensureMonthlyAllocationForUser(ownerId);
+  if (current === null) return base;
+  const db = await requireDb();
+  const floor = getCarryOverFloorMonth(creditMonth);
+  const result = await db.execute(sql`
+    SELECT "creditMonth", "allocatedCredits", "usedCredits", "inputTokens", "outputTokens"
+    FROM "monthly_credits"
+    WHERE "ownerId" = ${ownerId} AND "creditMonth" >= ${floor}
+    ORDER BY "creditMonth" ASC
+  `) as unknown as { rows?: Array<MonthlyCreditRow & { inputTokens: number; outputTokens: number }> } | Array<MonthlyCreditRow & { inputTokens: number; outputTokens: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  let balance = 0;
+  let usedThisMonth = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const row of rows) {
+    const allocated = Number(row.allocatedCredits);
+    const used = Number(row.usedCredits);
+    balance += Math.max(0, allocated - used);
+    if (row.creditMonth === creditMonth) {
+      usedThisMonth = used;
+      inputTokens = Number(row.inputTokens);
+      outputTokens = Number(row.outputTokens);
+    }
+  }
+  return {
+    ...base,
+    monthlyAllocation: current.allocatedCredits,
+    balanceCredits: balance,
+    usedCreditsThisMonth: usedThisMonth,
+    carriedOverCredits: Math.max(0, balance - Math.max(0, current.allocatedCredits - current.usedCredits)),
+    inputTokens,
+    outputTokens,
+  };
+}
+
+/**
+ * Atomically spends one credit from the oldest month that still has room, so
+ * carried-over credits are used before the current month's allocation.
+ * Returns undefined when the paid balance is exhausted.
+ */
+export async function claimMonthlyCreditForUser(ownerId: number) {
+  const current = await ensureMonthlyAllocationForUser(ownerId);
+  if (current === null) return undefined;
+  const db = await requireDb();
+  const floor = getCarryOverFloorMonth(getCreditMonth());
+  const result = await db.execute(sql`
+    SELECT "creditMonth" FROM "monthly_credits"
+    WHERE "ownerId" = ${ownerId} AND "creditMonth" >= ${floor} AND "usedCredits" < "allocatedCredits"
+    ORDER BY "creditMonth" ASC
+  `) as unknown as { rows?: Array<{ creditMonth: string }> } | Array<{ creditMonth: string }>;
+  const candidates = (Array.isArray(result) ? result : result.rows ?? []).map(row => row.creditMonth);
+  for (const creditMonth of candidates) {
+    const claimed = await db.execute(sql`
+      UPDATE "monthly_credits"
+      SET "usedCredits" = "monthly_credits"."usedCredits" + 1, "updatedAt" = now()
+      WHERE "ownerId" = ${ownerId} AND "creditMonth" = ${creditMonth} AND "usedCredits" < "allocatedCredits"
+      RETURNING "usedCredits", "allocatedCredits", "creditMonth"
+    `) as unknown as { rows?: Array<{ usedCredits: number; allocatedCredits: number; creditMonth: string }> } | Array<{ usedCredits: number; allocatedCredits: number; creditMonth: string }>;
+    const rows = Array.isArray(claimed) ? claimed : claimed.rows ?? [];
+    const row = rows[0];
+    if (row) {
+      return {
+        creditMonth: row.creditMonth,
+        usedCredits: Number(row.usedCredits),
+        allocatedCredits: Number(row.allocatedCredits),
+      };
+    }
+  }
+  return undefined;
+}
+
+/** Records provider token usage and any cost above the one-credit reservation. */
+export async function settleMonthlyCreditUsageForUser(ownerId: number, chargedCredits: number, usage: InferenceTokenUsage) {
+  await ensureMonthlyAllocationForUser(ownerId);
+  const db = await requireDb();
+  const creditMonth = getCreditMonth();
+  const additionalCredits = Math.max(0, Math.ceil(chargedCredits) - 1);
+  const inputValue = Number(usage?.prompt_tokens ?? 0);
+  const outputValue = Number(usage?.completion_tokens ?? 0);
+  const inputTokens = Number.isFinite(inputValue) ? Math.max(0, Math.floor(inputValue)) : 0;
+  const outputTokens = Number.isFinite(outputValue) ? Math.max(0, Math.floor(outputValue)) : 0;
+  const result = await db.execute(sql`
+    UPDATE "monthly_credits"
+    SET "usedCredits" = "monthly_credits"."usedCredits" + ${additionalCredits},
+        "inputTokens" = "monthly_credits"."inputTokens" + ${inputTokens},
+        "outputTokens" = "monthly_credits"."outputTokens" + ${outputTokens},
+        "updatedAt" = now()
+    WHERE "ownerId" = ${ownerId} AND "creditMonth" = ${creditMonth}
+    RETURNING "usedCredits", "inputTokens", "outputTokens"
+  `) as unknown as { rows?: Array<{ usedCredits: number; inputTokens: number; outputTokens: number }> } | Array<{ usedCredits: number; inputTokens: number; outputTokens: number }>;
+  const rows = Array.isArray(result) ? result : result.rows ?? [];
+  const settled = rows[0];
+  return settled ? { usedCredits: Number(settled.usedCredits), inputTokens: Number(settled.inputTokens), outputTokens: Number(settled.outputTokens) } : undefined;
+}
+
+/* -------------------------------------------------------------------------
+ * Whop subscription writes
+ *
+ * Whop is the payment provider: a checkout configuration is created per
+ * account, and membership webhooks drive the local subscription row that the
+ * credit ledger and model gating read. Writes are upserts so a replayed
+ * webhook converges on the same state instead of creating duplicates.
+ * ------------------------------------------------------------------------- */
+
+export type WhopSubscriptionState = {
+  plan: SubscriptionSummary["plan"];
+  status: string;
+  whopMembershipId: string | null;
+  whopUserId: string | null;
+  whopCheckoutConfigId: string | null;
+  currentPeriodStart: Date | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+};
+
+/** Writes the provider's membership state and returns the resolved summary. */
+export async function upsertSubscriptionForUser(ownerId: number, state: WhopSubscriptionState): Promise<SubscriptionSummary> {
+  const db = await requireDb();
+  const now = new Date();
+  await db
+    .insert(userSubscriptions)
+    .values({
+      ownerId,
+      plan: state.plan,
+      status: state.status,
+      provider: "whop",
+      whopMembershipId: state.whopMembershipId,
+      whopUserId: state.whopUserId,
+      whopCheckoutConfigId: state.whopCheckoutConfigId,
+      currentPeriodStart: state.currentPeriodStart,
+      currentPeriodEnd: state.currentPeriodEnd,
+      cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userSubscriptions.ownerId,
+      set: {
+        plan: state.plan,
+        status: state.status,
+        provider: "whop",
+        whopMembershipId: sql`COALESCE(${state.whopMembershipId}, "user_subscriptions"."whopMembershipId")`,
+        whopUserId: sql`COALESCE(${state.whopUserId}, "user_subscriptions"."whopUserId")`,
+        whopCheckoutConfigId: sql`COALESCE(${state.whopCheckoutConfigId}, "user_subscriptions"."whopCheckoutConfigId")`,
+        currentPeriodStart: state.currentPeriodStart,
+        currentPeriodEnd: state.currentPeriodEnd,
+        cancelAtPeriodEnd: state.cancelAtPeriodEnd,
+        updatedAt: now,
+      },
+    });
+  return getSubscriptionForUser(ownerId);
+}
+
+/** Remembers the Whop checkout configuration created for this account. */
+export async function setWhopCheckoutConfigIdForUser(ownerId: number, checkoutConfigId: string) {
+  const db = await requireDb();
+  await db
+    .insert(userSubscriptions)
+    .values({ ownerId, plan: "free", status: "inactive", provider: "whop", whopCheckoutConfigId: checkoutConfigId, cancelAtPeriodEnd: false, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: userSubscriptions.ownerId,
+      set: { whopCheckoutConfigId: checkoutConfigId, updatedAt: new Date() },
+    });
+  return checkoutConfigId;
+}
+
+/**
+ * Records a webhook delivery. Returns false when the event id was already
+ * stored, so the caller can acknowledge Whop's retry without re-applying it.
+ */
+export async function recordWhopWebhookEvent(eventId: string, eventType: string | null, membershipId: string | null) {
+  const db = await requireDb();
+  const inserted = await db
+    .insert(whopWebhookEvents)
+    .values({ eventId, eventType, membershipId })
+    .onConflictDoNothing({ target: whopWebhookEvents.eventId })
+    .returning({ id: whopWebhookEvents.id });
+  return inserted.length > 0;
+}
+
+/** Resolves which Nova account owns a Whop membership, if any. */
+export async function getOwnerIdForWhopMembership(membershipId: string) {
+  const db = await requireDb();
+  const [row] = await db
+    .select({ ownerId: userSubscriptions.ownerId })
+    .from(userSubscriptions)
+    .where(eq(userSubscriptions.whopMembershipId, membershipId))
+    .limit(1);
+  return row?.ownerId ?? null;
+}
+/**
+ * Called when a Whop subscription becomes active.
+ * Creates the paid subscription row and allocates the current month's credits.
+ */
+export async function grantPremiumSubscription(
+  ownerId: number,
+  membershipId: string,
+  planId: string,
+  currentPeriodEnd: Date
+) {
+  return upsertSubscriptionForUser(ownerId, {
+    plan: "paid",
+    status: "active",
+    whopMembershipId: membershipId,
+    whopUserId: null,
+    whopCheckoutConfigId: null,
+    currentPeriodStart: new Date(currentPeriodEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+    currentPeriodEnd,
+    cancelAtPeriodEnd: false,
+  });
+}
+
+/**
+ * Called when a Whop subscription is cancelled or expires.
+ * Downgrades the user to free plan.
+ */
+export async function revokePremiumSubscription(ownerId: number, membershipId: string) {
+  return upsertSubscriptionForUser(ownerId, {
+    plan: "free",
+    status: "cancelled",
+    whopMembershipId: membershipId,
+    whopUserId: null,
+    whopCheckoutConfigId: null,
+    currentPeriodStart: null,
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+  });
 }

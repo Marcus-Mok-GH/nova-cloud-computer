@@ -99,3 +99,71 @@ export function calculateInferenceCredits(modelId: string | undefined, usage: In
   const rawCredits = (inputTokens * rates.inputCreditsPerMillionTokens + outputTokens * rates.outputCreditsPerMillionTokens) / 1_000_000;
   return Math.max(MINIMUM_INFERENCE_CREDITS, Math.ceil(rawCredits));
 }
+
+/* ------------------------------------------------------------------------- *
+ * Paid plan (Nova Pro)
+ *
+ * A paid plan grants a monthly credit pool instead of the free daily
+ * allocation. Unused credits carry over: the balance is the sum of every
+ * month's unspent allocation, so nothing expires at the month boundary.
+ * ------------------------------------------------------------------------- */
+
+/** Monthly credit allocation for an active paid subscription. */
+export const PAID_PLAN_MONTHLY_CREDITS = 10_000;
+
+/** Price of the monthly subscription, in cents (USD): $7.99. */
+export const PAID_PLAN_PRICE_CENTS = 799;
+
+export const PAID_PLAN_CURRENCY = "usd";
+
+/** How many months of unspent credit a paid account may accumulate. */
+export const PAID_PLAN_CARRY_OVER_MONTHS = 12;
+
+export type PlanTier = "free" | "paid";
+
+/**
+ * The credit month key (`YYYY-MM`, UTC). Monthly allocations are created under
+ * this key, exactly as `getCreditDay` keys the free daily ledger.
+ */
+export function getCreditMonth(now = new Date()) {
+  return now.toISOString().slice(0, 7);
+}
+
+/** First instant of the month after `now`, used to date the next allocation. */
+export function getNextCreditMonthStart(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+}
+
+/** `YYYY-MM` for an offset in months from the given date (negative = past). */
+export function shiftCreditMonth(month: string, offset: number) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!year || !monthIndex) return month;
+  const shifted = new Date(Date.UTC(year, monthIndex - 1 + offset, 1));
+  return getCreditMonth(shifted);
+}
+
+/**
+ * Whole months between two credit-month keys. Used to decide whether a paid
+ * account lapsed long enough to exhaust the carry-over window.
+ */
+export function monthsBetweenCreditMonths(from: string, to: string) {
+  const [fromYear, fromMonth] = from.split("-").map(Number);
+  const [toYear, toMonth] = to.split("-").map(Number);
+  if (!fromYear || !fromMonth || !toYear || !toMonth) return 0;
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth);
+}
+
+/**
+ * The oldest credit month that still counts toward a balance at `month`.
+ * Anything older has fallen outside the carry-over window and is not spendable.
+ */
+export function getCarryOverFloorMonth(month: string) {
+  return shiftCreditMonth(month, -(PAID_PLAN_CARRY_OVER_MONTHS - 1));
+}
+
+/** A paid plan's monthly allowance, by role. Admins and developers keep their elevated access. */
+export function getMonthlyCreditAllocationForRole(role: CreditRole) {
+  if (role === "developer") return null;
+  if (role === "admin") return Math.max(ADMIN_DAILY_CREDITS, PAID_PLAN_MONTHLY_CREDITS);
+  return PAID_PLAN_MONTHLY_CREDITS;
+}

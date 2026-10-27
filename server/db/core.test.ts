@@ -133,7 +133,10 @@ describe("database connection handling", () => {
       rejectUnauthorized: true,
     });
     expect(resolveSsl("postgres://u:p@db.example/nova")).toEqual({
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
+    });
+    expect(resolveSsl("postgres://u:p@db.example/nova?sslmode=require")).toEqual({
+      rejectUnauthorized: true,
     });
   });
 

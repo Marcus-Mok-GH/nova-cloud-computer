@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import pg from "pg";
-import { resolveSsl } from "./db/core";
+import { getDatabaseTimeoutSettings, resolveSsl } from "./db/core";
 
 /**
  * Automatic schema bootstrap.
@@ -154,6 +154,7 @@ async function runMigrations(): Promise<boolean> {
   const client = new pg.Client({
     connectionString: databaseUrl,
     ssl: resolveSsl(databaseUrl),
+    ...getDatabaseTimeoutSettings(),
   });
   try {
     await client.connect();

@@ -147,6 +147,9 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |
 | `POSTGRES_PASSWORD`          | Postgres password                                                               |
 
+Remote database TLS certificates are verified, including when a connection URL
+uses `sslmode=require`; only `sslmode=disable` turns TLS off.
+
 The built-in gateway serves Token Harbor's free
 `deepseek-v4.1-flash:free` with `mimo-v2.6-flash:free` (Xiaomi MiMo) as the
 fallback for transient failures. See

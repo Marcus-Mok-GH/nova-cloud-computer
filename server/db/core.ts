@@ -68,11 +68,11 @@ export function resolveSsl(connectionString: string): pg.PoolConfig["ssl"] {
   try {
     url = new URL(connectionString);
   } catch {
-    return { rejectUnauthorized: false };
+    return { rejectUnauthorized: true };
   }
   const mode = url.searchParams.get("sslmode");
   if (mode === "disable") return false;
-  if (mode) return { rejectUnauthorized: mode === "verify-ca" || mode === "verify-full" };
+  if (mode) return { rejectUnauthorized: true };
   const host = url.hostname;
   const isLocal =
     host === "localhost" ||
@@ -82,13 +82,29 @@ export function resolveSsl(connectionString: string): pg.PoolConfig["ssl"] {
     host === "0.0.0.0" ||
     host.endsWith(".local") ||
     host.endsWith(".internal");
-  return isLocal ? false : { rejectUnauthorized: false };
+  return isLocal ? false : { rejectUnauthorized: true };
 }
 
 function readPositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getDatabaseTimeoutSettings(): Pick<
+  pg.PoolConfig,
+  "connectionTimeoutMillis" | "statement_timeout"
+> {
+  return {
+    connectionTimeoutMillis: readPositiveInt(
+      process.env.NOVA_DB_CONNECT_TIMEOUT_MS,
+      DEFAULT_CONNECTION_TIMEOUT_MS
+    ),
+    statement_timeout: readPositiveInt(
+      process.env.NOVA_DB_STATEMENT_TIMEOUT_MS,
+      DEFAULT_STATEMENT_TIMEOUT_MS
+    ),
+  };
 }
 
 function buildPoolConfig(connectionString: string): pg.PoolConfig {
@@ -100,16 +116,9 @@ function buildPoolConfig(connectionString: string): pg.PoolConfig {
       process.env.NOVA_DB_IDLE_TIMEOUT_MS,
       DEFAULT_IDLE_TIMEOUT_MS
     ),
-    connectionTimeoutMillis: readPositiveInt(
-      process.env.NOVA_DB_CONNECT_TIMEOUT_MS,
-      DEFAULT_CONNECTION_TIMEOUT_MS
-    ),
     // Bounds a runaway query instead of letting it hold a pooled connection
     // until the request times out somewhere further up the stack.
-    statement_timeout: readPositiveInt(
-      process.env.NOVA_DB_STATEMENT_TIMEOUT_MS,
-      DEFAULT_STATEMENT_TIMEOUT_MS
-    ),
+    ...getDatabaseTimeoutSettings(),
     keepAlive: true,
     application_name: "nova-cloud-computer",
     // Serverless instances should not pin the event loop open once work drains.

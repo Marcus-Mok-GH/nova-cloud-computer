@@ -2,14 +2,19 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { querySpy } = vi.hoisted(() => ({
+const { querySpy, clientConfigSpy } = vi.hoisted(() => ({
   querySpy: vi.fn(async (_statement: string, _params?: unknown[]) => ({ rows: [] as unknown[] })),
+  clientConfigSpy: vi.fn(),
 }));
 
 // The migrator builds its own `pg.Client`; intercept that class so every
 // statement it issues is observable while `connect`/`end` stay inert.
 vi.mock("pg", () => {
   class Client {
+    constructor(config: unknown) {
+      clientConfigSpy(config);
+    }
+
     query = (statement: string, params?: unknown[]) => querySpy(statement, params);
     connect = async () => undefined;
     end = async () => undefined;
@@ -37,6 +42,7 @@ describe("automatic database schema bootstrap", () => {
 
   beforeEach(() => {
     querySpy.mockClear();
+    clientConfigSpy.mockClear();
     querySpy.mockResolvedValue({ rows: [] });
     resetSchemaBootstrapForTests();
     delete process.env.DATABASE_URL;
@@ -72,6 +78,12 @@ describe("automatic database schema bootstrap", () => {
     expect(ran.some(statement => /CREATE TABLE (IF NOT EXISTS )?"users"/.test(statement))).toBe(true);
     // Each applied migration is recorded once, so later boots skip it.
     expect(ran.filter(statement => statement.startsWith('INSERT INTO "drizzle"."__drizzle_migrations"'))).toHaveLength(journalEntryCount());
+    expect(clientConfigSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionTimeoutMillis: 10_000,
+        statement_timeout: 30_000,
+      })
+    );
   });
 
   it("keeps the newest migration safe to re-run", () => {

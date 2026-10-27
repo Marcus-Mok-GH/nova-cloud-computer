@@ -21,6 +21,19 @@ vi.mock("./db", async () => {
   createChatForUser: vi.fn(async (ownerId: number, title: string) => { const item = { id: `chat-${nextChatId++}`, ownerId, title }; chats.set(item.id, item); return item; }),
   listChatMessagesForUser: vi.fn(async (ownerId: number, id: string) => chats.get(id)?.ownerId === ownerId ? [] : undefined),
   getWorkspaceComputer: vi.fn(async (ownerId: number) => ({ workspace: { id: ownerId }, folders: [...folders.values()].filter(item => item.ownerId === ownerId), files: [...files.values()].filter(item => item.ownerId === ownerId), chats: [...chats.values()].filter(item => item.ownerId === ownerId), settings: {} })),
+  getWorkspaceComputerOverview: vi.fn(async (ownerId: number) => ({
+    workspace: { id: ownerId },
+    folders: [...folders.values()].filter(item => item.ownerId === ownerId),
+    files: [...files.values()]
+      .filter(item => item.ownerId === ownerId)
+      .map(({ content: _content, ...file }) => file),
+    chats: [...chats.values()].filter(item => item.ownerId === ownerId),
+    settings: {},
+  })),
+  getWorkspaceFileForUser: vi.fn(async (ownerId: number, id: number) => {
+    const item = files.get(id);
+    return item?.ownerId === ownerId ? item : undefined;
+  }),
   getOrCreateWorkspace: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
   createCustomModelForUser: vi.fn(), deleteCustomModelForUser: vi.fn(), createProjectForUser: vi.fn(), createTaskForUser: vi.fn(), deleteProjectForUser: vi.fn(), deleteTaskForUser: vi.fn(), getProjectForUser: vi.fn(), listProjectsForUser: vi.fn(), listTasksForUser: vi.fn(), updateProjectForUser: vi.fn(), updateTaskStatusForUser: vi.fn(),
   searchWorkspaceFilesForUser: vi.fn(async (ownerId: number, options: { query: string; regex?: boolean; limit?: number }) => searchWorkspaceFiles([...files.values()].filter(item => item.ownerId === ownerId), options)),
@@ -39,7 +52,10 @@ describe("workspace computer router", () => {
     const chat = await owner.chats.create({ title: "Plan launch" });
     await expect(owner.folders.update({ id: folder.id, name: "Updated plans" })).resolves.toMatchObject({ name: "Updated plans" });
     await expect(owner.files.update({ id: file.id, name: "updated-brief.md" })).resolves.toMatchObject({ name: "updated-brief.md" });
-    expect(await owner.workspace.computer()).toMatchObject({ folders: [expect.objectContaining({ id: folder.id, name: "Updated plans" })], files: [expect.objectContaining({ id: file.id, name: "updated-brief.md" })], chats: [expect.objectContaining({ id: chat.id })] });
+    const overview = await owner.workspace.computer();
+    expect(overview).toMatchObject({ folders: [expect.objectContaining({ id: folder.id, name: "Updated plans" })], files: [expect.objectContaining({ id: file.id, name: "updated-brief.md" })], chats: [expect.objectContaining({ id: chat.id })] });
+    expect(overview.files[0]).not.toHaveProperty("content");
+    await expect(owner.files.get({ id: file.id })).resolves.toMatchObject({ id: file.id, content: "Private draft" });
     await expect(owner.files.delete({ id: file.id })).resolves.toEqual({ success: true });
   });
   it("searches the workspace's files by name and body", async () => {
@@ -60,7 +76,7 @@ describe("workspace computer router", () => {
     const owner = appRouter.createCaller(context(1)); const stranger = appRouter.createCaller(context(2));
     const folder = await owner.folders.create({ name: "Private" }); const file = await owner.files.create({ name: "private.txt" }); const chat = await owner.chats.create({ title: "Private chat" });
     await expect(stranger.folders.delete({ id: folder.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(stranger.files.delete({ id: file.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(stranger.files.delete({ id: file.id })).rejects.toMatchObject({ code: "NOT_FOUND" });    await expect(stranger.files.get({ id: file.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(stranger.chats.messages({ chatId: chat.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

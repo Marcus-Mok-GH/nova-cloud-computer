@@ -67,7 +67,7 @@ const fakeDb = {
 vi.mock("pg", () => ({ default: { Pool: vi.fn(() => ({ on: vi.fn(), end: vi.fn() })) } }));
 vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: vi.fn(() => fakeDb) }));
 
-const { getActiveAgentRunInChat, getChatForUser, getWorkspaceComputer } = await import("./db");
+const { getActiveAgentRunInChat, getChatForUser, getWorkspaceComputer, getWorkspaceComputerOverview } = await import("./db");
 
 beforeEach(() => {
   process.env.DATABASE_URL = "postgres://test";
@@ -86,6 +86,15 @@ describe("database round-trip budget", () => {
     expect(computer.workspace).toMatchObject({ id: 42 });
     // One workspace row, then folders, files, chats, settings and custom models:
     // six statements instead of the eleven this path used to issue.
+    expect([...statements].sort()).toEqual(
+      ["workspaces", "workspaceFolders", "workspaceFiles", "chats", "workspaceSettings", "customModels"].sort()
+    );
+  });
+
+  it("loads the browser overview without returning file bodies", async () => {
+    const computer = await getWorkspaceComputerOverview(7);
+    expect(computer.workspace).toMatchObject({ id: 42 });
+    expect(computer.files).toEqual([]);
     expect([...statements].sort()).toEqual(
       ["workspaces", "workspaceFolders", "workspaceFiles", "chats", "workspaceSettings", "customModels"].sort()
     );

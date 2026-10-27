@@ -91,6 +91,34 @@ export async function listWorkspaceFilesByWorkspaceId(workspaceId: number) {
   return db.select().from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspaceId)).orderBy(desc(workspaceFiles.updatedAt));
 }
 
+export async function listWorkspaceFileMetadataByWorkspaceId(workspaceId: number) {
+  const db = await requireDb();
+  return db.select({
+    id: workspaceFiles.id,
+    workspaceId: workspaceFiles.workspaceId,
+    folderId: workspaceFiles.folderId,
+    name: workspaceFiles.name,
+    mimeType: workspaceFiles.mimeType,
+    createdAt: workspaceFiles.createdAt,
+    updatedAt: workspaceFiles.updatedAt,
+  }).from(workspaceFiles).where(eq(workspaceFiles.workspaceId, workspaceId)).orderBy(desc(workspaceFiles.updatedAt));
+}
+
+export async function getWorkspaceComputerOverview(ownerId: number) {
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const [folders, files, chatRows, settings] = await Promise.all([
+    listWorkspaceFoldersByWorkspaceId(workspace.id),
+    listWorkspaceFileMetadataByWorkspaceId(workspace.id),
+    listChatsByWorkspaceId(workspace.id),
+    getWorkspaceModelSettingsByWorkspaceId(workspace.id),
+  ]);
+  return { workspace, folders, files, chats: chatRows, settings };
+}
+
+export async function getWorkspaceFileForUser(ownerId: number, fileId: number) {
+  return getFileForUser(ownerId, fileId);
+}
+
 /** Searches every file in the workspace by name, body and MIME type. */
 export async function searchWorkspaceFilesForUser(ownerId: number, options: FileSearchOptions) {
   const files = await listWorkspaceFilesForUser(ownerId);

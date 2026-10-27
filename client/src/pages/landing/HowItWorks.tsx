@@ -1,4 +1,5 @@
 import React from "react";
+import { CalendarClock, FolderOpen, MessagesSquare } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Eyebrow } from "./shared";
 
@@ -6,9 +7,18 @@ import { Eyebrow } from "./shared";
 export default function HowItWorks() {
   const { t } = useTranslation();
   const steps = [
-    { title: t("landing.steps.one.title"), body: t("landing.steps.one.body") },
-    { title: t("landing.steps.two.title"), body: t("landing.steps.two.body") },
     {
+      icon: FolderOpen,
+      title: t("landing.steps.one.title"),
+      body: t("landing.steps.one.body"),
+    },
+    {
+      icon: MessagesSquare,
+      title: t("landing.steps.two.title"),
+      body: t("landing.steps.two.body"),
+    },
+    {
+      icon: CalendarClock,
       title: t("landing.steps.three.title"),
       body: t("landing.steps.three.body"),
     },
@@ -29,20 +39,31 @@ export default function HowItWorks() {
             {t("landing.steps.body")}
           </p>
         </div>
-        <div className="mt-10 grid gap-10 sm:mt-12 lg:grid-cols-3 lg:gap-12">
-          {steps.map((step, index) => (
-            <div key={step.title} className="border-t border-border pt-5">
-              <span className="landing-display text-3xl text-primary">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <h3 className="mt-3 text-base font-semibold tracking-[-0.02em] text-foreground">
-                {step.title}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {step.body}
-              </p>
-            </div>
-          ))}
+        <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3 lg:gap-5">
+          {steps.map((step, index) => {
+            const Icon = step.icon;
+            return (
+              <div
+                key={step.title}
+                className="group relative rounded-3xl border border-border bg-card p-6 transition-colors duration-200 hover:border-primary/30 sm:p-7"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="grid size-11 place-items-center rounded-2xl bg-accent text-accent-foreground transition-colors duration-200 group-hover:bg-primary/10 group-hover:text-primary">
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="landing-display text-3xl leading-none text-muted-foreground/40 transition-colors duration-200 group-hover:text-primary/50">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                </div>
+                <h3 className="mt-5 text-base font-semibold tracking-[-0.02em] text-foreground">
+                  {step.title}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {step.body}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

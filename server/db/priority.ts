@@ -9,6 +9,12 @@ import { requireDb } from "./core";
  */
 export const PRIORITY_DURATION_MS = 60 * 60 * 1000;
 
+/** One-time priority purchase price in minor units (S$4.99). */
+export const PRIORITY_PRICE_CENTS = 499;
+
+/** Currency for the one-time priority purchase (matches site billing). */
+export const PRIORITY_CURRENCY = "sgd";
+
 /** When a window activated at `activatedAt` stops granting priority. */
 function priorityExpiresAt(activatedAt: Date): Date {
   return new Date(activatedAt.getTime() + PRIORITY_DURATION_MS);
@@ -75,10 +81,8 @@ export async function activatePriorityWindowForUser(ownerId: number): Promise<{ 
 }
 
 /**
- * Records the purchase (payment is intentionally bypassed for now) and returns
- * the resulting status. Buying arms the purchase and clears any previous
- * window, so the next message the account sends starts a fresh hour; there is
- * nothing to cancel.
+ * Arms priority after Whop confirms payment. Buying again clears any previous
+ * window so the next message starts a fresh hour; there is nothing to cancel.
  */
 export async function purchasePriorityForUser(ownerId: number): Promise<PriorityStatus> {
   const db = await requireDb();

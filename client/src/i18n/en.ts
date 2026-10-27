@@ -364,7 +364,7 @@ export const en = {
   // Settings: billing
   "settings.billing.eyebrow": "Billing",
   "settings.billing.title": "Priority requests",
-  "settings.billing.body": "During peak hours Nova serves requests through a queue. A one-time purchase of priority moves your requests ahead of standard ones for one hour, counting from the first message you send afterwards.",
+  "settings.billing.body": "During peak hours Nova serves requests through a queue. A one-time purchase of priority for S$4.99 moves your requests ahead of standard ones for one hour, counting from the first message you send afterwards.",
   "settings.billing.priority.title": "Priority",
   "settings.billing.priority.activeUntil": "Priority active for another {{remaining}} (until {{until}}). Your requests are served first during peak hours.",
   "settings.billing.priority.active": "Priority active for another {{remaining}}. Your requests are served first during peak hours.",
@@ -374,11 +374,13 @@ export const en = {
   "settings.billing.badge.active": "Priority active · {{remaining}}",
   "settings.billing.badge.armed": "Armed",
   "settings.billing.badge.standard": "Standard",
-  "settings.billing.buy.title": "Buy 1 hour of priority",
-  "settings.billing.buy.body": "Testing mode: payment is disabled, so clicking the button records the purchase immediately. Your hour begins when you send your next message, and starts over each time you buy again.",
-  "settings.billing.buy.button": "Buy priority",
+  "settings.billing.buy.title": "Buy 1 hour of priority — S$4.99",
+  "settings.billing.buy.body": "A one-time payment of S$4.99 opens secure Whop checkout. Priority is armed only after payment succeeds. Your hour begins when you send your next message, and starts over each time you buy again.",
+  "settings.billing.buy.button": "Buy priority — S$4.99",
   "settings.billing.buy.success": "Priority purchased. Your hour starts with your next message.",
-  "settings.billing.buy.error": "Nova could not record that purchase.",
+  "settings.billing.buy.pending": "Payment received — priority will appear here once Whop confirms it. Refresh if it takes a moment.",
+  "settings.billing.buy.cancelled": "Checkout was cancelled. No priority was purchased.",
+  "settings.billing.buy.error": "Nova could not open priority checkout.",
 
   // Settings: account management
   "settings.account.eyebrow": "Profile & Account",

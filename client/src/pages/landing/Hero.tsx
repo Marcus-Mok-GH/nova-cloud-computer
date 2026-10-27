@@ -22,44 +22,6 @@ function IconBadge({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * Splits the headline into words and drops the icon badges between them, so the
- * layout keeps the badge rhythm without touching the translated copy itself.
- */
-function HeadlineWords({ title }: { title: string }) {
-  const words = title.trim().split(/\s+/);
-  if (words.length < 4) {
-    return <>{title}</>;
-  }
-  const badgeAt = new Map<number, React.ReactNode>();
-  const slots = [
-    Math.max(0, Math.round(words.length * 0.28) - 1),
-    Math.max(0, Math.round(words.length * 0.62) - 1),
-    words.length - 1,
-  ];
-  const icons = [
-    <FolderOpen key="files" className="size-4 sm:size-[18px]" />,
-    <MessagesSquare key="chats" className="size-4 sm:size-[18px]" />,
-    <CalendarClock key="automations" className="size-4 sm:size-[18px]" />,
-  ];
-  Array.from(new Set(slots)).forEach((slot, index) => {
-    badgeAt.set(slot, icons[index % icons.length]);
-  });
-
-  return (
-    <>
-      {words.map((word, index) => (
-        <React.Fragment key={`${word}-${index}`}>
-          <span>{word}</span>
-          {badgeAt.has(index) ? (
-            <IconBadge>{badgeAt.get(index)}</IconBadge>
-          ) : null}
-        </React.Fragment>
-      ))}
-    </>
-  );
-}
-
 /** The opening pairs a centred product story with a wide capture of the workspace. */
 export default function Hero() {
   const { t } = useTranslation();
@@ -75,7 +37,13 @@ export default function Hero() {
           </p>
 
           <h1 className="landing-display landing-emboss mt-7 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 text-[clamp(2.3rem,5.4vw,4.6rem)] leading-[1.04] tracking-[-0.03em] text-foreground">
-            <HeadlineWords title={t("landing.hero.title")} />
+            <IconBadge>
+              <FolderOpen className="size-4 sm:size-5" />
+            </IconBadge>
+            <span className="text-balance">{t("landing.hero.title")}</span>
+            <IconBadge>
+              <MessagesSquare className="size-4 sm:size-5" />
+            </IconBadge>
           </h1>
 
           <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">

@@ -77,7 +77,7 @@ describe("Files page", () => {
         query="launch"
         regex={false}
         folders={[{ id: 1, name: "Plans", parentId: null }]}
-        files={[{ id: 2, name: "launch-brief.md", content: "x", folderId: 1 }]}
+        files={[{ id: 2, name: "launch-brief.md", mimeType: "text/markdown", folderId: 1 }]}
         onOpen={vi.fn()}
       />,
     );

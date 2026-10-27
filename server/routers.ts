@@ -28,6 +28,8 @@ import {
   getDailyCreditStatusForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
+  getWorkspaceComputerOverview,
+  getWorkspaceFileForUser,
   listWorkspaceEnvVarsForUser,
   saveWorkspaceEnvVarsForUser,
   listPendingEnvVarRequestsForUser,
@@ -382,7 +384,7 @@ export const appRouter = router({
   }),
   workspace: router({
     dashboard: protectedProcedure.query(({ ctx }) => getWorkspaceDashboard(ctx.user.id)),
-    computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputer(ctx.user.id)),
+    computer: protectedProcedure.query(({ ctx }) => getWorkspaceComputerOverview(ctx.user.id)),
     /** The conversation archive on its own: the Chats page polls this instead
      * of `computer`, which also loads folders, files, and settings it never
      * renders. */
@@ -621,6 +623,7 @@ export const appRouter = router({
   folders: router({ create: protectedProcedure.input(folderInput).mutation(async ({ ctx, input }) => { const folder = await createWorkspaceFolderForUser(ctx.user.id, input); if (!folder) throwIfNotFound(folder, "parent folder"); return folder; }), update: protectedProcedure.input(folderUpdateInput).mutation(async ({ ctx, input }) => { const folder = await updateWorkspaceFolderForUser(ctx.user.id, input.id, input); if (!folder) throwIfNotFound(folder, "folder"); return folder; }), delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFolderForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "folder"); return { success: true } as const; }) }),
   files: router({
     create: protectedProcedure.input(fileInput).mutation(async ({ ctx, input }) => { const file = await createWorkspaceFileForUser(ctx.user.id, input); if (!file) throwIfNotFound(file, "folder"); return file; }),
+    get: protectedProcedure.input(idInput).query(async ({ ctx, input }) => { const file = await getWorkspaceFileForUser(ctx.user.id, input.id); if (!file) throwIfNotFound(file, "file"); return file; }),
     update: protectedProcedure.input(fileUpdateInput).mutation(async ({ ctx, input }) => { const file = await updateWorkspaceFileForUser(ctx.user.id, input.id, input); if (!file) throwIfNotFound(file, "file or destination folder"); return file; }),
     delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { const deleted = await deleteWorkspaceFileForUser(ctx.user.id, input.id); if (!deleted) throwIfNotFound(deleted, "file"); return { success: true } as const; }),
     /** Full-text search across the workspace's files: name, body and MIME type.

@@ -2,31 +2,33 @@ import crypto from "node:crypto";
 import {
   ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership,
+  purchasePriorityForUser,
   recordWhopWebhookEvent,
   setWhopCheckoutConfigIdForUser,
   upsertSubscriptionForUser,
   type WhopSubscriptionState,
 } from "./db";
 import { PAID_PLAN_PRICE_CENTS, PAID_PLAN_CURRENCY } from "./credits";
+import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
 
 /**
- * Whop billing integration: checkout creation and signed membership webhooks.
+ * Whop billing integration: checkout creation and signed payment/membership webhooks.
  *
- * The paid plan (Nova Pro, $7.99/month) lives on the deployment's Whop
- * business account. Checkout configurations carry `metadata.nova_user_id`,
- * which Whop copies onto the payments and memberships it creates, so the
- * membership webhooks can resolve the owning Nova account without any state
- * beyond the subscription row.
+ * Nova Pro ($7.99/month) and one-hour priority (S$4.99 one-time) both live on
+ * the deployment's Whop business. Checkout configurations carry
+ * `metadata.nova_user_id` (and `nova_product` for priority), which Whop copies
+ * onto the payments and memberships it creates so webhooks can resolve the
+ * owning Nova account.
  *
  * Two credentials, both server-only:
  * - WHOP_API_KEY: a `whop_...` company API key (Whop dashboard > Developer),
  *   used to create checkout configurations.
  * - WHOP_WEBHOOK_SECRET: the `ws_...` signing secret of the webhook that
- *   posts membership events to /api/whop/webhook. Absent = webhooks off.
+ *   posts events to /api/whop/webhook. Absent = webhooks off.
  *
- * WHOP_PLAN_ID pins checkout to an existing Whop plan (variant). Without it
- * checkout creates/reuses an inline $7.99 / 30-day renewal variant instead,
- * which is how a fresh deployment bootstraps itself.
+ * WHOP_PLAN_ID pins Pro checkout to an existing Whop plan (variant). Without it
+ * checkout creates/reuses an inline $7.99 / 30-day renewal variant instead.
+ * WHOP_PRIORITY_PLAN_ID pins priority checkout to the S$4.99 one-time plan.
  */
 
 const WHOP_API_BASE_URL = "https://api.whop.com/api/v1";
@@ -60,13 +62,26 @@ export function getWhopPlanId(): string | undefined {
   return process.env.WHOP_PLAN_ID?.trim();
 }
 
+/** Returns the one-time priority plan ID if set in env. */
+export function getWhopPriorityPlanId(): string | undefined {
+  return process.env.WHOP_PRIORITY_PLAN_ID?.trim();
+}
+
 /** Human-readable message when Whop is not configured. */
 export function whopConfigurationMessage(): string {
   return "Nova Pro is not configured on this deployment. Contact the administrator to enable paid subscriptions.";
 }
 
+/** Human-readable message when priority checkout is not configured. */
+export function whopPriorityConfigurationMessage(): string {
+  return "Priority purchases are not configured on this deployment yet. Contact the administrator to enable them.";
+}
+
 /** The monthly subscription price in whole major units, for the checkout body. */
 const PAID_PLAN_PRICE = PAID_PLAN_PRICE_CENTS / 100;
+
+/** The one-time priority price in whole major units, for documentation/checkout bodies. */
+const PRIORITY_PLAN_PRICE = PRIORITY_PRICE_CENTS / 100;
 
 type WhopCheckoutConfiguration = {
   id: string;
@@ -131,6 +146,56 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.");
   }
   await setWhopCheckoutConfigIdForUser(ownerId, configuration.id);
+  return { id: configuration.id, purchaseUrl };
+}
+
+type CreateWhopPriorityCheckoutInput = {
+  ownerId: number;
+  planId: string;
+  redirectUrl: string | undefined;
+};
+
+/**
+ * Creates a Whop checkout configuration for one hour of priority (S$4.99 SGD
+ * one-time). Priority is armed only when `payment.succeeded` arrives — never
+ * at checkout creation.
+ */
+export async function createWhopPriorityCheckout(input: CreateWhopPriorityCheckoutInput): Promise<CreateWhopCheckoutOutput> {
+  const apiKey = whopApiKey();
+  if (!apiKey) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
+  const { ownerId, planId, redirectUrl } = input;
+  if (!planId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
+  const body: Record<string, unknown> = {
+    mode: "payment",
+    plan_id: planId,
+    metadata: {
+      nova_user_id: String(ownerId),
+      nova_product: "priority",
+      nova_priority_hours: "1",
+      nova_priority_price: String(PRIORITY_PLAN_PRICE),
+      nova_priority_currency: PRIORITY_CURRENCY,
+    },
+    redirect_url: redirectUrl,
+  };
+  const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 400);
+    console.error("[Whop] priority checkout configuration failed", response.status, detail);
+    throw new WhopNotConfiguredError("Nova's billing provider could not create the priority checkout - please try again shortly.");
+  }
+  const configuration = (await response.json()) as WhopCheckoutConfiguration;
+  const purchaseUrl = configuration.purchase_url ?? null;
+  if (!configuration.id || !purchaseUrl) {
+    console.error("[Whop] priority checkout configuration response missing id/purchase_url");
+    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable priority checkout - please try again shortly.");
+  }
   return { id: configuration.id, purchaseUrl };
 }
 
@@ -244,24 +309,94 @@ function membershipToState(data: Record<string, unknown>): { state: WhopSubscrip
 
 export type WhopWebhookOutcome =
   | { handled: true; ownerId: number; plan: "free" | "paid"; status: string }
+  | { handled: true; ownerId: number; product: "priority"; armed: boolean }
   | { handled: false; reason: string };
+
+function planIdFromPayload(data: Record<string, unknown>): string | null {
+  if (typeof data.plan_id === "string" && data.plan_id.trim()) return data.plan_id.trim();
+  const plan = asRecord(data.plan);
+  if (plan && typeof plan.id === "string" && plan.id.trim()) return plan.id.trim();
+  return null;
+}
+
+function ownerIdFromMetadata(data: Record<string, unknown>): number | null {
+  const metadata = asRecord(data.metadata);
+  const rawOwnerId = metadata?.nova_user_id;
+  const ownerId = typeof rawOwnerId === "string" || typeof rawOwnerId === "number" ? Number(rawOwnerId) : NaN;
+  return Number.isInteger(ownerId) && ownerId > 0 ? ownerId : null;
+}
+
+function isPriorityProduct(data: Record<string, unknown>): boolean {
+  const priorityPlanId = getWhopPriorityPlanId();
+  const planId = planIdFromPayload(data);
+  if (priorityPlanId && planId === priorityPlanId) return true;
+  const metadata = asRecord(data.metadata);
+  if (metadata?.nova_product === "priority") return true;
+  const product = asRecord(data.product);
+  const productMeta = asRecord(product?.metadata);
+  return productMeta?.product === "priority";
+}
+
+async function grantPriorityFromWebhook(event: VerifiedWhopEvent, paymentOrMembershipId: string | null): Promise<WhopWebhookOutcome> {
+  const ownerId = ownerIdFromMetadata(event.data);
+  if (ownerId === null) {
+    await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+    console.warn("[Whop] priority event with no resolvable Nova account", event.type, paymentOrMembershipId);
+    return { handled: false, reason: "unknown-owner" };
+  }
+  const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+  if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
+
+  const status = await purchasePriorityForUser(ownerId);
+  console.info(`[Whop] ${event.type}: account ${ownerId} -> priority armed=${status.armed}`);
+  return { handled: true, ownerId, product: "priority", armed: status.armed };
+}
 
 /**
  * Verifies, dedupes, and applies one webhook delivery. Replayed deliveries
  * (same webhook-id) are acknowledged without re-applying so a flaky first
  * response never double-activates anything.
+ *
+ * `payment.succeeded` (and membership activation for the priority plan) arms
+ * one-hour priority. Other `membership.*` events update Nova Pro only.
  */
 export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typeof verifyWhopWebhook>[1]): Promise<WhopWebhookOutcome> {
   const event = verifyWhopWebhook(rawBody, headers);
+
+  if (event.type === "payment.succeeded" && isPriorityProduct(event.data)) {
+    const paymentId = typeof event.data.id === "string" ? event.data.id : null;
+    return grantPriorityFromWebhook(event, paymentId);
+  }
+
   if (!event.type.startsWith("membership.")) {
     return { handled: false, reason: `ignored-event:${event.type}` };
   }
+
+  if (isPriorityProduct(event.data)) {
+    // One-time priority memberships must never flip the Nova Pro subscription.
+    if (event.type === "membership.activated" || event.type === "membership.went_valid") {
+      const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+      return grantPriorityFromWebhook(event, membershipId);
+    }
+    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+    await recordWhopWebhookEvent(event.id, event.type, membershipId);
+    return { handled: false, reason: "priority-membership-ignored" };
+  }
+
+  const proPlanId = getWhopPlanId();
+  const membershipPlanId = planIdFromPayload(event.data);
+  if (proPlanId && membershipPlanId && membershipPlanId !== proPlanId) {
+    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+    await recordWhopWebhookEvent(event.id, event.type, membershipId);
+    return { handled: false, reason: "ignored-non-pro-membership" };
+  }
+
   const membershipId = typeof event.data.id === "string" ? event.data.id : null;
   const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, membershipId);
   if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
 
-  const { state, ownerIdFromMetadata } = membershipToState(event.data);
-  let ownerId = ownerIdFromMetadata;
+  const { state, ownerIdFromMetadata: ownerFromMembership } = membershipToState(event.data);
+  let ownerId = ownerFromMembership;
   if (ownerId === null && membershipId) {
     ownerId = await getOwnerIdForWhopMembership(membershipId);
   }

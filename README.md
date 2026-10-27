@@ -138,9 +138,10 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `NOVA_SUPPORT_BOT_DAILY_LIMIT` | Optional per-instance daily cap for the public Q&A assistant on the landing and docs pages; defaults to `500` |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
-| `WHOP_API_KEY`               | Server-only Whop company API key (`whop_...`); enables Pro subscription checkout |
-| `WHOP_PLAN_ID`               | Whop plan/variant id the checkout is pinned to; unset disables self-serve upgrades |
-| `WHOP_WEBHOOK_SECRET`        | Whop webhook signing secret (`ws_...`); required to verify subscription webhooks |
+| `WHOP_API_KEY`               | Server-only Whop company API key (`whop_...`); enables Pro subscription and priority checkout |
+| `WHOP_PLAN_ID`               | Whop plan/variant id Pro checkout is pinned to; unset disables self-serve upgrades |
+| `WHOP_PRIORITY_PLAN_ID`      | Whop one-time plan/variant id for S$4.99 priority checkout (`plan_…`); unset disables priority purchases |
+| `WHOP_WEBHOOK_SECRET`        | Whop webhook signing secret (`ws_...`); required to verify payment and membership webhooks |
 | `WHOP_PORTAL_URL`            | Optional Whop customer portal URL surfaced in billing settings                  |
 | `NOVA_WEB_APP_URL`           | Public app URL used as checkout success/cancel target; defaults to `https://novacloud.computer` |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |

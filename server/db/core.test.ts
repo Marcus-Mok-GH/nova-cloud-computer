@@ -102,6 +102,19 @@ describe("Postgres connection pool", () => {
     expect(fakeClient.release).toHaveBeenCalledOnce();
   });
 
+  it("destroys a connection that arrives after the probe times out", async () => {
+    process.env.DATABASE_URL = "postgres://pooler.example/nova";
+    fakePool.connect.mockImplementationOnce(
+      () => new Promise(resolve => setTimeout(() => resolve(fakeClient), 20))
+    );
+
+    await expect(pingDatabase(5)).resolves.toMatchObject({ ok: false });
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    expect(fakeClient.release).toHaveBeenCalledOnce();
+    expect(fakeClient.release).toHaveBeenCalledWith(true);
+  });
+
   it("drains and resets the shared pool", async () => {
     process.env.DATABASE_URL = "postgres://pooler.example/nova";
     await getDb();

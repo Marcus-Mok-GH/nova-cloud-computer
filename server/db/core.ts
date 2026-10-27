@@ -233,12 +233,11 @@ export async function pingDatabase(
   const timeoutError = new Error(`Database probe timed out after ${timeoutMs}ms`);
   try {
     const connection = pool.connect().then(async checkedOut => {
-      client = checkedOut;
       if (timedOut) {
         checkedOut.release(true);
-        client = undefined;
         throw timeoutError;
       }
+      client = checkedOut;
       await checkedOut.query("select 1");
     });
     await Promise.race([

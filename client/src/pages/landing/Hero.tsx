@@ -1,28 +1,88 @@
 import React from "react";
-import { Check, ChevronRight } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  ChevronRight,
+  FolderOpen,
+  MessagesSquare,
+} from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { CtaButton, useEnterNova } from "./shared";
 import ProductCapture from "./ProductCapture";
 
-/** The opening pairs a direct product story with a capture of the workspace. */
+/** The small rounded icon tiles that punctuate the headline, in Mobbin's idiom. */
+function IconBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-primary shadow-[0_2px_10px_-4px_rgba(0,0,0,0.35)] sm:size-11 lg:size-12"
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Splits the headline into words and drops the icon badges between them, so the
+ * layout keeps the badge rhythm without touching the translated copy itself.
+ */
+function HeadlineWords({ title }: { title: string }) {
+  const words = title.trim().split(/\s+/);
+  if (words.length < 4) {
+    return <>{title}</>;
+  }
+  const badgeAt = new Map<number, React.ReactNode>();
+  const slots = [
+    Math.max(0, Math.round(words.length * 0.28) - 1),
+    Math.max(0, Math.round(words.length * 0.62) - 1),
+    words.length - 1,
+  ];
+  const icons = [
+    <FolderOpen key="files" className="size-4 sm:size-[18px]" />,
+    <MessagesSquare key="chats" className="size-4 sm:size-[18px]" />,
+    <CalendarClock key="automations" className="size-4 sm:size-[18px]" />,
+  ];
+  Array.from(new Set(slots)).forEach((slot, index) => {
+    badgeAt.set(slot, icons[index % icons.length]);
+  });
+
+  return (
+    <>
+      {words.map((word, index) => (
+        <React.Fragment key={`${word}-${index}`}>
+          <span>{word}</span>
+          {badgeAt.has(index) ? (
+            <IconBadge>{badgeAt.get(index)}</IconBadge>
+          ) : null}
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
+
+/** The opening pairs a centred product story with a wide capture of the workspace. */
 export default function Hero() {
   const { t } = useTranslation();
   const { isAuthenticated, enterNova } = useEnterNova();
 
   return (
     <section className="landing-hero relative isolate overflow-hidden">
-      <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 pb-14 pt-14 sm:px-8 sm:pb-20 sm:pt-20 lg:grid-cols-[1fr_1.12fr] lg:gap-12 lg:pt-24">
-        <div className="rise-in relative z-10 max-w-xl">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">
+      <div className="relative mx-auto max-w-6xl px-5 pb-16 pt-14 sm:px-8 sm:pb-24 sm:pt-20">
+        <div className="rise-in mx-auto flex max-w-3xl flex-col items-center text-center">
+          <p className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground backdrop-blur-sm">
+            <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
             {t("landing.hero.eyebrow")}
           </p>
-          <h1 className="landing-display landing-emboss mt-5 max-w-[13ch] text-[clamp(2.7rem,5.8vw,5rem)] leading-[0.99] text-foreground">
-            {t("landing.hero.title")}
+
+          <h1 className="landing-display landing-emboss mt-7 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 text-[clamp(2.3rem,5.4vw,4.6rem)] leading-[1.04] tracking-[-0.03em] text-foreground">
+            <HeadlineWords title={t("landing.hero.title")} />
           </h1>
-          <p className="mt-6 max-w-lg text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+
+          <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
             {t("landing.hero.body")}
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-2">
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
             <CtaButton
               label={
                 isAuthenticated ? t("landing.cta.open") : t("landing.cta.get")
@@ -36,7 +96,8 @@ export default function Hero() {
               icon={<ChevronRight className="size-4 rtl:-scale-x-100" />}
             />
           </div>
-          <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
+
+          <ul className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
             {[t("landing.hero.bullet1"), t("landing.hero.bullet2")].map(
               item => (
                 <li key={item} className="inline-flex items-center gap-1.5">
@@ -47,15 +108,20 @@ export default function Hero() {
             )}
           </ul>
         </div>
-        <div className="rise-in-delay-1 relative min-w-0 lg:-me-10">
+
+        <div className="rise-in-delay-1 relative mt-12 sm:mt-16">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-6 -top-6 bottom-6 -z-10 rounded-[2rem] bg-primary/10 blur-2xl"
+          />
           <ProductCapture
             src="/landing/workspace-home.png"
             alt={t("landing.capture.workspace.alt")}
             label={t("landing.capture.workspace.label")}
             loading="eager"
-            className="lg:rotate-[0.5deg]"
+            className="mx-auto max-w-5xl"
           />
-          <p className="mt-3 px-1 text-xs text-muted-foreground sm:text-end">
+          <p className="mx-auto mt-4 max-w-5xl px-1 text-center text-xs text-muted-foreground">
             {t("landing.hero.caption")}
           </p>
         </div>

@@ -97,6 +97,30 @@ describe("subscribeToWaitlist", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("counts Buttondown's double opt-in page as a signup", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("<title>Buttondown - Verify Your Subscription</title>", { status: 400 })
+    );
+    const result = await subscribeToWaitlist("nimay@example.com", {
+      username: "novacloud",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("still reports a rejected address as a provider failure", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("Subscription Error - the email address is not valid", { status: 400 })
+    );
+    const result = await subscribeToWaitlist("nope", {
+      username: "novacloud",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result).toEqual({ ok: false, status: 502, error: "waitlist-provider-error" });
+  });
+
   it("falls back to the public embed form when only a username is set", async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 302, headers: { location: "/thanks" } }));
     const result = await subscribeToWaitlist("nimay@example.com", {

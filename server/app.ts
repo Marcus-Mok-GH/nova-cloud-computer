@@ -38,6 +38,7 @@ import { readChatFileAttachments, chatFileAttachmentFileName, chatFileStampedFil
 export { ensureDatabaseSchema } from "./migrate";
 // Re-exported so the co-deployed Vercel function can kick the recovery sweep on any API traffic, so processes the platform killed earlier are resumed from the database.
 export { kickRunningProcessRecovery } from "./runningProcesses";
+export { handleWhopWebhook, isWhopConfigured } from "./whop";
 import { MAX_PROCESS_RESUME_ATTEMPTS, PROCESS_STALE_AFTER_MS, resumeRunningProcess } from "./runningProcesses";
 import type { RunningProcess } from "../drizzle/schema";
 

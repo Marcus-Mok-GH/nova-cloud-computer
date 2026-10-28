@@ -210,17 +210,10 @@ export type VerifiedWhopEvent = {
 };
 
 function whopSigningKey(secret: string): Buffer {
-  // Whop hands the secret as `ws_<base64>`; the Standard Webhooks spec signs
-  // with the decoded bytes. A raw (unprefixed) secret is used as-is.
-  const trimmed = secret.startsWith("ws_") ? secret.slice(3) : secret;
-  try {
-    const decoded = Buffer.from(trimmed, "base64");
-    if (decoded.length > 0 && decoded.toString("base64").replace(/=+$/, "") === trimmed.replace(/=+$/, "")) {
-      return decoded;
-    }
-  } catch {
-    // Fall through to the raw secret bytes.
-  }
+  // Whop HMACs with the literal UTF-8 bytes of the issued `ws_...` secret
+  // (prefix included). Their SDK base64-encodes that string before handing it
+  // to `standardwebhooks` so the library's decode yields these same bytes —
+  // stripping `ws_` and base64-decoding here derives the wrong key.
   return Buffer.from(secret, "utf8");
 }
 

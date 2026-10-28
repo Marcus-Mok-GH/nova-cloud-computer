@@ -25,8 +25,13 @@ export default function ProductCapture({
         className
       )}
     >
-      <figcaption className="border-b border-border bg-surface px-4 py-2.5">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+      <figcaption className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2.5">
+        <span aria-hidden="true" className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-full border border-border bg-background" />
+          <span className="size-2.5 rounded-full border border-border bg-background" />
+          <span className="size-2.5 rounded-full border border-border bg-background" />
+        </span>
+        <span className="ms-auto text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {label}
         </span>
       </figcaption>

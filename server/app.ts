@@ -107,6 +107,32 @@ app.post(
     );
   }
 );
+/**
+ * Whop billing webhook (Nova Pro subscription + one-time priority).
+ * Registered before the JSON body parser for the same reason as AgentMail
+ * above: signature verification needs the untouched raw bytes, and a body
+ * parsed by express.json would make every signed delivery fail verification.
+ */
+app.post(
+  "/api/whop/webhook",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  async (req: express.Request, res: express.Response) => {
+    if (!isWhopConfigured() || !process.env.WHOP_WEBHOOK_SECRET?.trim()) {
+      return res.status(404).json({ error: "whop-webhooks-disabled" });
+    }
+    try {
+      const outcome = await handleWhopWebhook(req.body as Buffer, {
+        "webhook-id": req.headers["webhook-id"] as string | undefined,
+        "webhook-timestamp": req.headers["webhook-timestamp"] as string | undefined,
+        "webhook-signature": req.headers["webhook-signature"] as string | undefined,
+      });
+      return res.status(200).json({ ok: true, ...outcome });
+    } catch (error) {
+      console.error("[Whop] webhook verification failed", error);
+      return res.status(400).json({ error: "bad-signature" });
+    }
+  }
+);
 // Base64 chat image attachments make the default 1mb JSON limit too small;
 // 4mb stays under Vercel's 4.5mb serverless request-body cap.
 app.use(express.json({ limit: "4mb" })); app.use(express.urlencoded({ limit: "1mb", extended: true })); app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
@@ -278,26 +304,7 @@ app.post("/api/agent/queue/advance", async (req, res) => {
 
 app.post("/api/telegram/webhook/default", (req, res) => { const token = ENV.defaultTelegramBotToken; if (!token) return res.status(404).json({ error: "bot-not-configured" }); const requestStartedAtMs = Date.now(); res.status(200).json({ ok: true, accepted: true }); trackBackgroundWork(handleTelegramUpdate(token, req, backgroundWebhookSink(), { requestStartedAtMs }).catch(error => console.error("[Telegram webhook] background processing failed", error))); });
 app.post("/api/telegram/webhook/:token", (req, res) => { const token = req.params.token; if (!token) return res.status(400).json({ error: "missing-token" }); const requestStartedAtMs = Date.now(); res.status(200).json({ ok: true, accepted: true }); trackBackgroundWork(handleTelegramUpdate(token, req, backgroundWebhookSink(), { requestStartedAtMs }).catch(error => console.error("[Telegram webhook] background processing failed", error))); });
-app.post(
-  "/api/whop/webhook",
-  express.raw({ type: "application/json", limit: "2mb" }),
-  async (req: express.Request, res: express.Response) => {
-    if (!isWhopConfigured() || !process.env.WHOP_WEBHOOK_SECRET?.trim()) {
-      return res.status(404).json({ error: "whop-webhooks-disabled" });
-    }
-    try {
-      const outcome = await handleWhopWebhook(req.body as Buffer, {
-        "webhook-id": req.headers["webhook-id"] as string | undefined,
-        "webhook-timestamp": req.headers["webhook-timestamp"] as string | undefined,
-        "webhook-signature": req.headers["webhook-signature"] as string | undefined,
-      });
-      return res.status(200).json({ ok: true, ...outcome });
-    } catch (error) {
-      console.error("[Whop] webhook verification failed", error);
-      return res.status(400).json({ error: "bad-signature" });
-    }
-  }
-);
+
 
 
 /**

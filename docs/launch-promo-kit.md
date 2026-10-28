@@ -48,6 +48,22 @@ Not launching yet — early access opens 1 November and I'm keeping the group sm
 
 Happy to answer questions about the architecture (React + tRPC + Postgres, agent gateway, sandboxed execution).
 
+## Paid ads status (28 Oct 2026)
+
+Whop's ad network is not an available channel right now. `ad-campaigns list` returns an empty set and campaign creation is refused upstream (platform capacity, not a permission or billing problem). Re-check before relying on it:
+
+```bash
+whop ad-campaigns create --account_id biz_x7eTBFTmhOxbVs --platform whop --title "Nova waitlist" --objective traffic --budget_type daily --budget_amount 10
+```
+
+Until it reopens, promotion runs on free surfaces only: the Whop store page (banner + gallery set), the 30% affiliate program, the waitlist, and manual posting of the copy below.
+
+### Free surfaces already live
+
+- Whop store page with banner and gallery: https://whop.com/nova-cloud-computer-pro/
+- Global affiliate program at 30% (`global_affiliate_status: enabled`) — recruit affiliates to do the distribution
+- Waitlist endpoint verified end to end (`POST /api/waitlist` → 200 `{"ok":true}`)
+
 ## Rules we hold ourselves to
 
 - Never claim features that are not shipped.

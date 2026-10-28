@@ -4,9 +4,11 @@ Copy-paste assets for the pre-launch window (waitlist open until 1 November 2026
 
 Canonical links:
 
+- Share landing (public): https://nimay.zo.space/nova
 - Waitlist / sign-in page: https://nova-cloud-computer.vercel.app/sign-in
 - Homepage: https://nova-cloud-computer.vercel.app
 - Whop store page: https://whop.com/nova-cloud-computer-pro/
+- Tracker: `docs/promo-tracker.md`
 
 Positioning: a personal cloud computer that stays on. Your files, projects and AI agent live on a machine that keeps working while your laptop is shut.
 
@@ -16,7 +18,7 @@ Your laptop sleeps. Your projects shouldn't.
 
 Nova is a personal cloud computer — files, projects and an AI agent on a machine that stays on 24/7.
 
-Early access opens 1 November. Join the waitlist: https://nova-cloud-computer.vercel.app/sign-in
+Early access opens 1 November. Join the waitlist: https://nimay.zo.space/nova
 
 ## X / Twitter (thread)
 
@@ -56,7 +58,7 @@ Whop's ad network is not an available channel right now. `ad-campaigns list` ret
 whop ad-campaigns create --account_id biz_x7eTBFTmhOxbVs --platform whop --title "Nova waitlist" --objective traffic --budget_type daily --budget_amount 10
 ```
 
-Until it reopens, promotion runs on free surfaces only: the Whop store page (banner + gallery set), the 30% affiliate program, the waitlist, and manual posting of the copy below.
+Until it reopens, promotion runs on free surfaces only: the public share landing, the Whop store page (banner + gallery set), the 30% affiliate program, the waitlist, free directory submissions, and manual posting of the copy below.
 
 ### Free surfaces already live
 

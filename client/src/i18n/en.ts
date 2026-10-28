@@ -455,6 +455,18 @@ export const en = {
   "landing.hero.bullet1": "Files and chats in one workspace",
   "landing.hero.bullet2": "Tasks continue in the cloud",
   "landing.hero.caption": "A workspace that stays ready when you return.",
+  // Landing: connectors
+  "landing.connections.aria": "Connected services",
+  "landing.connections.lead":
+    "Connect an account once and the agent can work inside it, next to the files already in your workspace.",
+  "landing.connections.github": "GitHub",
+  "landing.connections.github.note": "issues and pull requests",
+  "landing.connections.gmail": "Gmail",
+  "landing.connections.gmail.note": "read and reply",
+  "landing.connections.vercel": "Vercel",
+  "landing.connections.vercel.note": "deploys",
+  "landing.connections.inbox": "Agent inbox",
+  "landing.connections.inbox.note": "a mailbox of its own",
 
   // Landing: application captures
   "landing.capture.workspace.label": "Nova workspace",
@@ -502,6 +514,30 @@ export const en = {
   "landing.steps.three.title": "Return when you are ready",
   "landing.steps.three.body":
     "Files and chats persist, and scheduled automations run in the cloud. Check in from a browser or Telegram.",
+
+  // Landing: what you can hand it
+  "landing.jobs.eyebrow": "What you can hand it",
+  "landing.jobs.title": "Bring the task you keep putting off.",
+  "landing.jobs.body":
+    "Nova is most useful for the work that sits between apps: a document to read, an export to tidy, a thread to answer, or a small site to ship.",
+  "landing.jobs.research.title": "Research a question",
+  "landing.jobs.research.body":
+    "Ask for a rundown on a topic. Nova can look it up on the web and leave the answer as a file you can open.",
+  "landing.jobs.document.title": "Make sense of a document",
+  "landing.jobs.document.body":
+    "Hand over a long report or a messy export, then ask for the summary, the numbers, or a cleaner version.",
+  "landing.jobs.code.title": "Write and run code",
+  "landing.jobs.code.body":
+    "A real shell with packages and scripts, on the same machine as your files. Errors arrive with somewhere to fix them.",
+  "landing.jobs.inbox.title": "Answer its own mail",
+  "landing.jobs.inbox.body":
+    "Mail sent to your agent's own address opens a conversation, and the reply goes back in that same thread.",
+  "landing.jobs.routine.title": "Keep a routine running",
+  "landing.jobs.routine.body":
+    "A weekly digest, a nightly tidy-up, a check that runs every morning. Scheduled work carries on after you close the laptop.",
+  "landing.jobs.ship.title": "Ship something small",
+  "landing.jobs.ship.body":
+    "Ask for a page, a script, or a small service. Nova can put it online and hand you the link.",
 
   // Landing: channels
   "landing.channels.eyebrow": "Where you can reach Nova",

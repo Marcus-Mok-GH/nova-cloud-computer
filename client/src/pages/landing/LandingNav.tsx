@@ -62,7 +62,7 @@ export default function LandingNav() {
         if (event.key === "Escape" && menuOpen) closeMenu();
       }}
     >
-      <div className="mx-auto flex h-[var(--landing-nav-height)] max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
+      <div className="mx-auto flex h-[var(--landing-nav-height)] max-w-6xl items-center justify-between gap-6 px-5 sm:px-8">
         <a href="#top" className="flex items-center gap-2.5" aria-label="Nova">
           <img
             src="/logo-96.png"

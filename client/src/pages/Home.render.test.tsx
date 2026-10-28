@@ -69,6 +69,21 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain('aria-controls="landing-mobile-nav"');
   });
 
+  it("renders the connectors band and the hand-it-a-job section", () => {
+    const markup = renderToStaticMarkup(<Home />);
+    // Connectors the workspace can actually reach.
+    expect(markup).toContain('aria-label="Connected services"');
+    expect(markup).toContain(
+      "Connect an account once and the agent can work inside it"
+    );
+    expect(markup).toContain("GitHub");
+    expect(markup).toContain("Agent inbox");
+    // Jobs section.
+    expect(markup).toContain("Bring the task you keep putting off.");
+    expect(markup).toContain("Research a question");
+    expect(markup).toContain("Keep a routine running");
+  });
+
   it("renders the language selectors for guests and signed-in visitors", () => {
     for (const isAuthenticated of [false, true]) {
       authState.isAuthenticated = isAuthenticated;

@@ -2,8 +2,10 @@ import React from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import LandingNav from "./landing/LandingNav";
 import Hero from "./landing/Hero";
+import Connections from "./landing/Connections";
 import DeepDives from "./landing/DeepDives";
 import HowItWorks from "./landing/HowItWorks";
+import Jobs from "./landing/Jobs";
 import Channels from "./landing/Channels";
 import Pricing from "./landing/Pricing";
 import Faq from "./landing/Faq";
@@ -28,8 +30,10 @@ export default function Home() {
       <LandingNav />
       <main id="main">
         <Hero />
+        <Connections />
         <DeepDives />
         <HowItWorks />
+        <Jobs />
         <Channels />
         <Pricing />
         <Faq />

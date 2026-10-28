@@ -81,6 +81,22 @@ describe("subscribeToWaitlist", () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it("retries the embed form when the API key is rejected", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.startsWith("https://api.buttondown.com/v1/subscribers")) {
+        return new Response('{"code":"authentication_invalid"}', { status: 401 });
+      }
+      return new Response(null, { status: 302, headers: { location: "/thanks" } });
+    });
+    const result = await subscribeToWaitlist("nimay@example.com", {
+      apiKey: "stale-token",
+      username: "novacloud",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result).toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("falls back to the public embed form when only a username is set", async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 302, headers: { location: "/thanks" } }));
     const result = await subscribeToWaitlist("nimay@example.com", {

@@ -93,11 +93,15 @@ export async function subscribeToWaitlist(
   const fetchImpl = config.fetchImpl ?? fetch;
 
   try {
-    const outcome = config.apiKey
-      ? await subscribeWithApi(email, config, fetchImpl)
-      : await subscribeWithEmbed(email, config, fetchImpl);
-    if (outcome.ok) return { ok: true };
-    if (outcome.reason === "already-subscribed") return { ok: true };
+    const attempts: Array<() => Promise<SubscribeOutcome>> = [];
+    if (config.apiKey) attempts.push(() => subscribeWithApi(email, config, fetchImpl));
+    if (config.username) attempts.push(() => subscribeWithEmbed(email, config, fetchImpl));
+
+    for (const attempt of attempts) {
+      const outcome = await attempt();
+      if (outcome.ok) return { ok: true };
+      if (outcome.reason === "already-subscribed") return { ok: true };
+    }
     return { ok: false, status: 502, error: "waitlist-provider-error" };
   } catch (error) {
     console.error("[Waitlist] provider request failed", error);

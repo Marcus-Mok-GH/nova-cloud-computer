@@ -118,12 +118,15 @@ Sent once, to the `nova-waitlist` tag, on 1 November. Plain text plus the provid
 
 ## Rollout
 
-1. ~~Build `Waitlist.tsx`, add the gate, wire `POST /api/waitlist`. PR against `main`.~~ Shipped.
-2. Provider credentials: either `BUTTONDOWN_USERNAME` (collection only, no key) or `BUTTONDOWN_API_KEY`
-   (collection + tags + the launch send) as a Vercel production env var. Without one of them the
-   endpoint answers 503 and the page says so honestly.
-3. Redeploy, then submit a real address and confirm it appears in the Buttondown list.
-4. On 1 November: send the broadcast, the gate flips itself back, nothing else to do.
+1. ~~Build `Waitlist.tsx`, add the gate, wire `POST /api/waitlist`. PR against `main`.~~ Shipped in #299.
+2. ~~Create the Buttondown newsletter.~~ Created 28 Oct as `novalabs` / "Nova Launch".
+3. ~~Set provider credentials.~~ `BUTTONDOWN_USERNAME` and `BUTTONDOWN_API_KEY` are production secrets
+   on Vercel, and `waitlist` is in the co-deployed path list so the function reaches the app.
+4. ~~Verify.~~ A submission from the live page lands in Buttondown tagged `nova-waitlist` as
+   `type=regular`, i.e. subscribed outright with no double opt-in step in the way of the launch mail.
+5. **Open item: Buttondown review.** The account is queued for manual review, which caps sending and
+   the subscriber count until approved. Collection works today; the send does not.
+6. On 1 November: send the broadcast, the gate flips itself back, nothing else to do.
 
 ## Tests
 

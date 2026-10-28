@@ -78,6 +78,13 @@ async function subscribeWithEmbed(email: string, config: WaitlistConfig, fetchIm
   });
   // The embed endpoint reports success by redirecting to its thank-you page.
   if (response.ok || (response.status >= 300 && response.status < 400)) return { ok: true };
+  // With double opt-in on, the endpoint answers 400 and renders its
+  // "Verify Your Subscription" page: the address was recorded and Buttondown
+  // has mailed a confirmation link. That is a signup, not a failure.
+  if (response.status === 400) {
+    const detail = await response.text().catch(() => "");
+    if (/verify/i.test(detail) && !/not valid|invalid/i.test(detail)) return { ok: true };
+  }
   return { ok: false, reason: "provider-error" };
 }
 

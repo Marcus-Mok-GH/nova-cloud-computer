@@ -125,10 +125,13 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  * `/api/whop/*` verifies Whop webhook signatures against this deployment's
  * `WHOP_WEBHOOK_SECRET` and updates local billing state, so it must stay
  * co-deployed rather than being proxied to a remote API service.
+ *
+ * `/api/waitlist` posts to the pre-launch mailing list with this deployment's
+ * provider credentials, so it must stay co-deployed too.
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
+  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "waitlist" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

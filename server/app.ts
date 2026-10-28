@@ -24,6 +24,7 @@ import { executeTelegramAgentRun, executeWebAgentRun, CONTINUATION_PROMPT, NOVA_
 import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
 import { handleWhopWebhook, isWhopConfigured } from "./whop";
+import { createWaitlistHandler } from "./waitlist";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
 import { MAX_SPEECH_REQUEST_CHARS, synthesizeSpeech } from "./speech";
@@ -149,6 +150,13 @@ app.use(express.json({ limit: "4mb" })); app.use(express.urlencoded({ limit: "1m
 app.use(automationPlannerRouter);
 app.use("/api/v1", inferenceApiRouter);
 async function authenticatedUser(req: express.Request, res: express.Response) { const user = await sdk.authenticateRequest(req); if (!user) { res.status(401).json({ error: "Unauthorized" }); return null; } return user; }
+/**
+ * Public: the pre-launch waitlist is the only action available to a signed-out
+ * visitor, so it cannot require a session. It stores nothing locally - the
+ * address goes straight to Buttondown - so it keeps working while the database
+ * is unavailable.
+ */
+app.post("/api/waitlist", createWaitlistHandler());
 
 app.get("/api/user-automations", async (req, res) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await listUserAutomations(user.id)); } catch (error) { console.error("User automation list failed", error); return res.status(500).json({ error: "Could not load automations." }); } });
 app.post("/api/user-automations", async (req, res) => { try { const user = await authenticatedUser(req, res); if (!user) return; const { name, instructions, frequency = "daily" } = req.body ?? {}; if (typeof name !== "string" || name.trim().length < 1 || name.trim().length > 120) return res.status(400).json({ error: "Give the automation a name." }); if (typeof instructions !== "string" || instructions.trim().length < 3 || instructions.trim().length > 8000) return res.status(400).json({ error: "Describe what the automation should do." }); if (!(frequency in USER_AUTOMATION_CRONS)) return res.status(400).json({ error: "Invalid automation schedule." }); return res.status(201).json(await createUserAutomation(user.id, { name: name.trim(), instructions: instructions.trim(), frequency: frequency as any, scheduleCron: USER_AUTOMATION_CRONS[frequency as keyof typeof USER_AUTOMATION_CRONS], scheduleTimezone: "UTC", executionPrompt: instructions.trim(), args: {}, definition: {} })); } catch (error) { console.error("User automation create failed", error); return res.status(500).json({ error: "Could not create automation." }); } });

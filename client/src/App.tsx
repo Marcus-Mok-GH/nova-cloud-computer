@@ -10,7 +10,7 @@ import { isSupportBotRoute } from "./lib/supportBot";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-import SignIn from "./pages/SignIn";
+import SignInRoute from "./pages/SignInRoute";
 import Chats from "./pages/Chats";
 import Agents from "./pages/Agents";
 import Skills from "./pages/Skills";
@@ -29,7 +29,7 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/sign-in"} component={SignIn} />
+      <Route path={"/sign-in"} component={SignInRoute} />
       <Route path={"/app"} component={Workspace} />
       <Route path={"/app/files"} component={Files} />
       <Route path={"/app/chats"} component={Chats} />

@@ -75,6 +75,11 @@ describe("Neon Auth catch-all dispatch", () => {
     expect(isCoDeployedApiPath("whop/webhook")).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/whop/webhook")).toBe(true);
   });
+  it("keeps the pre-launch waitlist endpoint co-deployed so it reaches the app", () => {
+    expect(isCoDeployedApiPath(["waitlist"])).toBe(true);
+    expect(isCoDeployedApiPath("waitlist")).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/waitlist")).toBe(true);
+  });
 
   it("normalizes upstream third-party cookie directives for the first-party session proxy", () => {
     expect(normalizeProxiedSessionCookie("session=value; Domain=neon.example; Path=/; HttpOnly; Secure; SameSite=None; Partitioned")).toBe(

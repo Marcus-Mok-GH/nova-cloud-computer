@@ -19,6 +19,7 @@ export default defineConfig({
     env: { NOVA_PEAK_QUEUE: "off" },
     include: [
       "server/**/*.test.ts",
+      "shared/**/*.test.ts",
       "server/**/*.spec.ts",
       "api/**/*.test.ts",
       "api/**/*.spec.ts",

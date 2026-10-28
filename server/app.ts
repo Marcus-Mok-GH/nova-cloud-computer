@@ -129,8 +129,17 @@ app.post(
       });
       return res.status(200).json({ ok: true, ...outcome });
     } catch (error) {
-      console.error("[Whop] webhook verification failed", error);
-      return res.status(400).json({ error: "bad-signature" });
+      const message = error instanceof Error ? error.message : String(error);
+      const isSignatureFailure =
+        /signature|Missing Whop webhook headers|timestamp is outside|payload is malformed|billing webhooks are not configured/i.test(
+          message,
+        );
+      if (isSignatureFailure) {
+        console.error("[Whop] webhook verification failed", error);
+        return res.status(400).json({ error: "bad-signature" });
+      }
+      console.error("[Whop] webhook handling failed", error);
+      return res.status(500).json({ error: "webhook-handler-failed" });
     }
   }
 );

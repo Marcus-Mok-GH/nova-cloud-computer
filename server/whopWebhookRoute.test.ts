@@ -144,7 +144,10 @@ describe("Whop billing webhook route", () => {
   });
 
   function signedHeaders(body: string, timestamp = Math.floor(Date.now() / 1000)) {
-    const signature = createHmac("sha256", signingSecret)
+    // Capture the configured secret at call time via the module-level value so
+    // the "disabled" test can delete the env var without breaking HMAC setup.
+    const secret = `ws_${signingSecret.toString("base64")}`;
+    const signature = createHmac("sha256", Buffer.from(secret, "utf8"))
       .update(`evt_test_1.${timestamp}.${body}`)
       .digest("base64");
     return {

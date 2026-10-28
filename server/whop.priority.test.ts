@@ -42,7 +42,7 @@ describe("Whop priority webhooks", () => {
     // Call verify first so the test fails clearly if signing helpers change.
     const secret = process.env.WHOP_WEBHOOK_SECRET!;
     const crypto = await import("node:crypto");
-    const key = Buffer.from(secret.slice(3), "base64");
+    const key = Buffer.from(secret, "utf8");
     const signature = crypto.createHmac("sha256", key).update(`${webhookId}.${timestamp}.${rawBody.toString("utf8")}`).digest("base64");
     const headers = {
       "webhook-id": webhookId,

@@ -4,6 +4,10 @@
   "outputDirectory": "dist/public",
   "rewrites": [
     {
+      "source": "/api/whop/webhook",
+      "destination": "/api/whop/webhook"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/[...path].ts"
     },
@@ -35,6 +39,10 @@
   "functions": {
     "api/[...path].ts": {
       "maxDuration": 300,
+      "includeFiles": "dist/server/**"
+    },
+    "api/whop/webhook.ts": {
+      "maxDuration": 60,
       "includeFiles": "dist/server/**"
     },
     "api/spa.ts": {

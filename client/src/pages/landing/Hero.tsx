@@ -1,56 +1,27 @@
 import React from "react";
-import {
-  CalendarClock,
-  Check,
-  ChevronRight,
-  FolderOpen,
-  MessagesSquare,
-} from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { CtaButton, useEnterNova } from "./shared";
 import ProductCapture from "./ProductCapture";
 
-/** The small rounded icon tiles that punctuate the headline, in Mobbin's idiom. */
-function IconBadge({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-card text-primary shadow-[0_2px_10px_-4px_rgba(0,0,0,0.35)] sm:size-11 lg:size-12"
-    >
-      {children}
-    </span>
-  );
-}
-
-/** The opening pairs a centred product story with a wide capture of the workspace. */
 export default function Hero() {
   const { t } = useTranslation();
   const { isAuthenticated, enterNova } = useEnterNova();
 
   return (
-    <section className="landing-hero relative isolate overflow-hidden">
-      <div className="relative mx-auto max-w-6xl px-5 pb-16 pt-14 sm:px-8 sm:pb-24 sm:pt-20">
-        <div className="rise-in mx-auto flex max-w-3xl flex-col items-center text-center">
-          <p className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground backdrop-blur-sm">
-            <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+    <section className="landing-hero">
+      <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-12 lg:py-20">
+        <div className="max-w-xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
             {t("landing.hero.eyebrow")}
           </p>
-
-          <h1 className="landing-display landing-emboss mt-7 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-2 text-[clamp(2.3rem,5.4vw,4.6rem)] leading-[1.04] tracking-[-0.03em] text-foreground">
-            <IconBadge>
-              <FolderOpen className="size-4 sm:size-5" />
-            </IconBadge>
-            <span className="text-balance">{t("landing.hero.title")}</span>
-            <IconBadge>
-              <MessagesSquare className="size-4 sm:size-5" />
-            </IconBadge>
+          <h1 className="landing-display mt-5 max-w-[16ch] text-balance text-[clamp(2.4rem,3.8vw,3.6rem)] leading-[1.03] tracking-[-0.04em] text-foreground">
+            {t("landing.hero.title")}
           </h1>
-
-          <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+          <p className="mt-6 max-w-lg text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
             {t("landing.hero.body")}
           </p>
-
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <CtaButton
               label={
                 isAuthenticated ? t("landing.cta.open") : t("landing.cta.get")
@@ -64,12 +35,11 @@ export default function Hero() {
               icon={<ChevronRight className="size-4 rtl:-scale-x-100" />}
             />
           </div>
-
-          <ul className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
+          <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
             {[t("landing.hero.bullet1"), t("landing.hero.bullet2")].map(
               item => (
                 <li key={item} className="inline-flex items-center gap-1.5">
-                  <Check className="size-3.5 text-primary" />
+                  <Check className="size-3.5 text-primary" aria-hidden="true" />
                   {item}
                 </li>
               )
@@ -77,19 +47,14 @@ export default function Hero() {
           </ul>
         </div>
 
-        <div className="rise-in-delay-1 relative mt-12 sm:mt-16">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-6 -top-6 bottom-6 -z-10 rounded-[2rem] bg-primary/10 blur-2xl"
-          />
+        <div className="lg:-me-8">
           <ProductCapture
             src="/landing/workspace-home.png"
             alt={t("landing.capture.workspace.alt")}
             label={t("landing.capture.workspace.label")}
             loading="eager"
-            className="mx-auto max-w-5xl"
           />
-          <p className="mx-auto mt-4 max-w-5xl px-1 text-center text-xs text-muted-foreground">
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
             {t("landing.hero.caption")}
           </p>
         </div>

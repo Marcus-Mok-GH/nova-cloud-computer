@@ -3,7 +3,6 @@ import { Mail, MonitorSmartphone, Send } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Eyebrow } from "./shared";
 
-/** The three ways in: Telegram, email, and any browser. */
 export default function Channels() {
   const { t } = useTranslation();
   const channels = [
@@ -41,28 +40,28 @@ export default function Channels() {
             {t("landing.channels.body")}
           </p>
         </div>
-        <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3 lg:gap-5">
+        <ul className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
           {channels.map(channel => {
             const Icon = channel.icon;
             return (
-              <div
+              <li
                 key={channel.title}
-                className="group rounded-3xl border border-border bg-card p-6 transition-colors duration-200 hover:border-primary/30 sm:p-7"
+                className="border-b border-border py-6 sm:py-7 lg:border-b-0 lg:pe-8 lg:ps-6 lg:first:ps-0 lg:not-first:border-s lg:not-first:border-border"
               >
-                <span className="grid size-11 place-items-center rounded-2xl bg-accent text-accent-foreground transition-colors duration-200 group-hover:bg-primary/10 group-hover:text-primary">
-                  <Icon className="size-5" />
-                </span>
-                <h3 className="mt-5 text-base font-semibold tracking-[-0.02em] text-foreground">
-                  {channel.title}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <Icon className="size-4 text-primary" aria-hidden="true" />
+                  <h3 className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                    {channel.title}
+                  </h3>
+                </div>
+                <p className="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">
                   {channel.body}
                 </p>
-              </div>
+              </li>
             );
           })}
-        </div>
-        <ul className="mt-12 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-5 text-xs text-muted-foreground">
+        </ul>
+        <ul className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-5 text-xs text-muted-foreground">
           {trust.map((item, index) => (
             <li key={item} className="flex items-center gap-4">
               {index > 0 ? (

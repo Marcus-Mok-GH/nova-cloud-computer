@@ -21,19 +21,12 @@ export default function ProductCapture({
   return (
     <figure
       className={cn(
-        "overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_72px_-34px_rgba(55,35,20,0.38)] sm:rounded-[1.5rem]",
+        "overflow-hidden rounded-lg border border-border bg-card shadow-[0_8px_24px_-18px_rgba(55,35,20,0.28)] sm:rounded-xl",
         className
       )}
     >
-      <figcaption className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2.5">
-        <span aria-hidden="true" className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full border border-border bg-background" />
-          <span className="size-2.5 rounded-full border border-border bg-background" />
-          <span className="size-2.5 rounded-full border border-border bg-background" />
-        </span>
-        <span className="ms-auto text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {label}
-        </span>
+      <figcaption className="border-b border-border bg-card px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
       </figcaption>
       <img
         src={src}

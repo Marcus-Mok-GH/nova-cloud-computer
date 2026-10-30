@@ -208,25 +208,9 @@ button, a, [role="button"] { touch-action: manipulation; }
 /* ---------------- Landing page ---------------- */
 .landing-shell { background: var(--background); color: var(--foreground); }
 
-/* Soft washes behind the hero - the only atmosphere on the page. */
+/* Plain paper background and editorial display type keep the product in focus. */
 .landing-hero { position: relative; }
-.landing-hero::before {
-  content: "";
-  position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background:
-    radial-gradient(640px 320px at 14% -4%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 70%),
-    radial-gradient(560px 300px at 88% 2%, color-mix(in oklch, var(--accent) 65%, transparent), transparent 72%);
-}
-.dark .landing-hero::before {
-  background:
-    radial-gradient(640px 320px at 14% -4%, color-mix(in oklch, var(--primary) 20%, transparent), transparent 70%),
-    radial-gradient(560px 300px at 88% 2%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 72%);
-}
-
-/* Display type: the serif carries headlines; the offset shadow is a print
-   effect, not motion. */
 .landing-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }
-.landing-emboss { text-shadow: 0 1px 0 color-mix(in oklch, var(--primary) 35%, transparent); }
 
 /* The single inverted band on the page (developer callout). Light themes use
    the ink foreground; dark themes lift the card surface instead of glaring. */

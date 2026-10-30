@@ -1,24 +1,19 @@
 import React from "react";
-import { CalendarClock, FolderOpen, MessagesSquare } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Eyebrow } from "./shared";
 
-/** Three steps, told as a single breath with serif numerals. */
 export default function HowItWorks() {
   const { t } = useTranslation();
   const steps = [
     {
-      icon: FolderOpen,
       title: t("landing.steps.one.title"),
       body: t("landing.steps.one.body"),
     },
     {
-      icon: MessagesSquare,
       title: t("landing.steps.two.title"),
       body: t("landing.steps.two.body"),
     },
     {
-      icon: CalendarClock,
       title: t("landing.steps.three.title"),
       body: t("landing.steps.three.body"),
     },
@@ -29,7 +24,7 @@ export default function HowItWorks() {
       id="how-it-works"
       className="scroll-mt-24 border-y border-border bg-surface"
     >
-      <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
+      <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-20">
         <div className="max-w-2xl">
           <Eyebrow>{t("landing.steps.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
@@ -39,32 +34,25 @@ export default function HowItWorks() {
             {t("landing.steps.body")}
           </p>
         </div>
-        <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3 lg:gap-5">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            return (
-              <div
-                key={step.title}
-                className="group relative rounded-3xl border border-border bg-card p-6 transition-colors duration-200 hover:border-primary/30 sm:p-7"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="grid size-11 place-items-center rounded-2xl bg-accent text-accent-foreground transition-colors duration-200 group-hover:bg-primary/10 group-hover:text-primary">
-                    <Icon className="size-5" />
-                  </span>
-                  <span className="landing-display text-3xl leading-none text-muted-foreground/40 transition-colors duration-200 group-hover:text-primary/50">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                </div>
-                <h3 className="mt-5 text-base font-semibold tracking-[-0.02em] text-foreground">
-                  {step.title}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {step.body}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+
+        <ol className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
+          {steps.map((step, index) => (
+            <li
+              key={step.title}
+              className="border-b border-border py-6 last:border-b-0 sm:px-6 sm:first:ps-0 sm:last:pe-0 lg:border-b-0 lg:py-8 lg:ps-8 lg:first:ps-0 lg:last:pe-0 lg:[&:not(:first-child)]:border-s"
+            >
+              <span className="landing-display text-4xl leading-none text-primary/70" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <h3 className="mt-5 text-base font-semibold tracking-[-0.02em] text-foreground">
+                {step.title}
+              </h3>
+              <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+                {step.body}
+              </p>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );

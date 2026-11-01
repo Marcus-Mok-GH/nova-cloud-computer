@@ -1,0 +1,10 @@
+# Minimal runtime image for the Base44 sandbox: plain Node, no source baked in.
+# The repository is bind-mounted at /workspace by docker-compose.base44.yml, and
+# dependencies are installed at container start from the checked-out lockfile.
+FROM node:22
+
+# The repo pins pnpm via packageManager; install it once per image build so
+# container restarts don't spend time on a global install.
+RUN npm install -g pnpm@10.4.1
+
+WORKDIR /workspace

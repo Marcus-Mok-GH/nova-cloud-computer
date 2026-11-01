@@ -43,6 +43,12 @@ describe("resolveNeonAuthVerificationConfig", () => {
 describe("resolvePublicBaseUrl", () => {
   const oldBaseUrl = process.env.PUBLIC_BASE_URL;
 
+  // NOVA_PUBLIC_BASE_URL outranks PUBLIC_BASE_URL, so an inherited value (dev
+  // sandboxes set it) would shadow the URL each test configures.
+  beforeEach(() => {
+    delete process.env.NOVA_PUBLIC_BASE_URL;
+  });
+
   afterEach(() => {
     if (oldBaseUrl === undefined) delete process.env.PUBLIC_BASE_URL;
     else process.env.PUBLIC_BASE_URL = oldBaseUrl;

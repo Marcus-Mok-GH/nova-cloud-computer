@@ -4517,14 +4517,14 @@ describe("Nova tool-calling workspace agent", () => {
     // the same reply text is what Telegram delivers.
     chatWithAiGateway.mockRejectedValue(
       new AiGatewayClientError(
-        "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503",
+        "Model deepseek-4.1-flash is overloaded: upstream returned 503",
         "rate_limit"
       )
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
     expect(result.message.content).toContain(
-      "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503"
+      "Model deepseek-4.1-flash is overloaded: upstream returned 503"
     );
     expect(result.message.content).toContain(
       "Error details (nova-pro, rate_limit)"
@@ -4540,11 +4540,11 @@ describe("Nova tool-calling workspace agent", () => {
     // A deployment-internal failure names the workspace's own setup (and can
     // quote the configured credential), so the curated notice stands alone.
     chatWithAiGateway.mockRejectedValue(
-      new AiGatewayClientError("TOKENHARBOR_API_KEY is missing", "configuration")
+      new AiGatewayClientError("NEXTAPI_API_KEY is missing", "configuration")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
-    expect(result.message.content).not.toContain("TOKENHARBOR_API_KEY");
+    expect(result.message.content).not.toContain("NEXTAPI_API_KEY");
   });
 
   it("surfaces the provider's full error when the run is BYOK", async () => {

@@ -1,3 +1,24 @@
+2026-11-01 - the built-in gateway speaks NextAPI
+
+Nova's built-in AI gateway now runs on NextAPI (https://nextapi.online), an
+OpenAI-compatible relay serving DeepSeek 4.1 Flash. The chain tries
+`deepseek-4.1-flash` first, retries transient failures on
+`deepseek-4.1-flash-free-01`, and keeps the optional SeekAI `glm-5.3-flash`
+last resort on a separate provider. The environment variables are renamed to
+match - `NEXTAPI_API_KEY`, `NEXTAPI_GATEWAY_URL`, `NEXTAPI_FALLBACK_MODEL`,
+`NEXTAPI_MAX_REQUESTS_PER_WORKSPACE`, `NEXTAPI_REASONING_EFFORT` - with the
+deployment's existing `NEXTROUTER_API_KEY` still accepted as the credential
+until the Vercel project picks up the new name.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, server/modelFailureDetail.test.ts,
+server/supportBot.integration.test.ts, server/workspaceAgent.test.ts,
+docs/ai-gateway-contract.md, README.md, CLAUDE.md.
+Tests: pnpm vitest run server/aiGateway.client.test.ts
+server/aiGateway.chatStream.test.ts server/modelFailureDetail.test.ts
+(53 passed), server/workspaceAgent.test.ts (178 passed),
+server/supportBot.integration.test.ts (4 passed on a clean tree).
+
 2026-10-26 - the interface speaks ten more languages
 
 Nova's interface now ships in Korean, Hindi, Russian, Polish, Dutch, Italian,

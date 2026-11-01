@@ -129,11 +129,11 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `NOVA_DB_STATEMENT_TIMEOUT_MS` | Optional query timeout (defaults to `30000`)                                  |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `TOKENHARBOR_API_KEY`         | Server-only Token Harbor key (`thk_live_...`) powering the built-in AI gateway    |
-| `TOKENHARBOR_GATEWAY_URL`     | Optional HTTPS override for the Token Harbor base URL (defaults to `https://tokenharbor.ai/v1`) |
-| `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
-| `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
-| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after the Token Harbor fallback fails |
+| `NEXTAPI_API_KEY`            | Server-only NextAPI key powering the built-in AI gateway (the legacy `NEXTROUTER_API_KEY` name is accepted too) |
+| `NEXTAPI_GATEWAY_URL`        | Optional HTTPS override for the NextAPI base URL (defaults to `https://api.nextapi.online/v1`) |
+| `NEXTAPI_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
+| `NEXTAPI_FALLBACK_MODEL`     | Optional override for the built-in gateway fallback model (defaults to `deepseek-4.1-flash-free-01`); set to `none`/`disabled` to disable |
+| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after the NextAPI fallback fails |
 | `SEEKAI_GATEWAY_URL`         | Optional HTTPS override for the SeekAI base URL (defaults to `https://seekai.cc/v1`) |
 | `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `NOVA_SUPPORT_BOT_DAILY_LIMIT` | Optional per-instance daily cap for the public Q&A assistant on the landing and docs pages; defaults to `500` |
@@ -151,9 +151,8 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 Remote database TLS certificates are verified, including when a connection URL
 uses `sslmode=require`; only `sslmode=disable` turns TLS off.
 
-The built-in gateway serves Token Harbor's free
-`deepseek-v4.1-flash:free` with `mimo-v2.6-flash:free` (Xiaomi MiMo) as the
-fallback for transient failures. See
+The built-in gateway serves NextAPI's free `deepseek-4.1-flash` with
+`deepseek-4.1-flash-free-01` as the fallback for transient failures. See
 [`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
 details.
 

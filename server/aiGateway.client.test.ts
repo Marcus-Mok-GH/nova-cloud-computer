@@ -19,15 +19,15 @@ const {
   getAiGatewayStatus,
   listGatewayModels,
   resetAiGatewayHealthCache,
-  TOKENHARBOR_CHAT_MODEL,
-  TOKENHARBOR_FALLBACK_MODEL,
+  NEXTAPI_CHAT_MODEL,
+  NEXTAPI_FALLBACK_MODEL,
   SEEKAI_FALLBACK_MODEL,
   AiGatewayClientError,
 } = await import("./aiGateway");
 
-const TOKENHARBOR_BASE_URL = "https://tokenharbor.ai/v1";
+const NEXTAPI_BASE_URL = "https://api.nextapi.online/v1";
 const MIRROR_URL = "https://token-harbor-mirror.example.com/v1";
-const API_KEY = "thk_live_" + "k".repeat(40);
+const API_KEY = "sk-nextapi_" + "k".repeat(40);
 const SEEKAI_URL = "https://seekai.example.com/v1";
 const SEEKAI_KEY = "sk_seekai_" + "s".repeat(40);
 
@@ -46,22 +46,26 @@ function seekaiCalls() {
 
 describe("AI gateway client", () => {
   const originalFetch = globalThis.fetch;
-  const originalKey = process.env.TOKENHARBOR_API_KEY;
-  const originalUrl = process.env.TOKENHARBOR_GATEWAY_URL;
-  const originalFallback = process.env.TOKENHARBOR_FALLBACK_MODEL;
+  const originalKey = process.env.NEXTAPI_API_KEY;
+  const originalUrl = process.env.NEXTAPI_GATEWAY_URL;
+  const originalFallback = process.env.NEXTAPI_FALLBACK_MODEL;
   const originalSeekaiKey = process.env.SEEKAI_API_KEY;
   const originalSeekaiUrl = process.env.SEEKAI_GATEWAY_URL;
   const originalSeekaiFallback = process.env.SEEKAI_FALLBACK_MODEL;
+  const originalRouterKey = process.env.NEXTROUTER_API_KEY;
 
   beforeEach(() => {
-    delete process.env.TOKENHARBOR_API_KEY;
-    delete process.env.TOKENHARBOR_GATEWAY_URL;
-    delete process.env.TOKENHARBOR_FALLBACK_MODEL;
+    delete process.env.NEXTAPI_API_KEY;
+    delete process.env.NEXTAPI_GATEWAY_URL;
+    delete process.env.NEXTAPI_FALLBACK_MODEL;
+    // The resolver also accepts the deployment's legacy key name; tests must
+    // not inherit a real one from the surrounding environment.
+    delete process.env.NEXTROUTER_API_KEY;
     delete process.env.SEEKAI_API_KEY;
     delete process.env.SEEKAI_GATEWAY_URL;
     delete process.env.SEEKAI_FALLBACK_MODEL;
-    process.env.TOKENHARBOR_API_KEY = API_KEY;
-    process.env.TOKENHARBOR_GATEWAY_URL = MIRROR_URL;
+    process.env.NEXTAPI_API_KEY = API_KEY;
+    process.env.NEXTAPI_GATEWAY_URL = MIRROR_URL;
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
     claim.mockResolvedValue({ usedRequests: 1 });
     resetAiGatewayHealthCache();
@@ -70,23 +74,24 @@ describe("AI gateway client", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    if (originalKey === undefined) delete process.env.TOKENHARBOR_API_KEY; else process.env.TOKENHARBOR_API_KEY = originalKey;
-    if (originalUrl === undefined) delete process.env.TOKENHARBOR_GATEWAY_URL; else process.env.TOKENHARBOR_GATEWAY_URL = originalUrl;
-    if (originalFallback === undefined) delete process.env.TOKENHARBOR_FALLBACK_MODEL; else process.env.TOKENHARBOR_FALLBACK_MODEL = originalFallback;
+    if (originalKey === undefined) delete process.env.NEXTAPI_API_KEY; else process.env.NEXTAPI_API_KEY = originalKey;
+    if (originalUrl === undefined) delete process.env.NEXTAPI_GATEWAY_URL; else process.env.NEXTAPI_GATEWAY_URL = originalUrl;
+    if (originalFallback === undefined) delete process.env.NEXTAPI_FALLBACK_MODEL; else process.env.NEXTAPI_FALLBACK_MODEL = originalFallback;
+    if (originalRouterKey === undefined) delete process.env.NEXTROUTER_API_KEY; else process.env.NEXTROUTER_API_KEY = originalRouterKey;
     if (originalSeekaiKey === undefined) delete process.env.SEEKAI_API_KEY; else process.env.SEEKAI_API_KEY = originalSeekaiKey;
     if (originalSeekaiUrl === undefined) delete process.env.SEEKAI_GATEWAY_URL; else process.env.SEEKAI_GATEWAY_URL = originalSeekaiUrl;
     if (originalSeekaiFallback === undefined) delete process.env.SEEKAI_FALLBACK_MODEL; else process.env.SEEKAI_FALLBACK_MODEL = originalSeekaiFallback;
   });
 
-  it("targets Token Harbor's base URL by default", async () => {
-    delete process.env.TOKENHARBOR_GATEWAY_URL;
+  it("targets NextAPI's base URL by default", async () => {
+    delete process.env.NEXTAPI_GATEWAY_URL;
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await getAiGatewayStatus(7);
-    expect(globalThis.fetch).toHaveBeenCalledWith(`${TOKENHARBOR_BASE_URL}/models`, expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith(`${NEXTAPI_BASE_URL}/models`, expect.anything());
   });
 
-  it("honors TOKENHARBOR_GATEWAY_URL as the base URL override", async () => {
+  it("honors NEXTAPI_GATEWAY_URL as the base URL override", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await getAiGatewayStatus(7);
@@ -101,19 +106,19 @@ describe("AI gateway client", () => {
       reachable: true,
       providerConfigured: true,
       providerConfigurationKnown: true,
-      model: TOKENHARBOR_CHAT_MODEL,
+      model: NEXTAPI_CHAT_MODEL,
     });
   });
 
   it("reports an unconfigured gateway safely when no credential is present", async () => {
-    delete process.env.TOKENHARBOR_API_KEY;
+    delete process.env.NEXTAPI_API_KEY;
     const status = await getAiGatewayStatus(7);
     expect(status).toMatchObject({ configured: false, reachable: false, providerConfigured: false });
     await expect(completeWithAiGateway(7, "Draft a summary")).rejects.toBeInstanceOf(AiGatewayClientError);
   });
 
   it("reports an unlimited allowance when no request cap is configured", async () => {
-    delete process.env.TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE;
+    delete process.env.NEXTAPI_MAX_REQUESTS_PER_WORKSPACE;
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await expect(getAiGatewayStatus(7)).resolves.toMatchObject({
@@ -150,28 +155,28 @@ describe("AI gateway client", () => {
   it("posts the single model with the bearer key on complete", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Private response" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Private response" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }));
 
     await expect(completeWithAiGateway(7, "Summarize the release notes")).resolves.toMatchObject({ text: "Private response", allowance: { usedRequests: 1 } });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(1, `${MIRROR_URL}/models`, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${API_KEY}` }) }));
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${MIRROR_URL}/chat/completions`, expect.objectContaining({ method: "POST", body: JSON.stringify({ model: TOKENHARBOR_CHAT_MODEL, messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${MIRROR_URL}/chat/completions`, expect.objectContaining({ method: "POST", body: JSON.stringify({ model: NEXTAPI_CHAT_MODEL, messages: [{ role: "user", content: "Summarize the release notes" }] }) }));
     expect(claim).toHaveBeenCalledWith(7, null);
   });
 
-  it("falls back to MiMo when the primary model is overloaded", async () => {
+  it("falls back to the fallback model when the primary model is overloaded", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: TOKENHARBOR_FALLBACK_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: NEXTAPI_FALLBACK_MODEL }), { status: 200 }));
 
     await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "fallback reply" });
-    // Primary first, then the MiMo fallback; one allowance claim for both.
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    // Primary first, then the fallback model; one allowance claim for both.
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
   });
 
-  /** A fetch stub that fails every Token Harbor completion and serves SeekAI. */
-  function overloadedTokenHarborThenSeekai() {
+  /** A fetch stub that fails every NextAPI completion and serves SeekAI. */
+  function overloadedNextApiThenSeekai() {
     const overloaded = () =>
       new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 });
     return vi.fn(async (input: RequestInfo | URL) => {
@@ -190,14 +195,14 @@ describe("AI gateway client", () => {
     });
   }
 
-  it("falls back to SeekAI's GLM-5.3-Flash when every Token Harbor model fails transiently", async () => {
+  it("falls back to SeekAI's GLM-5.3-Flash when every NextAPI model fails transiently", async () => {
     process.env.SEEKAI_API_KEY = SEEKAI_KEY;
     process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
-    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+    globalThis.fetch = overloadedNextApiThenSeekai() as unknown as typeof fetch;
 
     await expect(completeWithAiGateway(7, "hello")).resolves.toMatchObject({ text: "seekai reply" });
-    // Primary, MiMo, then SeekAI - all three attempts on one allowance claim.
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
+    // Primary, fallback, then SeekAI - all three attempts on one allowance claim.
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
     const [url, init] = seekaiCalls()[0] ?? [];
     expect(url).toBe(`${SEEKAI_URL}/chat/completions`);
@@ -207,23 +212,23 @@ describe("AI gateway client", () => {
   it("routes the chat path's last resort to SeekAI with its own credential", async () => {
     process.env.SEEKAI_API_KEY = SEEKAI_KEY;
     process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
-    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+    globalThis.fetch = overloadedNextApiThenSeekai() as unknown as typeof fetch;
 
     const result = await chatWithAiGateway(7, [{ role: "user", content: "hello" }], {});
     expect(result).toMatchObject({ text: "seekai reply", model: SEEKAI_FALLBACK_MODEL });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL, SEEKAI_FALLBACK_MODEL]);
     expect(seekaiCalls()).toHaveLength(1);
   });
 
-  it("keeps the chain on Token Harbor when no SeekAI credential is configured", async () => {
+  it("keeps the chain on NextAPI when no SeekAI credential is configured", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }));
 
     await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
-    // Two attempts, both against Token Harbor: the SeekAI hop is skipped.
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    // Two attempts, both against NextAPI: the SeekAI hop is skipped.
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL]);
     expect(seekaiCalls()).toHaveLength(0);
   });
 
@@ -243,23 +248,23 @@ describe("AI gateway client", () => {
     process.env.SEEKAI_API_KEY = SEEKAI_KEY;
     process.env.SEEKAI_GATEWAY_URL = SEEKAI_URL;
     process.env.SEEKAI_FALLBACK_MODEL = "disabled";
-    globalThis.fetch = overloadedTokenHarborThenSeekai() as unknown as typeof fetch;
+    globalThis.fetch = overloadedNextApiThenSeekai() as unknown as typeof fetch;
 
     await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "rate_limit" });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL]);
     expect(seekaiCalls()).toHaveLength(0);
   });
 
   it("lists the SeekAI last resort only while its credential is configured", async () => {
     await expect(listGatewayModels(true)).resolves.toEqual([
-      { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
-      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: NEXTAPI_CHAT_MODEL, kind: "vision" },
+      { id: NEXTAPI_FALLBACK_MODEL, kind: "vision" },
     ]);
 
     process.env.SEEKAI_API_KEY = SEEKAI_KEY;
     await expect(listGatewayModels(true)).resolves.toEqual([
-      { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
-      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: NEXTAPI_CHAT_MODEL, kind: "vision" },
+      { id: NEXTAPI_FALLBACK_MODEL, kind: "vision" },
       { id: SEEKAI_FALLBACK_MODEL, kind: "text" },
     ]);
   });
@@ -270,7 +275,7 @@ describe("AI gateway client", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "bad request" } }), { status: 400 }));
 
     await expect(completeWithAiGateway(7, "hello")).rejects.toMatchObject({ kind: "client_error" });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL]);
     expect(claim).toHaveBeenCalledTimes(1);
   });
 
@@ -294,13 +299,13 @@ describe("AI gateway client", () => {
     const result = await completeWithAiGateway(7, "Summarize the release notes", undefined, chunk => chunks.push(chunk));
     expect(chunks).toEqual(["Hello", " from", " Nova"]);
     expect(result).toMatchObject({ text: "Hello from Nova", usage: null, allowance: { usedRequests: 1 } });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${MIRROR_URL}/chat/completions`, expect.objectContaining({ method: "POST", body: JSON.stringify({ model: TOKENHARBOR_CHAT_MODEL, messages: [{ role: "user", content: "Summarize the release notes" }], stream: true }) }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${MIRROR_URL}/chat/completions`, expect.objectContaining({ method: "POST", body: JSON.stringify({ model: NEXTAPI_CHAT_MODEL, messages: [{ role: "user", content: "Summarize the release notes" }], stream: true }) }));
   });
 
   it("emits the buffered JSON completion once when the provider does not stream", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Buffered reply" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Buffered reply" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }));
 
     const chunks: string[] = [];
     const result = await completeWithAiGateway(7, "Draft a summary", undefined, chunk => chunks.push(chunk));
@@ -311,20 +316,20 @@ describe("AI gateway client", () => {
   it("posts the single model from chatWithAiGateway", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "chat reply" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "chat reply" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }));
 
     const result = await chatWithAiGateway(7, [{ role: "user", content: "hello" }], {});
-    expect(result).toMatchObject({ text: "chat reply", model: TOKENHARBOR_CHAT_MODEL });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL]);
+    expect(result).toMatchObject({ text: "chat reply", model: NEXTAPI_CHAT_MODEL });
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL]);
   });
 
   it("answers public questions without claiming a workspace allowance", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "public reply" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "public reply" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }));
 
     const result = await chatWithPublicAiGateway([{ role: "user", content: "What is Nova?" }], { maxTokens: 99_999 });
-    expect(result).toEqual({ text: "public reply", model: TOKENHARBOR_CHAT_MODEL });
+    expect(result).toEqual({ text: "public reply", model: NEXTAPI_CHAT_MODEL });
     expect(claim).not.toHaveBeenCalled();
     expect(getAllowance).not.toHaveBeenCalled();
     const body = JSON.parse(String((globalThis.fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls[1]?.[1]?.body));
@@ -336,22 +341,22 @@ describe("AI gateway client", () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 429 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: TOKENHARBOR_FALLBACK_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: NEXTAPI_FALLBACK_MODEL }), { status: 200 }));
 
     await expect(chatWithPublicAiGateway([{ role: "user", content: "hi" }])).resolves.toMatchObject({ text: "fallback reply" });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL]);
     expect(claim).not.toHaveBeenCalled();
   });
 
   it("ignores any caller-supplied model override", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "one" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "two" } }], model: TOKENHARBOR_CHAT_MODEL }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "one" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "two" } }], model: NEXTAPI_CHAT_MODEL }), { status: 200 }));
 
     await completeWithAiGateway(7, "hi", "claude-opus-5.5");
     await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6-astra" });
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_CHAT_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_CHAT_MODEL]);
   });
 
   it("maps permanent 4xx completion failures to a non-retryable client error", async () => {
@@ -387,7 +392,7 @@ describe("AI gateway client", () => {
       message: "upstream exploded",
     });
     // Primary and the fallback failed; the fallback's error surfaces.
-    expect(postedModels()).toEqual([TOKENHARBOR_CHAT_MODEL, TOKENHARBOR_FALLBACK_MODEL]);
+    expect(postedModels()).toEqual([NEXTAPI_CHAT_MODEL, NEXTAPI_FALLBACK_MODEL]);
   });
 
   it("reports a 401 from the health probe as a provider configuration problem", async () => {
@@ -405,8 +410,8 @@ describe("AI gateway client", () => {
 
   it("exposes the primary model and the fallback", async () => {
     await expect(listGatewayModels(true)).resolves.toEqual([
-      { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
-      { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+      { id: NEXTAPI_CHAT_MODEL, kind: "vision" },
+      { id: NEXTAPI_FALLBACK_MODEL, kind: "vision" },
     ]);
   });
 });

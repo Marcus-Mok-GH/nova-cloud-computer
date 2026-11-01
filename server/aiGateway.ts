@@ -102,49 +102,45 @@ export class AiGatewayClientError extends Error {
 }
 
 /**
- * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
- * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
- * credential. The gateway serves a primary model with a free-tier fallback:
+ * Nova's built-in AI gateway targets NextAPI (https://nextapi.online), an
+ * OpenAI-compatible gateway, behind the server-only NEXTAPI_API_KEY
+ * credential. The gateway serves a primary model with a free fallback:
  * when the primary fails with a transient error (overload / rate limit,
  * upstream 5xx or timeout, empty completion), the same request is retried
  * against the fallback before the error surfaces. A last-resort
  * fallback lives on a different endpoint entirely - SeekAI
  * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
- * so a Token Harbor outage (every free pool congested at once) still has
- * somewhere to send the request.
+ * so a NextAPI outage still has somewhere to send the request.
  */
-const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
+const NEXTAPI_API_BASE_URL = "https://api.nextapi.online/v1";
 
-/** The primary model Nova's built-in gateway serves (free-tier: never billed). */
-export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
+/** The primary model Nova's built-in gateway serves (free tier: never billed). */
+export const NEXTAPI_CHAT_MODEL = "deepseek-4.1-flash";
 
 /**
- * Fallback model when the primary fails transiently. Token Harbor serves this
- * as `mimo-v2.6-flash:free` (free-tier: never billed, same `:free` pattern as
- * the primary, so the deployment is never charged). Provider is Xiaomi (MiMo
- * family), served via Token Harbor's free tier
- * (`https://tokenharbor.ai/models/mimo-v2.6-flash:free`, Xiaomi provider at
- * `https://tokenharbor.ai/providers/xiaomi`): a 1M-context omnimodal reasoning
- * model (text, image, audio, video input) used on Token Harbor's free
- * allowance for high-frequency agent/coding calls, so it can serve the agent
- * loop (tool calling + vision) when the primary is down.
- * Override with TOKENHARBOR_FALLBACK_MODEL; set it to "none"/"disabled" to
+ * Fallback model when the primary fails transiently. NextAPI serves this as
+ * `deepseek-4.1-flash-free-01` (free tier, 1M-token context, never billed, so
+ * the deployment is never charged): the same DeepSeek 4.1 Flash family on a
+ * separate free-pool model id, so a congested or drained primary pool
+ * degrades to the free pool instead of erroring. It supports tool calling,
+ * and it is the hop the agent loop lands on when the primary is down.
+ * Override with NEXTAPI_FALLBACK_MODEL; set it to "none"/"disabled" to
  * turn the fallback off.
  */
-export const TOKENHARBOR_FALLBACK_MODEL = "mimo-v2.6-flash:free";
+export const NEXTAPI_FALLBACK_MODEL = "deepseek-4.1-flash-free-01";
 
 /** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
 const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
 
 /**
- * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than Token
- * Harbor, so it keeps working even when Token Harbor itself is unreachable.
+ * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than
+ * NextAPI, so it keeps working even when NextAPI itself is unreachable.
  * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
- * can serve the agent loop when every Token Harbor model has failed
- * transiently. Only used when the SEEKAI_API_KEY credential is configured;
- * without it the chain stops at the Token Harbor fallback, exactly as
- * before. Override with SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled"
- * to turn the last-resort hop off.
+ * can serve the agent loop when every NextAPI model has failed transiently.
+ * Only used when the SEEKAI_API_KEY credential is configured; without it the
+ * chain stops at the NextAPI fallback, exactly as before. Override with
+ * SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled" to turn the last-resort
+ * hop off.
  */
 export const SEEKAI_FALLBACK_MODEL = "glm-5.3-flash";
 
@@ -154,7 +150,7 @@ function isChainDisabled(raw: string | undefined): boolean {
   return lowered === "none" || lowered === "disabled" || lowered === "off";
 }
 
-/** The SeekAI credential. Same placeholder rule as the Token Harbor key. */
+/** The SeekAI credential. Same placeholder rule as the NextAPI key. */
 function seekaiToken() {
   const token = process.env.SEEKAI_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
@@ -173,24 +169,24 @@ function seekaiFallbackModel() {
 /** One hop of the primary-first chain every built-in inference request walks. */
 export type GatewayChainEntry = {
   model: string;
-  /** Base URL for this hop; unset means the primary Token Harbor endpoint. */
+  /** Base URL for this hop; unset means the primary NextAPI endpoint. */
   baseUrl?: string;
-  /** Bearer credential for this hop; unset means TOKENHARBOR_API_KEY. */
+  /** Bearer credential for this hop; unset means NEXTAPI_API_KEY. */
   token?: string;
 };
 
 /** Primary-first chain every built-in inference request walks. */
 export function gatewayModelChain(): GatewayChainEntry[] {
-  const raw = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim().toLowerCase();
+  const raw = process.env.NEXTAPI_FALLBACK_MODEL?.trim().toLowerCase();
   if (raw === "none" || raw === "disabled" || raw === "off") {
-    return [{ model: TOKENHARBOR_CHAT_MODEL }];
+    return [{ model: NEXTAPI_CHAT_MODEL }];
   }
-  const override = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim();
-  const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
-  const chain: GatewayChainEntry[] = [{ model: TOKENHARBOR_CHAT_MODEL }];
-  if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push({ model: fallback });
+  const override = process.env.NEXTAPI_FALLBACK_MODEL?.trim();
+  const fallback = override ? override : NEXTAPI_FALLBACK_MODEL;
+  const chain: GatewayChainEntry[] = [{ model: NEXTAPI_CHAT_MODEL }];
+  if (fallback !== NEXTAPI_CHAT_MODEL) chain.push({ model: fallback });
   // The last resort is a different provider, so it needs its own credential;
-  // without one the chain simply stops after the Token Harbor fallback.
+  // without one the chain simply stops after the NextAPI fallback.
   const seekaiTokenValue = seekaiToken();
   if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
     return chain;
@@ -241,11 +237,14 @@ export function isFallbackRetryableKind(kind: AiGatewayClientErrorKind): boolean
 }
 
 /**
- * The Token Harbor credential. Mirroring the providers this replaced, a value
+ * The NextAPI credential. Mirroring the providers this replaced, a value
  * shorter than 32 characters is treated as a placeholder rather than a key.
  */
-function tokenHarborToken() {
-  const token = process.env.TOKENHARBOR_API_KEY?.trim();
+function nextapiToken() {
+  // NEXTROUTER_API_KEY is the deployment's existing key name for this
+  // provider (NextRouter / NextAPI share a dashboard); it stays valid.
+  const token =
+    process.env.NEXTAPI_API_KEY?.trim() || process.env.NEXTROUTER_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
 }
 
@@ -260,15 +259,15 @@ function httpsBaseUrl(raw: string) {
   }
 }
 
-/** Optional HTTPS override for the Token Harbor base URL (tests, mirrors). */
+/** Optional HTTPS override for the NextAPI base URL (tests, mirrors). */
 function configuredGatewayUrl() {
   return httpsBaseUrl(
-    process.env.TOKENHARBOR_GATEWAY_URL?.trim() || TOKENHARBOR_API_BASE_URL
+    process.env.NEXTAPI_GATEWAY_URL?.trim() || NEXTAPI_API_BASE_URL
   );
 }
 
 function configuredGatewayToken() {
-  return tokenHarborToken();
+  return nextapiToken();
 }
 
 /**
@@ -323,12 +322,12 @@ function describeGatewayError(
 
 /**
  * Daily inference request cap per workspace. Returns null (no cap) unless
- * TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * NEXTAPI_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
   const raw =
-    process.env.TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+    process.env.NEXTAPI_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed >= 1
@@ -500,8 +499,8 @@ export async function getAiGatewayStatus(ownerId: number) {
     // Legacy identifier: this matches the `model_provider` enum value stored
     // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
-    model: TOKENHARBOR_CHAT_MODEL,
-    fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
+    model: NEXTAPI_CHAT_MODEL,
+    fallbackModel: NEXTAPI_FALLBACK_MODEL,
     // The last resort lives on a separate credential: without SEEKAI_API_KEY
     // it is never attempted, so it reports as null rather than a model id.
     thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
@@ -516,18 +515,18 @@ export async function getAiGatewayStatus(ownerId: number) {
     },
   };
   const flags = await probeAiGatewayHealth();
-  return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
+  return { ...base, model: NEXTAPI_CHAT_MODEL, ...flags };
 }
 
 /**
  * The reasoning effort requested of GLM-5.2+ models. "max" (the default) is
- * the deepest reasoning the gateway serves; TOKENHARBOR_REASONING_EFFORT
+ * the deepest reasoning the gateway serves; NEXTAPI_REASONING_EFFORT
  * (low | medium | high | max) trades answer depth for lower latency and
  * provider cost - a lever for deployments where the GLM fallbacks serve
  * high-frequency traffic. Applies to BYOK GLM-family models too.
  */
 function configuredReasoningEffort(): string {
-  const raw = process.env.TOKENHARBOR_REASONING_EFFORT?.trim().toLowerCase();
+  const raw = process.env.NEXTAPI_REASONING_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "medium" || raw === "high" || raw === "max"
     ? raw
     : "max";
@@ -538,7 +537,7 @@ function configuredReasoningEffort(): string {
  * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
  * newer additionally take `reasoning_effort`, where "max" is the deepest
  * reasoning served. Models without a thinking mode (the built-in gateway's
- * DeepSeek primary and MiMo fallback included) get none, since
+ * DeepSeek primary and fallback included) get none, since
  * sending unknown fields to a strict endpoint risks a rejection. Exported so
  * the BYOK gateway applies the same per-model logic to a workspace's custom
  * GLM-family models.
@@ -558,9 +557,9 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
- * (Token Harbor's free DeepSeek V4.1 Flash) with Xiaomi's MiMo V2.6 Flash
- * (free) as the transient-failure fallback, so the picker and settings
- * validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
+ * (NextAPI's free DeepSeek 4.1 Flash) with NextAPI's free-tier
+ * `deepseek-4.1-flash-free-01` as the transient-failure fallback, so the
+ * picker and settings validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
  * too, but only while the SEEKAI_API_KEY credential is configured - an
  * unconfigured hop is never attempted, so advertising it would be a lie.
  * Listed as text-only because image support on that endpoint is not assumed.
@@ -571,8 +570,8 @@ export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
   const models: AvailableGatewayModel[] = [
-    { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
-    { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+    { id: NEXTAPI_CHAT_MODEL, kind: "vision" },
+    { id: NEXTAPI_FALLBACK_MODEL, kind: "vision" },
   ];
   const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
   if (seekai && !models.some(entry => entry.id === seekai)) {
@@ -721,8 +720,8 @@ export async function completeWithAiGateway(
   }
   // The built-in gateway walks its primary → fallback chain, so a
   // caller-supplied id (e.g. the tRPC ai.complete input) is intentionally
-  // ignored: the free-tier contract cannot be bypassed, and a non-free Token
-  // Harbor model can never be billed to the deployment.
+  // ignored: the free-tier contract cannot be bypassed, and a non-free
+  // model can never be billed to the deployment.
   const chain = gatewayModelChain();
   // Tracks whether the primary already streamed partial text before failing:
   // the fallback still runs (better than an error), but its text appends

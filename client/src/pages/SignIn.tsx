@@ -1,5 +1,6 @@
 import { updateLastActiveTimestamp, useAuth } from "@/_core/hooks/useAuth";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+import { clearPendingSignIn, readPendingSignIn, rememberPendingSignIn } from "@/lib/pendingSignIn";
 import {
   EMAIL_INPUT_NAME,
   friendlyOtpSendError,
@@ -17,10 +18,13 @@ export default function SignIn() {
   const { isAuthenticated, loading } = useAuth();
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const [email, setEmail] = useState("");
+  // A reload mid-code reopens the same code step: the pending email is kept for
+  // the lifetime of the emailed code instead of dropping back to the email form.
+  const [resumedEmail] = useState(() => readPendingSignIn());
+  const [email, setEmail] = useState(resumedEmail ?? "");
   const [otp, setOtp] = useState("");
   const [pending, setPending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState(Boolean(resumedEmail));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,7 +58,10 @@ export default function SignIn() {
             "Nova could not send that sign-in code."
           )
         );
-      else setSent(true);
+      else {
+        rememberPendingSignIn(submittedEmail);
+        setSent(true);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -91,6 +98,7 @@ export default function SignIn() {
           await utils.auth.me.invalidate();
           const user = await utils.auth.me.fetch();
           if (user) {
+            clearPendingSignIn();
             updateLastActiveTimestamp(user.id);
             setLocation("/app");
           } else {
@@ -139,7 +147,7 @@ export default function SignIn() {
               </label>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <button className="pill-btn pill-btn-primary w-full" disabled={pending || otp.length !== 6} type="submit">{pending ? "Verifying..." : <>Sign in <ArrowRight size={15} className="rtl:-scale-x-100" /></>}</button>
-              <button type="button" className="w-full text-center text-sm text-muted-foreground hover:text-foreground" onClick={() => { setSent(false); setOtp(""); setError(null); }} disabled={pending}>Use a different email</button>
+              <button type="button" className="w-full text-center text-sm text-muted-foreground hover:text-foreground" onClick={() => { clearPendingSignIn(); setSent(false); setOtp(""); setError(null); }} disabled={pending}>Use a different email</button>
             </form>
           </div>
         ) : (

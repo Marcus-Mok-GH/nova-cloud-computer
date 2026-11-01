@@ -1,0 +1,27 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/api/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d --build",
+  "secrets": [
+    {
+      "name": "NEON_AUTH_BASE_URL",
+      "description": "Neon Auth base URL (Neon console -> project -> Auth -> Auth URL). Server verifies sign-in JWTs against its JWKS; without it every sign-in is rejected.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "VITE_NEON_AUTH_URL",
+      "description": "Same Neon Auth URL, exposed to the browser bundle so the passwordless email-code form works.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "NEXTAPI_API_KEY",
+      "description": "NextAPI key powering the built-in AI gateway (chat replies and agent runs).",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "E2B_API_KEY",
+      "description": "E2B sandbox API key for agent task execution / cloud VM runs.",
+      "requiredAtBoot": false
+    }
+  ]
+}

@@ -353,7 +353,7 @@ describe("AI gateway chat stream handling", () => {
         });
       }
       return sseResponse([
-        `data: ${JSON.stringify({ model: "openai/gpt-5.6-luna", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "z-ai/glm-5.3-flash", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
         "data: [DONE]\n\n",
       ]);
     });
@@ -362,7 +362,7 @@ describe("AI gateway chat stream handling", () => {
       onChunk: () => {},
     });
     expect(result.text).toBe("Fallback reply.");
-    expect(result.model).toBe("openai/gpt-5.6-luna");
+    expect(result.model).toBe("z-ai/glm-5.3-flash");
     expect(calls).toBe(2);
   });
 
@@ -405,7 +405,7 @@ describe("AI gateway chat stream handling", () => {
       }
       return Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ model: "openai/gpt-5.6-luna", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+          `data: ${JSON.stringify({ model: "z-ai/glm-5.3-flash", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
           "data: [DONE]\n\n",
         ])
       );
@@ -425,7 +425,7 @@ describe("AI gateway chat stream handling", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     await attempt;
     expect(settled).toMatchObject({
-      ok: { text: "Fallback reply.", model: "openai/gpt-5.6-luna" },
+      ok: { text: "Fallback reply.", model: "z-ai/glm-5.3-flash" },
     });
     expect(calls).toBe(2);
   });

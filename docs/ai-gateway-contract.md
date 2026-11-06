@@ -13,7 +13,7 @@ The gateway targets **Pollinations** (`https://gen.pollinations.ai`), an OpenAI-
 | Base URL | `https://gen.pollinations.ai/v1` (override with `POLLINATIONS_GATEWAY_URL`) |
 | Credential | `POLLINATIONS_API_KEY` — read server-side only |
 | Primary model | `openai/gpt-6-luna` (text and image input, tool calling, 1.05M-token context; not paid-only on the provider's catalogue) |
-| Fallback model | `openai/gpt-5.6-luna` (the previous Luna generation with the same capabilities; override with `POLLINATIONS_FALLBACK_MODEL`, or set it to `none`/`disabled` to turn all fallbacks off) |
+| Fallback model | `z-ai/glm-5.3-flash` (the cheaper flash-tier candidate on Pollinations, with the same 1M-token context, image input, and tool calling; override with `POLLINATIONS_FALLBACK_MODEL`, or set it to `none`/`disabled` to turn all fallbacks off) |
 
 A third, last-resort fallback lives on a **separate provider**, so it keeps working when Pollinations itself is down:
 
@@ -27,7 +27,7 @@ A credential must be at least 32 characters to count as configured, and the base
 
 ## Model resolution
 
-Every chat turn - text, tool-calling, or with image attachments - first tries the primary `openai/gpt-6-luna` model (tool calling and image input listed on the provider's catalogue; 1.05M-token context). When the primary fails transiently (rate-limited/overloaded, unreachable/timeout, or an empty completion), the same request is retried against the `openai/gpt-5.6-luna` fallback, which serves the previous Luna generation with the same capabilities. If that also fails transiently and the `SEEKAI_API_KEY` credential is configured, the request makes one last attempt against SeekAI's `glm-5.3-flash` - the only hop that leaves Pollinations, so it survives a Pollinations outage. Permanent failures (bad request, bad credential, exhausted allowance/credits, user stop) surface as-is without a fallback attempt. One inference-allowance claim and one daily-credit claim cover all attempts.
+Every chat turn - text, tool-calling, or with image attachments - first tries the primary `openai/gpt-6-luna` model (tool calling and image input listed on the provider's catalogue; 1.05M-token context). When the primary fails transiently (rate-limited/overloaded, unreachable/timeout, or an empty completion), the same request is retried against the `z-ai/glm-5.3-flash` fallback, the cheaper flash-tier candidate on Pollinations (same 1M-token context, image input, and tool calling; the SeekAI last resort below serves the same model family, and the chain keeps both hops because they live on different endpoints). If that also fails transiently and the `SEEKAI_API_KEY` credential is configured, the request makes one last attempt against SeekAI's `glm-5.3-flash` - the only hop that leaves Pollinations, so it survives a Pollinations outage. Permanent failures (bad request, bad credential, exhausted allowance/credits, user stop) surface as-is without a fallback attempt. One inference-allowance claim and one daily-credit claim cover all attempts.
 
 ## Gateway contract
 

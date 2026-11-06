@@ -119,14 +119,17 @@ export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
 
 /**
  * Fallback model when the primary fails transiently. Pollinations serves
- * this as `openai/gpt-5.6-luna`: the previous Luna generation on the same
- * provider, with the same 1M-token context, image input, and tool calling,
- * so a congested or drained primary pool degrades to the previous
- * generation instead of erroring. It is the hop the agent loop lands on
- * when the primary is down. Override with POLLINATIONS_FALLBACK_MODEL; set
- * it to "none"/"disabled" to turn the fallback off.
+ * this as `z-ai/glm-5.3-flash`: the cheaper of the catalogues' flash-tier
+ * candidates (0.5 vs 0.6 pollen per million completion tokens against
+ * DeepSeek V4.1 Flash, at the same prompt rate), with the same 1M-token
+ * context, image input, and tool calling, so a congested or drained primary
+ * pool degrades to a working model instead of erroring. It is the hop the
+ * agent loop lands on when the primary is down. As a GLM-5.x model it takes
+ * the deep-thinking fields from reasoningParamsForModel. Override with
+ * POLLINATIONS_FALLBACK_MODEL; set it to "none"/"disabled" to turn the
+ * fallback off.
  */
-export const POLLINATIONS_FALLBACK_MODEL = "openai/gpt-5.6-luna";
+export const POLLINATIONS_FALLBACK_MODEL = "z-ai/glm-5.3-flash";
 
 /** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
 const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
@@ -194,8 +197,11 @@ export function gatewayModelChain(): GatewayChainEntry[] {
   const seekaiUrl = configuredSeekaiUrl();
   if (!seekaiUrl) return chain;
   const seekai = seekaiFallbackModel();
+  // A shared model id on a different endpoint is not a duplicate: the
+  // Pollinations fallback may itself be GLM-5.3-Flash, and the SeekAI hop
+  // must still exist to cover a full Pollinations outage.
   const alreadyServedHere = chain.some(
-    entry => entry.model === seekai && !entry.baseUrl
+    entry => entry.model === seekai && entry.baseUrl === seekaiUrl
   );
   if (alreadyServedHere) return chain;
   chain.push({ model: seekai, baseUrl: seekaiUrl, token: seekaiTokenValue });
@@ -556,11 +562,13 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
- * (Pollinations' GPT-6 Luna) with the previous Luna generation
- * `openai/gpt-5.6-luna` as the transient-failure fallback, so the
- * picker and settings validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
- * too, but only while the SEEKAI_API_KEY credential is configured - an
- * unconfigured hop is never attempted, so advertising it would be a lie.
+ * (Pollinations' GPT-6 Luna) with `z-ai/glm-5.3-flash` as the
+ * transient-failure fallback, so the picker and settings validation see
+ * both entries. SeekAI's GLM-5.3-Flash last resort is listed too, but only
+ * while the SEEKAI_API_KEY credential is configured - an unconfigured hop
+ * is never attempted, so advertising it would be a lie. Its model id
+ * differs from the Pollinations fallback (`glm-5.3-flash` without the
+ * vendor prefix), so both entries stay in the catalogue.
  * Listed as text-only because image support on that endpoint is not assumed.
  * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.

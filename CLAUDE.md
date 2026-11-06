@@ -136,7 +136,7 @@ Exactly one item runs at a time, and that invariant is enforced in SQL rather th
 
 ### Model routing
 
-`server/aiGateway.ts` owns model selection and walks a fixed chain: `openai/gpt-6-luna` → `openai/gpt-5.6-luna` → an optional `glm-5.3-flash` on a _different_ provider so it survives a Pollinations outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
+`server/aiGateway.ts` owns model selection and walks a fixed chain: `openai/gpt-6-luna` → `z-ai/glm-5.3-flash` → an optional `glm-5.3-flash` on a _different_ provider so it survives a Pollinations outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
 
 BYOK is a full bypass, not a hop: a workspace with an active custom model routes through `server/byokGateway.ts` from `workspace/workspaceRetry.ts` (`customModel ? chatWithCustomModel : chatWithAiGateway`), skipping gateway credits, the sanitized error copy, and admin error logging. `server/nim.ts` is a _separate_ client for the thinker and sandbox subagents and is not part of the fallback chain.
 

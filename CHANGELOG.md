@@ -3,7 +3,7 @@
 Nova's built-in AI gateway now runs on Pollinations (https://gen.pollinations.ai),
 an OpenAI-compatible gateway serving GPT 6 Luna. The chain tries
 `openai/gpt-6-luna` first, retries transient failures on
-`openai/gpt-5.6-luna`, and keeps the optional SeekAI `glm-5.3-flash`
+`z-ai/glm-5.3-flash`, and keeps the optional SeekAI `glm-5.3-flash`
 last resort on a separate provider. The environment variables are renamed to
 match - `POLLINATIONS_API_KEY`, `POLLINATIONS_GATEWAY_URL`,
 `POLLINATIONS_FALLBACK_MODEL`, `POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE`,

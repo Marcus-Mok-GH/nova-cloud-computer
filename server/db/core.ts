@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { FailoverPool, failoverCooldownMsFromEnv } from "./failover";
 
 /**
  * The workspace database connection layer.
@@ -150,7 +151,17 @@ export async function getDb(): Promise<Database | null> {
       process.env.DATABASE_URL?.trim() || process.env.DATABASE_URL_UNPOOLED?.trim();
     if (!connectionString) return null;
     try {
-      _pool = createPool(connectionString);
+      const primary = createPool(connectionString);
+      const backupConnectionString = process.env.BACKUP_DATABASE_URL?.trim();
+      // Without a backup URL the facade is skipped entirely and the app keeps
+      // the single-pool behaviour it has always had.
+      _pool = backupConnectionString
+        ? (new FailoverPool({
+            primary,
+            backup: () => createPool(backupConnectionString),
+            cooldownMs: failoverCooldownMsFromEnv(),
+          }) as unknown as pg.Pool)
+        : primary;
       _db = drizzle(_pool);
     } catch (error) {
       console.warn(
@@ -221,6 +232,8 @@ export type DatabaseHealth = {
   ok: boolean;
   latencyMs: number;
   error?: string;
+  /** Which backend answered the probe when a backup database is configured. */
+  backend?: "primary" | "backup";
 };
 
 /**
@@ -260,7 +273,11 @@ export async function pingDatabase(
         }, timeoutMs);
       }),
     ]);
-    return { ok: true, latencyMs: Date.now() - startedAt };
+    return {
+      ok: true,
+      latencyMs: Date.now() - startedAt,
+      ...(pool instanceof FailoverPool ? { backend: pool.activeBackend } : {}),
+    };
   } catch (error) {
     return {
       ok: false,

@@ -1571,6 +1571,25 @@ The canned inference-failure replies (configuration, allowance_reached, rate_lim
 
 # Changelog
 
+2026-11-06 - a backup database takes over when the primary drops
+
+`BACKUP_DATABASE_URL` points Nova at a second Postgres database. While the
+primary answers, everything runs against it exactly as before; when it starts
+throwing transient connection errors - Neon suspending a project at its data
+transfer limit looks exactly like that - the pool fails requests over to the
+backup, keeps them there for `NOVA_DB_FAILOVER_COOLDOWN_MS` (default one
+minute), and returns to the primary on the first successful probe. A backup
+stays current through Postgres logical replication;
+`scripts/setup-db-replication.sh` copies the schema across and wires up the
+publication and subscription, and `docs/database-failover.md` is the runbook
+for setup, failback, and the caveats (DDL and sequence values do not
+replicate, and Neon Auth lives on the primary project). `/api/health` reports
+which backend is serving. Nothing changes for deployments without a backup
+URL - the pool behaves exactly as it did before.
+
+Files: `server/db/core.ts`, `server/db/failover.ts`, `server/db/failover.test.ts`, `docs/database-failover.md`, `scripts/setup-db-replication.sh`, `README.md`, `CLAUDE.md`
+Tests: `pnpm vitest run server/db/`
+
 2026-09-21 - autonomous coding specialist: code_task now reads, writes, runs and verifies on its own
 
 - The coding specialist (Kimi K3 via NVIDIA NIM) used to be a one-shot code generator: it never saw the real workspace, could not run anything, and Nova had to place and verify the returned code itself. code_task now runs the specialist as a true autonomous agent whenever the workspace sandbox is awake: it lists the workspace, reads the files it needs, writes complete files into the sandbox, and runs commands (installs, builds, tests) to verify its own work, iterating up to 12 tool rounds or an 8-minute budget before replying with a final summary. Its writes sync back into the durable Neon/S3 store immediately (via the existing end-of-run persist path), so later rounds in the same chat and the workspace UI see the real files, and the model-facing result now tells Nova to read the changed files back and verify them. The live progress panel narrates each autonomous step (listing files, writing index.html, running npm test...), feeding the code_task dropdown shipped earlier today.

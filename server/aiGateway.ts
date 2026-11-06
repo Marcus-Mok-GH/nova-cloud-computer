@@ -102,43 +102,43 @@ export class AiGatewayClientError extends Error {
 }
 
 /**
- * Nova's built-in AI gateway targets NextAPI (https://nextapi.online), an
- * OpenAI-compatible gateway, behind the server-only NEXTAPI_API_KEY
- * credential. The gateway serves a primary model with a free fallback:
- * when the primary fails with a transient error (overload / rate limit,
- * upstream 5xx or timeout, empty completion), the same request is retried
- * against the fallback before the error surfaces. A last-resort
- * fallback lives on a different endpoint entirely - SeekAI
+ * Nova's built-in AI gateway targets Pollinations
+ * (https://gen.pollinations.ai), an OpenAI-compatible gateway, behind the
+ * server-only POLLINATIONS_API_KEY credential. The gateway serves a primary
+ * model with a fallback: when the primary fails with a transient error
+ * (overload / rate limit, upstream 5xx or timeout, empty completion), the
+ * same request is retried against the fallback before the error surfaces. A
+ * last-resort fallback lives on a different endpoint entirely - SeekAI
  * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
- * so a NextAPI outage still has somewhere to send the request.
+ * so a Pollinations outage still has somewhere to send the request.
  */
-const NEXTAPI_API_BASE_URL = "https://api.nextapi.online/v1";
+const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
 
-/** The primary model Nova's built-in gateway serves (free tier: never billed). */
-export const NEXTAPI_CHAT_MODEL = "deepseek-4.1-flash";
+/** The primary model Nova's built-in gateway serves. */
+export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
 
 /**
- * Fallback model when the primary fails transiently. NextAPI serves this as
- * `deepseek-4.1-flash-free-01` (free tier, 1M-token context, never billed, so
- * the deployment is never charged): the same DeepSeek 4.1 Flash family on a
- * separate free-pool model id, so a congested or drained primary pool
- * degrades to the free pool instead of erroring. It supports tool calling,
- * and it is the hop the agent loop lands on when the primary is down.
- * Override with NEXTAPI_FALLBACK_MODEL; set it to "none"/"disabled" to
- * turn the fallback off.
+ * Fallback model when the primary fails transiently. Pollinations serves
+ * this as `openai/gpt-5.6-luna`: the previous Luna generation on the same
+ * provider, with the same 1M-token context, image input, and tool calling,
+ * so a congested or drained primary pool degrades to the previous
+ * generation instead of erroring. It is the hop the agent loop lands on
+ * when the primary is down. Override with POLLINATIONS_FALLBACK_MODEL; set
+ * it to "none"/"disabled" to turn the fallback off.
  */
-export const NEXTAPI_FALLBACK_MODEL = "deepseek-4.1-flash-free-01";
+export const POLLINATIONS_FALLBACK_MODEL = "openai/gpt-5.6-luna";
 
 /** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
 const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
 
 /**
  * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than
- * NextAPI, so it keeps working even when NextAPI itself is unreachable.
+ * Pollinations, so it keeps working even when Pollinations itself is
+ * unreachable.
  * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
- * can serve the agent loop when every NextAPI model has failed transiently.
+ * can serve the agent loop when every Pollinations model has failed transiently.
  * Only used when the SEEKAI_API_KEY credential is configured; without it the
- * chain stops at the NextAPI fallback, exactly as before. Override with
+ * chain stops at the Pollinations fallback, exactly as before. Override with
  * SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled" to turn the last-resort
  * hop off.
  */
@@ -150,7 +150,7 @@ function isChainDisabled(raw: string | undefined): boolean {
   return lowered === "none" || lowered === "disabled" || lowered === "off";
 }
 
-/** The SeekAI credential. Same placeholder rule as the NextAPI key. */
+/** The SeekAI credential. Same placeholder rule as the Pollinations key. */
 function seekaiToken() {
   const token = process.env.SEEKAI_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
@@ -169,24 +169,24 @@ function seekaiFallbackModel() {
 /** One hop of the primary-first chain every built-in inference request walks. */
 export type GatewayChainEntry = {
   model: string;
-  /** Base URL for this hop; unset means the primary NextAPI endpoint. */
+  /** Base URL for this hop; unset means the primary Pollinations endpoint. */
   baseUrl?: string;
-  /** Bearer credential for this hop; unset means NEXTAPI_API_KEY. */
+  /** Bearer credential for this hop; unset means POLLINATIONS_API_KEY. */
   token?: string;
 };
 
 /** Primary-first chain every built-in inference request walks. */
 export function gatewayModelChain(): GatewayChainEntry[] {
-  const raw = process.env.NEXTAPI_FALLBACK_MODEL?.trim().toLowerCase();
+  const raw = process.env.POLLINATIONS_FALLBACK_MODEL?.trim().toLowerCase();
   if (raw === "none" || raw === "disabled" || raw === "off") {
-    return [{ model: NEXTAPI_CHAT_MODEL }];
+    return [{ model: POLLINATIONS_CHAT_MODEL }];
   }
-  const override = process.env.NEXTAPI_FALLBACK_MODEL?.trim();
-  const fallback = override ? override : NEXTAPI_FALLBACK_MODEL;
-  const chain: GatewayChainEntry[] = [{ model: NEXTAPI_CHAT_MODEL }];
-  if (fallback !== NEXTAPI_CHAT_MODEL) chain.push({ model: fallback });
+  const override = process.env.POLLINATIONS_FALLBACK_MODEL?.trim();
+  const fallback = override ? override : POLLINATIONS_FALLBACK_MODEL;
+  const chain: GatewayChainEntry[] = [{ model: POLLINATIONS_CHAT_MODEL }];
+  if (fallback !== POLLINATIONS_CHAT_MODEL) chain.push({ model: fallback });
   // The last resort is a different provider, so it needs its own credential;
-  // without one the chain simply stops after the NextAPI fallback.
+  // without one the chain simply stops after the Pollinations fallback.
   const seekaiTokenValue = seekaiToken();
   if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
     return chain;
@@ -237,14 +237,13 @@ export function isFallbackRetryableKind(kind: AiGatewayClientErrorKind): boolean
 }
 
 /**
- * The NextAPI credential. Mirroring the providers this replaced, a value
+ * The Pollinations credential. Mirroring the providers this replaced, a value
  * shorter than 32 characters is treated as a placeholder rather than a key.
+ * The same key already powers the transcription, speech, and coder paths, so
+ * a deployment running those needs no new credential for chat.
  */
-function nextapiToken() {
-  // NEXTROUTER_API_KEY is the deployment's existing key name for this
-  // provider (NextRouter / NextAPI share a dashboard); it stays valid.
-  const token =
-    process.env.NEXTAPI_API_KEY?.trim() || process.env.NEXTROUTER_API_KEY?.trim();
+function pollinationsToken() {
+  const token = process.env.POLLINATIONS_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
 }
 
@@ -259,15 +258,15 @@ function httpsBaseUrl(raw: string) {
   }
 }
 
-/** Optional HTTPS override for the NextAPI base URL (tests, mirrors). */
+/** Optional HTTPS override for the Pollinations base URL (tests, mirrors). */
 function configuredGatewayUrl() {
   return httpsBaseUrl(
-    process.env.NEXTAPI_GATEWAY_URL?.trim() || NEXTAPI_API_BASE_URL
+    process.env.POLLINATIONS_GATEWAY_URL?.trim() || POLLINATIONS_API_BASE_URL
   );
 }
 
 function configuredGatewayToken() {
-  return nextapiToken();
+  return pollinationsToken();
 }
 
 /**
@@ -322,12 +321,12 @@ function describeGatewayError(
 
 /**
  * Daily inference request cap per workspace. Returns null (no cap) unless
- * NEXTAPI_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
   const raw =
-    process.env.NEXTAPI_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+    process.env.POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed >= 1
@@ -499,8 +498,8 @@ export async function getAiGatewayStatus(ownerId: number) {
     // Legacy identifier: this matches the `model_provider` enum value stored
     // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
-    model: NEXTAPI_CHAT_MODEL,
-    fallbackModel: NEXTAPI_FALLBACK_MODEL,
+    model: POLLINATIONS_CHAT_MODEL,
+    fallbackModel: POLLINATIONS_FALLBACK_MODEL,
     // The last resort lives on a separate credential: without SEEKAI_API_KEY
     // it is never attempted, so it reports as null rather than a model id.
     thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
@@ -515,18 +514,18 @@ export async function getAiGatewayStatus(ownerId: number) {
     },
   };
   const flags = await probeAiGatewayHealth();
-  return { ...base, model: NEXTAPI_CHAT_MODEL, ...flags };
+  return { ...base, model: POLLINATIONS_CHAT_MODEL, ...flags };
 }
 
 /**
  * The reasoning effort requested of GLM-5.2+ models. "max" (the default) is
- * the deepest reasoning the gateway serves; NEXTAPI_REASONING_EFFORT
+ * the deepest reasoning the gateway serves; POLLINATIONS_REASONING_EFFORT
  * (low | medium | high | max) trades answer depth for lower latency and
  * provider cost - a lever for deployments where the GLM fallbacks serve
  * high-frequency traffic. Applies to BYOK GLM-family models too.
  */
 function configuredReasoningEffort(): string {
-  const raw = process.env.NEXTAPI_REASONING_EFFORT?.trim().toLowerCase();
+  const raw = process.env.POLLINATIONS_REASONING_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "medium" || raw === "high" || raw === "max"
     ? raw
     : "max";
@@ -537,7 +536,7 @@ function configuredReasoningEffort(): string {
  * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
  * newer additionally take `reasoning_effort`, where "max" is the deepest
  * reasoning served. Models without a thinking mode (the built-in gateway's
- * DeepSeek primary and fallback included) get none, since
+ * GPT primary and fallback included) get none, since
  * sending unknown fields to a strict endpoint risks a rejection. Exported so
  * the BYOK gateway applies the same per-model logic to a workspace's custom
  * GLM-family models.
@@ -557,8 +556,8 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
 
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
- * (NextAPI's free DeepSeek 4.1 Flash) with NextAPI's free-tier
- * `deepseek-4.1-flash-free-01` as the transient-failure fallback, so the
+ * (Pollinations' GPT-6 Luna) with the previous Luna generation
+ * `openai/gpt-5.6-luna` as the transient-failure fallback, so the
  * picker and settings validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
  * too, but only while the SEEKAI_API_KEY credential is configured - an
  * unconfigured hop is never attempted, so advertising it would be a lie.
@@ -570,8 +569,8 @@ export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
   const models: AvailableGatewayModel[] = [
-    { id: NEXTAPI_CHAT_MODEL, kind: "vision" },
-    { id: NEXTAPI_FALLBACK_MODEL, kind: "vision" },
+    { id: POLLINATIONS_CHAT_MODEL, kind: "vision" },
+    { id: POLLINATIONS_FALLBACK_MODEL, kind: "vision" },
   ];
   const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
   if (seekai && !models.some(entry => entry.id === seekai)) {

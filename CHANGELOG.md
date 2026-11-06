@@ -1,3 +1,22 @@
+2026-11-06 - the built-in gateway speaks Pollinations
+
+Nova's built-in AI gateway now runs on Pollinations (https://gen.pollinations.ai),
+an OpenAI-compatible gateway serving GPT 6 Luna. The chain tries
+`openai/gpt-6-luna` first, retries transient failures on
+`openai/gpt-5.6-luna`, and keeps the optional SeekAI `glm-5.3-flash`
+last resort on a separate provider. The environment variables are renamed to
+match - `POLLINATIONS_API_KEY`, `POLLINATIONS_GATEWAY_URL`,
+`POLLINATIONS_FALLBACK_MODEL`, `POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE`,
+`POLLINATIONS_REASONING_EFFORT`. The Pollinations credential is shared with
+the existing transcription, speech and coder integrations, so deployments
+that already set `POLLINATIONS_API_KEY` need no new secret; the NextAPI
+variables are no longer read.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, server/modelFailureDetail.test.ts,
+server/supportBot.integration.test.ts, server/workspaceAgent.test.ts,
+docs/ai-gateway-contract.md, README.md, CLAUDE.md.
+
 2026-11-01 - the built-in gateway speaks NextAPI
 
 Nova's built-in AI gateway now runs on NextAPI (https://nextapi.online), an

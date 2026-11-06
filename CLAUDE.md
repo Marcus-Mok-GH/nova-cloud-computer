@@ -60,7 +60,7 @@ server/                 Express + tRPC v11 backend
   workspace/            Agent execution against a workspace (workspaceAgent, tools, security, sync)
   workspaceTools/       Individual agent tools (browser, codec, files, folders, research, vm, …)
   agentVm.ts / e2b.ts   E2B sandbox orchestration
-  aiGateway.ts          Built-in AI gateway client (NextAPI)
+  aiGateway.ts          Built-in AI gateway client (Pollinations)
 shared/                 Modules both sides import: const, skills, agentMode, followUps, text, timing, speech
 drizzle/                schema.ts, relations.ts, neon/ migrations
 docs/                   Research/design notes (AI gateway contract, autonomous agent, VM selection, i18n)
@@ -136,7 +136,7 @@ Exactly one item runs at a time, and that invariant is enforced in SQL rather th
 
 ### Model routing
 
-`server/aiGateway.ts` owns model selection and walks a fixed chain: `deepseek-4.1-flash` → `deepseek-4.1-flash-free-01` → an optional `glm-5.3-flash` on a _different_ provider so it survives a NextAPI outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
+`server/aiGateway.ts` owns model selection and walks a fixed chain: `openai/gpt-6-luna` → `openai/gpt-5.6-luna` → an optional `glm-5.3-flash` on a _different_ provider so it survives a Pollinations outage. A caller-supplied model id is **deliberately ignored** — the free-tier contract cannot be bypassed — so don't "fix" that by threading the id through. Read `docs/ai-gateway-contract.md` before touching this file.
 
 BYOK is a full bypass, not a hop: a workspace with an active custom model routes through `server/byokGateway.ts` from `workspace/workspaceRetry.ts` (`customModel ? chatWithCustomModel : chatWithAiGateway`), skipping gateway credits, the sanitized error copy, and admin error logging. `server/nim.ts` is a _separate_ client for the thinker and sandbox subagents and is not part of the fallback chain.
 
@@ -177,7 +177,7 @@ The support-bot Q&A route is the one exception: `needsDatabaseBootstrap` in `api
 
 ## Environment (see `server/_core/env.ts`)
 
-Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `NEXTAPI_API_KEY` / `NEXTAPI_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Durable-run chaining: `AGENT_CONTINUE_SECRET` (unset ⇒ the three internal resume endpoints 404). Optional remote-API escape hatch: `API_SERVICE_URL`.
+Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `POLLINATIONS_API_KEY` / `POLLINATIONS_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Durable-run chaining: `AGENT_CONTINUE_SECRET` (unset ⇒ the three internal resume endpoints 404). Optional remote-API escape hatch: `API_SERVICE_URL`.
 
 Secrets are server-only — never expose them to the browser. Client-visible values must be `VITE_`-prefixed.
 

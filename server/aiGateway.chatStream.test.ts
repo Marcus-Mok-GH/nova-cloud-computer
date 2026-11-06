@@ -38,14 +38,14 @@ function modelsResponse() {
 }
 
 beforeEach(() => {
-  // Credentials shorter than 32 chars are ignored by nextapiToken().
-  process.env.NEXTAPI_API_KEY = "sk-nextapi_test-gateway-key-0123456789abcdef012345";
-  process.env.NEXTAPI_GATEWAY_URL = "https://gateway.example.com/v1";
+  // Credentials shorter than 32 chars are ignored by pollinationsToken().
+  process.env.POLLINATIONS_API_KEY = "sk-pollinations_test-gateway-key-0123456789abcdef012345";
+  process.env.POLLINATIONS_GATEWAY_URL = "https://gateway.example.com/v1";
   // The SeekAI last resort is a different endpoint: keep it out of these
-  // NextAPI-only stubs even if the developer's shell exports a real key.
+  // Pollinations-only stubs even if the developer's shell exports a real key.
   delete process.env.SEEKAI_API_KEY;
   // Same for the reasoning-effort lever: the default "max" is asserted below.
-  delete process.env.NEXTAPI_REASONING_EFFORT;
+  delete process.env.POLLINATIONS_REASONING_EFFORT;
   resetAiGatewayHealthCache();
   vi.useFakeTimers();
 });
@@ -53,9 +53,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   global.fetch = ORIGINAL_FETCH;
-  delete process.env.NEXTAPI_API_KEY;
-  delete process.env.NEXTAPI_GATEWAY_URL;
-  delete process.env.NEXTAPI_REASONING_EFFORT;
+  delete process.env.POLLINATIONS_API_KEY;
+  delete process.env.POLLINATIONS_GATEWAY_URL;
+  delete process.env.POLLINATIONS_REASONING_EFFORT;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -319,25 +319,25 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
   });
 
-  it("honors NEXTAPI_REASONING_EFFORT as the GLM-5.2+ effort lever", () => {
-    process.env.NEXTAPI_REASONING_EFFORT = "low";
+  it("honors POLLINATIONS_REASONING_EFFORT as the GLM-5.2+ effort lever", () => {
+    process.env.POLLINATIONS_REASONING_EFFORT = "low";
     expect(reasoningParamsForModel("glm-5.3-flash")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "low",
     });
-    process.env.NEXTAPI_REASONING_EFFORT = "HIGH";
+    process.env.POLLINATIONS_REASONING_EFFORT = "HIGH";
     expect(reasoningParamsForModel("glm-5.2")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "high",
     });
     // An unrecognized value keeps the default deepest effort.
-    process.env.NEXTAPI_REASONING_EFFORT = "extreme";
+    process.env.POLLINATIONS_REASONING_EFFORT = "extreme";
     expect(reasoningParamsForModel("glm-5.2")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "max",
     });
     // GLM-4.x models take no effort field at all, whatever the override says.
-    process.env.NEXTAPI_REASONING_EFFORT = "low";
+    process.env.POLLINATIONS_REASONING_EFFORT = "low";
     expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
   });
 
@@ -353,7 +353,7 @@ describe("AI gateway chat stream handling", () => {
         });
       }
       return sseResponse([
-        `data: ${JSON.stringify({ model: "deepseek-4.1-flash-free-01", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "openai/gpt-5.6-luna", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
         "data: [DONE]\n\n",
       ]);
     });
@@ -362,11 +362,11 @@ describe("AI gateway chat stream handling", () => {
       onChunk: () => {},
     });
     expect(result.text).toBe("Fallback reply.");
-    expect(result.model).toBe("deepseek-4.1-flash-free-01");
+    expect(result.model).toBe("openai/gpt-5.6-luna");
     expect(calls).toBe(2);
   });
 
-  it("posts the single NextAPI model without GLM thinking fields", async () => {
+  it("posts the primary Pollinations model without GLM thinking fields", async () => {
     let requestBody: Record<string, unknown> = {};
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -379,8 +379,8 @@ describe("AI gateway chat stream handling", () => {
     }) as unknown as typeof fetch;
     const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Thought it through.");
-    expect(requestBody.model).toBe("deepseek-4.1-flash");
-    // DeepSeek is not in the GLM family, so no thinking fields are added.
+    expect(requestBody.model).toBe("openai/gpt-6-luna");
+    // GPT-6 Luna is not in the GLM family, so no thinking fields are added.
     expect(requestBody.thinking).toBeUndefined();
     expect(requestBody.reasoning_effort).toBeUndefined();
   });
@@ -405,7 +405,7 @@ describe("AI gateway chat stream handling", () => {
       }
       return Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ model: "deepseek-4.1-flash-free-01", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+          `data: ${JSON.stringify({ model: "openai/gpt-5.6-luna", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
           "data: [DONE]\n\n",
         ])
       );
@@ -425,7 +425,7 @@ describe("AI gateway chat stream handling", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     await attempt;
     expect(settled).toMatchObject({
-      ok: { text: "Fallback reply.", model: "deepseek-4.1-flash-free-01" },
+      ok: { text: "Fallback reply.", model: "openai/gpt-5.6-luna" },
     });
     expect(calls).toBe(2);
   });

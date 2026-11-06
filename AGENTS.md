@@ -34,7 +34,7 @@ Run the app in the sandbox with `docker compose -f docker-compose.base44.yml up 
 - Verify with `curl -fsS http://localhost:3000/api/health` (reports DB latency), then the landing page at `/`.
 - `/sign-in` needs `NEON_AUTH_BASE_URL` (server JWT verification) and `VITE_NEON_AUTH_URL` (browser email-OTP
   client) — both the same Neon Auth URL; without them the form renders but every sign-in attempt is rejected.
-  `NEXTAPI_API_KEY` enables AI replies, `E2B_API_KEY` enables sandbox runs. Secrets come from
+  `POLLINATIONS_API_KEY` enables AI replies, `E2B_API_KEY` enables sandbox runs. Secrets come from
   `/run/base44/app.env` (wired via `env_file`), never from a committed file.
 - `BASE44_PREVIEW_MODE` is passed through to the container only; no code path reads it, so there are no
   sandbox-only behavior overrides in the application.

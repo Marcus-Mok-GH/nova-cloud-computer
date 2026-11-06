@@ -16,8 +16,8 @@ vi.mock("./db/core", () => ({
   isUniqueViolation: () => false,
 }));
 
-process.env.NEXTAPI_API_KEY = "sk-nextapi-test_" + "k".repeat(40);
-process.env.NEXTAPI_FALLBACK_MODEL = "disabled";
+process.env.POLLINATIONS_API_KEY = "sk-pollinations-test_" + "k".repeat(40);
+process.env.POLLINATIONS_FALLBACK_MODEL = "disabled";
 process.env.NOVA_SESSION_SECRET = "test-session-secret";
 
 const { app } = await import("./app");
@@ -38,7 +38,7 @@ function stubGateway() {
     return new Response(
       JSON.stringify({
         choices: [{ message: { content: "Nova is a persistent cloud computer." } }],
-        model: "deepseek-4.1-flash",
+        model: "openai/gpt-6-luna",
       }),
       { status: 200 }
     );

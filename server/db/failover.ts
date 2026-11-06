@@ -1,4 +1,46 @@
-import { isTransientDatabaseError } from "./core";
+import type pg from "pg";
+
+/**
+ * Postgres SQLSTATEs and Node socket errors worth failing over: the
+ * connection or its backend went away, the server is starting up /
+ * shutting down, or the pooler refused a slot. Anything else (constraint
+ * violation, syntax error, permission denied) is a real answer from
+ * Postgres and never triggers a failover.
+ */
+const TRANSIENT_DATABASE_CODES = new Set([
+  "08000", // connection_exception
+  "08001", // sqlclient_unable_to_establish_sqlconnection
+  "08003", // connection_does_not_exist
+  "08004", // sqlserver_rejected_establishment_of_sqlconnection
+  "08006", // connection_failure
+  "08007", // transaction_resolution_unknown
+  "57P01", // admin_shutdown
+  "57P02", // crash_shutdown
+  "57P03", // cannot_connect_now
+  "53300", // too_many_connections
+  "40001", // serialization_failure
+  "40P01", // deadlock_detected
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+]);
+
+/** True when the error (or anything in its cause chain) is worth failing over. */
+export function isTransientDatabaseError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    const code = (current as Error & { code?: unknown }).code;
+    if (typeof code === "string" && TRANSIENT_DATABASE_CODES.has(code)) {
+      return true;
+    }
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return false;
+}
 
 /**
  * Pool-level failover between a primary database (Neon) and a hot backup.
@@ -44,9 +86,9 @@ type PoolLike = {
 };
 
 export type FailoverPoolOptions = {
-  primary: PoolLike;
+  primary: pg.Pool | PoolLike;
   /** Lazy factory - the backup pool is not created until the first failover. */
-  backup: () => PoolLike;
+  backup: () => pg.Pool | PoolLike;
   /** How long the primary stays marked down after a transient failure. */
   cooldownMs: number;
 };
@@ -61,8 +103,11 @@ export class FailoverPool {
   private primaryDownUntil = 0;
 
   constructor(options: FailoverPoolOptions) {
-    this.primary = options.primary;
-    this.backupFactory = options.backup;
+    // pg.Pool's overloaded `on` never satisfies a structural function-property
+    // type, so the boundary casts through unknown; the facade only calls the
+    // sliver of the API declared in PoolLike.
+    this.primary = options.primary as unknown as PoolLike;
+    this.backupFactory = () => options.backup() as unknown as PoolLike;
     this.cooldownMs = Math.max(1, options.cooldownMs);
   }
 
@@ -90,7 +135,7 @@ export class FailoverPool {
   }
 
   /** Which backend a query would use right now - reported by /api/health. */
-  activeBackend(): FailoverBackend {
+  get activeBackend(): FailoverBackend {
     return this.primaryIsDown() ? "backup" : "primary";
   }
 

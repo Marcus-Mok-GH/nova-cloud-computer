@@ -40,7 +40,7 @@ describe("FailoverPool", () => {
     expect(result).toEqual({ rows: [{ ok: 1 }] });
     expect(primary.query).toHaveBeenCalledTimes(1);
     expect(backup.query).not.toHaveBeenCalled();
-    expect(pool.activeBackend()).toBe("primary");
+    expect(pool.activeBackend).toBe("primary");
   });
 
   it("fails over to the backup on a transient error and retries there", async () => {
@@ -52,7 +52,7 @@ describe("FailoverPool", () => {
 
     expect(result).toEqual({ rows: [{ ok: 1 }] });
     expect(backup.query).toHaveBeenCalledTimes(1);
-    expect(pool.activeBackend()).toBe("backup");
+    expect(pool.activeBackend).toBe("backup");
   });
 
   it("keeps routing to the backup for the cooldown window", async () => {
@@ -73,13 +73,13 @@ describe("FailoverPool", () => {
     const pool = new FailoverPool({ primary, backup: () => backup, cooldownMs: 60_000 });
 
     await pool.query("select 1");
-    expect(pool.activeBackend()).toBe("backup");
+    expect(pool.activeBackend).toBe("backup");
 
     vi.advanceTimersByTime(60_001);
     await pool.query("select 1");
 
     expect(primary.query).toHaveBeenCalledTimes(2);
-    expect(pool.activeBackend()).toBe("primary");
+    expect(pool.activeBackend).toBe("primary");
   });
 
   it("does not fail over on non-transient errors", async () => {
@@ -89,7 +89,7 @@ describe("FailoverPool", () => {
 
     await expect(pool.query("insert ...")).rejects.toMatchObject({ code: "23505" });
     expect(backup.query).not.toHaveBeenCalled();
-    expect(pool.activeBackend()).toBe("primary");
+    expect(pool.activeBackend).toBe("primary");
   });
 
   it("connect() fails over the same way as query()", async () => {
@@ -101,7 +101,7 @@ describe("FailoverPool", () => {
 
     expect(backup.connect).toHaveBeenCalledTimes(1);
     expect(client.release).toBeTypeOf("function");
-    expect(pool.activeBackend()).toBe("backup");
+    expect(pool.activeBackend).toBe("backup");
   });
 
   it("creates the backup pool lazily, only on first failover", async () => {

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { FailoverPool, failoverCooldownMsFromEnv } from "./failover";
+import { FailoverPool, failoverCooldownMsFromEnv, isTransientDatabaseError } from "./failover";
+
+export { isTransientDatabaseError };
 
 /**
  * The workspace database connection layer.
@@ -26,34 +28,6 @@ const DEFAULT_POOL_MAX = 5;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
-
-/**
- * Postgres SQLSTATEs and Node socket errors worth retrying: the connection or
- * its backend went away, the server is starting up / shutting down, or the
- * pooler refused a slot. Anything else (constraint violation, syntax error,
- * permission denied) is a real answer and must not be retried.
- */
-const TRANSIENT_DATABASE_CODES = new Set([
-  "08000", // connection_exception
-  "08001", // sqlclient_unable_to_establish_sqlconnection
-  "08003", // connection_does_not_exist
-  "08004", // sqlserver_rejected_establishment_of_sqlconnection
-  "08006", // connection_failure
-  "08007", // transaction_resolution_unknown
-  "57P01", // admin_shutdown
-  "57P02", // crash_shutdown
-  "57P03", // cannot_connect_now
-  "53300", // too_many_connections
-  "40001", // serialization_failure
-  "40P01", // deadlock_detected
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "ETIMEDOUT",
-  "EPIPE",
-  "EHOSTUNREACH",
-  "ENETUNREACH",
-  "ENOTFOUND",
-]);
 
 let _db: Database | null = null;
 let _pool: pg.Pool | null = null;
@@ -187,19 +161,6 @@ export async function requireDb(): Promise<Database> {
 /** The live pool, or `null` before first use. Exposed for health checks and graceful shutdown. */
 export function getDatabasePool(): pg.Pool | null {
   return _pool;
-}
-
-/** True when the error (or anything in its cause chain) is worth retrying. */
-export function isTransientDatabaseError(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
-    const code = (current as Error & { code?: unknown }).code;
-    if (typeof code === "string" && TRANSIENT_DATABASE_CODES.has(code)) {
-      return true;
-    }
-    current = (current as Error & { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 /**

@@ -127,6 +127,8 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `NOVA_DB_CONNECT_TIMEOUT_MS`  | Optional connection timeout (defaults to `10000`)                               |
 | `NOVA_DB_IDLE_TIMEOUT_MS`     | Optional idle connection timeout (defaults to `30000`)                          |
 | `NOVA_DB_STATEMENT_TIMEOUT_MS` | Optional query timeout (defaults to `30000`)                                  |
+| `BACKUP_DATABASE_URL`        | Optional backup Postgres connection string; on transient primary failures the app fails over to it until the primary recovers (see `docs/database-failover.md`) |
+| `NOVA_DB_FAILOVER_COOLDOWN_MS` | Optional time traffic stays on the backup before the primary is retried (defaults to `60000`) |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
 | `POLLINATIONS_API_KEY`       | Server-only Pollinations key powering the built-in AI gateway (also used by transcription, speech, and the free-usage coder) |
@@ -155,6 +157,13 @@ The built-in gateway serves Pollinations' `openai/gpt-6-luna` with
 `z-ai/glm-5.3-flash` as the fallback for transient failures. See
 [`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
 details.
+
+The database layer can fail over to a backup Postgres when the primary becomes
+unreachable - for example when Neon suspends a project at its plan's data
+transfer limit. Set `BACKUP_DATABASE_URL` and run
+`scripts/setup-db-replication.sh` to keep the backup in sync via logical
+replication; the failover and failback runbook lives in
+[`docs/database-failover.md`](docs/database-failover.md).
 
 ---
 

@@ -36,6 +36,8 @@ const envKeys = [
   "NOVA_DB_IDLE_TIMEOUT_MS",
   "NOVA_DB_CONNECT_TIMEOUT_MS",
   "NOVA_DB_STATEMENT_TIMEOUT_MS",
+  "BACKUP_DATABASE_URL",
+  "NOVA_DB_FAILOVER_COOLDOWN_MS",
   "VERCEL",
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));

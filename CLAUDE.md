@@ -56,7 +56,7 @@ server/                 Express + tRPC v11 backend
   app.ts                Express app + route mounting
   index.ts              HTTP bootstrap + static SPA fallback (long-running / self-hosted)
   routers.ts            Main tRPC appRouter
-  db/                   Data-access layer split by domain (agentRuns, automations, chats, credits, …)
+  db/                   Data-access layer split by domain (agentRuns, automations, chats, credits, …); core.ts wraps the pool in db/failover.ts when BACKUP_DATABASE_URL is set
   workspace/            Agent execution against a workspace (workspaceAgent, tools, security, sync)
   workspaceTools/       Individual agent tools (browser, codec, files, folders, research, vm, …)
   agentVm.ts / e2b.ts   E2B sandbox orchestration
@@ -177,7 +177,7 @@ The support-bot Q&A route is the one exception: `needsDatabaseBootstrap` in `api
 
 ## Environment (see `server/_core/env.ts`)
 
-Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `POLLINATIONS_API_KEY` / `POLLINATIONS_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Durable-run chaining: `AGENT_CONTINUE_SECRET` (unset ⇒ the three internal resume endpoints 404). Optional remote-API escape hatch: `API_SERVICE_URL`.
+Database: `DATABASE_URL` (and `DATABASE_URL_UNPOOLED` for DDL). Optional hot standby: `BACKUP_DATABASE_URL` (+ `NOVA_DB_FAILOVER_COOLDOWN_MS`) fails app traffic over to a logically replicated backup while the primary is unreachable; setup in `docs/database-failover.md`. Sandboxes: `E2B_API_KEY`, `E2B_MAX_SANDBOX_CREATIONS`. AI: `POLLINATIONS_API_KEY` / `POLLINATIONS_GATEWAY_URL`, `SEEKAI_API_KEY` (last-resort hop, skipped when unset), the NIM family — `NVIDIA_NIM_API_URL`, plus `resolveNimApiKey` falling back through `NVIDIA_NIM_API_KEY` → `NVIDIA_NIM_GATEWAY_TOKEN` → `NVIDIA_API_KEY`, and the optional `NVIDIA_NIM_CODER_*` endpoint overrides. Auth: `OAUTH_SERVER_URL`, `NEON_AUTH_BASE_URL` (+ `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE` / `NEON_AUTH_JWKS_URL`), `NOVA_SESSION_SECRET` (which itself falls back through `JWT_SECRET` → `MODEL_CREDENTIAL_SECRET` → `POSTGRES_PASSWORD` → `DATABASE_URL`). Integrations: `AGENTMAIL_API_KEY` + `AGENTMAIL_WEBHOOK_SECRET`, `DEFAULT_TELEGRAM_BOT_TOKEN`, `COMPOSIO_API_KEY`, `EXA_API_KEY`, `NETLIFY_API_TOKEN`, `TRANSCRIPTION_API_KEY` / `TRANSCRIPTION_API_BASE_URL` / `TRANSCRIPTION_MODEL`. Webhooks: `NOVA_PUBLIC_BASE_URL` / `PUBLIC_APP_URL`. Durable-run chaining: `AGENT_CONTINUE_SECRET` (unset ⇒ the three internal resume endpoints 404). Optional remote-API escape hatch: `API_SERVICE_URL`.
 
 Secrets are server-only — never expose them to the browser. Client-visible values must be `VITE_`-prefixed.
 

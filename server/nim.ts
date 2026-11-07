@@ -305,7 +305,11 @@ async function postNimChat(
           ...nimReasoningParamsForModel(target.model),
           ...body,
         }),
-        signal: AbortSignal.timeout(attemptTimeoutMs),
+        // An unbounded attempt (no caller timeout, no deadline) runs without
+        // an abort timer: AbortSignal.timeout only accepts finite delays.
+        signal: Number.isFinite(attemptTimeoutMs)
+          ? AbortSignal.timeout(attemptTimeoutMs)
+          : undefined,
       });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError" && !timedOutOnce && canRetryAfter(0)) {

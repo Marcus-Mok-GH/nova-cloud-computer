@@ -102,3 +102,6 @@ When the primary is healthy again (new billing cycle / upgraded plan):
 | `DATABASE_URL_UNPOOLED` | Primary direct URL (migrations). Optional. |
 | `BACKUP_DATABASE_URL` | Standby connection string. When set, failover is enabled. |
 | `NOVA_DB_FAILOVER_COOLDOWN_MS` | How long to stay on the standby before re-probing the primary (default 60000). |
+See `docs/database-role-flip.md` for the deliberate, permanent role swap
+(promote the standby to primary, re-point replication) and for recovering
+when the pair froze before the standby caught up.

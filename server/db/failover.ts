@@ -29,14 +29,29 @@ const TRANSIENT_DATABASE_CODES = new Set([
   "ENOTFOUND",
 ]);
 
+/**
+ * Neon (and its proxy) refuse connections with a plan-quota message instead of
+ * a proper SQLSTATE once the monthly compute-time or data-transfer allowance
+ * is exhausted: "Your project has exceeded the data transfer quota. Upgrade
+ * your plan to increase limits." The compute is left suspended, so nothing on
+ * the primary can answer until the allowance resets - exactly when a hot
+ * backup should take over. Match the message, because the error carries no
+ * useful `code`: the proxy rejects before the Postgres handshake, so `pg`
+ * reports a connection failure without a server-produced SQLSTATE.
+ */
+const PLAN_QUOTA_EXHAUSTED_PATTERN =
+  /has exceeded the [a-z ]{0,32}quota\.?\s*Upgrade your plan/i;
+
 /** True when the error (or anything in its cause chain) is worth failing over. */
 export function isTransientDatabaseError(error: unknown): boolean {
   let current: unknown = error;
-  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!(current instanceof Error)) return false;
     const code = (current as Error & { code?: unknown }).code;
     if (typeof code === "string" && TRANSIENT_DATABASE_CODES.has(code)) {
       return true;
     }
+    if (PLAN_QUOTA_EXHAUSTED_PATTERN.test(current.message)) return true;
     current = (current as Error & { cause?: unknown }).cause;
   }
   return false;

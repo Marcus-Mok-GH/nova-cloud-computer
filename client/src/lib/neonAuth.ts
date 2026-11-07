@@ -39,7 +39,19 @@ export const neonAuth = authUrl
 export const NEON_JWT_STORAGE_KEY = "nova_neon_access_token";
 
 type StoredNeonJwt = { token: string; expiresAt: number };
-type NeonTokenResult = { data?: { token?: string | null; session?: { token?: string | null } | null } | null };
+type NeonTokenResult = {
+  data?: {
+    token?: string | null;
+    session?: { token?: string | null; access_token?: string | null } | null;
+  } | null;
+};
+
+/**
+ * Fallback cache lifetime for a remembered JWT whose `exp` claim cannot be
+ * parsed. Without it the token would be used once and never cached, so every
+ * page load would have to rebuild a session from scratch.
+ */
+const REMEMBERED_JWT_FALLBACK_TTL_MS = 60 * 60 * 1000;
 type NeonAuthTokenClient = {
   getSession: () => Promise<NeonTokenResult>;
   token: () => Promise<NeonTokenResult>;
@@ -71,8 +83,12 @@ function getStorage(): Storage | null {
 
 export function rememberNeonJwt(token: string | null | undefined, now = Date.now()) {
   if (!isSignedJwt(token)) return null;
-  const expiresAt = getJwtExpirationMs(token!);
-  if (!expiresAt || expiresAt <= now) return token!;
+  const parsedExpiry = getJwtExpirationMs(token!);
+  // A token whose expiry cannot be read is still worth caching for a short
+  // fallback window: skipping the cache means every page load starts from a
+  // bare cookie, and a stale cached token is recovered by the signed-out
+  // retry in useAuth rather than bouncing the user to sign in.
+  const expiresAt = parsedExpiry ?? now + REMEMBERED_JWT_FALLBACK_TTL_MS;
   try {
     getStorage()?.setItem(NEON_JWT_STORAGE_KEY, JSON.stringify({ token: token!, expiresAt } satisfies StoredNeonJwt));
   } catch {
@@ -107,8 +123,15 @@ export function clearRememberedNeonJwt() {
 export function extractNeonJwt(result: NeonTokenResult) {
   const token = result.data?.token;
   if (isSignedJwt(token)) return token!;
-  const sessionToken = result.data?.session?.token;
-  return isSignedJwt(sessionToken) ? sessionToken! : null;
+  // The vanilla adapter maps Better Auth's raw session into
+  // `{ access_token, ... }` (see mapBetterAuthSession in @neondatabase/auth),
+  // while the raw `get-session` response keeps Neon's signed JWT under
+  // `session.token`. Both shapes must be read or a valid session looks
+  // tokenless on restore.
+  const mappedAccessToken = result.data?.session?.access_token;
+  if (isSignedJwt(mappedAccessToken)) return mappedAccessToken!;
+  const rawSessionToken = result.data?.session?.token;
+  return isSignedJwt(rawSessionToken) ? rawSessionToken! : null;
 }
 
 export async function getNeonJwtFromTokenEndpoint(

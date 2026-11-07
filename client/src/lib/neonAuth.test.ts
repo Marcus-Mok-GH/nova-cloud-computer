@@ -58,6 +58,14 @@ describe("extractNeonJwt", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://nova.example/api/neon-auth/token", { credentials: "include" });
   });
 
+  it("reads the mapped vanilla adapter's access token off the session, but rejects opaque values", () => {
+    expect(extractNeonJwt({ data: { session: { access_token: "header.payload.signature" } } })).toBe(
+      "header.payload.signature",
+    );
+    expect(extractNeonJwt({ data: { session: { access_token: "opaque-session" } } })).toBeNull();
+    expect(extractNeonJwt({ data: { session: null } })).toBeNull();
+  });
+
   it("persists a signed JWT in localStorage until its expiration", () => {
     const storage = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -72,6 +80,24 @@ describe("extractNeonJwt", () => {
     expect(getRememberedNeonJwt(now + 1_000)).toBe(token);
 
     expect(getRememberedNeonJwt(now + 61_000)).toBeNull();
+    expect(storage.has(NEON_JWT_STORAGE_KEY)).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps a JWT with no parseable expiration for a fallback window instead of dropping it", () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    const now = 1_700_000_000_000;
+    const token = createJwt({ sub: "user-1" });
+
+    expect(rememberNeonJwt(token, now)).toBe(token);
+    expect(getRememberedNeonJwt(now + 30 * 60_000)).toBe(token);
+    expect(getRememberedNeonJwt(now + 90 * 60_000)).toBeNull();
     expect(storage.has(NEON_JWT_STORAGE_KEY)).toBe(false);
 
     vi.unstubAllGlobals();

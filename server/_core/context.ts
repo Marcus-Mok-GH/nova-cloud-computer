@@ -5,7 +5,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { User } from "../../drizzle/schema";
 import { ensureUserWorkspaceProvisioned, getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
-import { ENV } from "./env";
+import { ENV, type NeonAuthVerificationConfig } from "./env";
 import { sdk } from "./sdk";
 import { isSupportBotRequestPath } from "./supportBotPath";
 
@@ -31,11 +31,28 @@ export function normalizeNeonIdentity(payload: JWTPayload): NeonIdentity | null 
   };
 }
 
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-function getJwks() {
-  if (!ENV.neonAuthJwksUrl) return null;
-  if (!jwks) jwks = createRemoteJWKSet(new URL(ENV.neonAuthJwksUrl));
-  return jwks;
+const jwksByUrl = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+function getJwks(jwksUrl: string | undefined) {
+  const normalizedUrl = jwksUrl?.trim();
+  if (!normalizedUrl) return null;
+  let keySet = jwksByUrl.get(normalizedUrl);
+  if (!keySet) {
+    keySet = createRemoteJWKSet(new URL(normalizedUrl));
+    jwksByUrl.set(normalizedUrl, keySet);
+  }
+  return keySet;
+}
+
+function getNeonVerificationConfigs(): NeonAuthVerificationConfig[] {
+  const primary = {
+    baseUrl: ENV.neonAuthBaseUrl,
+    issuer: ENV.neonAuthIssuer,
+    audience: ENV.neonAuthAudience,
+    jwksUrl: ENV.neonAuthJwksUrl,
+  };
+  const known = ENV.neonAuthVerificationConfigs;
+  const list = known.length ? known : [primary];
+  return list;
 }
 
 type BannedAuthentication = { banned: true };
@@ -68,35 +85,42 @@ function ensureWorkspaceInBackground(userId: number) {
     .catch(error => console.warn("[Auth] Workspace provisioning deferred", error instanceof Error ? error.message : error));
 }
 
+async function verifyNeonBearerToken(token: string, keySet: ReturnType<typeof getJwks>, config: NeonAuthVerificationConfig): Promise<BearerAuthentication | BannedAuthentication | null> {
+  if (!keySet || !config.issuer || !config.audience) return null;
+  const { payload } = await jwtVerify(token, keySet, {
+    issuer: config.issuer,
+    audience: config.audience,
+  });
+  const identity = normalizeNeonIdentity(payload);
+  if (!identity) return null;
+  // Read first: a returning user costs one query, not a write plus a read on
+  // every authenticated request. The row is written only when it is missing
+  // or its stored sign-in has gone stale.
+  let user = await getUserByOpenId(identity.openId);
+  if (user?.bannedAt) return { banned: true }; // Banned accounts cannot sign in, even with a valid Neon token.
+  if (!user || needsSignInRefresh(user.lastSignedIn)) {
+    await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
+    // The upsert can (re)assert the pinned developer rank, so the stored row
+    // is read back instead of reusing the one fetched before the write.
+    user = await getUserByOpenId(identity.openId);
+    if (user?.bannedAt) return { banned: true };
+  }
+  if (user) ensureWorkspaceInBackground(user.id);
+  return user ? { user, identity } : null;
+}
+
 async function authenticateBearerToken(header: string | undefined): Promise<BearerAuthentication | BannedAuthentication | null> {
   if (!header?.startsWith("Bearer ")) return null;
-  const keySet = getJwks();
-  if (!keySet || !ENV.neonAuthIssuer || !ENV.neonAuthAudience) return null;
-  try {
-    const { payload } = await jwtVerify(header.slice(7), keySet, {
-      issuer: ENV.neonAuthIssuer,
-      audience: ENV.neonAuthAudience,
-    });
-    const identity = normalizeNeonIdentity(payload);
-    if (!identity) return null;
-    // Read first: a returning user costs one query, not a write plus a read on
-    // every authenticated request. The row is written only when it is missing
-    // or its stored sign-in has gone stale.
-    let user = await getUserByOpenId(identity.openId);
-    if (user?.bannedAt) return { banned: true }; // Banned accounts cannot sign in, even with a valid Neon token.
-    if (!user || needsSignInRefresh(user.lastSignedIn)) {
-      await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
-      // The upsert can (re)assert the pinned developer rank, so the stored row
-      // is read back instead of reusing the one fetched before the write.
-      user = await getUserByOpenId(identity.openId);
-      if (user?.bannedAt) return { banned: true };
+  const token = header.slice(7);
+  for (const config of getNeonVerificationConfigs()) {
+    try {
+      const result = await verifyNeonBearerToken(token, getJwks(config.jwksUrl), config);
+      if (result) return result;
+    } catch (error) {
+      console.warn("[Auth] Neon token validation failed", error instanceof Error ? error.message : error);
     }
-    if (user) ensureWorkspaceInBackground(user.id);
-    return user ? { user, identity } : null;
-  } catch (error) {
-    console.warn("[Auth] Neon token validation failed", error instanceof Error ? error.message : error);
-    return null;
   }
+  return null;
 }
 
 async function authenticateFirstPartySession(cookieHeader: string | undefined): Promise<{ user: User; identity: NeonIdentity } | BannedAuthentication | null> {

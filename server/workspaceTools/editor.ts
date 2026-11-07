@@ -7,7 +7,6 @@
 import { errorMessage } from "@shared/_core/errors";
 import { sleep } from "@shared/timing";
 import {
-  MIN_CALL_RESERVE_MS,
   runAutonomousCoderTask,
   runCoderTask,
   type CoderOutcome,
@@ -84,7 +83,6 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
     callId,
     sandbox,
     onProgress,
-    deadlineAtMs,
     onSubToolActivity,
   } = ctx;
   const task = str(args.task).trim();
@@ -143,7 +141,6 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
           language,
           sandbox,
           onProgress: note,
-          deadlineAtMs,
           // The specialist's own tool calls stream out as real activity
           // rows, namespaced under this editor call's id so they can
           // never collide across editor invocations in one run. Args are
@@ -163,7 +160,7 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
               }
             : {}),
         })
-      : runCoderTask(task, context, language, deadlineAtMs).then(result => ({
+      : runCoderTask(task, context, language).then(result => ({
           kind: "single",
           ...result,
         }));
@@ -180,18 +177,10 @@ export async function toolEditor(ctx: ToolCtx): Promise<ToolExecution> {
       if (error instanceof NimConfigError) throw error;
       const message = errorMessage(error, "");
       if (message.includes("not configured")) throw error;
-      // Transient specialist failures (timeouts, NIM hiccups) get one
-      // automatic retry, so a single blip never pushes the agent into
-      // silently hand-writing the code itself. The retry only runs when
-      // the remaining budget still covers the wait plus the reserve the
-      // specialist needs to start; otherwise it would begin work after
-      // the run deadline and be discarded anyway.
+      // Transient specialist failures (NIM hiccups) get one automatic
+      // retry, so a single blip never pushes the agent into silently
+      // hand-writing the code itself.
       const retryWaitMs = 1500;
-      if (
-        deadlineAtMs !== undefined &&
-        deadlineAtMs - Date.now() - retryWaitMs < 2 * MIN_CALL_RESERVE_MS
-      )
-        throw error;
       note("The coding specialist hit a snag - retrying once…");
       await sleep(retryWaitMs);
       outcome = await runSpecialist();

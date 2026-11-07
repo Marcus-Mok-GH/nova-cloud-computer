@@ -99,8 +99,8 @@ const NIM_HOSTED_API_BASE_URL = "https://integrate.api.nvidia.com/v1";
  * The coder sub-agent's (Nova's editor) transport. The editor is the one
  * specialist that does not run on NVIDIA NIM by default: it calls Pollinations'
  * unified API (https://gen.pollinations.ai), whose
- * z-ai/glm-5.3-flash is a coding model with tool calling and a
- * 1M-token context. NVIDIA_NIM_CODER_API_URL points the editor at any other
+ * openai/gpt-6-luna is the same chat model the built-in AI gateway runs on,
+ * with tool calling and a 1M-token context. NVIDIA_NIM_CODER_API_URL points the editor at any other
  * OpenAI-compatible endpoint, NVIDIA_NIM_CODER_MODEL sets its model id, and
  * NVIDIA_NIM_CODER_API_KEY sets its credential - so a self-hosted or NIM
  * endpoint still works without a code change. The key follows the endpoint: a
@@ -116,7 +116,7 @@ export function resolveCoderConfig() {
   const apiUrl = explicitBaseUrl || POLLINATIONS_API_BASE_URL;
   const usePollinations = apiUrl.includes("gen.pollinations.ai");
   const defaultModel = usePollinations
-    ? "z-ai/glm-5.3-flash"
+    ? "openai/gpt-6-luna"
     : apiUrl === NIM_HOSTED_API_BASE_URL
       ? "moonshotai/kimi-k3"
       : "";

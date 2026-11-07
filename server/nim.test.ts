@@ -245,6 +245,19 @@ describe("NIM deadline awareness", () => {
     // A tighter deadline still clamps the attempt.
     expect(resolveNimAttemptTimeoutMs(240_000, 1_500)).toBe(1_500);
   });
+  it("never aborts an unbounded request: no timeout with no deadline and no cap", async () => {
+    fetchStub.mockResolvedValueOnce(
+      jsonResponse({ choices: [{ message: { content: "ok" } }] })
+    );
+    await expect(
+      runNimChat({
+        systemPrompt: "s",
+        prompt: "p",
+        timeoutMs: Number.POSITIVE_INFINITY,
+      })
+    ).resolves.toBe("ok");
+    expect(fetchStub.mock.calls[0][0 + 1].signal).toBeUndefined();
+  });
 
   it("never starts a request once the caller's deadline has passed", async () => {
     await expect(

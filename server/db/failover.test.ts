@@ -55,6 +55,39 @@ describe("FailoverPool", () => {
     expect(pool.activeBackend).toBe("backup");
   });
 
+  it("fails over when Neon suspends the primary for a plan quota", async () => {
+    const dataTransferQuota = () =>
+      new Error(
+        "Your project has exceeded the data transfer quota. Upgrade your plan to increase limits."
+      );
+    const primary = makePool({ query: vi.fn().mockRejectedValue(dataTransferQuota()) });
+    const backup = makePool();
+    const pool = new FailoverPool({ primary, backup: () => backup, cooldownMs: 60_000 });
+
+    const result = await pool.query("select 1");
+
+    expect(result).toEqual({ rows: [{ ok: 1 }] });
+    expect(backup.query).toHaveBeenCalledTimes(1);
+    expect(pool.activeBackend).toBe("backup");
+  });
+
+  it("fails over on a compute-time quota error nested in the cause chain", async () => {
+    const computeTimeQuota = new Error(
+      "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
+    );
+    const wrapped = Object.assign(new Error("server closed the connection unexpectedly"), {
+      code: "ECONNRESET",
+      cause: computeTimeQuota,
+    });
+    const primary = makePool({ query: vi.fn().mockRejectedValue(wrapped) });
+    const backup = makePool();
+    const pool = new FailoverPool({ primary, backup: () => backup, cooldownMs: 60_000 });
+
+    await pool.query("select 1");
+
+    expect(backup.query).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps routing to the backup for the cooldown window", async () => {
     const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
     const backup = makePool();

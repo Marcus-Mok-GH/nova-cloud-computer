@@ -152,12 +152,12 @@ describe("resolveCoderConfig", () => {
     }
   });
 
-  it("defaults the editor to Pollinations serving glm 5.3 flash", () => {
+  it("defaults the editor to Pollinations serving the gateway's own model", () => {
     process.env.POLLINATIONS_API_KEY = "sk-poll";
     expect(resolveCoderConfig()).toEqual({
       nimCoderApiUrl: "https://gen.pollinations.ai/v1",
       nimCoderApiKey: "sk-poll",
-      nimCoderModel: "z-ai/glm-5.3-flash",
+      nimCoderModel: "openai/gpt-6-luna",
     });
   });
 

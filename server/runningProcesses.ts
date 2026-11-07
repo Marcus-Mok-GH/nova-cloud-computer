@@ -387,7 +387,6 @@ async function resumeEditorProcess(process: RunningProcess): Promise<void> {
     return;
   }
   const { runAutonomousCoderTask } = await import("./coder");
-  const { MAX_RUN_BUDGET_MS } = await import("./workspace/workspaceAgent");
   // Beat the heartbeat while the specialist works, exactly like the killed
   // invocation did: a resumed process must not look dead to the next sweep.
   const beat = setInterval(() => {
@@ -401,7 +400,6 @@ async function resumeEditorProcess(process: RunningProcess): Promise<void> {
       context,
       language,
       sandbox,
-      deadlineAtMs: Date.now() + MAX_RUN_BUDGET_MS,
     });
   } finally {
     clearInterval(beat);

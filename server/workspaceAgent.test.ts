@@ -1129,9 +1129,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write an add function",
       undefined,
-      "Python",
-      // The editor's own deadline is handed to the single-shot call too.
-      expect.any(Number)
+      "Python"
     );
     // Its code was fed back to the model as the tool result.
     const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
@@ -1229,11 +1227,14 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
-  it("skips the automatic specialist retry when the budget cannot cover it", async () => {
+  it("retries the specialist even when the segment budget is nearly spent", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockRejectedValue(
-      new Error("NVIDIA NIM responded with status 503.")
-    );
+    runCoderTaskMock
+      .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
+      .mockResolvedValueOnce({
+        code: "// specialist version",
+        model: "moonshotai/kimi-k3",
+      });
     chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -1246,18 +1247,19 @@ describe("Nova tool-calling workspace agent", () => {
           ],
         })
       )
-      .mockResolvedValueOnce(
-        chatResult({ text: "The specialist is down; nothing was written." })
-      );
-    // 30s left cannot fit the 1.5s wait plus the reserve the specialist needs
-    // just to start, so the retry is skipped instead of beginning work the run
-    // deadline would discard.
+      .mockResolvedValueOnce(chatResult({ text: "Here is your todo app." }));
+    // The specialist is never on a clock, so the automatic retry runs even
+    // with only seconds left in the segment.
     const result = await runWorkspaceAgent(1, 3, "build me a todo app", {
       deadlineAtMs: Date.now() + 30_000,
     });
-    expect(runCoderTaskMock).toHaveBeenCalledTimes(1);
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(2);
     expect(result.actions).toEqual([
-      { kind: "tool", name: "editor: build a todo app", operation: "failed" },
+      {
+        kind: "tool",
+        name: "editor: build a todo app",
+        operation: "completed",
+      },
     ]);
   });
 
@@ -1612,8 +1614,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write app.js properly",
       undefined,
-      undefined,
-      expect.any(Number)
+      undefined
     );
     expect(result.message.content).toBe(
       "Rewrote app.js with the coding specialist."
@@ -1742,8 +1743,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "review app.js",
       undefined,
-      undefined,
-      expect.any(Number)
+      undefined
     );
     expect(result.message.content).toBe(
       "Written and reviewed with the specialist."

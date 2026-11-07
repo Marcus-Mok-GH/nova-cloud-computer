@@ -179,31 +179,69 @@ export function forwardUpstreamResponse(upstream: Response, res: VercelResponse)
   if (cookies.length) res.setHeader("set-cookie", cookies.map(normalizeProxiedSessionCookie));
 }
 
+const AUTH_FAILOVER_CODES = new Set(["GENERIC_QUOTA_EXCEEDED", "QUOTA_EXCEEDED"]);
+// Keep this set referenced: quota-shaped failure bodies must not leak through
+// the proxy when a backup Neon Auth endpoint exists.
+const AUTH_QUOTA_MESSAGE = /has exceeded the [a-z ]{0,32}quota\.?\s*Upgrade your plan/i;
+
+function getNeonAuthBaseUrls() {
+  const primary = process.env.NEON_AUTH_BASE_URL?.trim().replace(/\/$/, "");
+  const backup = process.env.NEON_AUTH_BACKUP_BASE_URL?.trim().replace(/\/$/, "");
+  if (!primary) return [];
+  // Primary first: an expired/402 primary must not leak to the caller when a
+  // backup endpoint is configured. Duplicate or empty backup is ignored.
+  return backup && backup !== primary ? [primary, backup] : [primary];
+}
+
+export function isNeonAuthFailoverResponse(status: number, body: string) {
+  if (status !== 402 && status !== 429 && status !== 502 && status !== 503 && status !== 504) return false;
+  return AUTH_QUOTA_MESSAGE.test(body) || body.includes("GENERIC_QUOTA_EXCEEDED") || body.includes("QUOTA_EXCEEDED");
+}
+
 export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: string) {
-  const baseUrl = process.env.NEON_AUTH_BASE_URL;
-  if (!baseUrl) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
+  const baseUrls = getNeonAuthBaseUrls();
+  if (!baseUrls.length) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
 
   const requestUrl = new URL(req.url ?? "/", "http://nova-proxy.local");
-  const targetUrl = `${baseUrl.replace(/\/$/, "")}/${path}${requestUrl.search}`;
+  const search = requestUrl.search;
+  let lastError: unknown = null;
 
-  try {
-    const upstream = await fetch(targetUrl, {
-      method: req.method,
-      headers: getRequestHeaders(req.headers),
-      body: getRequestBody(req.method, req.body),
-      redirect: "manual",
-    });
+  for (let index = 0; index < baseUrls.length; index += 1) {
+    const baseUrl = baseUrls[index];
+    const targetUrl = `${baseUrl}/${path}${search}`;
+    let responseBody: ArrayBuffer;
+    let upstream: Response;
+    try {
+      upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers: getRequestHeaders(req.headers),
+        body: getRequestBody(req.method, req.body),
+        redirect: "manual",
+      });
+      responseBody = await upstream.arrayBuffer();
+    } catch (error) {
+      lastError = error;
+      if (index < baseUrls.length - 1) {
+        console.warn("[Neon Auth proxy] Primary upstream failed, trying backup", error);
+        continue;
+      }
+      console.error("[Neon Auth proxy] Upstream request failed", error);
+      return res.status(502).json({ error: "Neon Auth is temporarily unavailable." });
+    }
+    const body = Buffer.from(responseBody).toString("utf8");
+    if (index < baseUrls.length - 1 && isNeonAuthFailoverResponse(upstream.status, body)) {
+      console.warn("[Neon Auth proxy] Primary auth project is unavailable, failing over to backup", upstream.status);
+      continue;
+    }
     forwardUpstreamResponse(upstream, res);
     // Authentication responses must never be reused after an OTP exchange. In
     // particular, a cached unauthenticated `get-session` response can otherwise
     // mask the session cookie set by a successful sign-in.
     res.setHeader("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
     res.setHeader("pragma", "no-cache");
-    return res.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
-  } catch (error) {
-    console.error("[Neon Auth proxy] Upstream request failed", error);
-    return res.status(502).json({ error: "Neon Auth is temporarily unavailable." });
+    return res.status(upstream.status).send(Buffer.from(responseBody));
   }
+  return res.status(502).json({ error: "Neon Auth is temporarily unavailable." });
 }
 
 export async function proxyApiService(req: VercelRequest, res: VercelResponse, apiServiceUrl: string) {

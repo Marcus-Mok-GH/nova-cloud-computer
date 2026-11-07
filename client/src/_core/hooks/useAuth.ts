@@ -1,4 +1,4 @@
-import { clearRememberedNeonJwt, neonAuth } from "@/lib/neonAuth";
+import { clearRememberedNeonJwt, getRememberedNeonJwt, neonAuth } from "@/lib/neonAuth";
 import { trpc } from "@/lib/trpc";
 import { SEVEN_DAYS_MS } from "@shared/const";
 import { useCallback, useEffect, useMemo } from "react";
@@ -76,6 +76,17 @@ export function useAuth(options?: UseAuthOptions) {
     error: meQuery.error ?? null,
     isAuthenticated: Boolean(meQuery.data),
   }), [meQuery.data, meQuery.error, meQuery.isLoading]);
+
+  // A previously cached Neon JWT that the server now rejects must never
+  // masquerade as "signed out": the first `auth.me` miss (null data) drops the
+  // remembered token and retries once, so the cookie-backed first-party
+  // session gets to answer before the user is sent to sign in.
+  useEffect(() => {
+    if (!meQuery.isSuccess || meQuery.data !== null || typeof window === "undefined") return;
+    if (!getRememberedNeonJwt()) return;
+    clearRememberedNeonJwt();
+    void meQuery.refetch();
+  }, [meQuery.isSuccess, meQuery.data, meQuery.refetch]);
 
   // Handle inactivity expiration & activity tracking
   useEffect(() => {

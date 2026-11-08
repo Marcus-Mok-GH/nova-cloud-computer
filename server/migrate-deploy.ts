@@ -15,20 +15,26 @@ import pg from "pg";
  *
  * The gate probes the database first, over the same `pg` driver and
  * connection string `drizzle-kit migrate` would use. When the probe answers,
- * migrations run exactly as before, so genuine SQL failures still fail the
- * build. When it does not, the gate prints the underlying error as a build
- * warning and lets the deploy continue: the runtime bootstrap
+ * migrations run exactly as before. When it does not — or when the migration
+ * itself fails for infrastructure reasons such as Neon quota, which a
+ * `select 1` probe cannot see — the gate prints the underlying error as a
+ * build warning and lets the deploy continue: the runtime bootstrap
  * (server/migrate.ts) already retries pending migrations on the first
  * database-backed request, so the schema catches up on the next healthy
- * deploy or first request instead of blocking every deploy. Manual
- * `pnpm run db:migrate:deploy` stays strict.
+ * deploy or first request instead of blocking every deploy. Genuine SQL
+ * failures still fail the build. Manual `pnpm run db:migrate:deploy` stays
+ * strict.
  */
 
 const PROBE_TIMEOUT_MS = 15_000;
 
 export type DatabaseProbe = { ok: true } | { ok: false; reason: string };
 
-export type MigrateResult = { status: number | null; error?: Error };
+export type MigrateResult = {
+  status: number | null;
+  error?: Error;
+  output?: string;
+};
 
 /** Same URL resolution as drizzle.config.ts: the direct endpoint when the
  * pooled one is available, since drizzle-kit holds a dedicated connection. */
@@ -62,8 +68,34 @@ export async function probeDatabase(
   }
 }
 
+/** Neon infrastructure failures: quota, suspended compute, auth, network. */
+function isInfrastructureError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("exceeded the quota") ||
+    m.includes("quota") ||
+    m.includes("suspended") ||
+    m.includes("not available") ||
+    m.includes("econnrefused") ||
+    m.includes("connection refused") ||
+    m.includes("etimedout") ||
+    m.includes("timeout") ||
+    m.includes("network") ||
+    m.includes("authentication failed") ||
+    m.includes("password authentication")
+  );
+}
+
 function runDrizzleKitMigrate(): MigrateResult {
-  return spawnSync("pnpm", ["run", "db:migrate"], { stdio: "inherit" });
+  // Capture output so infra failures (e.g. Neon quota hit between the probe
+  // and this step) can be told apart from genuine SQL errors.
+  const result = spawnSync("pnpm", ["run", "db:migrate"], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const out = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (out.trim()) process.stdout.write(out.endsWith("\n") ? out : `${out}\n`);
+  return { status: result.status, error: result.error, output: out };
 }
 
 export interface DeployMigrationOptions {
@@ -106,6 +138,19 @@ export async function runDeployMigrations(
     warn(
       `[migrate-deploy] Could not run pnpm run db:migrate: ${result.error.message}`
     );
+  }
+  if (result.status !== 0) {
+    const output = result.output ?? "";
+    const infra = [result.error?.message ?? "", output].some(isInfrastructureError);
+    if (infra) {
+      warn(
+        "[migrate-deploy] Database migration failed for infrastructure reasons (e.g. Neon quota); skipping build-time migrations so this deploy can still ship."
+      );
+      warn(
+        "[migrate-deploy] The runtime bootstrap retries pending migrations on the first database-backed request."
+      );
+      return 0;
+    }
   }
   return result.status ?? 1;
 }

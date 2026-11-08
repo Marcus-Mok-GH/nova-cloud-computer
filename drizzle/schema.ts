@@ -429,3 +429,11 @@ export const runningProcesses = pgTable("running_processes", {
   index("running_processes_chat_idx").on(table.chatId),
 ]);
 export type RunningProcess = typeof runningProcesses.$inferSelect;
+/** Two-way reconciliation state: one row per role assignment epoch (active/standby) so failback can pick the newer side as source. */
+export const dbReconciliationState = pgTable("db_reconciliation_state", {
+  databaseRole: varchar("database_role", { length: 16 }).primaryKey(),
+  epoch: integer("epoch").default(0).notNull(),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type DbReconciliationState = typeof dbReconciliationState.$inferSelect;
+export type InsertDbReconciliationState = typeof dbReconciliationState.$inferInsert;

@@ -41,9 +41,6 @@ beforeEach(() => {
   // Credentials shorter than 32 chars are ignored by pollinationsToken().
   process.env.POLLINATIONS_API_KEY = "sk-pollinations_test-gateway-key-0123456789abcdef012345";
   process.env.POLLINATIONS_GATEWAY_URL = "https://gateway.example.com/v1";
-  // The SeekAI last resort is a different endpoint: keep it out of these
-  // Pollinations-only stubs even if the developer's shell exports a real key.
-  delete process.env.SEEKAI_API_KEY;
   // Same for the reasoning-effort lever: the default "max" is asserted below.
   delete process.env.POLLINATIONS_REASONING_EFFORT;
   resetAiGatewayHealthCache();

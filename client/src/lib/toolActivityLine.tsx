@@ -3,7 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleDashed,
-  ListChecks,
+  TriangleAlert,
   XCircle,
 } from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
@@ -20,7 +20,16 @@ import { pluralize } from "@shared/text";
  * object falls back to an empty record and callers render from the tool name.
  */
 function parseToolArgs(activity: ToolActivity): Record<string, unknown> {
-  if (typeof activity.args?.arguments !== "string") return {};
+  if (typeof activity.args?.arguments !== "string") {
+    // A few producers emit the identifying fields directly
+    // (args.path / args.command) instead of the JSON-string shape.
+    // Accept them as-is so the label still names the file or command.
+    const direct: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(activity.args ?? {})) {
+      if (typeof entry === "string" && entry) direct[key] = entry;
+    }
+    return direct;
+  }
   try {
     const parsed = JSON.parse(activity.args.arguments);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -211,12 +220,92 @@ function RunningProgress({
   return <LiveNote>{activity.detail || fallback}</LiveNote>;
 }
 
+/**
+ * The one-line reason a step failed, for the inline red note under a failed
+ * row. The server already writes a human summary for every settled call
+ * ("Ran a bash command…", "Command failed: …") - the UI used to drop it and
+ * show only "(failed)" next to a raw command, so nobody could tell what
+ * went wrong without opening devtools. Detail wins when it exists (it is
+ * the tool's own output); otherwise the summary. Capped to the first
+ * non-empty line so a multi-kilobyte error body cannot flood the chat.
+ */
+export function failureReason(activity: ToolActivity): string {
+  const raw = (activity.detail || activity.summary || "").trim();
+  if (!raw) return "";
+  const firstLine =
+    raw
+      .split("\n")
+      .map(line => line.trim())
+      .find(Boolean) ?? "";
+  return firstLine.length > 180 ? `${firstLine.slice(0, 179)}…` : firstLine;
+}
+
+/** The full command behind a run_command / run_bash / browse row, if any. */
+function fullCommand(activity: ToolActivity): string {
+  const args = parseToolArgs(activity);
+  return trimmedArg(args, "command");
+}
+
+/**
+ * A plain (non-panel) step row. Most steps are just their one-liner, but a
+ * step that ran a command or produced detail gets a chevron: tapping it
+ * reveals the full command / output in mono, instead of the truncated
+ * preview the one-liner shows. Failed steps already carry their reason
+ * inline (see ToolActivityLine), so this panel is for the details behind
+ * a finished step - and it stays closed until asked for, so a long run
+ * does not turn into a wall of open panels.
+ */
+function PlainToolActivity({ activity }: { activity: ToolActivity }) {
+  const [open, setOpen] = useState(false);
+  const command = fullCommand(activity);
+  const detail = (activity.detail || "").trim();
+  const hasPanel = Boolean(command || detail);
+  if (!hasPanel) return <ToolActivityLine activity={activity} />;
+  return (
+    <div
+      data-testid="plain-tool-activity"
+      className="flex w-full min-w-0 flex-col"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(previous => !previous)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1 text-start transition-opacity hover:opacity-80"
+      >
+        <ToolActivityLine activity={activity} />
+        <ChevronDown
+          className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          data-testid="plain-tool-detail"
+          className="mt-1.5 max-h-64 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-lg border border-border/70 bg-background/70 px-3 py-2 shadow-inner dark:border-white/10"
+        >
+          {command && (
+            <div className="min-w-0">
+              <PanelLabel className="mb-0.5">Command</PanelLabel>
+              <MonoPre>{command}</MonoPre>
+            </div>
+          )}
+          {detail && (
+            <div className={command ? "mt-2 min-w-0" : "min-w-0"}>
+              <PanelLabel className="mb-0.5">Output</PanelLabel>
+              <MonoPre failed={activity.state === "failed"}>{detail}</MonoPre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One row of a tool run: a panel for the specialists, a one-liner otherwise. */
 function ActivityRow({ activity }: { activity: ToolActivity }) {
   return isPanelToolActivity(activity.name) ? (
     <ToolActivityPanel activity={activity} />
   ) : (
-    <ToolActivityLine activity={activity} />
+    <PlainToolActivity activity={activity} />
   );
 }
 
@@ -267,6 +356,13 @@ function ProgressLog({ log }: { log: string[] }) {
 /**
  * One-line rendering for a tool call, e.g. "Read File notes.txt".
  * Args arrive as a raw JSON string in activity.args.arguments.
+ *
+ * Labels are written for the chat reader, not the model: every tool name
+ * the server can emit has a plain-English label here, raw shell commands
+ * are previewed by program instead of dumped mid-quote, and an unknown
+ * name still reads as words ("Wake Sandbox") instead of the snake_case
+ * identifier the model called ("wake_sandbox") - the full command and any
+ * failure reason are one tap away on the row, not crammed into the line.
  */
 export function toolLineText(activity: ToolActivity): string {
   const args = parseToolArgs(activity);
@@ -286,45 +382,70 @@ export function toolLineText(activity: ToolActivity): string {
     command = s("command");
   const brief = (value: string, max = 60) =>
     value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  // A shell command is code, not a label: a 200-character
+  // `python3 -c "from pathlib import Path; …"` truncated at 60 chars
+  // reads as broken text and tells the user nothing they can act on.
+  // Short commands ("npm test", "ls") read fine in full; long ones are
+  // previewed by the program that ran, and the full command sits behind
+  // the row's chevron.
+  const commandPreview = (value: string): string => {
+    const flat = value.replace(/\s+/g, " ").trim();
+    if (!flat) return "";
+    if (flat.length <= 32) return flat;
+    const program = flat.split(" ")[0]?.replace(/^.*\//, "") ?? "";
+    return program || brief(flat, 32);
+  };
+  const withArg = (label: string, arg: string) =>
+    arg ? `${label} ${arg}` : label;
   switch (activity.name) {
     case "list_files":
       return "List Files";
     case "write_file":
-      return `Write File ${path || name}`.trim();
+      return withArg("Write File", path || name);
     case "run_command":
-      return command ? `Run Command: ${brief(command)}` : "Run Command";
+    case "run_bash": {
+      const preview = commandPreview(command);
+      return preview ? `Run Command: ${preview}` : "Run Command";
+    }
     case "list_workspace":
       return "List Files";
     case "create_file":
-      return `Create File ${name}`.trim();
+      return withArg("Create File", name);
     case "read_file":
       // The editor specialist passes workspace paths (args.path) while the
       // main agent passes file refs (args.file); both render the same way.
-      return `Read File ${file || path}`.trim();
+      return withArg("Read File", file || path);
     case "edit_file":
-      return `Edit File ${file}`.trim();
+      return withArg("Edit File", file || path);
     case "create_plan":
       return "Create Plan";
     case "edit_plan":
       return "Edit Plan";
+    case "start_planning":
+      return "Start Planning";
     case "rename_file":
       return `Rename File ${file} → ${newName}`.trim();
     case "move_file":
       return `Move File ${file} → ${folder}`.trim();
     case "delete_file":
-      return `Delete File ${file}`.trim();
+      return withArg("Delete File", file);
     case "create_folder":
-      return `Create Folder ${name}`.trim();
+      return withArg("Create Folder", name);
     case "rename_folder":
       return `Rename Folder ${folder} → ${newName}`.trim();
     case "move_folder":
       return `Move Folder ${folder} → ${parent}`.trim();
     case "delete_folder":
-      return `Delete Folder ${folder}`.trim();
+      return withArg("Delete Folder", folder);
     case "send_telegram_message":
+    case "send_progress_update":
       return text
-        ? `Send Telegram Message: ${brief(text)}`
-        : "Send Telegram Message";
+        ? `${activity.name === "send_progress_update" ? "Send Progress Update" : "Send Telegram Message"}: ${brief(text)}`
+        : activity.name === "send_progress_update"
+          ? "Send Progress Update"
+          : "Send Telegram Message";
+    case "present_file":
+      return withArg("Show File", file);
     case "run_vm_task":
       return task ? `Run VM Task: ${brief(task)}` : "Run VM Task";
     case "research_web":
@@ -345,11 +466,63 @@ export function toolLineText(activity: ToolActivity): string {
     case "follow_up":
       return "Suggested Follow-ups";
     case "browse": {
-      const command = s("command");
-      return command ? `Browse: ${brief(command)}` : "Browse";
+      const browseCommand = s("command");
+      return browseCommand ? `Browse: ${brief(browseCommand)}` : "Browse";
     }
-    default:
-      return activity.name;
+    case "wake_sandbox":
+      return "Wake Workspace";
+    case "read_memory":
+      return "Read Memory";
+    case "search_memories":
+      return s("query")
+        ? `Search Memories: ${brief(s("query"))}`
+        : "Search Memories";
+    case "save_memory":
+      return "Save Memory";
+    case "delete_memory":
+      return "Delete Memory";
+    case "read_skill":
+      return withArg("Read Skill", name);
+    case "set_env_var":
+      return withArg("Set Environment Variable", name);
+    case "set_communication_style":
+      return "Save Communication Style";
+    case "set_personalisation":
+      return "Save Personalisation";
+    case "deploy_website":
+      return withArg("Deploy Website", s("directory"));
+    case "delete_website":
+      return "Delete Website";
+    case "create_project_template":
+      return withArg("Create Project", name);
+    case "report_goal":
+      return "Report Goal";
+    case "request_purchase":
+      return withArg("Request Purchase", s("item"));
+    case "send_agent_email":
+      return withArg("Send Email", s("to") || s("subject"));
+    case "accept_own_coding":
+      return "Accept Own Coding";
+    case "list_connector_tools":
+      return "List Connector Tools";
+    case "use_connector_tool":
+      return withArg("Run Connector Tool", s("tool"));
+    case "end_turn":
+      return "Finish Turn";
+    default: {
+      // Connector and future tools have no bespoke label yet: render the
+      // identifier as words, and append the operation when one was passed
+      // ("GitHub: search repositories") so the row still says what happened.
+      const words = activity.name
+        .split("_")
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+      const operation = s("operation");
+      return operation
+        ? `${words}: ${brief(operation.replace(/_/g, " "))}`
+        : words;
+    }
   }
 }
 
@@ -369,22 +542,46 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
   // A tool that is still running is the one thing worth reading at a glance
   // while Nova works, so it gets the same bright text as an actual reply
   // instead of the muted tone settled (completed/failed) rows keep.
+  // A failed step gets the red tone instead of the muted one: in a long
+  // list the failures are the only rows worth scanning for, and they must
+  // not hide behind the same grey as everything else.
   const textClass =
     activity.state === "running"
       ? "text-foreground"
-      : "text-muted-foreground dark:text-muted-foreground";
+      : activity.state === "failed"
+        ? "text-red-600 dark:text-red-400"
+        : "text-muted-foreground dark:text-muted-foreground";
+  const line = toolLineText(activity);
+  // Panel steps (editor, research, …) explain themselves in their panel;
+  // a plain step has nowhere else to say why it failed, so the reason
+  // rides inline under its line.
+  const reason =
+    activity.state === "failed" && !isPanelToolActivity(activity.name)
+      ? failureReason(activity)
+      : "";
   return (
     <div
       data-testid="tool-activity-line"
-      className={`flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium ${textClass}`}
+      title={line}
+      className={`flex min-w-0 flex-col px-1 text-[13px] font-medium leading-5 ${textClass}`}
     >
-      <StatusIcon
-        className={`size-3 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`}
-      />
-      <span className="min-w-0 truncate">
-        {toolLineText(activity)}
-        {activity.state === "failed" ? " (failed)" : ""}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <StatusIcon
+          className={`size-3.5 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`}
+        />
+        <span className="min-w-0 truncate">
+          {line}
+          {activity.state === "failed" ? " (failed)" : ""}
+        </span>
       </span>
+      {reason ? (
+        <span
+          data-testid="tool-activity-failure-reason"
+          className="min-w-0 break-words ps-5 text-xs font-normal leading-5 text-red-600/90 dark:text-red-400/90"
+        >
+          {reason}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -679,7 +876,10 @@ export function CodeTaskToolActivity({ activity }: { activity: ToolActivity }) {
             fallback="The editor is reading the task…"
           />
         ) : activity.state === "failed" ? (
-          <FailedDetail activity={activity} fallback="The editor task failed." />
+          <FailedDetail
+            activity={activity}
+            fallback="The editor task failed."
+          />
         ) : activity.detail ? (
           <div className="min-w-0">
             <PanelLabel>Specialist's code</PanelLabel>
@@ -829,20 +1029,201 @@ export function EditFileToolActivity({ activity }: { activity: ToolActivity }) {
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Run summaries: what a stretch of steps adds up to, in one line
+ * ------------------------------------------------------------------ */
+
+/**
+ * Category labels for the run summary, as past-tense counts ("9 files read").
+ * A run of 30 steps is a wall of one-liners; its shape - mostly reading,
+ * some writing, a handful of commands - is what a reader actually wants.
+ */
+const CATEGORY_LABELS: Record<string, (count: string) => string> = {
+  read_file: count => `${count} file${count === "1" ? "" : "s"} read`,
+  write_file: count => `${count} file${count === "1" ? "" : "s"} written`,
+  create_file: count => `${count} file${count === "1" ? "" : "s"} created`,
+  edit_file: count => `${count} file${count === "1" ? "" : "s"} edited`,
+  delete_file: count => `${count} file${count === "1" ? "" : "s"} deleted`,
+  rename_file: count => `${count} file${count === "1" ? "" : "s"} renamed`,
+  move_file: count => `${count} file${count === "1" ? "" : "s"} moved`,
+  list_files: count => `${count} file listing${count === "1" ? "" : "s"}`,
+  list_workspace: count => `${count} file listing${count === "1" ? "" : "s"}`,
+  run_command: count => `${count} command${count === "1" ? "" : "s"} run`,
+  run_bash: count => `${count} command${count === "1" ? "" : "s"} run`,
+  run_vm_task: count => `${count} VM task${count === "1" ? "" : "s"} run`,
+  create_folder: count => `${count} folder${count === "1" ? "" : "s"} created`,
+  delete_folder: count => `${count} folder${count === "1" ? "" : "s"} deleted`,
+  rename_folder: count => `${count} folder${count === "1" ? "" : "s"} renamed`,
+  move_folder: count => `${count} folder${count === "1" ? "" : "s"} moved`,
+  editor: count => `${count} coding task${count === "1" ? "" : "s"}`,
+  code_task: count => `${count} coding task${count === "1" ? "" : "s"}`,
+  research_web: count => `${count} research task${count === "1" ? "" : "s"}`,
+  thinker: count => `${count} think${count === "1" ? "" : "s"}`,
+  thinking: count => `${count} think${count === "1" ? "" : "s"}`,
+  browse: count => `${count} browse step${count === "1" ? "" : "s"}`,
+  solve_equation: count =>
+    `${count} equation${count === "1" ? "" : "s"} solved`,
+  wake_sandbox: () => "workspace woken",
+  read_memory: () => "memory read",
+  search_memories: () => "memories searched",
+  save_memory: () => "memory saved",
+};
+
+export type ActivitySummary = {
+  total: number;
+  completed: number;
+  failed: number;
+  running: number;
+  /** The step happening now, when one is still running. */
+  current?: ToolActivity;
+  /** One-line headline: "Working now - Read File ..." / "Finished - 30 steps". */
+  headline: string;
+  /** "9 files read - 5 files written - 6 commands run" for long runs. */
+  categories: string;
+};
+
+/**
+ * Adds up a stretch of steps into what a reader needs at a glance: how
+ * many there were, how many failed, what is happening right now, and -
+ * for a long run - what the steps mostly were. The headline names the
+ * current step while running, so "Working..." never has to be taken on
+ * faith; a settled run reads as an outcome, not a tool count.
+ */
+export function summarizeActivities(
+  activities: ToolActivity[]
+): ActivitySummary {
+  const total = activities.length;
+  const failed = failedCount(activities);
+  const running = activities.filter(
+    activity => activity.state === "running"
+  ).length;
+  const completed = total - failed - running;
+  const current = [...activities]
+    .reverse()
+    .find(activity => activity.state === "running");
+  const counts = new Map<string, number>();
+  for (const activity of activities) {
+    counts.set(activity.name, (counts.get(activity.name) ?? 0) + 1);
+  }
+  const categories = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, count]) => {
+      const label = CATEGORY_LABELS[name];
+      return label
+        ? label(String(count))
+        : `${count} ${toolLineText({ id: "", name, state: "completed", args: {} }).toLowerCase()}`;
+    })
+    .join(" · ");
+  const headline = current
+    ? `Working now — ${toolLineText(current)}`
+    : failed > 0
+      ? `${pluralize(total, "step")} · ${failed} failed`
+      : `Finished · ${pluralize(total, "step")}`;
+  return { total, completed, failed, running, current, headline, categories };
+}
+
+/** How many steps to show before "show all" - enough to see the shape of a
+ * run, never a 30-row wall. */
+const RECENT_STEPS = 5;
+
+/**
+ * The open body of a step list: what the steps mostly were, the failures
+ * pinned first (they are the reason anyone opens the list), then the most
+ * recent steps in order, with the rest behind a toggle. Chronological
+ * order is kept inside each section so the list still reads as a story.
+ */
+function StepsDetail({ activities }: { activities: ToolActivity[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const summary = summarizeActivities(activities);
+  const failedActivities = activities.filter(
+    activity => activity.state === "failed"
+  );
+  const hiddenCount = Math.max(0, activities.length - RECENT_STEPS);
+  const recent = showAll ? activities : activities.slice(-RECENT_STEPS);
+  const recentShown =
+    showAll || failedActivities.length === 0
+      ? recent
+      : recent.filter(
+          activity =>
+            !failedActivities.some(failed => failed.id === activity.id)
+        );
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-2.5">
+      {activities.length >= 4 && summary.categories ? (
+        <p
+          data-testid="tool-run-categories"
+          className="min-w-0 break-words text-[11px] font-medium leading-5 text-muted-foreground"
+        >
+          {summary.categories}
+        </p>
+      ) : null}
+      {!showAll && failedActivities.length > 0 ? (
+        <div className="flex w-full min-w-0 flex-col gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-red-600 dark:text-red-400">
+            Didn&#8217;t work
+          </p>
+          {failedActivities.map(activity => (
+            <ActivityRow key={activity.id} activity={activity} />
+          ))}
+        </div>
+      ) : null}
+      {hiddenCount > 0 && !showAll ? (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-fit text-[11px] font-semibold text-muted-foreground transition hover:text-foreground"
+        >
+          + {pluralize(hiddenCount, "earlier step")} - show all{" "}
+          {pluralize(activities.length, "step")}
+        </button>
+      ) : null}
+      <div className="flex min-w-0 flex-col gap-2">
+        {recentShown.map(activity => (
+          <ActivityRow key={activity.id} activity={activity} />
+        ))}
+      </div>
+      {showAll && hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="w-fit text-[11px] font-semibold text-muted-foreground transition hover:text-foreground"
+        >
+          Show fewer
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * One collapsible group for a stretch of tool calls in the persisted
  * transcript. Instead of one full-width chip row per tool, consecutive tool
- * runs fold into a single quiet "Used N tools" line that expands on demand,
- * so a finished conversation reads as messages with tidy footnotes rather
- * than a wall of tool rows. A group that still contains a running tool
- * starts open, so a refreshed browser keeps showing live progress.
+ * runs fold into a single quiet headline that expands on demand, so a
+ * finished conversation reads as messages with tidy footnotes rather
+ * than a wall of tool rows. The headline is an outcome - what is
+ * happening now, or how the run ended - not a tool count. A group that
+ * still contains a running tool starts open, so a refreshed browser
+ * keeps showing live progress, but open now means the recent steps
+ * plus their failures, not all 30 rows at once.
  */
 export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
   const [open, setOpen] = useState(
     activities.some(activity => activity.state === "running")
   );
-  const failed = failedCount(activities);
-  const count = activities.length;
+  const summary = summarizeActivities(activities);
+  const StatusIcon =
+    summary.running > 0
+      ? CircleDashed
+      : summary.failed > 0
+        ? TriangleAlert
+        : CheckCircle2;
+  const iconClass =
+    summary.running > 0
+      ? "text-amber-600 dark:text-amber-400 animate-spin"
+      : summary.failed > 0
+        ? "text-red-600 dark:text-red-400"
+        : "text-emerald-600 dark:text-emerald-400";
   return (
     <div data-testid="tool-run-group" className="flex w-full min-w-0 flex-col">
       <button
@@ -851,18 +1232,17 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
         aria-expanded={open}
         className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-start shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
       >
-        <ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
+        <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
         <span
           data-testid="tool-run-group-summary"
-          className="min-w-0 truncate text-xs font-medium text-muted-foreground dark:text-muted-foreground"
+          className={`min-w-0 truncate text-xs font-medium ${
+            summary.running > 0
+              ? "text-foreground"
+              : "text-muted-foreground dark:text-muted-foreground"
+          }`}
         >
-          Used {pluralize(count, "tool")}
+          {summary.headline}
         </span>
-        {failed > 0 && (
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-            {failed} failed
-          </span>
-        )}
         <ChevronDown
           className={`ms-auto size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
         />
@@ -870,11 +1250,9 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
       {open && (
         <div
           data-testid="tool-run-group-detail"
-          className="mt-2 flex w-full min-w-0 flex-col gap-2 border-s border-foreground/[0.08] ps-3 dark:border-white/10"
+          className="mt-2 flex w-full min-w-0 flex-col border-s border-foreground/[0.08] ps-3 dark:border-white/10"
         >
-          {activities.map(activity => (
-            <ActivityRow key={activity.id} activity={activity} />
-          ))}
+          <StepsDetail activities={activities} />
         </div>
       )}
     </div>
@@ -890,7 +1268,8 @@ const LIVE_RECENT_STEPS = 3;
  * current step spins at the bottom, the last few finished steps sit above
  * it as quiet one-liners, and longer histories fold behind a
  * "+N earlier steps" toggle. Panel specialists (editor / research / thinking)
- * keep their own expandable detail inside the card.
+ * keep their own expandable detail inside the card. The header names the
+ * outcome while it happens - the current step, or how the run ended.
  */
 export function LiveActivityCard({
   activities,
@@ -905,7 +1284,13 @@ export function LiveActivityCard({
     showAll || hiddenCount === 0
       ? activities
       : activities.slice(-LIVE_RECENT_STEPS);
-  const failed = failedCount(activities);
+  const summary = summarizeActivities(activities);
+  const failed = summary.failed;
+  const label = working
+    ? "Working now"
+    : failed > 0
+      ? "Finished with problems"
+      : "Finished";
   return (
     <div
       data-testid="live-activity-card"
@@ -914,17 +1299,24 @@ export function LiveActivityCard({
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
           <CircleDashed className="size-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+        ) : failed > 0 ? (
+          <TriangleAlert className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         ) : (
           <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
         )}
         <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          {working ? "Working" : "Steps"}
+          {label}
         </p>
         <p className="ms-auto shrink-0 text-[10px] font-medium text-muted-foreground">
           {pluralize(activities.length, "step")}
           {failed > 0 ? ` · ${failed} failed` : ""}
         </p>
       </div>
+      {working && summary.current ? (
+        <p className="min-w-0 truncate text-[13px] font-medium leading-5 text-foreground">
+          Now: {toolLineText(summary.current)}
+        </p>
+      ) : null}
       {hiddenCount > 0 && !showAll && (
         <button
           type="button"
@@ -939,6 +1331,15 @@ export function LiveActivityCard({
           <ActivityRow key={activity.id} activity={activity} />
         ))}
       </div>
+      {showAll && hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="w-fit text-[11px] font-semibold text-muted-foreground transition hover:text-foreground"
+        >
+          Show fewer
+        </button>
+      ) : null}
     </div>
   );
 }

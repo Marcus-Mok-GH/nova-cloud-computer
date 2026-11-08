@@ -1,6 +1,7 @@
 // The internal-row markers are a byte-for-byte contract with the server's
 // writers; both sides import the single definition in `@shared/const`.
 import {
+  CONTINUATION_PROMPT,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -12,6 +13,7 @@ import { normalizeFollowUps } from "@shared/followUps";
 import { latestAgentModeMarker } from "@shared/agentMode";
 
 export {
+  CONTINUATION_PROMPT,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -22,6 +24,15 @@ export {
 /** True for internal rows the UI must never show as chat bubbles. */
 export const isInternalChatMessage = (content: string): boolean =>
   INTERNAL_MESSAGE_PREFIXES.some(prefix => content.startsWith(prefix));
+
+/**
+ * True for the automatic-continuation user turn the server persists when a
+ * previous segment ran out of time. The user never typed it, so the chat
+ * renders it as a resume divider - never as their bubble with copy/speak
+ * actions, which read as if Nova was quoting its own instructions back.
+ */
+export const isContinuationPrompt = (content: string): boolean =>
+  content.trim() === CONTINUATION_PROMPT;
 
 type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {
@@ -155,7 +166,8 @@ export function mergeToolActivity(
  * then more text - instead of lumping all text into one bubble after the tools.
  */
 export type LiveChatEvent =
-  { kind: "text"; content: string } | { kind: "tool"; activity: ToolActivity };
+  | { kind: "text"; content: string }
+  | { kind: "tool"; activity: ToolActivity };
 
 /**
  * Appends a streamed text delta to the live transcript. Consecutive deltas
@@ -351,11 +363,11 @@ export function reconcileChatMessages(
   // streaming in.
   const replyCommitted = Boolean(
     streamingContent &&
-    submitted.some(
-      message =>
-        message.role === "assistant" &&
-        !isInternalChatMessage(message.content)
-    )
+      submitted.some(
+        message =>
+          message.role === "assistant" &&
+          !isInternalChatMessage(message.content)
+      )
   );
   const persistedToolIds = new Set<string>();
   for (const message of submitted) {
@@ -410,8 +422,20 @@ export function groupPersistedChatItems(
  * replaying the entry animation or flashing stale content.
  */
 export type TurnRenderItem =
-  | { kind: "user"; key: string; messageId: number; content: string; pending: boolean }
-  | { kind: "reply"; key: string; messageId: number; content: string; live: boolean }
+  | {
+      kind: "user";
+      key: string;
+      messageId: number;
+      content: string;
+      pending: boolean;
+    }
+  | {
+      kind: "reply";
+      key: string;
+      messageId: number;
+      content: string;
+      live: boolean;
+    }
   | { kind: "toolRun"; key: string; activities: ToolActivity[]; live: boolean };
 
 /**
@@ -507,8 +531,8 @@ export function buildTurnItems({
   const lastMessage = messages[messages.length - 1];
   const closingReplyPersisted = Boolean(
     lastMessage &&
-    lastMessage.role === "assistant" &&
-    !parsePersistedToolActivity(lastMessage.content)
+      lastMessage.role === "assistant" &&
+      !parsePersistedToolActivity(lastMessage.content)
   );
 
   // The ledger skeleton, in the order those rows were written.

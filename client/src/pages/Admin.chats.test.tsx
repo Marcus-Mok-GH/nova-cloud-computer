@@ -141,7 +141,8 @@ describe("Admin chat log readability smoke", () => {
     const markup = renderToStaticMarkup(<AdminUserContent userId={2} />);
     expect(markup).toContain("3 messages"); // specialist row excluded from the count
     expect(markup).toContain("justify-end"); // user bubble aligned right
-    expect(markup).toContain("deploy_website"); // tool chip, not raw JSON
+    expect(markup).toContain("Deploy Website"); // human tool label, not the raw identifier
+    expect(markup).not.toContain("deploy_website");
     expect(markup).not.toContain("__nova_specialist_acceptance__"); // internal row hidden
     expect(markup).not.toContain("__nova_tool_activity__"); // no raw JSON blob
     expect(markup).toContain("<strong");

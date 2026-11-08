@@ -156,7 +156,14 @@ vi.mock("@/lib/trpc", () => ({
       models: {
         useQuery: () => ({
           data: {
-            models: [{ id: "nova-pro", label: "Nova Lite", description: "", tier: "free" }],
+            models: [
+              {
+                id: "nova-pro",
+                label: "Nova Lite",
+                description: "",
+                tier: "free",
+              },
+            ],
             current: "nova-pro",
             plan: "free" as const,
           },
@@ -555,7 +562,9 @@ describe("Workspace rendered browser states", () => {
       { id: 2, role: "assistant", content: "Hello there" },
     ];
     const markup = renderChat();
-    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(1);
+    expect(
+      markup.match(/aria-label="Regenerate from here"/g) || []
+    ).toHaveLength(1);
   });
 
   it("does not offer a regenerate button for the sanitized unavailable-AI error", () => {
@@ -568,7 +577,9 @@ describe("Workspace rendered browser states", () => {
     ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
-    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(0);
+    expect(
+      markup.match(/aria-label="Regenerate from here"/g) || []
+    ).toHaveLength(0);
   });
 
   it("does not offer a copy button for the sanitized unavailable-AI error", () => {
@@ -600,7 +611,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
-  it("collapses consecutive persisted tool runs into one Used N tools group instead of a wall of chip rows", () => {
+  it("collapses consecutive persisted tool runs into one outcome group instead of a wall of chip rows", () => {
     const toolRow = (
       id: string,
       name: string,
@@ -619,9 +630,31 @@ describe("Workspace rendered browser states", () => {
     ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="tool-run-group"');
-    expect(markup).toContain("Used 2 tools");
+    expect(markup).toContain("Finished · 2 steps");
+    expect(markup).not.toContain("Used 2 tools");
     expect(markup).not.toContain('data-testid="tool-run-group-detail"');
     expect(markup).toContain("Sorted both files.");
+  });
+
+  it("renders the automatic-continuation turn as a resume divider, never as the user's bubble", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      {
+        id: 2,
+        role: "user",
+        content:
+          "Continue the task in this conversation from where the previous segment left off. That segment ended before the work was finished (its execution time ran out or it hit a temporary service error); finish the remaining work and deliver the result.",
+      },
+      { id: 3, role: "assistant", content: "Continuing now." },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="continuation-divider"');
+    expect(markup).toContain("Resuming automatically");
+    // The system instruction itself never reaches the reader.
+    expect(markup).not.toContain(
+      "Continue the task in this conversation from where"
+    );
+    expect(markup).toContain("Continuing now.");
   });
 
   it("renders the newest reply's follow-up suggestions as tappable chips", () => {

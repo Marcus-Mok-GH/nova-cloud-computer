@@ -10,6 +10,7 @@ import {
   chatWorkflowMode,
   dedupeToolActivityMessages,
   groupPersistedChatItems,
+  isContinuationPrompt,
   isInternalChatMessage,
   latestFollowUpSuggestions,
   parsePersistedToolActivity,
@@ -24,6 +25,7 @@ import {
   CircleDashed,
   CornerDownLeft,
   Github,
+  History,
   ImagePlus,
   Mail,
   MessageSquareText,
@@ -43,7 +45,8 @@ import {
 import { latestGoalState } from "@shared/goal";
 import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
 import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
-import { GoalBadge } from "@/components/GoalBadge";import { ModelSelector } from "@/components/ModelSelector";
+import { GoalBadge } from "@/components/GoalBadge";
+import { ModelSelector } from "@/components/ModelSelector";
 import {
   matchSlashCommands,
   slashCommandInsertion,
@@ -598,7 +601,28 @@ export default function Workspace() {
                             <ToolRunGroup activities={row.activities} />
                           </div>
                         );
-                      if (row.kind === "user")
+                      if (row.kind === "user") {
+                        // The automatic-continuation turn the server
+                        // persists when a segment ran out of time: the
+                        // user never typed it, so it renders as a quiet
+                        // resume divider - not as their orange bubble
+                        // with copy/speak actions on system instructions.
+                        if (isContinuationPrompt(row.content))
+                          return (
+                            <div
+                              key={row.key}
+                              data-testid="continuation-divider"
+                              role="status"
+                              className="chat-in flex w-full shrink-0 items-center gap-3 px-1"
+                            >
+                              <span className="h-px flex-1 bg-foreground/[0.10] dark:bg-white/[0.12]" />
+                              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+                                <History className="size-3.5 text-primary" />
+                                Resuming automatically
+                              </span>
+                              <span className="h-px flex-1 bg-foreground/[0.10] dark:bg-white/[0.12]" />
+                            </div>
+                          );
                         return (
                           <div
                             key={row.key}
@@ -613,6 +637,7 @@ export default function Workspace() {
                             </div>
                           </div>
                         );
+                      }
                       const isLast = rows.indexOf(row) === rows.length - 1;
                       const streaming = row.live && agentIsWorking && isLast;
                       const unavailable = isUnavailableReply(row.content);
@@ -798,11 +823,7 @@ export default function Workspace() {
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2 px-2.5 pb-1.5">
-                  {chatId ? (
-                    <ModelSelector chatId={chatId} />
-                  ) : (
-                    <span />
-                  )}
+                  {chatId ? <ModelSelector chatId={chatId} /> : <span />}
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
                     Enter to send · / for commands
                   </span>

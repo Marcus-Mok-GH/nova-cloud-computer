@@ -1206,7 +1206,7 @@ export async function chatWithAiGateway(
   if (selectedModel && selectedModel.tier === "pro") {
     if (!(await isPaidPlanForUser(ownerId))) {
       throw new AiGatewayClientError(
-        "Premium models require an active Nova Pro subscription. Upgrade to switch models, or keep using the free Nova Pro model.",
+        "Premium models require an active Nova Pro subscription. Upgrade to switch models, or keep using the free Nova Lite model.",
         "client_error"
       );
     }

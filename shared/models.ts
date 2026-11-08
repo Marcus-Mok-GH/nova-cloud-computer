@@ -28,7 +28,7 @@ export const FREE_CHAT_MODEL_ID = "nova-pro";
 export const DEFAULT_CHAT_MODELS: ChatModel[] = [
   {
     id: FREE_CHAT_MODEL_ID,
-    label: "Nova Pro",
+    label: "Nova Lite",
     description: "Nova's built-in model - fast, free for everyone.",
     tier: "free",
   },

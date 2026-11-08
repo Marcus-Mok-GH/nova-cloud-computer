@@ -34,6 +34,8 @@ vi.mock("./whop", () => ({
   getWhopPlanId: vi.fn(() => "plan_pro"),
   getWhopPriorityPlanId,
   isWhopConfigured,
+  isWhopCheckoutDebug: () => false,
+  WhopNotConfiguredError: class extends Error {},
   whopConfigurationMessage: () => "Nova Pro is not configured on this deployment. Contact the administrator to enable paid subscriptions.",
   whopPriorityConfigurationMessage: () =>
     "Priority purchases are not configured on this deployment yet. Contact the administrator to enable them.",

@@ -72,6 +72,8 @@ import {
   getWhopPlanId,
   getWhopPriorityPlanId,
   isWhopConfigured,
+  isWhopCheckoutDebug,
+  WhopNotConfiguredError,
   whopConfigurationMessage,
   whopPriorityConfigurationMessage,
 } from "./whop";
@@ -318,12 +320,13 @@ export const appRouter = router({
           });
           return { url: checkout.purchaseUrl };
         } catch (error) {
-          if (error instanceof TRPCError) throw error;
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("[Billing] Whop priority checkout creation failed", message);
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop priority checkout creation failed", detail);
           throw new TRPCError({
             code: "SERVICE_UNAVAILABLE",
-            message: "Nova could not open priority checkout just now - try again in a moment.",
+            message: isWhopCheckoutDebug()
+              ? `Nova could not open priority checkout just now - try again in a moment. [debug: ${detail}]`
+              : "Nova could not open priority checkout just now - try again in a moment.",
           });
         }
       }),
@@ -374,10 +377,9 @@ export const appRouter = router({
           await setWhopCheckoutConfigIdForUser(ctx.user.id, checkout.id).catch(() => undefined);
           return { url: checkout.purchaseUrl };
         } catch (error) {
-          if (error instanceof TRPCError) throw error;
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("[Billing] Whop checkout creation failed", message);
-          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Nova could not open checkout just now - try again in a moment." });
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop checkout creation failed", detail);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: isWhopCheckoutDebug() ? `Nova could not open checkout just now - try again in a moment. [debug: ${detail}]` : "Nova could not open checkout just now - try again in a moment." });
         }
       }),
     /** Whop's hosted page for managing (cancelling) the subscription. */

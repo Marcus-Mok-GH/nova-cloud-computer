@@ -36,10 +36,22 @@ const WHOP_API_BASE_URL = "https://api.whop.com/api/v1";
 const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
 export class WhopNotConfiguredError extends Error {
-  constructor(message = "Nova's paid plan is not configured on this deployment yet.") {
+  detail?: string;
+  constructor(message = "Nova's paid plan is not configured on this deployment yet.", detail?: string) {
     super(message);
     this.name = "WhopNotConfiguredError";
+    if (detail) this.detail = detail;
   }
+}
+
+/**
+ * When true, checkout procedures surface the raw Whop API error to the client
+ * so a failing checkout can be pinpointed from the UI/toast and Vercel logs.
+ * Set WHOP_CHECKOUT_DEBUG=true on the deployment to enable; off by default.
+ */
+export function isWhopCheckoutDebug(): boolean {
+  const v = process.env.WHOP_CHECKOUT_DEBUG?.trim().toLowerCase();
+  return v === "true" || v === "1";
 }
 
 function whopApiKey(): string | undefined {
@@ -137,13 +149,14 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
     console.error("[Whop] checkout configuration failed", response.status, detail);
-    throw new WhopNotConfiguredError("Nova's billing provider could not create the checkout - please try again shortly.");
+    throw new WhopNotConfiguredError("Nova's billing provider could not create the checkout - please try again shortly.", `${response.status} ${detail}`);
   }
   const configuration = (await response.json()) as WhopCheckoutConfiguration;
   const purchaseUrl = configuration.purchase_url ?? null;
   if (!configuration.id || !purchaseUrl) {
-    console.error("[Whop] checkout configuration response missing id/purchase_url");
-    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.");
+    const detail = JSON.stringify(configuration).slice(0, 400);
+    console.error("[Whop] checkout configuration response missing id/purchase_url", detail);
+    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
   }
   await setWhopCheckoutConfigIdForUser(ownerId, configuration.id);
   return { id: configuration.id, purchaseUrl };
@@ -188,13 +201,14 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
     console.error("[Whop] priority checkout configuration failed", response.status, detail);
-    throw new WhopNotConfiguredError("Nova's billing provider could not create the priority checkout - please try again shortly.");
+    throw new WhopNotConfiguredError("Nova's billing provider could not create the priority checkout - please try again shortly.", `${response.status} ${detail}`);
   }
   const configuration = (await response.json()) as WhopCheckoutConfiguration;
   const purchaseUrl = configuration.purchase_url ?? null;
   if (!configuration.id || !purchaseUrl) {
-    console.error("[Whop] priority checkout configuration response missing id/purchase_url");
-    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable priority checkout - please try again shortly.");
+    const detail = JSON.stringify(configuration).slice(0, 400);
+    console.error("[Whop] priority checkout configuration response missing id/purchase_url", detail);
+    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable priority checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
   }
   return { id: configuration.id, purchaseUrl };
 }

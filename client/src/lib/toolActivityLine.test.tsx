@@ -120,9 +120,9 @@ describe("toolLineText", () => {
     expect(
       toolLineText(activity("browse", '{"command":"open https://example.com"}'))
     ).toBe("Browse: open https://example.com");
-    expect(
-      toolLineText(activity("browse", '{"command":"screenshot"}'))
-    ).toBe("Browse: screenshot");
+    expect(toolLineText(activity("browse", '{"command":"screenshot"}'))).toBe(
+      "Browse: screenshot"
+    );
     expect(
       toolLineText(activity("browse", '{"command":"click 420 260"}'))
     ).toBe("Browse: click 420 260");
@@ -131,7 +131,7 @@ describe("toolLineText", () => {
 
   it("falls back gracefully on unknown names and malformed args", () => {
     expect(toolLineText(activity("mystery_tool", '{"x":1}'))).toBe(
-      "mystery_tool"
+      "Mystery Tool"
     );
     expect(toolLineText(activity("read_file", '{"file":"notes.txt"'))).toBe(
       "Read File"
@@ -139,6 +139,53 @@ describe("toolLineText", () => {
     expect(
       toolLineText({ id: "t2", name: "read_file", state: "running", args: {} })
     ).toBe("Read File");
+  });
+
+  it("labels internal and memory tools in plain English, never snake_case", () => {
+    expect(toolLineText(activity("wake_sandbox", "{}"))).toBe("Wake Workspace");
+    expect(toolLineText(activity("read_memory", '{"id":7}'))).toBe(
+      "Read Memory"
+    );
+    expect(
+      toolLineText(activity("search_memories", '{"query":"past decisions"}'))
+    ).toBe("Search Memories: past decisions");
+    expect(toolLineText(activity("read_skill", '{"name":"pdf"}'))).toBe(
+      "Read Skill pdf"
+    );
+  });
+
+  it("previews long shell commands by program instead of dumping code", () => {
+    expect(
+      toolLineText(
+        activity(
+          "run_command",
+          '{"command":"python3 -c \\"from pathlib import Path; h=Path(\\"index.html\\")\\" "}'
+        )
+      )
+    ).toBe("Run Command: python3");
+    expect(
+      toolLineText(
+        activity(
+          "run_command",
+          '{"command":"node -e \\"const fs=require(\\u0027fs\\u0027);const babel=require(\\u0027@babel/core\\u0027)\\""}'
+        )
+      )
+    ).toBe("Run Command: node");
+    // Short commands still read in full.
+    expect(toolLineText(activity("run_bash", '{"command":"npm test"}'))).toBe(
+      "Run Command: npm test"
+    );
+  });
+
+  it("labels connector fallbacks with their operation", () => {
+    expect(
+      toolLineText(
+        activity(
+          "github",
+          '{"operation":"search_repositories","repo":"octocat/Hello"}'
+        )
+      )
+    ).toBe("Github: search repositories");
   });
 
   it("formats research_web one-liners with the topic", () => {
@@ -201,10 +248,7 @@ describe("toolLineText", () => {
 });
 
 describe("EditFileToolActivity", () => {
-  const edit = (
-    state: ToolActivity["state"],
-    diff?: string
-  ): ToolActivity => ({
+  const edit = (state: ToolActivity["state"], diff?: string): ToolActivity => ({
     id: "e1",
     name: "edit_file",
     state,
@@ -240,7 +284,10 @@ describe("EditFileToolActivity", () => {
   it("renders collapsed with a chevron once completed, ready to reveal the diff", () => {
     const html = renderToStaticMarkup(
       React.createElement(EditFileToolActivity, {
-        activity: edit("completed", "@@ -1,1 +1,1 @@\n-Hello\n+Hello, updated!"),
+        activity: edit(
+          "completed",
+          "@@ -1,1 +1,1 @@\n-Hello\n+Hello, updated!"
+        ),
       })
     );
     expect(html).not.toContain("edit-file-detail-panel"); // default closed, toggleable via the chevron
@@ -341,8 +388,7 @@ describe("ThinkerToolActivity", () => {
     name: "thinker",
     state,
     args: {
-      arguments:
-        '{"question":"Should we add a cache?","context":"500 rps"}',
+      arguments: '{"question":"Should we add a cache?","context":"500 rps"}',
     },
     detail,
     ...(progressLog ? { progressLog } : {}),
@@ -703,6 +749,44 @@ describe("ToolActivityLine", () => {
     );
     expect(completed).toContain("text-muted-foreground");
   });
+
+  it("shows the failure reason inline under a failed step, not just (failed)", () => {
+    const failed = renderToStaticMarkup(
+      React.createElement(ToolActivityLine, {
+        activity: {
+          ...activity("run_command", '{"command":"npm test"}', "failed"),
+          summary: "Command failed: npm test",
+          detail: "Error: module not found\n    at main.js",
+        },
+      })
+    );
+    expect(failed).toContain("(failed)");
+    expect(failed).toContain('data-testid="tool-activity-failure-reason"');
+    expect(failed).toContain("module not found");
+    expect(failed).toContain("text-red-600");
+  });
+
+  it("keeps the full command behind a chevron on command steps", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [
+          {
+            ...activity(
+              "run_command",
+              '{"command":"python3 -c \\"from pathlib import Path; print(Path(1))\\""}',
+              "completed"
+            ),
+            id: "cmd-1",
+          },
+        ],
+        working: false,
+      })
+    );
+    // The one-liner previews the program; the full command stays behind
+    // the row's chevron instead of being dumped into the chat.
+    expect(html).toContain("Run Command: python3");
+    expect(html).not.toContain("from pathlib import Path");
+  });
 });
 
 describe("toolChipContainerClass", () => {
@@ -841,10 +925,21 @@ describe("LiveActivityCard", () => {
         working: false,
       })
     );
-    expect(html).toContain("Steps");
+    expect(html).toContain("Finished with problems");
     expect(html).toContain("2 steps");
     expect(html).toContain("1 failed");
     expect(html).toContain("(failed)");
+  });
+
+  it("names the current step while working, so progress is not just a spinner", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [step("t-1", "completed"), step("t-2", "running")],
+        working: true,
+      })
+    );
+    expect(html).toContain("Working now");
+    expect(html).toContain("Now: Read File t-2.txt");
   });
 });
 
@@ -856,14 +951,15 @@ describe("ToolRunGroup", () => {
     args: { arguments: `{"file":"${id}.txt"}` },
   });
 
-  it("collapses a settled stretch of tool rows into one quiet Used N tools line", () => {
+  it("collapses a settled stretch of tool rows into one quiet outcome headline", () => {
     const html = renderToStaticMarkup(
       React.createElement(ToolRunGroup, {
         activities: [run("t-1", "completed"), run("t-2", "completed")],
       })
     );
     expect(html).toContain('data-testid="tool-run-group"');
-    expect(html).toContain("Used 2 tools");
+    expect(html).toContain("Finished · 2 steps");
+    expect(html).not.toContain("Used 2 tools");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('data-testid="tool-run-group-detail"');
     expect(html).not.toContain("Read File t-1.txt");
@@ -880,12 +976,60 @@ describe("ToolRunGroup", () => {
     expect(html).toContain("Read File t-2.txt");
   });
 
-  it("uses the singular for a single tool and surfaces failures in the summary", () => {
+  it("uses the singular for a single step and surfaces failures in the summary", () => {
     const single = renderToStaticMarkup(
       React.createElement(ToolRunGroup, { activities: [run("t-1", "failed")] })
     );
-    expect(single).toContain("Used 1 tool");
+    expect(single).toContain("1 step · 1 failed");
     expect(single).toContain("1 failed");
+  });
+
+  it("shows only recent steps plus pinned failures when a long run opens, not a 30-row wall", () => {
+    const activities = Array.from({ length: 30 }, (_, index) =>
+      run(
+        `t-${index + 1}`,
+        index === 0 ? "failed" : index === 29 ? "running" : "completed"
+      )
+    );
+    const html = renderToStaticMarkup(
+      React.createElement(ToolRunGroup, { activities })
+    );
+    expect(html).toContain('data-testid="tool-run-group-detail"');
+    expect(html).toContain("Working now");
+    // Failures are pinned first even though the failed step is the oldest.
+    expect(html).toContain("Didn’t work");
+    expect(html).toContain("Read File t-1.txt");
+    // Only the five most recent steps are listed; the rest hide behind the toggle.
+    expect(html).toContain("earlier step");
+    expect(html).not.toContain("Read File t-10.txt");
+    expect(html).toContain("Read File t-30.txt");
+    // The shape of the run is summarized in one line.
+    expect(html).toContain("30 files read");
+  });
+
+  it("summarizes a run into a headline, counts and categories", async () => {
+    const { summarizeActivities } = await import("./toolActivityLine");
+    const summary = summarizeActivities([
+      run("t-1", "completed"),
+      {
+        ...run("t-2", "completed"),
+        name: "write_file",
+        args: { arguments: '{"path":"a.txt"}' },
+      },
+      {
+        ...run("t-3", "failed"),
+        name: "run_command",
+        args: { arguments: '{"command":"npm test"}' },
+      },
+      run("t-4", "running"),
+    ]);
+    expect(summary.total).toBe(4);
+    expect(summary.failed).toBe(1);
+    expect(summary.running).toBe(1);
+    expect(summary.current?.id).toBe("t-4");
+    expect(summary.headline).toContain("Working now");
+    expect(summary.categories).toContain("files read");
+    expect(summary.categories).toContain("file written");
   });
 });
 

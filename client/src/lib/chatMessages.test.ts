@@ -9,8 +9,10 @@ import {
   reconcileChatMessages,
   chatWorkflowMode,
   AGENT_MODE_MESSAGE_PREFIX,
+  CONTINUATION_PROMPT,
   FOLLOW_UP_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  isContinuationPrompt,
   isInternalChatMessage,
   latestFollowUpSuggestions,
   parseFollowUpMessage,
@@ -166,8 +168,13 @@ describe("reconcileChatMessages", () => {
     // The mode marker is an assistant row, but it is not a reply: the answer
     // still streaming in must keep showing.
     expect(
-      reconcileChatMessages(persisted, 1, "build a site", "Here is the plan", [])
-        .replyCommitted
+      reconcileChatMessages(
+        persisted,
+        1,
+        "build a site",
+        "Here is the plan",
+        []
+      ).replyCommitted
     ).toBe(false);
   });
 
@@ -859,7 +866,9 @@ describe("parseFollowUpMessage", () => {
 
   it("returns null for other rows and broken payloads", () => {
     expect(parseFollowUpMessage("hello")).toBeNull();
-    expect(parseFollowUpMessage(`${FOLLOW_UP_MESSAGE_PREFIX}not json`)).toBeNull();
+    expect(
+      parseFollowUpMessage(`${FOLLOW_UP_MESSAGE_PREFIX}not json`)
+    ).toBeNull();
     expect(parseFollowUpMessage(row({ suggestions: ["x"] }))).toBeNull();
     expect(parseFollowUpMessage(row([]))).toBeNull();
     expect(parseFollowUpMessage(row(["   ", ""]))).toBeNull();
@@ -980,5 +989,14 @@ describe("isInternalChatMessage", () => {
       isInternalChatMessage(`${FOLLOW_UP_MESSAGE_PREFIX}["Deploy it"]`)
     ).toBe(true);
     expect(isInternalChatMessage("Deploy it")).toBe(false);
+  });
+});
+
+describe("isContinuationPrompt", () => {
+  it("matches only the exact automatic-continuation turn", () => {
+    expect(isContinuationPrompt(CONTINUATION_PROMPT)).toBe(true);
+    expect(isContinuationPrompt(`  ${CONTINUATION_PROMPT}\n`)).toBe(true);
+    expect(isContinuationPrompt("continue")).toBe(false);
+    expect(isContinuationPrompt("Build my site")).toBe(false);
   });
 });

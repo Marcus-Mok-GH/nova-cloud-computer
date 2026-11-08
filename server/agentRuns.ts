@@ -1,4 +1,5 @@
 import {
+  CONTINUATION_PROMPT,
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
   NOVA_PUBLIC_APP_URL,
@@ -40,10 +41,10 @@ export const VIEW_RUN_BUTTON_TEXT = "\u{1FA90} View this run in Nova";
 /**
  * When a segment ends before the work is finished (its execution budget ran
  * out or it hit a transient service error), the continuation prompt lets the
- * next segment resume the same chat history.
+ * next segment resume the same chat history. Re-exported from the shared
+ * contract so server code and tests keep importing it from here.
  */
-export const CONTINUATION_PROMPT =
-  "Continue the task in this conversation from where the previous segment left off. That segment ended before the work was finished (its execution time ran out or it hit a temporary service error); finish the remaining work and deliver the result.";
+export { CONTINUATION_PROMPT };
 /** Sent only when an out-of-budget segment cannot chain its automatic continuation: the user must then resume manually. */
 export const CONTINUATION_SCHEDULE_FAILED_MESSAGE =
   'I ran out of time on that task and could not schedule the automatic continuation, so it stopped here. Send "continue" and I will pick up exactly where I left off.';
@@ -424,7 +425,7 @@ export async function executeWebAgentRun(
       );
   // Resolve routing before the try so the catch path can skip team auto-continue.
   const route = await getAgentChatRoute(ownerId, chatId).catch(
-    () => ({ kind: "plain" } as const)
+    () => ({ kind: "plain" }) as const
   );
   // Team chats must not auto-continue: a continuation re-invokes
   // executeWebAgentRun, which would re-run the full roster (and persist

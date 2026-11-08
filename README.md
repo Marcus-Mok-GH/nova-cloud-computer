@@ -135,9 +135,6 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `POLLINATIONS_GATEWAY_URL`   | Optional HTTPS override for the Pollinations base URL (defaults to `https://gen.pollinations.ai/v1`) |
 | `POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
 | `POLLINATIONS_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `z-ai/glm-5.3-flash`); set to `none`/`disabled` to disable |
-| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after the Pollinations fallback fails |
-| `SEEKAI_GATEWAY_URL`         | Optional HTTPS override for the SeekAI base URL (defaults to `https://seekai.cc/v1`) |
-| `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `NOVA_SUPPORT_BOT_DAILY_LIMIT` | Optional per-instance daily cap for the public Q&A assistant on the landing and docs pages; defaults to `500` |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `WHOP_API_KEY`               | Server-only Whop company API key (`whop_...`); enables Pro subscription and priority checkout |

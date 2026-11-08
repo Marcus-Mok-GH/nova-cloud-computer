@@ -23,7 +23,11 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  * Two credentials, both server-only:
  * - WHOP_API_KEY: a `whop_...` company API key (Whop dashboard > Developer),
  *   used to create checkout configurations.
- * - WHOP_WEBHOOK_SECRET: the `ws_...` signing secret of the webhook that
+ * - WHOP_ACCOUNT_ID: the `biz_...` account the key belongs to (Nova Labs is
+ *   biz_x7eTBFTmhOxbVs). The raw REST API requires it on every
+ *   checkout_configurations call; the Whop SDK fills it in from the key,
+ *   which is why the SDK-based scripts/create-whop-*.ts never had to name it.
+ * - WHOP_WEBHOOK_SECRET: the ws_... signing secret of the webhook that
  *   posts events to /api/whop/webhook. Absent = webhooks off.
  *
  * WHOP_PLAN_ID pins Pro checkout to an existing Whop plan (variant). Without it
@@ -65,12 +69,17 @@ function whopApiKey(): string | undefined {
   return key && key.length >= 8 ? key : undefined;
 }
 
+function whopAccountId(): string | undefined {
+  const id = process.env.WHOP_ACCOUNT_ID?.trim();
+  return id && id.length >= 8 ? id : undefined;
+}
+
 function whopWebhookSecret(): string | undefined {
   const secret = process.env.WHOP_WEBHOOK_SECRET?.trim();
   return secret && secret.length >= 8 ? secret : undefined;
 }
 
-/** True when checkout can be created (webhooks may still need their secret). */
+/** True when the API key is set (webhook-only deployments may skip account_id). */
 export function isWhopConfigured(): boolean {
   return Boolean(whopApiKey());
 }
@@ -88,6 +97,11 @@ export function getWhopPriorityPlanId(): string | undefined {
 /** Human-readable message when Whop is not configured. */
 export function whopConfigurationMessage(): string {
   return "Nova Pro is not configured on this deployment. Contact the administrator to enable paid subscriptions.";
+}
+
+function whopMissingConfigDetail(): string {
+  const missing = !whopApiKey() ? "WHOP_API_KEY" : "WHOP_ACCOUNT_ID";
+  return `Missing ${missing} on this deployment.`;
 }
 
 /** Human-readable message when priority checkout is not configured. */
@@ -124,9 +138,11 @@ type CreateWhopCheckoutOutput = {
  */
 export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
-  if (!apiKey) throw new WhopNotConfiguredError();
+  const accountId = whopAccountId();
+  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopConfigurationMessage(), whopMissingConfigDetail());
   const { ownerId, planId, redirectUrl } = input;
   const body: Record<string, unknown> = {
+    account_id: accountId,
     mode: "payment",
     metadata: { nova_user_id: String(ownerId) },
     redirect_url: redirectUrl,
@@ -182,10 +198,12 @@ type CreateWhopPriorityCheckoutInput = {
  */
 export async function createWhopPriorityCheckout(input: CreateWhopPriorityCheckoutInput): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
-  if (!apiKey) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
+  const accountId = whopAccountId();
+  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage(), whopMissingConfigDetail());
   const { ownerId, planId, redirectUrl } = input;
   if (!planId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
   const body: Record<string, unknown> = {
+    account_id: accountId,
     mode: "payment",
     variant_id: planId,
     metadata: {

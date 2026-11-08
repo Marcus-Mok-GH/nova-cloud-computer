@@ -156,7 +156,7 @@ vi.mock("@/lib/trpc", () => ({
       models: {
         useQuery: () => ({
           data: {
-            models: [{ id: "nova-pro", label: "Nova Pro", description: "", tier: "free" }],
+            models: [{ id: "nova-pro", label: "Nova Lite", description: "", tier: "free" }],
             current: "nova-pro",
             plan: "free" as const,
           },

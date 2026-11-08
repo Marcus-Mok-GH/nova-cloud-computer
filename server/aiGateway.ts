@@ -107,10 +107,7 @@ export class AiGatewayClientError extends Error {
  * server-only POLLINATIONS_API_KEY credential. The gateway serves a primary
  * model with a fallback: when the primary fails with a transient error
  * (overload / rate limit, upstream 5xx or timeout, empty completion), the
- * same request is retried against the fallback before the error surfaces. A
- * last-resort fallback lives on a different endpoint entirely - SeekAI
- * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
- * so a Pollinations outage still has somewhere to send the request.
+ * same request is retried against the fallback before the error surfaces.
  */
 const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
 
@@ -131,51 +128,9 @@ export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
  */
 export const POLLINATIONS_FALLBACK_MODEL = "z-ai/glm-5.3-flash";
 
-/** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
-const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
-
-/**
- * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than
- * Pollinations, so it keeps working even when Pollinations itself is
- * unreachable.
- * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
- * can serve the agent loop when every Pollinations model has failed transiently.
- * Only used when the SEEKAI_API_KEY credential is configured; without it the
- * chain stops at the Pollinations fallback, exactly as before. Override with
- * SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled" to turn the last-resort
- * hop off.
- */
-export const SEEKAI_FALLBACK_MODEL = "glm-5.3-flash";
-
-/** True when an env value asks for a chain hop (or the whole chain) to be turned off. */
-function isChainDisabled(raw: string | undefined): boolean {
-  const lowered = raw?.trim().toLowerCase();
-  return lowered === "none" || lowered === "disabled" || lowered === "off";
-}
-
-/** The SeekAI credential. Same placeholder rule as the Pollinations key. */
-function seekaiToken() {
-  const token = process.env.SEEKAI_API_KEY?.trim();
-  return token && token.length >= 32 ? token : undefined;
-}
-
-/** Optional HTTPS override for SeekAI's base URL (tests, mirrors). */
-function configuredSeekaiUrl() {
-  return httpsBaseUrl(process.env.SEEKAI_GATEWAY_URL?.trim() || SEEKAI_API_BASE_URL);
-}
-
-/** The resolved SeekAI fallback model id (env override, else the built-in default). */
-function seekaiFallbackModel() {
-  return process.env.SEEKAI_FALLBACK_MODEL?.trim() || SEEKAI_FALLBACK_MODEL;
-}
-
 /** One hop of the primary-first chain every built-in inference request walks. */
 export type GatewayChainEntry = {
   model: string;
-  /** Base URL for this hop; unset means the primary Pollinations endpoint. */
-  baseUrl?: string;
-  /** Bearer credential for this hop; unset means POLLINATIONS_API_KEY. */
-  token?: string;
 };
 
 /** Primary-first chain every built-in inference request walks. */
@@ -188,23 +143,6 @@ export function gatewayModelChain(): GatewayChainEntry[] {
   const fallback = override ? override : POLLINATIONS_FALLBACK_MODEL;
   const chain: GatewayChainEntry[] = [{ model: POLLINATIONS_CHAT_MODEL }];
   if (fallback !== POLLINATIONS_CHAT_MODEL) chain.push({ model: fallback });
-  // The last resort is a different provider, so it needs its own credential;
-  // without one the chain simply stops after the Pollinations fallback.
-  const seekaiTokenValue = seekaiToken();
-  if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
-    return chain;
-  }
-  const seekaiUrl = configuredSeekaiUrl();
-  if (!seekaiUrl) return chain;
-  const seekai = seekaiFallbackModel();
-  // A shared model id on a different endpoint is not a duplicate: the
-  // Pollinations fallback may itself be GLM-5.3-Flash, and the SeekAI hop
-  // must still exist to cover a full Pollinations outage.
-  const alreadyServedHere = chain.some(
-    entry => entry.model === seekai && entry.baseUrl === seekaiUrl
-  );
-  if (alreadyServedHere) return chain;
-  chain.push({ model: seekai, baseUrl: seekaiUrl, token: seekaiTokenValue });
   return chain;
 }
 /**
@@ -219,17 +157,10 @@ export function chatModelChain(explicitModel?: string): GatewayChainEntry[] {
   const base = gatewayModelChain();
   const requested = explicitModel?.trim();
   if (!requested) return base;
-  const alreadyLeading = base[0]?.model === requested && !base[0]?.baseUrl;
+  const alreadyLeading = base[0]?.model === requested;
   if (alreadyLeading) return base;
-  const rest = base.filter(entry => entry.model !== requested || entry.baseUrl);
+  const rest = base.filter(entry => entry.model !== requested);
   return [{ model: requested }, ...rest];
-}
-
-/** The endpoint override for a hop, or undefined for the primary gateway. */
-function endpointFor(entry: GatewayChainEntry) {
-  return entry.baseUrl && entry.token
-    ? { baseUrl: entry.baseUrl, token: entry.token }
-    : undefined;
 }
 
 /**
@@ -378,12 +309,10 @@ async function gatewayFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  externalSignal?: AbortSignal,
-  /** Endpoint override for a chain hop served by a different gateway. */
-  endpoint?: { baseUrl: string; token: string }
+  externalSignal?: AbortSignal
 ) {
-  const baseUrl = endpoint?.baseUrl ?? configuredGatewayUrl();
-  const token = endpoint?.token ?? configuredGatewayToken();
+  const baseUrl = configuredGatewayUrl();
+  const token = configuredGatewayToken();
   if (!baseUrl || !token)
     throw new AiGatewayClientError(
       "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
@@ -506,9 +435,6 @@ export async function getAiGatewayStatus(ownerId: number) {
     provider: "mistral" as const,
     model: POLLINATIONS_CHAT_MODEL,
     fallbackModel: POLLINATIONS_FALLBACK_MODEL,
-    // The last resort lives on a separate credential: without SEEKAI_API_KEY
-    // it is never attempted, so it reports as null rather than a model id.
-    thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -564,27 +490,17 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
  * The built-in gateway's model catalogue. Nova serves a primary model
  * (Pollinations' GPT-6 Luna) with `z-ai/glm-5.3-flash` as the
  * transient-failure fallback, so the picker and settings validation see
- * both entries. SeekAI's GLM-5.3-Flash last resort is listed too, but only
- * while the SEEKAI_API_KEY credential is configured - an unconfigured hop
- * is never attempted, so advertising it would be a lie. Its model id
- * differs from the Pollinations fallback (`glm-5.3-flash` without the
- * vendor prefix), so both entries stay in the catalogue.
- * Listed as text-only because image support on that endpoint is not assumed.
+ * both entries.
  * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.
  */
 export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
-  const models: AvailableGatewayModel[] = [
+  return [
     { id: POLLINATIONS_CHAT_MODEL, kind: "vision" },
     { id: POLLINATIONS_FALLBACK_MODEL, kind: "vision" },
   ];
-  const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
-  if (seekai && !models.some(entry => entry.id === seekai)) {
-    models.push({ id: seekai, kind: "text" });
-  }
-  return models;
 }
 
 /**
@@ -752,7 +668,7 @@ export async function completeWithAiGateway(
       messages: [{ role: "user", content: prompt }],
       ...(trackingOnChunk ? { stream: true } : {}),
     }),
-  }, hopTimeoutMs, undefined, endpointFor(entry));
+  }, hopTimeoutMs);
   if (trackingOnChunk) {
     const completion = await readGatewayStreamedCompletion(response, trackingOnChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -1310,8 +1226,7 @@ export async function chatWithPublicAiGateway(
           }),
         },
         PUBLIC_CHAT_TIMEOUT_MS,
-        options.signal,
-        endpointFor(entry)
+        options.signal
       );
 
       if (!response.ok) {
@@ -1409,8 +1324,7 @@ async function attemptGatewayChat(
         }),
       },
       requestTimeoutMs,
-      options.signal,
-      endpointFor(entry)
+      options.signal
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";

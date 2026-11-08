@@ -32,6 +32,12 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  */
 
 const WHOP_API_BASE_URL = "https://api.whop.com/api/v1";
+/**
+ * Pinned API version for checkout creation. Whop versions by date; the
+ * `variant` / `variant_id` schema is the current (2026) shape, while the
+ * legacy 2025-01-01 shape expected `plan` / `plan_id`.
+ */
+const WHOP_API_VERSION_DATE = "2026-07-23";
 /** Whop rejects a signature whose timestamp is more than this far from now. */
 const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
@@ -112,7 +118,7 @@ type CreateWhopCheckoutOutput = {
 };
 
 /**
- * Creates a Whop checkout configuration for the owner's paid-plan purchase
+ * Creates a Whop checkout configuration for the owner’s paid-plan purchase
  * and returns its hosted URL. The configuration is remembered on the
  * subscription row so support can trace a purchase back to it.
  */
@@ -126,10 +132,10 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     redirect_url: redirectUrl,
   };
   if (planId) {
-    body.plan_id = planId;
+    body.variant_id = planId;
   } else {
-    body.plan = {
-      plan_type: "renewal",
+    body.variant = {
+      billing_type: "renewal",
       billing_period: 30,
       currency: PAID_PLAN_CURRENCY,
       initial_price: PAID_PLAN_PRICE,
@@ -143,6 +149,7 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "Api-Version-Date": WHOP_API_VERSION_DATE,
     },
     body: JSON.stringify(body),
   });
@@ -180,7 +187,7 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
   if (!planId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
   const body: Record<string, unknown> = {
     mode: "payment",
-    plan_id: planId,
+    variant_id: planId,
     metadata: {
       nova_user_id: String(ownerId),
       nova_product: "priority",
@@ -195,6 +202,7 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "Api-Version-Date": WHOP_API_VERSION_DATE,
     },
     body: JSON.stringify(body),
   });

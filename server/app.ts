@@ -23,7 +23,7 @@ import { verifyAgentMailWebhookSignature } from "./agentmail";
 import { executeTelegramAgentRun, executeWebAgentRun, CONTINUATION_PROMPT, NOVA_WEB_APP_URL } from "./agentRuns";
 import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
-import { handleWhopWebhook, isWhopConfigured } from "./whop";
+import { handleWhopWebhook, isWhopConfigured } from "./whop";import { handleStripeWebhook } from "./paynow";
 import { createWaitlistHandler } from "./waitlist";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
@@ -39,7 +39,7 @@ import { readChatFileAttachments, chatFileAttachmentFileName, chatFileStampedFil
 export { ensureDatabaseSchema } from "./migrate";
 // Re-exported so the co-deployed Vercel function can kick the recovery sweep on any API traffic, so processes the platform killed earlier are resumed from the database.
 export { kickRunningProcessRecovery } from "./runningProcesses";
-export { handleWhopWebhook, isWhopConfigured } from "./whop";
+export { handleWhopWebhook, isWhopConfigured } from "./whop";export { handleStripeWebhook } from "./paynow";
 import { MAX_PROCESS_RESUME_ATTEMPTS, PROCESS_STALE_AFTER_MS, resumeRunningProcess } from "./runningProcesses";
 import type { RunningProcess } from "../drizzle/schema";
 
@@ -140,6 +140,33 @@ app.post(
         return res.status(400).json({ error: "bad-signature" });
       }
       console.error("[Whop] webhook handling failed", error);
+      return res.status(500).json({ error: "webhook-handler-failed" });
+    }
+  }
+);
+/**
+ * Stripe billing webhook for PayNow (PayNow/PayLah QR) priority checkout.
+ * Registered before the JSON body parser like the Whop webhook above: the
+ * signed payload must be the untouched raw bytes, and a body parsed by
+ * express.json would make every signed delivery fail verification.
+ */
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  async (req: express.Request, res: express.Response) => {
+    if (!process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
+      return res.status(404).json({ error: "paynow-webhooks-disabled" });
+    }
+    try {
+      const outcome = await handleStripeWebhook(req.body as Buffer, { "stripe-signature": req.headers["stripe-signature"] as string | undefined });
+      return res.status(200).json({ ok: true, ...outcome });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/signature|Stripe webhook signing secret|timestamp is outside|payload is malformed/i.test(message)) {
+        console.error("[PayNow] webhook verification failed", error);
+        return res.status(400).json({ error: "bad-signature" });
+      }
+      console.error("[PayNow] webhook handling failed", error);
       return res.status(500).json({ error: "webhook-handler-failed" });
     }
   }

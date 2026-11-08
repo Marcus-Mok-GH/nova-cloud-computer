@@ -28,7 +28,7 @@ vi.mock("@/lib/trpc", () => ({
           refetch: vi.fn(),
         }),
       },
-      purchasePriority: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      purchasePriority: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },      purchasePriorityPayNow: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
     },
     useUtils: () => ({ billing: { status: { invalidate: vi.fn() } } }),
   },

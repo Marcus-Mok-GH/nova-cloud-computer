@@ -64,7 +64,8 @@ import {
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
-import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
+import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";
+import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
 import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
 import {
   createWhopCheckout,
@@ -77,6 +78,13 @@ import {
   whopConfigurationMessage,
   whopPriorityConfigurationMessage,
 } from "./whop";
+
+import {
+  createPayNowPriorityCheckout,
+  isPayNowConfigured,
+  payNowConfigurationMessage,
+  PayNowNotConfiguredError,
+} from "./paynow";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
@@ -293,7 +301,10 @@ export const appRouter = router({
   }),
   credits: router({ status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)) }),
   billing: router({
-    status: protectedProcedure.query(({ ctx }) => getPriorityStatusForUser(ctx.user.id)),
+    status: protectedProcedure.query(async ({ ctx }) => ({
+      ...(await getPriorityStatusForUser(ctx.user.id)),
+      payNowConfigured: isPayNowConfigured(),
+    })),
     /**
      * Starts Whop checkout for a one-time S$4.99 priority purchase. Priority is
      * armed only after Whop confirms payment via webhook — never here.
@@ -327,6 +338,36 @@ export const appRouter = router({
             message: isWhopCheckoutDebug()
               ? `Nova could not open priority checkout just now - try again in a moment. [debug: ${detail}]`
               : "Nova could not open priority checkout just now - try again in a moment.",
+          });
+        }
+      }),
+    /**
+     * Starts PayNow (PayNow/PayLah QR) checkout for the same one-time S$4.99
+     * priority purchase, for users in Singapore. Stripe renders the QR and
+     * confirms payment via webhook - priority is armed only there, never here.
+     */
+    purchasePriorityPayNow: protectedProcedure
+      .input(z.object({ redirectUrl: z.string().url().max(2000).optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        if (!isPayNowConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: payNowConfigurationMessage() });
+        }
+        const existing = await getPriorityStatusForUser(ctx.user.id);
+        if (existing.priority || existing.armed) {
+          throw new TRPCError({ code: "CONFLICT", message: "Priority is already active or armed on this account." });
+        }
+        try {
+          const checkout = await createPayNowPriorityCheckout({
+            ownerId: ctx.user.id,
+            redirectUrl: input?.redirectUrl,
+          });
+          return { url: checkout.url };
+        } catch (error) {
+          const detail = error instanceof PayNowNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] PayNow checkout creation failed", detail);
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: "Nova could not open the PayNow QR checkout just now - try again in a moment.",
           });
         }
       }),

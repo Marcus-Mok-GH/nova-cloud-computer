@@ -345,6 +345,8 @@ export const zh: Translations = {
   "settings.billing.buy.pending": "已收到付款 — 优先权将在 Whop 确认后显示在此。若需要，请刷新页面。",
   "settings.billing.buy.cancelled": "结账已取消。未购买优先权。",
   "settings.billing.buy.error": "Nova 无法打开优先权结账。",
+  "settings.billing.buy.paynow": "PayNow / PayLah 二维码 — S$4.99",
+  "settings.billing.buy.paynowHint": "使用任意新加坡银行应用（PayNow 或 PayLah）扫描二维码付款。付款确认后即启用优先权。",
   "settings.account.eyebrow": "个人资料与账户",
   "settings.account.title": "您的账户",
   "settings.account.body": "个人资料、身份验证信息、会话控制和账户删除均在此处统一管理。",

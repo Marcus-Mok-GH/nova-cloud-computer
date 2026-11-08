@@ -40,8 +40,10 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
 }
 
 /**
- * Billing tab: a one-time S$4.99 purchase of priority queue placement via Whop.
- * The button opens checkout; priority is armed only after Whop confirms payment.
+ * Billing tab: a one-time S$4.99 purchase of priority queue placement via Whop
+ * or, for Singapore users, a PayNow/PayLah QR checkout through Stripe. The
+ * buttons open checkout; priority is armed only after the payment webhook
+ * confirms it.
  * The card shows a live countdown of the one-hour window so it is obvious how
  * much priority time is left. When it lapses the account returns to standard
  * placement and can buy again.
@@ -50,12 +52,18 @@ export default function BillingCard() {
   const utils = trpc.useUtils();
   const { t, locale } = useTranslation();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });
+  const openCheckout = (url: string) => {
+    window.location.href = url;
+  };
   const purchase = trpc.billing.purchasePriority.useMutation({
-    onSuccess: ({ url }) => {
-      window.location.href = url;
-    },
+    onSuccess: ({ url }) => openCheckout(url),
     onError: error => toast.error(error.message || t("settings.billing.buy.error")),
   });
+  const purchasePayNow = trpc.billing.purchasePriorityPayNow.useMutation({
+    onSuccess: ({ url }) => openCheckout(url),
+    onError: error => toast.error(error.message || t("settings.billing.buy.error")),
+  });
+  const payNowConfigured = status.data?.payNowConfigured ?? false;
   const priority = status.data?.priority ?? false;
   const armed = status.data?.armed ?? false;
   const expiresAt = status.data?.expiresAt ? new Date(status.data.expiresAt) : null;
@@ -179,18 +187,38 @@ export default function BillingCard() {
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {t("settings.billing.buy.body")}
           </p>
-          <Button
-            className="mt-4"
-            onClick={() => {
-              const url = new URL(window.location.href);
-              url.searchParams.set("priority", "success");
-              purchase.mutate({ redirectUrl: url.toString() });
-            }}
-            disabled={purchase.isPending || status.isLoading}
-          >
-            {purchase.isPending && <Loader2 className="animate-spin" size={15} />}
-            {t("settings.billing.buy.button")}
-          </Button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                const url = new URL(window.location.href);
+                url.searchParams.set("priority", "success");
+                purchase.mutate({ redirectUrl: url.toString() });
+              }}
+              disabled={purchase.isPending || purchasePayNow.isPending || status.isLoading}
+            >
+              {purchase.isPending && <Loader2 className="animate-spin" size={15} />}
+              {t("settings.billing.buy.button")}
+            </Button>
+            {payNowConfigured && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("priority", "success");
+                  purchasePayNow.mutate({ redirectUrl: url.toString() });
+                }}
+                disabled={purchase.isPending || purchasePayNow.isPending || status.isLoading}
+              >
+                {purchasePayNow.isPending && <Loader2 className="animate-spin" size={15} />}
+                {t("settings.billing.buy.paynow")}
+              </Button>
+            )}
+          </div>
+          {payNowConfigured && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("settings.billing.buy.paynowHint")}
+            </p>
+          )}
         </div>
       )}
     </section>

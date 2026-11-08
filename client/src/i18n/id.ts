@@ -345,6 +345,8 @@ export const id: Translations = {
   "settings.billing.buy.pending": "Pembayaran diterima — prioritas akan muncul di sini setelah Whop mengonfirmasi. Segarkan jika memerlukan waktu.",
   "settings.billing.buy.cancelled": "Checkout dibatalkan. Tidak ada prioritas yang dibeli.",
   "settings.billing.buy.error": "Nova tidak dapat membuka checkout prioritas.",
+  "settings.billing.buy.paynow": "Kode QR PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "Pindai kode QR dengan aplikasi perbankan Singapura mana pun (PayNow atau PayLah) untuk membayar. Prioritas diaktifkan setelah pembayaran dikonfirmasi.",
   "settings.account.eyebrow": "Profil & Akun",
   "settings.account.title": "Akun Anda",
   "settings.account.body": "Detail profil, informasi otentikasi, kontrol sesi, dan penghapusan akun semuanya ada di satu tempat.",

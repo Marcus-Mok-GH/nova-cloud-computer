@@ -345,6 +345,8 @@ export const ru: Translations = {
   "settings.billing.buy.pending": "Оплата получена — приоритет появится здесь, как только Whop подтвердит её. Обновите страницу, если потребуется.",
   "settings.billing.buy.cancelled": "Чек‑аут отменён. Приоритет не был приобретён.",
   "settings.billing.buy.error": "Nova не смогла открыть чек‑аут приоритета.",
+  "settings.billing.buy.paynow": "QR-код PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "Отсканируйте QR-код любым сингапурским банковским приложением (PayNow или PayLah), чтобы оплатить. Приоритет активируется после подтверждения платежа.",
   "settings.account.eyebrow": "Профиль и аккаунт",
   "settings.account.title": "Ваш аккаунт",
   "settings.account.body": "Данные вашего профиля, информация о аутентификации, управление сессиями и удаление аккаунта находятся в одном месте.",

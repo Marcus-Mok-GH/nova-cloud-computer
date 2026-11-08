@@ -345,6 +345,8 @@ export const vi: Translations = {
   "settings.billing.buy.pending": "Thanh toán đã nhận — ưu tiên sẽ hiển thị ở đây khi Whop xác nhận. Làm mới nếu mất một chút thời gian.",
   "settings.billing.buy.cancelled": "Quá trình thanh toán đã bị hủy. Không có ưu tiên nào được mua.",
   "settings.billing.buy.error": "Nova không thể mở trang thanh toán ưu tiên.",
+  "settings.billing.buy.paynow": "Mã QR PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "Quét mã QR bằng bất kỳ ứng dụng ngân hàng Singapore nào (PayNow hoặc PayLah) để thanh toán. Ưu tiên được kích hoạt sau khi thanh toán được xác nhận.",
   "settings.account.eyebrow": "Hồ sơ & Tài khoản",
   "settings.account.title": "Tài khoản của bạn",
   "settings.account.body": "Chi tiết hồ sơ, thông tin xác thực, điều khiển phiên và xóa tài khoản đều nằm trong một nơi.",

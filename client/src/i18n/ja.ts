@@ -345,6 +345,8 @@ export const ja: Translations = {
   "settings.billing.buy.pending": "支払いを受領しました — Whopが確認すると優先権が表示されます。表示されるまで少し時間がかかる場合がありますので、リフレッシュしてください。",
   "settings.billing.buy.cancelled": "チェックアウトがキャンセルされました。優先権は購入されませんでした。",
   "settings.billing.buy.error": "Novaは優先権チェックアウトを開くことができませんでした。",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR — S$4.99",
+  "settings.billing.buy.paynowHint": "シンガポールの任意の銀行アプリ（PayNow または PayLah）で QR コードをスキャンして支払います。支払いが確認されると優先権が有効になります。",
   "settings.account.eyebrow": "プロフィールとアカウント",
   "settings.account.title": "アカウント",
   "settings.account.body": "プロフィール情報、認証情報、セッション管理、アカウント削除を一元管理",

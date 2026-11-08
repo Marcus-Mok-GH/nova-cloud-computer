@@ -345,6 +345,8 @@ export const pl: Translations = {
   "settings.billing.buy.pending": "Płatność otrzymana — priorytet pojawi się tutaj po potwierdzeniu przez Whop. Odśwież, jeśli zajmie chwilę.",
   "settings.billing.buy.cancelled": "Checkout został anulowany. Nie zakupiono priorytetu.",
   "settings.billing.buy.error": "Nova nie mogła otworzyć checkoutu priorytetu.",
+  "settings.billing.buy.paynow": "Kod QR PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "Zeskanuj kod QR dowolną singapurską aplikacją bankową (PayNow lub PayLah), aby zapłacić. Priorytet jest aktywowany po potwierdzeniu płatności.",
   "settings.account.eyebrow": "Profil i konto",
   "settings.account.title": "Twoje konto",
   "settings.account.body": "Szczegóły Twojego profilu, informacje uwierzytelniające, sterowanie sesją i usuwanie konta znajdują się w jednym miejscu.",

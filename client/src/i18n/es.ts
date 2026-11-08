@@ -345,6 +345,8 @@ export const es: Translations = {
   "settings.billing.buy.pending": "Pago recibido — la prioridad aparecerá aquí una vez que Whop lo confirme. Actualice si tarda un momento.",
   "settings.billing.buy.cancelled": "El pago fue cancelado. No se compró prioridad.",
   "settings.billing.buy.error": "Nova no pudo abrir el pago de prioridad.",
+  "settings.billing.buy.paynow": "Código QR de PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "Escanea el código QR con cualquier app bancaria de Singapur (PayNow o PayLah) para pagar. La prioridad se activa cuando se confirma el pago.",
   "settings.account.eyebrow": "Perfil y cuenta",
   "settings.account.title": "Su cuenta",
   "settings.account.body": "Los detalles de su perfil, la información de autenticación, los controles de sesión y la eliminación de la cuenta están en un solo lugar.",

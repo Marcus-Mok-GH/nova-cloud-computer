@@ -381,6 +381,8 @@ export const en = {
   "settings.billing.buy.pending": "Payment received — priority will appear here once Whop confirms it. Refresh if it takes a moment.",
   "settings.billing.buy.cancelled": "Checkout was cancelled. No priority was purchased.",
   "settings.billing.buy.error": "Nova could not open priority checkout.",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR — S$4.99",
+  "settings.billing.buy.paynowHint": "Scan the QR code with any Singapore banking app (PayNow or PayLah) to pay. Priority is armed once the payment clears.",
 
   // Settings: account management
   "settings.account.eyebrow": "Profile & Account",

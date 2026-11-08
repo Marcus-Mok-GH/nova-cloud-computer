@@ -144,7 +144,8 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `WHOP_PLAN_ID`               | Whop plan/variant id Pro checkout is pinned to; unset disables self-serve upgrades |
 | `WHOP_PRIORITY_PLAN_ID`      | Whop one-time plan/variant id for S$4.99 priority checkout (`plan_…`); unset disables priority purchases |
 | `WHOP_WEBHOOK_SECRET`        | Whop webhook signing secret (`ws_...`); required to verify payment and membership webhooks |
-| `WHOP_PORTAL_URL`            | Optional Whop customer portal URL surfaced in billing settings                  |
+| `WHOP_PORTAL_URL`            | Optional Whop customer portal URL surfaced in billing settings                  || `STRIPE_SECRET_KEY`          | Server-only Stripe secret key (`sk_live_...`/`sk_test_...`); enables PayNow/PayLah QR priority checkout (Stripe account must be Singapore-based) |
+| `STRIPE_WEBHOOK_SECRET`      | Stripe webhook signing secret (`whsec_...`); required to verify PayNow checkout webhooks |
 | `NOVA_WEB_APP_URL`           | Public app URL used as checkout success/cancel target; defaults to `https://novacloud.computer` |
 | `NEON_AUTH_BASE_URL`         | Neon auth base URL                                                              |
 | `DEFAULT_TELEGRAM_BOT_TOKEN` | Default Telegram bot token for inbound webhooks                                 |

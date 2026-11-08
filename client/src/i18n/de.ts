@@ -345,6 +345,8 @@ export const de: Translations = {
   "settings.billing.buy.pending": "Zahlung erhalten – die Priorität erscheint hier, sobald Whop sie bestätigt. Aktualisieren Sie die Seite, falls es einen Moment dauert.",
   "settings.billing.buy.cancelled": "Der Checkout wurde abgebrochen. Es wurde keine Priorität gekauft.",
   "settings.billing.buy.error": "Nova konnte den Prioritäts-Checkout nicht öffnen.",
+  "settings.billing.buy.paynow": "PayNow / PayLah-QR — S$4.99",
+  "settings.billing.buy.paynowHint": "Scanne den QR-Code mit einer beliebigen Bank-App aus Singapur (PayNow oder PayLah), um zu bezahlen. Sobald die Zahlung bestätigt ist, wird Priorität aktiviert.",
   "settings.account.eyebrow": "Profil & Konto",
   "settings.account.title": "Ihr Konto",
   "settings.account.body": "Ihre Profilinformationen, Authentifizierungsdaten, Sitzungssteuerung und Kontolöschung befinden sich an einem Ort.",

@@ -345,6 +345,8 @@ export const nl: Translations = {
   "settings.billing.buy.pending": "Betaling ontvangen — prioriteit verschijnt hier zodra Whop het bevestigt. Vernieuw als het even duurt.",
   "settings.billing.buy.cancelled": "Afrekening is geannuleerd. Er is geen prioriteit gekocht.",
   "settings.billing.buy.error": "Nova kon de prioriteitsafrekening niet openen.",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR-code — S$4.99",
+  "settings.billing.buy.paynowHint": "Scan de QR-code met een willekeurige Singaporese bankapp (PayNow of PayLah) om te betalen. Prioriteit wordt geactiveerd zodra de betaling is bevestigd.",
   "settings.account.eyebrow": "Profiel & Account",
   "settings.account.title": "Uw account",
   "settings.account.body": "Uw profielgegevens, authenticatie-informatie, sessiebeheer en accountverwijdering zijn allemaal op één plek.",

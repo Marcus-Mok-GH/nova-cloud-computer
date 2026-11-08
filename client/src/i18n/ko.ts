@@ -345,6 +345,8 @@ export const ko: Translations = {
   "settings.billing.buy.pending": "결제 수신 — Whop이 확인하면 우선순위가 여기에 표시됩니다. 잠시 후에 새로 고침해 주세요.",
   "settings.billing.buy.cancelled": "결제 취소되었습니다. 우선순위가 구매되지 않았습니다.",
   "settings.billing.buy.error": "Nova가 우선순위 결제창을 열 수 없습니다.",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR — S$4.99",
+  "settings.billing.buy.paynowHint": "싱가포르의 어떤 은행 앱(PayNow 또는 PayLah)으로든 QR 코드를 스캔하여 결제하세요. 결제가 확인되면 우선순위가 활성화됩니다.",
   "settings.account.eyebrow": "프로필 및 계정",
   "settings.account.title": "귀하의 계정",
   "settings.account.body": "프로필 세부 정보, 인증 정보, 세션 제어 및 계정 삭제가 한 곳에 있습니다.",

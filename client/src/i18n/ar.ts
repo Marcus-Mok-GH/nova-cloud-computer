@@ -345,6 +345,8 @@ export const ar: Translations = {
   "settings.billing.buy.pending": "تم استلام الدفع — ستظهر الأولوية هنا بمجرد تأكيد Whop. حدث الصفحة إذا استغرق الأمر لحظة.",
   "settings.billing.buy.cancelled": "تم إلغاء عملية الدفع. لم يتم شراء أولوية.",
   "settings.billing.buy.error": "تعذرت Nova فتح صفحة الدفع للأولوية.",
+  "settings.billing.buy.paynow": "رمز QR لـ PayNow / PayLah — S$4.99",
+  "settings.billing.buy.paynowHint": "امسح رمز الاستجابة السريعة عبر أي تطبيق بنكي سنغافوري (PayNow أو PayLah) للدفع. تُفعَّل الأولوية بعد تأكيد الدفع.",
   "settings.account.eyebrow": "الملف الشخصي والحساب",
   "settings.account.title": "حسابك",
   "settings.account.body": "تفاصيل ملفك الشخصي، معلومات المصادقة، ضوابط الجلسة، وحذف الحساب كلها في مكان واحد.",

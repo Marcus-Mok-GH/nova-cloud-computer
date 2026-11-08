@@ -345,6 +345,8 @@ export const tr: Translations = {
   "settings.billing.buy.pending": "Ödeme alındı — öncelik, Whop onayladığında burada görünecektir. Bir süre sonra yenilemeniz gerekebilir.",
   "settings.billing.buy.cancelled": "Ödeme iptal edildi. Öncelik satın alınmadı.",
   "settings.billing.buy.error": "Nova, öncelik ödeme sayfasını açamadı.",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR kodu — S$4.99",
+  "settings.billing.buy.paynowHint": "Ödemek için herhangi bir Singapur bankacılık uygulamasıyla (PayNow veya PayLah) QR kodunu okutun. Ödeme onaylandığında öncelik etkinleştirilir.",
   "settings.account.eyebrow": "Profil & Hesap",
   "settings.account.title": "Hesabınız",
   "settings.account.body": "Profil bilgileriniz, kimlik doğrulama bilgileri, oturum kontrolleri ve hesap silme işlemleri tek bir yerde.",

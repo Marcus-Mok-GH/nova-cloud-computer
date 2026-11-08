@@ -345,6 +345,8 @@ export const hi: Translations = {
   "settings.billing.buy.pending": "भुगतान प्राप्त — प्रीमियम यहाँ दिखाई देगा जब Whop इसे पुष्टि करेगा। यदि इसमें कुछ समय लगे तो रिफ्रेश करें।",
   "settings.billing.buy.cancelled": "चेकआउट रद्द कर दिया गया। कोई प्रीमियम नहीं खरीदा गया।",
   "settings.billing.buy.error": "Nova प्रीमियम चेकआउट नहीं खोल सका।",
+  "settings.billing.buy.paynow": "PayNow / PayLah QR — S$4.99",
+  "settings.billing.buy.paynowHint": "किसी भी सिंगापुर बैंकिंग ऐप (PayNow या PayLah) से QR कोड स्कैन करके भुगतान करें। भुगतान की पुष्टि होते ही प्राथमिकता सक्रिय हो जाती है।",
   "settings.account.eyebrow": "प्रोफ़ाइल और खाता",
   "settings.account.title": "आपका खाता",
   "settings.account.body": "आपकी प्रोफ़ाइल विवरण, प्रमाणीकरण जानकारी, सत्र नियंत्रण, और खाता हटाना सभी एक ही स्थान पर हैं।",

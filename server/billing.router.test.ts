@@ -14,6 +14,8 @@ const createWhopPriorityCheckout = vi.fn(async () => ({
 }));
 const isWhopConfigured = vi.fn(() => true);
 const getWhopPriorityPlanId = vi.fn(() => "plan_BFyuf6PmE5wwz");
+const createPayNowPriorityCheckout = vi.fn();
+const isPayNowConfigured = vi.fn(() => false);
 
 vi.mock("./db", () => ({
   getDailyCreditStatusForUser: vi.fn(async () => ({
@@ -27,6 +29,12 @@ vi.mock("./db", () => ({
   getActiveCustomModelForUser: vi.fn(async () => null),
   getPriorityStatusForUser,
 }));
+vi.mock("./paynow", () => ({
+  createPayNowPriorityCheckout,
+  isPayNowConfigured,
+  payNowConfigurationMessage: () => "PayNow QR checkout is not configured on this deployment.",
+  PayNowNotConfiguredError: class extends Error { detail?: string; constructor(message?: string, detail?: string) { super(message); this.detail = detail; } },
+}));
 
 vi.mock("./whop", () => ({
   createWhopCheckout: vi.fn(),
@@ -37,7 +45,7 @@ vi.mock("./whop", () => ({
   isWhopCheckoutDebug: () => false,
   WhopNotConfiguredError: class extends Error {},
   whopConfigurationMessage: () => "Nova Pro is not configured on this deployment. Contact the administrator to enable paid subscriptions.",
-  whopPriorityConfigurationMessage: () =>
+      whopPriorityConfigurationMessage: () =>
     "Priority purchases are not configured on this deployment yet. Contact the administrator to enable them.",
 }));
 
@@ -66,7 +74,9 @@ describe("billing router", () => {
     getPriorityStatusForUser.mockClear();
     createWhopPriorityCheckout.mockClear();
     isWhopConfigured.mockReset();
-    isWhopConfigured.mockReturnValue(true);
+    isWhopConfigured.mockReturnValue(true);    isPayNowConfigured.mockReset();
+    isPayNowConfigured.mockReturnValue(false);
+    createPayNowPriorityCheckout.mockReset();
     getWhopPriorityPlanId.mockReset();
     getWhopPriorityPlanId.mockReturnValue("plan_BFyuf6PmE5wwz");
     getPriorityStatusForUser.mockResolvedValue({
@@ -86,6 +96,7 @@ describe("billing router", () => {
       purchasedAt: null,
       activatedAt: null,
       expiresAt: null,
+      payNowConfigured: false,
     });
     expect(getPriorityStatusForUser).toHaveBeenCalledWith(1);
   });
@@ -134,5 +145,46 @@ describe("billing router", () => {
     const anonymous = appRouter.createCaller(contextFor(null));
     await expect(anonymous.billing.status()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(anonymous.billing.purchasePriority()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(anonymous.billing.purchasePriorityPayNow()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("reports the PayNow availability in the status response", async () => {
+    isPayNowConfigured.mockReturnValue(true);
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.billing.status()).resolves.toMatchObject({ payNowConfigured: true });
+  });
+
+  it("opens PayNow QR checkout for a one-time priority purchase", async () => {
+    isPayNowConfigured.mockReturnValue(true);
+    createPayNowPriorityCheckout.mockResolvedValue({ url: "https://checkout.stripe.com/c/pay/paynow_1" });
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const result = await caller.billing.purchasePriorityPayNow({
+      redirectUrl: "https://novacloud.computer/settings?priority=success",
+    });
+    expect(createPayNowPriorityCheckout).toHaveBeenCalledWith({
+      ownerId: 1,
+      redirectUrl: "https://novacloud.computer/settings?priority=success",
+    });
+    expect(result).toEqual({ url: "https://checkout.stripe.com/c/pay/paynow_1" });
+  });
+
+  it("rejects PayNow checkout when Stripe is not configured", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.billing.purchasePriorityPayNow()).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(createPayNowPriorityCheckout).not.toHaveBeenCalled();
+  });
+
+  it("rejects PayNow checkout when priority is already armed", async () => {
+    isPayNowConfigured.mockReturnValue(true);
+    getPriorityStatusForUser.mockResolvedValue({
+      priority: false,
+      armed: true,
+      purchasedAt: new Date(),
+      activatedAt: null,
+      expiresAt: null,
+    });
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.billing.purchasePriorityPayNow()).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(createPayNowPriorityCheckout).not.toHaveBeenCalled();
   });
 });

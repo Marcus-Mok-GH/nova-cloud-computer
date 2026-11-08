@@ -106,6 +106,10 @@ export type FailoverPoolOptions = {
   backup: () => pg.Pool | PoolLike;
   /** How long the primary stays marked down after a transient failure. */
   cooldownMs: number;
+  /** Fired once per failover transition (after the failed request has been retried on the backup). */
+  onFailover?: () => void;
+  /** Fired once when a query/connect succeeds against the primary again after a failover. */
+  onPrimaryRecovered?: () => void;
 };
 
 export const DEFAULT_FAILOVER_COOLDOWN_MS = 60_000;
@@ -114,8 +118,11 @@ export class FailoverPool {
   private readonly primary: PoolLike;
   private readonly backupFactory: () => PoolLike;
   private readonly cooldownMs: number;
+  private readonly onFailover?: () => void;
+  private readonly onPrimaryRecovered?: () => void;
   private backupPool: PoolLike | null = null;
   private primaryDownUntil = 0;
+  private backupActive = false;
 
   constructor(options: FailoverPoolOptions) {
     // pg.Pool's overloaded `on` never satisfies a structural function-property
@@ -124,6 +131,8 @@ export class FailoverPool {
     this.primary = options.primary as unknown as PoolLike;
     this.backupFactory = () => options.backup() as unknown as PoolLike;
     this.cooldownMs = Math.max(1, options.cooldownMs);
+    this.onFailover = options.onFailover;
+    this.onPrimaryRecovered = options.onPrimaryRecovered;
   }
 
   get hasBackup(): boolean {
@@ -147,6 +156,18 @@ export class FailoverPool {
       )}s:`,
       error instanceof Error ? error.message : error
     );
+    if (!this.backupActive) {
+      this.backupActive = true;
+      this.onFailover?.();
+    }
+  }
+
+  private markPrimaryRecovered() {
+    this.primaryDownUntil = 0;
+    if (this.backupActive) {
+      this.backupActive = false;
+      this.onPrimaryRecovered?.();
+    }
   }
 
   /** Which backend a query would use right now - reported by /api/health. */
@@ -159,7 +180,9 @@ export class FailoverPool {
       return this.backup.query(text, params);
     }
     try {
-      return await this.primary.query(text, params);
+      const result = await this.primary.query(text, params);
+      this.markPrimaryRecovered();
+      return result;
     } catch (error) {
       if (!isTransientDatabaseError(error)) throw error;
       this.markPrimaryDown(error);
@@ -172,7 +195,9 @@ export class FailoverPool {
       return this.backup.connect();
     }
     try {
-      return await this.primary.connect();
+      const client = await this.primary.connect();
+      this.markPrimaryRecovered();
+      return client;
     } catch (error) {
       if (!isTransientDatabaseError(error)) throw error;
       this.markPrimaryDown(error);

@@ -9,6 +9,7 @@
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
+import { readChatStreamEvents } from "@/lib/chatStream";
 import {
   collectChatImageAttachments,
   isSupportedChatImage,
@@ -101,6 +102,7 @@ export function useWorkspaceChat({
   // The in-flight stream's abort handle, and the chat that owns it, so leaving
   // that chat can stop the reader from receiving a turn it no longer shows.
   const streamAbortRef = useRef<AbortController | null>(null);
+  const streamAcceptedRef = useRef(false);
   const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
   // Set the moment Stop is pressed. Deltas that arrive while the server winds
   // the run down are dropped, so the view stops growing the instant the button
@@ -390,10 +392,9 @@ export function useWorkspaceChat({
     images: string[] = [],
     files: ChatFileUpload[] = []
   ): Promise<boolean> => {
+    if (streamAbortRef.current) return false;
+    streamAcceptedRef.current = false;
     userScrolledUpRef.current = false;
-    // Supersede any stream still running (a previous send, or one left behind
-    // by the chat we came from) before taking over the view.
-    streamAbortRef.current?.abort();
     const controller = new AbortController();
     streamAbortRef.current = controller;
     streamOwnerChatIdRef.current = targetChatId;
@@ -435,77 +436,64 @@ export function useWorkspaceChat({
             : "Nova could not start this response. Please retry shortly."
         );
       }
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Stream not supported");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines)
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") {
-              await finalizeStream(targetChatId);
-              // The run consumed credits and may have created or retitled the
-              // chat: refresh the sidebar, the archive, and the credit chip
-              // directly instead of relying on a background poll.
-              await Promise.all([
-                utils.workspace.computer.invalidate(),
-                utils.workspace.chats.invalidate(),
-                utils.credits.status.invalidate(),
-              ]);
-              return true;
-            }
-            // A stream that belongs to a chat the reader has navigated away
-            // from must not write its events into the current view. Skipping
-            // them here is safe: the persisted ledger carries the same rows.
-            if (viewedChatIdRef.current !== targetChatId) continue;
-            // Stop was pressed: freeze the view. Whatever the run streams
-            // while the server winds it down (including the "Stopped" notice
-            // itself) is dropped here and arrives through the ledger refresh.
-            if (stopRequestedRef.current) continue;
-            try {
-              const parsed = JSON.parse(data) as {
-                type?: string;
-                tool?: ToolActivity;
-                message?: string;
-                choices?: Array<{ delta?: { content?: string } }>;
-              };
-              if (parsed.type === "queued") {
-                setQueueNotice(
-                  typeof parsed.message === "string" ? parsed.message : null
-                );
-                continue;
-              }
-              if (parsed.type === "priority") {
-                setPriorityNotice(
-                  typeof parsed.message === "string" ? parsed.message : null
-                );
-                continue;
-              }
-              if (parsed.type === "tool" && parsed.tool?.id) {
-                setLiveEvents(previous =>
-                  upsertLiveToolEvent(previous, parsed.tool!)
-                );
-                continue;
-              }
-              setLiveEvents(previous =>
-                appendLiveTextDelta(
-                  previous,
-                  parsed.choices?.[0]?.delta?.content || ""
-                )
-              );
-            } catch {
-              /* Ignore malformed stream fragments. */
-            }
-          }
+      for await (const data of readChatStreamEvents(response)) {
+        if (data === "[DONE]") {
+          await finalizeStream(targetChatId);
+          await Promise.all([
+            utils.workspace.computer.invalidate(),
+            utils.workspace.chats.invalidate(),
+            utils.credits.status.invalidate(),
+          ]);
+          return true;
+        }
+        let parsed: {
+          type?: string;
+          tool?: ToolActivity;
+          message?: string;
+          choices?: Array<{ delta?: { content?: string } }>;
+        };
+        try {
+          parsed = JSON.parse(data) as typeof parsed;
+        } catch {
+          continue;
+        }
+        if (parsed.type === "error")
+          throw new Error(
+            typeof parsed.message === "string"
+              ? parsed.message
+              : "Nova could not complete this response. Check the chat before retrying."
+          );
+        if (viewedChatIdRef.current !== targetChatId) continue;
+        if (stopRequestedRef.current) continue;
+        if (parsed.type === "queued") {
+          streamAcceptedRef.current = true;
+          setQueueNotice(
+            typeof parsed.message === "string" ? parsed.message : null
+          );
+          continue;
+        }
+        if (parsed.type === "priority") {
+          setPriorityNotice(
+            typeof parsed.message === "string" ? parsed.message : null
+          );
+          continue;
+        }
+        if (parsed.type === "tool" && parsed.tool?.id) {
+          setLiveEvents(previous =>
+            upsertLiveToolEvent(previous, parsed.tool!)
+          );
+          continue;
+        }
+        setLiveEvents(previous =>
+          appendLiveTextDelta(
+            previous,
+            parsed.choices?.[0]?.delta?.content || ""
+          )
+        );
       }
-      await finalizeStream(targetChatId);
-      return true;
+      throw new Error(
+        "Connection ended before Nova confirmed completion. Check the chat before retrying."
+      );
     } catch (error) {
       // Navigating away (or being superseded) aborts the fetch; the run keeps
       // going on the server and the ledger carries its result, so there is
@@ -601,11 +589,13 @@ export function useWorkspaceChat({
       return;
     }
     if ((!draft.trim() && !composerAttachments.length) || !chatId) return;
-    const content = contentFor(draft, composerAttachments);
-    const images = composerAttachments.flatMap(attachment =>
+    const submittedDraft = draft;
+    const submittedAttachments = composerAttachments;
+    const content = contentFor(submittedDraft, submittedAttachments);
+    const images = submittedAttachments.flatMap(attachment =>
       attachment.kind === "image" ? [attachment.dataUri] : []
     );
-    const files = composerAttachments.flatMap(
+    const files = submittedAttachments.flatMap(
       (attachment): ChatFileUpload[] =>
         attachment.kind === "file"
           ? [
@@ -617,9 +607,41 @@ export function useWorkspaceChat({
             ]
           : []
     );
+    const baselineId = (savedMessages.data ?? []).reduce(
+      (max, message) => Math.max(max, message.id),
+      0
+    );
     setDraft("");
     setComposerAttachments([]);
-    await sendMessage(chatId, content, images, files);
+    const sent = await sendMessage(chatId, content, images, files);
+    if (sent || streamAcceptedRef.current || viewedChatIdRef.current !== chatId)
+      return;
+    try {
+      const latest = await savedMessages.refetch();
+      const messageWasPersisted =
+        !latest.isError &&
+        (latest.data ?? []).some(
+          message =>
+            message.id > baselineId &&
+            message.role === "user" &&
+            message.content === content
+        );
+      if (messageWasPersisted) return;
+    } catch {}
+    setDraft(current =>
+      current
+        ? `${submittedDraft}${submittedDraft ? "\n\n" : ""}${current}`
+        : submittedDraft
+    );
+    setComposerAttachments(current => {
+      const currentIds = new Set(current.map(attachment => attachment.id));
+      return [
+        ...submittedAttachments.filter(
+          attachment => !currentIds.has(attachment.id)
+        ),
+        ...current,
+      ];
+    });
   };
   /**
    * Regenerates the thread from one message: reverts history from the anchor

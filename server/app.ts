@@ -217,7 +217,7 @@ app.post("/api/chat/stream", async (req: express.Request, res: express.Response)
         kickPeakQueue();
         return;
       }
-      await executeWebAgentRun({ ownerId: user.id, chatId: chatIdValue, content: agentContent, uploadContext, ...(images.length ? { imageAttachments: images } : {}), requestStartedAtMs: Date.now(), onEvent: event => writeEvent(event), onChunk: chunk => writeEvent({ choices: [{ delta: { content: chunk } }] }) }); res.write("data: [DONE]\n\n"); res.end(); trackBackgroundWork(autoTitleChatForUser(user.id, chatIdValue).catch(() => {})); } catch (error) { console.error("Chat stream endpoint error", error); if (!res.headersSent) res.status(500).json({ error: "Nova could not start this response. Please retry shortly." }); else res.end(); } });
+      await executeWebAgentRun({ ownerId: user.id, chatId: chatIdValue, content: agentContent, uploadContext, ...(images.length ? { imageAttachments: images } : {}), requestStartedAtMs: Date.now(), onEvent: event => writeEvent(event), onChunk: chunk => writeEvent({ choices: [{ delta: { content: chunk } }] }) }); res.write("data: [DONE]\n\n"); res.end(); trackBackgroundWork(autoTitleChatForUser(user.id, chatIdValue).catch(() => {})); } catch (error) { console.error("Chat stream endpoint error", error); if (!res.headersSent) res.status(500).json({ error: "Nova could not start this response. Please retry shortly." }); else if (!res.writableEnded && !res.destroyed) { try { res.write(`data: ${JSON.stringify({ type: "error", message: "Nova could not complete this response. Check the chat before retrying." })}\n\n`); res.write("data: [DONE]\n\n"); res.end(); } catch { res.destroy(); } } } });
 
 /**
  * Telegram delivers webhook updates one at a time and only sends the next

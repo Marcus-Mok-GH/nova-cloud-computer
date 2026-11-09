@@ -146,6 +146,17 @@ describe("Chat stream image attachments", () => {
     );
   });
 
+  it("reports a post-start failure as an SSE error instead of a silent close", async () => {
+    spies.runWorkspaceAgent.mockRejectedValueOnce(new Error("upstream failure"));
+
+    const { status, text } = await post({ chatId: "chat-1", content: "hello" });
+
+    expect(status).toBe(200);
+    expect(text).toContain('"type":"error"');
+    expect(text).toContain("Check the chat before retrying.");
+    expect(text).toContain("data: [DONE]");
+  });
+
   it("accepts an image-only message and names the uploaded file", async () => {
     const { status } = await post({ chatId: "chat-1", images: [PNG] });
     expect(status).toBe(200);

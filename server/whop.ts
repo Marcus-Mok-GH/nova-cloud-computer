@@ -137,6 +137,7 @@ type CreateWhopCheckoutOutput = {
 /** PayNow QR is enabled on both checkouts; platform defaults keep cards and other standard methods. */
 const PAYNOW_PAYMENT_METHOD_CONFIGURATION = {
   enabled: ["paynow"],
+  disabled: [],
   include_platform_defaults: true,
 } as const;
 

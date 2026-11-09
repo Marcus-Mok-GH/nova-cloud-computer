@@ -56,8 +56,8 @@ describe("Whop PayNow checkout configuration", () => {
     const result = await createWhopCheckout({ ownerId: 42, planId: undefined, redirectUrl: "https://example.com/success" });
     expect(result.purchaseUrl).toBe("https://whop.com/checkout/ch_test_1");
     const body = JSON.parse(String(calls[0].init.body));
-    expect(body.payment_method_configuration).toEqual({ enabled: ["paynow"], include_platform_defaults: true });
-    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow"], include_platform_defaults: true });
+    expect(body.payment_method_configuration).toEqual({ enabled: ["paynow"], disabled: [], include_platform_defaults: true });
+    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow"], disabled: [], include_platform_defaults: true });
     expect(body.variant.currency).toBe("sgd");
   });
 
@@ -71,7 +71,7 @@ describe("Whop PayNow checkout configuration", () => {
     });
     expect(result.purchaseUrl).toBe("https://whop.com/checkout/ch_test_1");
     const body = JSON.parse(String(calls[0].init.body));
-    expect(body.payment_method_configuration).toEqual({ enabled: ["paynow"], include_platform_defaults: true });
+    expect(body.payment_method_configuration).toEqual({ enabled: ["paynow"], disabled: [], include_platform_defaults: true });
     expect(body.variant_id).toBe("plan_priority_test");
   });
 });

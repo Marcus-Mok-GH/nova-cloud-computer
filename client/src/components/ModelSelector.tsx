@@ -139,7 +139,7 @@ export function ModelSelector({ chatId }: { chatId: string }) {
                 ) : (
                   <Crown className="size-3.5" />
                 )}
-                Upgrade - $7.99/month
+                Upgrade - S$7.99/month
               </button>
             </div>
           </>

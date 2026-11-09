@@ -14,7 +14,7 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
 /**
  * Whop billing integration: checkout creation and signed payment/membership webhooks.
  *
- * Nova Pro ($7.99/month) and one-hour priority (S$4.99 one-time) both live on
+ * Nova Pro (S$7.99/month) and one-hour priority (S$4.99 one-time) both live on
  * the deployment's Whop business. Checkout configurations carry
  * `metadata.nova_user_id` (and `nova_product` for priority), which Whop copies
  * onto the payments and memberships it creates so webhooks can resolve the
@@ -34,7 +34,7 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  *   posts events to /api/whop/webhook. Absent = webhooks off.
  *
  * WHOP_PLAN_ID pins Pro checkout to an existing Whop plan (variant). Without it
- * checkout creates/reuses an inline $7.99 / 30-day renewal variant instead.
+ * checkout creates/reuses an inline S$7.99 / 30-day renewal variant instead.
  * WHOP_PRIORITY_PLAN_ID pins priority checkout to the S$4.99 one-time plan.
  */
 

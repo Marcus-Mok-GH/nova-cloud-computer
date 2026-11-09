@@ -18,7 +18,10 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  * the deployment's Whop business. Checkout configurations carry
  * `metadata.nova_user_id` (and `nova_product` for priority), which Whop copies
  * onto the payments and memberships it creates so webhooks can resolve the
- * owning Nova account.
+ * owning Nova account. PayNow (Singapore) is enabled explicitly via
+ * `payment_method_configuration` on both checkouts; including the platform
+ * defaults keeps card and other standard methods available. Whop surfaces
+ * PayNow as a QR code for eligible Singapore customers.
  *
  * Two credentials, both server-only:
  * - WHOP_API_KEY: a `whop_...` company API key (Whop dashboard > Developer),
@@ -131,6 +134,12 @@ type CreateWhopCheckoutOutput = {
   purchaseUrl: string;
 };
 
+/** PayNow QR is enabled on both checkouts; platform defaults keep cards and other standard methods. */
+const PAYNOW_PAYMENT_METHOD_CONFIGURATION = {
+  enabled: ["paynow"],
+  include_platform_defaults: true,
+} as const;
+
 /**
  * Creates a Whop checkout configuration for the owner’s paid-plan purchase
  * and returns its hosted URL. The configuration is remembered on the
@@ -146,6 +155,7 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     mode: "payment",
     metadata: { nova_user_id: String(ownerId) },
     redirect_url: redirectUrl,
+    payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
   };
   if (planId) {
     body.variant_id = planId;
@@ -158,6 +168,7 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
       renewal_price: PAID_PLAN_PRICE,
       title: "Nova Pro (monthly)",
       description: "10,000 Nova credits every month - unused credits carry over - plus access to premium models.",
+      payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
     };
   }
   const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
@@ -214,6 +225,7 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
       nova_priority_currency: PRIORITY_CURRENCY,
     },
     redirect_url: redirectUrl,
+    payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
   };
   const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
     method: "POST",

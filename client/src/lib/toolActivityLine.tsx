@@ -51,8 +51,7 @@ function trimmedArg(args: Record<string, unknown>, key: string): string {
 /** The amber spinner line shown while a tool - or the model - is working. */
 function LiveNote({ children }: { children: React.ReactNode }) {
   return (
-    <p className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
-      <CircleDashed className="size-3.5 shrink-0 animate-spin" />
+    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
       {children}
     </p>
   );
@@ -342,9 +341,6 @@ function ProgressLog({ log }: { log: string[] }) {
                 : "min-w-0 break-words text-xs leading-5 text-muted-foreground"
             }
           >
-            {latest ? (
-              <CircleDashed className="size-3.5 shrink-0 animate-spin" />
-            ) : null}
             <span className="min-w-0 break-words">{line}</span>
           </p>
         );
@@ -609,7 +605,7 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <StatusIcon
-          className={`size-3.5 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`}
+          className={`size-3.5 shrink-0 ${stateClass}`}
         />
         {ownerBadge}
         <span className="min-w-0 truncate">
@@ -680,7 +676,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         >
           {running ? (
-            <CircleDashed className="size-3 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+            <CircleDashed className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
           ) : (
             <CheckCircle2 className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
@@ -1269,7 +1265,7 @@ export function ToolRunGroup({
         : CheckCircle2;
   const iconClass =
     summary.running > 0
-      ? "text-amber-600 dark:text-amber-400 animate-spin"
+      ? "text-amber-600 dark:text-amber-400"
       : summary.failed > 0
         ? "text-red-600 dark:text-red-400"
         : "text-emerald-600 dark:text-emerald-400";
@@ -1348,7 +1344,7 @@ export function LiveActivityCard({
     >
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
-          <CircleDashed className="size-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+          <CircleDashed className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
         ) : failed > 0 ? (
           <TriangleAlert className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         ) : (

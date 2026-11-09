@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Workspace, { TypingIndicator } from "./Workspace";
+import Workspace from "./Workspace";
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 
 const state = vi.hoisted(() => ({
@@ -767,15 +767,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderChat();
     expect(markup).not.toContain('data-testid="agent-working-status"');
     expect(markup).not.toContain("Nova is actively working");
-    expect(markup).toContain('data-testid="typing-indicator"');
-  });
-
-  it("renders an explicit animated status for the working state", () => {
-    const markup = renderToStaticMarkup(<TypingIndicator />);
-    expect(markup).toContain('data-testid="typing-indicator"');
-    expect(markup).toContain('role="status"');
-    expect(markup).not.toContain("Nova is actively working");
-    expect(markup).toContain("animate-spin");
+    expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
   it("replaces the composer with a secure value request while the agent waits on one", () => {

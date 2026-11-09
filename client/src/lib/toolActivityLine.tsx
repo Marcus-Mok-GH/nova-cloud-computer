@@ -7,6 +7,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
+import { ToolOwnerBadge } from "@/components/workspaceChat";
 import { MarkdownText } from "@/lib/markdown";
 import { pluralize } from "@shared/text";
 
@@ -354,6 +355,46 @@ function ProgressLog({ log }: { log: string[] }) {
 }
 
 /**
+ * Whether a tool activity names who made the call. The server persists
+ * `owner` on every row it writes now (Nova's own calls `nova`, a coding
+ * specialist's steps `coding-specialist`); rows written before the field
+ * existed carry nothing, and are treated as Nova's own calls - which is how
+ * the server was emitting them all along.
+ */
+export function isOwnerTagged(activity: ToolActivity): boolean {
+  return activity.owner !== undefined;
+}
+
+/**
+ * Display label for who made a tool call. Nova's own calls render no badge
+ * (they are the default voice of the thread); every sub-agent is named.
+ */
+export function toolOwnerLabel(
+  activity: ToolActivity
+): string | null {
+  switch (activity.owner) {
+    case "coding-specialist":
+      return "Editor (sub-agent)";
+    case "research-agent":
+      return "Research (sub-agent)";
+    case "thinker-agent":
+      return "Thinker (sub-agent)";
+    case "vm-agent":
+      return "Sandbox (sub-agent)";
+    case "nova":
+    case undefined:
+      return null;
+    default:
+      return null;
+  }
+}
+
+/** True for activities that were delegated to a sub-agent. */
+export function isSubagentActivity(activity: ToolActivity): boolean {
+  return toolOwnerLabel(activity) !== null;
+}
+
+/**
  * One-line rendering for a tool call, e.g. "Read File notes.txt".
  * Args arrive as a raw JSON string in activity.args.arguments.
  *
@@ -552,6 +593,7 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
         ? "text-red-600 dark:text-red-400"
         : "text-muted-foreground dark:text-muted-foreground";
   const line = toolLineText(activity);
+  const ownerBadge = <ToolOwnerBadge activity={activity} />;
   // Panel steps (editor, research, …) explain themselves in their panel;
   // a plain step has nowhere else to say why it failed, so the reason
   // rides inline under its line.
@@ -569,6 +611,7 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
         <StatusIcon
           className={`size-3.5 shrink-0 ${stateClass}${activity.state === "running" ? " animate-spin" : ""}`}
         />
+        {ownerBadge}
         <span className="min-w-0 truncate">
           {line}
           {activity.state === "failed" ? " (failed)" : ""}
@@ -1207,7 +1250,13 @@ function StepsDetail({ activities }: { activities: ToolActivity[] }) {
  * keeps showing live progress, but open now means the recent steps
  * plus their failures, not all 30 rows at once.
  */
-export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
+export function ToolRunGroup({
+  activities,
+  ownerBadge,
+}: {
+  activities: ToolActivity[];
+  ownerBadge?: React.ReactNode;
+}) {
   const [open, setOpen] = useState(
     activities.some(activity => activity.state === "running")
   );
@@ -1233,6 +1282,7 @@ export function ToolRunGroup({ activities }: { activities: ToolActivity[] }) {
         className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-start shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
       >
         <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
+        {ownerBadge}
         <span
           data-testid="tool-run-group-summary"
           className={`min-w-0 truncate text-xs font-medium ${

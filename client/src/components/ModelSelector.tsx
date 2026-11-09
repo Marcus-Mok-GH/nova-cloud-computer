@@ -1,9 +1,9 @@
 /**
  * The chat composer's model picker. Free accounts see the whole catalogue but
- * the premium entries are locked; choosing one starts Whop checkout instead of
- * switching the model. The selection is persisted per chat by
- * `chats.setModel`, and the server re-checks the plan on every set, so the lock
- * here is presentation only.
+ * the premium entries are locked and non-clickable; the only way to unlock
+ * them is the Upgrade button below, which starts Whop checkout. The selection
+ * is persisted per chat by `chats.setModel`, and the server re-checks the plan
+ * on every set, so the lock here is presentation only.
  */
 import React, { useState } from "react";
 import { Check, ChevronDown, Crown, Loader2, Lock } from "lucide-react";
@@ -51,11 +51,7 @@ export function ModelSelector({ chatId }: { chatId: string }) {
   const busy = setModel.isPending || openingCheckout;
 
   const choose = (model: ChatModel) => {
-    if (model.tier === "pro" && !isPaid) {
-      setOpeningCheckout(true);
-      checkout.mutate({ redirectUrl: window.location.href });
-      return;
-    }
+    if (model.tier === "pro" && !isPaid) return;
     if (model.id === current) return;
     setModel.mutate({ chatId, model: model.id });
   };
@@ -91,10 +87,10 @@ export function ModelSelector({ chatId }: { chatId: string }) {
           return (
             <DropdownMenuItem
               key={model.id}
-              disabled={busy}
+              disabled={busy || locked}
               onSelect={event => {
                 event.preventDefault();
-                choose(model);
+                if (!locked) choose(model);
               }}
               className="flex items-start gap-2.5 py-2"
             >

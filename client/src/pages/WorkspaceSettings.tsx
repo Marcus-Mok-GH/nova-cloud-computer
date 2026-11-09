@@ -35,12 +35,50 @@ const settingsTabs: ReadonlyArray<{ id: string; labelKey: TranslationKey; icon: 
   { id: "account", labelKey: "settings.tabs.account", icon: UserCircle },
 ];
 
+type SettingsTabId = (typeof settingsTabs)[number]["id"];
+
+/** Persisted under this localStorage key so the selected tab survives reloads
+ *  and follows the visitor across browser tabs. */
+const SETTINGS_TAB_STORAGE_KEY = "nova.settings.tab";
+
+/** Accept a stored value and return a valid settings tab id. */
+function resolveSettingsTab(value: string | null | undefined): SettingsTabId {
+  return settingsTabs.some(tab => tab.id === value) ? (value as SettingsTabId) : "general";
+}
+
+/** The tab the visitor last chose, or null when they never chose one. */
+function readStoredSettingsTab(): SettingsTabId {
+  try {
+    return resolveSettingsTab(localStorage.getItem(SETTINGS_TAB_STORAGE_KEY));
+  } catch {
+    /* localStorage can be unavailable (SSR, privacy mode) */
+    return "general";
+  }
+}
+
 export default function WorkspaceSettings() {
   const utils = trpc.useUtils();
   const { t } = useTranslation();
   const settings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });
   const [rules, setRules] = useState("");
-  const [activeTab, setActiveTab] = useState<(typeof settingsTabs)[number]["id"]>("general");
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(readStoredSettingsTab);
+  const selectTab = (id: SettingsTabId) => {
+    setActiveTab(id);
+    try {
+      localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, id);
+    } catch {
+      /* localStorage can be unavailable (SSR, privacy mode) */
+    }
+  };
+  // Keep every open settings tab in sync: another tab writing the key fires a
+  // storage event here, so refreshes and new tabs land on the chosen section.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SETTINGS_TAB_STORAGE_KEY && event.newValue !== null) setActiveTab(resolveSettingsTab(event.newValue));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
   useEffect(() => { if (settings.data) setRules(settings.data.workspaceRules ?? ""); }, [settings.data]);
   const updateSettings = trpc.workspace.updateSettings.useMutation({ onSuccess: async () => { await Promise.all([utils.workspace.modelSettings.invalidate(), utils.workspace.dashboard.invalidate()]); toast.success(t("settings.rules.saved")); }, onError: error => toast.error(error.message) });
   if (settings.isLoading) return <DashboardLayout><div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div></DashboardLayout>;
@@ -49,7 +87,7 @@ export default function WorkspaceSettings() {
     <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-primary/[0.045] to-transparent dark:from-primary/[0.07]" />
     <section className="rise-in relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-8 shadow-[0_4px_14px_rgba(10,10,10,0.05)] dark:border-white/10 dark:bg-card sm:px-9 sm:py-10"><div className="relative"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">{t("settings.hero.eyebrow")}</p><h1 className="mt-3 text-2xl font-extrabold tracking-tight text-foreground dark:text-foreground sm:text-3xl">{t("settings.hero.title")}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">{t("settings.hero.subtitle")}</p></div></section>
     <nav role="tablist" aria-label={t("settings.tabsLabel")} className="rise-in relative flex gap-1 overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-[0_4px_14px_rgba(10,10,10,0.05)]">
-      {settingsTabs.map(tab => <button key={tab.id} type="button" role="tab" id={`settings-tab-${tab.id}`} aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${activeTab === tab.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4 shrink-0" />{t(tab.labelKey)}</button>)}
+      {settingsTabs.map(tab => <button key={tab.id} type="button" role="tab" id={`settings-tab-${tab.id}`} aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => selectTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${activeTab === tab.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4 shrink-0" />{t(tab.labelKey)}</button>)}
     </nav>
     <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className={activeTab === "general" ? "space-y-7" : "hidden"}><section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.rules.eyebrow")}</p><h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.rules.title")}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("settings.rules.body")}</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder={t("settings.rules.placeholder")} maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.rules.save")}</Button></div></section><LanguageCard /><ThemeCard /></div>
     <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalisationCard /><MemoryCard /></div>

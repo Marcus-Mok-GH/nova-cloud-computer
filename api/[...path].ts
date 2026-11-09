@@ -131,7 +131,7 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "waitlist" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
+  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "hitpay" || segments[0] === "waitlist" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

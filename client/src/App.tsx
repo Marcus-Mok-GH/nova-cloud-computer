@@ -24,6 +24,7 @@ import WorkspaceSettings from "./pages/WorkspaceSettings";
 import Status from "./pages/Status";
 import Admin from "./pages/Admin";
 import ApiDocs from "./pages/ApiDocs";
+import Checkout from "./pages/Checkout";
 
 function Router() {
   return (
@@ -43,6 +44,8 @@ function Router() {
       <Route path={"/app/more"} component={More} />
       <Route path={"/app/admin"} component={Admin} />
       <Route path={"/app/admin/notifications"} component={Admin} />
+      <Route path={"/checkout"} component={Checkout} />
+      <Route path={"/app/checkout"} component={Checkout} />
       <Route path={"/docs"} component={ApiDocs} />
       <Route path={"/docs/api"} component={ApiDocs} />
       <Route path={"/404"} component={NotFound} />

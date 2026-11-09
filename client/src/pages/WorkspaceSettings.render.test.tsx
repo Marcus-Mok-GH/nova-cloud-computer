@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WorkspaceSettings from "./WorkspaceSettings";
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -40,6 +40,10 @@ vi.mock("@/contexts/ThemeContext", () => ({
 }));
 
 describe("Workspace settings page", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders workspace rules, Telegram connection, and natural-language automations", () => {
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
     expect(markup).toContain('role="tablist"');
@@ -107,5 +111,31 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Confirmed with a code sent to your email");
     expect(markup).not.toContain("Change password");
     expect(markup).not.toContain("Current password");
+  });
+
+  it("restores the last selected settings tab from localStorage on reload", () => {
+    const stored = new Map<string, string>([["nova.settings.tab", "billing"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, String(value)); },
+      removeItem: (key: string) => { stored.delete(key); },
+      clear: () => { stored.clear(); },
+    });
+    const markup = renderToStaticMarkup(<WorkspaceSettings />);
+    // The stored "billing" tab is selected; the default "general" tab is not.
+    expect(markup).toContain('id="settings-tab-billing" aria-selected="true"');
+    expect(markup).toContain('id="settings-tab-general" aria-selected="false"');
+  });
+
+  it("falls back to the general tab when the stored value is unknown", () => {
+    const stored = new Map<string, string>([["nova.settings.tab", "nonexistent"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, String(value)); },
+      removeItem: (key: string) => { stored.delete(key); },
+      clear: () => { stored.clear(); },
+    });
+    const markup = renderToStaticMarkup(<WorkspaceSettings />);
+    expect(markup).toContain('id="settings-tab-general" aria-selected="true"');
   });
 });

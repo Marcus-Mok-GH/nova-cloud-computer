@@ -9,7 +9,7 @@ This integration adds PayNow via HitPay, with a custom payment-methods page at `
 1. User clicks Upgrade (ModelSelector) or Buy priority (BillingCard) → routed to `/checkout?product=pro|priority`
 2. `/checkout` (client/src/pages/Checkout.tsx) shows two options:
    - **PayNow QR (HitPay)** — `billing.createHitPayCheckout` → HitPay hosted checkout with `paynow_online`
-   - **Card (Whop)** — `billing.createCheckout` / `billing.purchasePriority` → existing Whop hosted checkout (auto-renews for Pro)
+   - **Card / Apple Pay (Whop)** — `billing.createCheckout` / `billing.purchasePriority` → existing Whop hosted checkout (auto-renews for Pro). Apple Pay is enabled on the Whop variants alongside card, crypto, GrabPay, PayNow and Touch 'n Go.
 3. HitPay webhook `POST /api/hitpay/webhook` verifies `Hitpay-Signature` (HMAC-SHA256 with salt) and grants:
    - Priority: `purchasePriorityForUser` (one hour, as Whop)
    - Pro: 30 days of Pro + monthly credits (one-time grant; PayNow is one-time-only per Stripe/HitPay docs, so Pro via PayNow does **not** auto-renew — user re-pays monthly)

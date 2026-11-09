@@ -32,56 +32,28 @@ afterEach(() => {
 });
 
 describe("landing and sign-in render", () => {
-  it("renders the hero and every landing section", () => {
+  it("renders the task prompt with the top menu", () => {
     const markup = renderToStaticMarkup(<Home />);
-    // Hero
-    expect(markup).toContain("Work that has somewhere to go.");
+    // The prompt hero.
+    expect(markup).toContain("What does");
+    expect(markup).toContain("need done?");
+    expect(markup).toContain("Describe a task to start a session...");
+    expect(markup).toContain("Nova Lite");
+    expect(markup).toContain("My Nova");
+    expect(markup).toContain('aria-label="Start a session"');
+    // The top menu survives the rebuild.
+    expect(markup).toContain('aria-label="Main navigation"');
+    expect(markup).toContain("API docs");
     expect(markup).toContain("Get started");
-    expect(markup).toContain("Files and chats in one workspace");
-    // Deep-dive rows
-    expect(markup).toContain("Your work has a place to stay.");
-    expect(markup).toContain("From a request to a finished file.");
-    expect(markup).toContain("Let the routine take the next turn.");
-    // How it works, channels, pricing, FAQ
-    expect(markup).toContain("A small handoff can change your whole day.");
-    expect(markup).toContain("Keep the conversation close.");
-    expect(markup).toContain("Daily credits, or your own model.");
-    expect(markup).toContain("What exactly is Nova?");
-    // Developer callout and footer
-    expect(markup).toContain("POST /api/v1/chat/completions");
-    expect(markup).toContain("/docs/api");
-    expect(markup).toContain(
-      "Start with the task that has been waiting in another tab."
-    );
-    // The previous hero must not come back.
-    expect(markup).not.toContain("Give your AI a computer of its own.");
+    expect(markup).toContain("logo-96.png");
   });
 
-  it("renders captures from real Nova product screens", () => {
+  it("no longer renders the retired marketing sections", () => {
     const markup = renderToStaticMarkup(<Home />);
-    expect(markup).toContain('src="/landing/workspace-home.png"');
-    expect(markup).toContain('src="/landing/workspace-files.png"');
-    expect(markup).toContain('src="/landing/workspace-chat.png"');
-    expect(markup).toContain('src="/landing/workspace-automations.png"');
-    expect(markup).toContain(
-      "Nova&#x27;s file browser with a project document open in the built-in editor."
-    );
-    expect(markup).toContain('aria-controls="landing-mobile-nav"');
-  });
-
-  it("renders the connectors band and the hand-it-a-job section", () => {
-    const markup = renderToStaticMarkup(<Home />);
-    // Connectors the workspace can actually reach.
-    expect(markup).toContain('aria-label="Connected services"');
-    expect(markup).toContain(
-      "Connect an account once and the agent can work inside it"
-    );
-    expect(markup).toContain("GitHub");
-    expect(markup).toContain("Agent inbox");
-    // Jobs section.
-    expect(markup).toContain("Bring the task you keep putting off.");
-    expect(markup).toContain("Research a question");
-    expect(markup).toContain("Keep a routine running");
+    expect(markup).not.toContain("Work that has somewhere to go.");
+    expect(markup).not.toContain("What exactly is Nova?");
+    expect(markup).not.toContain("POST /api/v1/chat/completions");
+    expect(markup).not.toContain("Inside Nova");
   });
 
   it("renders the language selectors for guests and signed-in visitors", () => {

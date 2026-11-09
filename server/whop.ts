@@ -18,7 +18,8 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  * the deployment's Whop business. Checkout configurations carry
  * `metadata.nova_user_id` (and `nova_product` for priority), which Whop copies
  * onto the payments and memberships it creates so webhooks can resolve the
- * owning Nova account. PayNow is enabled on the **variants** themselves
+ * owning Nova account. PayNow and Apple Pay are enabled on the **variants**
+ * themselves
  * (`variant_id`s in Whop carry the payment method config) — checkout-level
  * `payment_method_configuration` only works in setup mode per Whop docs and
  * causes 400 errors in payment mode, so we rely on the variant.
@@ -134,9 +135,9 @@ type CreateWhopCheckoutOutput = {
   purchaseUrl: string;
 };
 
-/** PayNow QR is enabled on both checkouts; platform defaults keep cards and other standard methods. */
-const PAYNOW_PAYMENT_METHOD_CONFIGURATION = {
-  enabled: ["paynow"],
+/** PayNow QR and Apple Pay are enabled on both checkouts; platform defaults keep cards and other standard methods. */
+const VARIANT_PAYMENT_METHOD_CONFIGURATION = {
+  enabled: ["paynow", "apple_pay"],
   disabled: [],
   include_platform_defaults: true,
 } as const;
@@ -168,7 +169,7 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
       renewal_price: PAID_PLAN_PRICE,
       title: "Nova Pro (monthly)",
       description: "10,000 Nova credits every month - unused credits carry over - plus access to premium models.",
-      payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
+      payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
     };
   }
   const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {

@@ -4,6 +4,8 @@ import { trpc } from "@/lib/trpc";
 import {
   Bot,
   CheckCircle2,
+  Crown,
+  Lock,
   Mail,
   MessageSquareText,
   Pencil,
@@ -297,14 +299,21 @@ function AgentDialog({
   );
 }
 
-/** Team builder: name, shared goal, and at least two agents. */
+/**
+ * Team builder: name, shared goal, and at least two agents. Creating a team
+ * is a Nova Pro feature; for free accounts the form is replaced by a lock
+ * note and the single upgrade CTA, which is the only checkout entry point.
+ * The server re-checks the plan on create, so the lock here is presentation.
+ */
 function TeamDialog({
   open,
   agents,
+  locked,
   onClose,
 }: {
   open: boolean;
   agents: AgentRow[];
+  locked: boolean;
   onClose: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -356,6 +365,23 @@ function TeamDialog({
             call.
           </DialogDescription>
         </DialogHeader>
+        {locked ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Lock className="size-4" />
+              </span>
+              <p className="text-sm font-bold text-foreground dark:text-foreground">
+                Agent teams are part of Nova Pro
+              </p>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Put several agents in one group chat with a shared goal. Nova
+              Pro unlocks agent teams, every premium model, and 10,000
+              credits a month.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="team-name">Team name</Label>
@@ -411,23 +437,35 @@ function TeamDialog({
             </div>
           </div>
         </div>
+        )}
         <DialogFooter className="flex-row gap-2">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            onClick={() =>
-              createTeam.mutate({ name: name.trim(), goal: goal.trim(), agentIds: selected })
-            }
-            disabled={
-              createTeam.isPending ||
-              !name.trim() ||
-              !goal.trim() ||
-              selected.length < 2
-            }
-          >
-            Create team
-          </Button>
+          {locked ? (
+            <Button
+              onClick={() => {
+                onClose();
+                window.location.href = "/checkout?product=pro";
+              }}
+            >
+              <Crown className="size-4" /> Upgrade - S$7.99/month
+            </Button>
+          ) : (
+            <Button
+              onClick={() =>
+                createTeam.mutate({ name: name.trim(), goal: goal.trim(), agentIds: selected })
+              }
+              disabled={
+                createTeam.isPending ||
+                !name.trim() ||
+                !goal.trim() ||
+                selected.length < 2
+              }
+            >
+              Create team
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -441,6 +479,11 @@ export default function Agents() {
   const agentChats = trpc.agents.chats.useQuery();
   const approvals = trpc.agents.approvals.useQuery();
   const inbox = trpc.agents.inbox.useQuery();
+  const billing = trpc.billing.subscription.useQuery(undefined, { retry: false });
+  // Team creation is locked for free accounts once the subscription query
+  // resolves; while it is still loading the builder stays available and the
+  // server gate decides for accounts the client can't yet see.
+  const teamsLocked = billing.data ? billing.data.plan !== "paid" : false;
 
   const [agentDialog, setAgentDialog] = useState<
     { mode: "new" } | { mode: "edit"; agent: AgentRow } | null
@@ -678,10 +721,17 @@ export default function Agents() {
             title={
               agentRows.length < 2
                 ? "Create at least two agents first"
-                : "Create a team"
+                : teamsLocked
+                  ? "Agent teams are part of Nova Pro - open to upgrade"
+                  : "Create a team"
             }
           >
             <Users className="size-4" /> New team
+            {teamsLocked && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                Pro
+              </span>
+            )}
           </Button>
         </div>
         <div className="mt-3 space-y-2">
@@ -822,6 +872,7 @@ export default function Agents() {
         <TeamDialog
           open={teamDialogOpen}
           agents={agentRows}
+          locked={teamsLocked}
           onClose={() => setTeamDialogOpen(false)}
         />
       </section>

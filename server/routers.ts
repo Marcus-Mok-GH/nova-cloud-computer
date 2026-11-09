@@ -830,6 +830,12 @@ export const appRouter = router({
     /** Agent-owned conversations: 1:1 chats and team chats with their rosters. */
     chats: protectedProcedure.query(({ ctx }) => listAgentChatsForUser(ctx.user.id)),
     createTeam: protectedProcedure.input(teamCreateInput).mutation(async ({ ctx, input }) => {
+      // Team creation is a Nova Pro feature; the client locks the builder,
+      // but the rule holds for every client here too.
+      const subscription = await getSubscriptionForUser(ctx.user.id);
+      if (subscription.plan !== "paid") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Agent teams are part of Nova Pro. Upgrade to create one." });
+      }
       const result = await createTeamChatForUser(ctx.user.id, input);
       if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
       return result;

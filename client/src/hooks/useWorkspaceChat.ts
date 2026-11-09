@@ -102,7 +102,6 @@ export function useWorkspaceChat({
   // The in-flight stream's abort handle, and the chat that owns it, so leaving
   // that chat can stop the reader from receiving a turn it no longer shows.
   const streamAbortRef = useRef<AbortController | null>(null);
-  const streamAcceptedRef = useRef(false);
   const streamOwnerChatIdRef = useRef<string | undefined>(undefined);
   // Set the moment Stop is pressed. Deltas that arrive while the server winds
   // the run down are dropped, so the view stops growing the instant the button
@@ -390,10 +389,10 @@ export function useWorkspaceChat({
     targetChatId: string,
     content: string,
     images: string[] = [],
-    files: ChatFileUpload[] = []
+    files: ChatFileUpload[] = [],
+    onAccepted?: () => void
   ): Promise<boolean> => {
     if (streamAbortRef.current) return false;
-    streamAcceptedRef.current = false;
     userScrolledUpRef.current = false;
     const controller = new AbortController();
     streamAbortRef.current = controller;
@@ -466,7 +465,7 @@ export function useWorkspaceChat({
         if (viewedChatIdRef.current !== targetChatId) continue;
         if (stopRequestedRef.current) continue;
         if (parsed.type === "queued") {
-          streamAcceptedRef.current = true;
+          onAccepted?.();
           setQueueNotice(
             typeof parsed.message === "string" ? parsed.message : null
           );
@@ -613,9 +612,11 @@ export function useWorkspaceChat({
     );
     setDraft("");
     setComposerAttachments([]);
-    const sent = await sendMessage(chatId, content, images, files);
-    if (sent || streamAcceptedRef.current || viewedChatIdRef.current !== chatId)
-      return;
+    let accepted = false;
+    const sent = await sendMessage(chatId, content, images, files, () => {
+      accepted = true;
+    });
+    if (sent || accepted || viewedChatIdRef.current !== chatId) return;
     try {
       const latest = await savedMessages.refetch();
       const messageWasPersisted =

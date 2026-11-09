@@ -1,13 +1,12 @@
 /**
  * The chat composer's model picker. Free accounts see the whole catalogue but
  * the premium entries are locked and non-clickable; the only way to unlock
- * them is the Upgrade button below, which starts Whop checkout. The selection
- * is persisted per chat by `chats.setModel`, and the server re-checks the plan
- * on every set, so the lock here is presentation only.
+ * them is the Upgrade button below, which opens the payment-methods page.
+ * The selection is persisted per chat by `chats.setModel`, and the server
+ * re-checks the plan on every set, so the lock here is presentation only.
  */
-import React, { useState } from "react";
+import React from "react";
 import { Check, ChevronDown, Crown, Loader2, Lock } from "lucide-react";
-import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,30 +24,19 @@ function modelLabel(models: ChatModel[], id: string | undefined) {
 
 export function ModelSelector({ chatId }: { chatId: string }) {
   const utils = trpc.useUtils();
-  const [openingCheckout, setOpeningCheckout] = useState(false);
   const catalogue = trpc.chats.models.useQuery({ chatId }, { retry: false });
-
-  const checkout = trpc.billing.createCheckout.useMutation({
-    onSuccess: ({ url }) => {
-      window.location.href = url;
-    },
-    onError: error => {
-      setOpeningCheckout(false);
-      toast.error(error.message);
-    },
-  });
 
   const setModel = trpc.chats.setModel.useMutation({
     onSuccess: async () => {
       await utils.chats.models.invalidate({ chatId });
     },
-    onError: error => toast.error(error.message),
+    onError: error => {},
   });
 
   const models = catalogue.data?.models ?? [];
   const current = catalogue.data?.current;
   const isPaid = catalogue.data?.plan === "paid";
-  const busy = setModel.isPending || openingCheckout;
+  const busy = setModel.isPending;
 
   const choose = (model: ChatModel) => {
     if (model.tier === "pro" && !isPaid) return;
@@ -127,18 +115,12 @@ export function ModelSelector({ chatId }: { chatId: string }) {
               </p>
               <button
                 type="button"
-                disabled={openingCheckout || checkout.isPending}
                 onClick={() => {
-                  setOpeningCheckout(true);
-                  checkout.mutate({ redirectUrl: window.location.href });
+                  window.location.href = "/checkout?product=pro";
                 }}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 py-2 text-xs font-bold text-background transition hover:opacity-90 disabled:opacity-60 dark:bg-white dark:text-black"
               >
-                {openingCheckout || checkout.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Crown className="size-3.5" />
-                )}
+                <Crown className="size-3.5" />
                 Upgrade - S$7.99/month
               </button>
             </div>

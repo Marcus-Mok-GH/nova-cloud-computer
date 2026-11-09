@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Check, CreditCard, Loader2, Sparkles } from "lucide-react";
+import { Check, CreditCard, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
@@ -40,8 +40,10 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
 }
 
 /**
- * Billing tab: a one-time S$4.99 purchase of priority queue placement via Whop.
- * The button opens checkout; priority is armed only after Whop confirms payment.
+ * Billing tab: a one-time S$4.99 purchase of priority queue placement.
+ * The button opens the payment-methods page (/checkout?product=priority)
+ * where the user chooses PayNow (HitPay) or Card (Whop). Priority is armed
+ * only after the provider confirms payment via webhook.
  * The card shows a live countdown of the one-hour window so it is obvious how
  * much priority time is left. When it lapses the account returns to standard
  * placement and can buy again.
@@ -50,12 +52,6 @@ export default function BillingCard() {
   const utils = trpc.useUtils();
   const { t, locale } = useTranslation();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });
-  const purchase = trpc.billing.purchasePriority.useMutation({
-    onSuccess: ({ url }) => {
-      window.location.href = url;
-    },
-    onError: error => toast.error(error.message || t("settings.billing.buy.error")),
-  });
   const priority = status.data?.priority ?? false;
   const armed = status.data?.armed ?? false;
   const expiresAt = status.data?.expiresAt ? new Date(status.data.expiresAt) : null;
@@ -182,13 +178,10 @@ export default function BillingCard() {
           <Button
             className="mt-4"
             onClick={() => {
-              const url = new URL(window.location.href);
-              url.searchParams.set("priority", "success");
-              purchase.mutate({ redirectUrl: url.toString() });
+              window.location.href = "/checkout?product=priority";
             }}
-            disabled={purchase.isPending || status.isLoading}
+            disabled={status.isLoading}
           >
-            {purchase.isPending && <Loader2 className="animate-spin" size={15} />}
             {t("settings.billing.buy.button")}
           </Button>
         </div>

@@ -58,6 +58,8 @@ const state = vi.hoisted(() => ({
     body: string;
     createdAt: Date;
   }>,
+  /** "paid" (default) or "free"; undefined mimics the subscription query still loading. */
+  plan: "paid" as "free" | "paid" | undefined,
   isLoading: false,
 }));
 
@@ -84,6 +86,14 @@ vi.mock("@/lib/trpc", () => ({
       createTeam: { useMutation: () => mutation },
       approve: { useMutation: () => mutation },
       deny: { useMutation: () => mutation },
+    },
+    billing: {
+      subscription: {
+        useQuery: () => ({
+          data: state.plan === undefined ? undefined : { plan: state.plan },
+          isLoading: false,
+        }),
+      },
     },
     useUtils: () => ({
       agents: {
@@ -119,6 +129,7 @@ describe("Agents page rendered states", () => {
     state.pending = [];
     state.recent = [];
     state.inbox = [];
+    state.plan = "paid";
     state.isLoading = false;
     mutation.mutate.mockClear();
   });
@@ -255,6 +266,21 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("No teams yet");
     // With two agents the New team control is clickable (not disabled).
     expect(teamCreateButtonTag(markup)).not.toContain('disabled=""');
+    // A paid account sees the plain button, no Pro badge.
+    expect(markup).not.toContain("New team<span");
+  });
+
+  it("marks team creation as Nova Pro for a free account", () => {
+    state.plan = "free";
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+      { id: 12, name: "Pip", role: null, instructions: null, emailAlias: "pip-2@nova.local", phoneHandle: "+1-555-0102", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    // The New team control stays openable so the upgrade CTA in the dialog
+    // is reachable, but it carries the Pro badge and a Pro-aware tooltip.
+    expect(markup).toContain('title="Agent teams are part of Nova Pro - open to upgrade"');
+    expect(markup).toContain("New team<span");
   });
 
   it("shows the agent inbox when mail has been delivered", () => {

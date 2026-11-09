@@ -1,3 +1,22 @@
+2026-11-09 - agent teams are part of Nova Pro
+
+Creating agent teams is now exclusive to the paid plan. The createTeam
+router re-checks the account's subscription before creating anything and
+rejects free accounts with a PRECONDITION_FAILED "Agent teams are part
+of Nova Pro" error, so the rule holds for every client. The Agents page
+locks the builder the same way: for free accounts the New team button
+carries a Pro badge, and the team dialog replaces its form with a lock
+note and a single "Upgrade - S$7.99/month" CTA that opens
+/checkout?product=pro - the only checkout entry point. Teams created
+while a subscription was active keep working after it lapses; only
+creation is gated.
+
+Files: server/routers.ts, server/agents.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx.
+Tests: pnpm vitest run server/agents.router.test.ts (2 passed),
+client/src/pages/Agents.render.test.tsx (13 passed); pnpm run check,
+pnpm test and pnpm run build all green.
+
 2026-11-06 - the built-in gateway speaks Pollinations
 
 Nova's built-in AI gateway now runs on Pollinations (https://gen.pollinations.ai),

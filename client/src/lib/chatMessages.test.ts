@@ -514,6 +514,7 @@ describe("buildTurnItems", () => {
       messageId: 1,
       content: "Tidy my files",
       pending: false,
+      createdAt: null,
     });
     expect(items[1]).toEqual({
       kind: "reply",
@@ -572,6 +573,7 @@ describe("buildTurnItems", () => {
       messageId: 2,
       content: "Let me check that.",
       live: false,
+      createdAt: null,
     });
     expect(items[2].kind === "toolRun" && items[2].live).toBe(false);
     expect(items[3]).toEqual({
@@ -601,6 +603,7 @@ describe("buildTurnItems", () => {
       messageId: 3,
       content: "Sorted both files.",
       live: false,
+      createdAt: null,
     });
   });
 
@@ -648,6 +651,7 @@ describe("buildTurnItems", () => {
       messageId: 3,
       content: "All sorted.",
       live: false,
+      createdAt: null,
     });
   });
 
@@ -688,6 +692,7 @@ describe("buildTurnItems", () => {
       messageId: 2,
       content: "[Mira] Found two files.",
       live: false,
+      createdAt: null,
     });
   });
 

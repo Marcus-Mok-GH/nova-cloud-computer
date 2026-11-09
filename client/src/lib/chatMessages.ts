@@ -39,7 +39,68 @@ export type PersistedChatMessage = {
   id: number;
   role: ChatRole;
   content: string;
+  /**
+   * When the row was written. The server ledger already carries it
+   * (`chatMessages.createdAt`), so the thread can show a clock per message
+   * with no schema change; older clients and test fixtures omit it.
+   */
+  createdAt?: string | Date | null;
 };
+
+/** Coerces a ledger timestamp (tRPC sends ISO strings) to a Date, or null. */
+export function toMessageDate(value: unknown): Date | null {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Short clock for a message header: "2:45 PM" today, "Mon 2:45 PM" within
+ * the last week, "Mar 4, 2:45 PM" older. Null when the row has no usable
+ * timestamp, so callers show no clock at all rather than a wrong one.
+ */
+export function formatMessageTime(
+  value: unknown,
+  now: Date = new Date()
+): string | null {
+  const date = toMessageDate(value);
+  if (!date) return null;
+  const sameDay = date.toDateString() === now.toDateString();
+  if (sameDay) return formatClock(date);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const ageMs = startOfToday.getTime() - date.getTime();
+  if (ageMs >= 0 && ageMs < 7 * dayMs) {
+    const weekday = date.toLocaleDateString(undefined, { weekday: "short" });
+    return `${weekday} ${formatClock(date)}`;
+  }
+  const label = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+  return `${label}, ${formatClock(date)}`;
+}
+
+const formatClock = (date: Date): string =>
+  date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+/**
+ * The plain-English turn label shown in the thread header: its number and
+ * who it belongs to, so a long conversation reads as a numbered list of
+ * turns instead of a wall of bubbles. `nova` labels the first assistant
+ * step of a turn the same way - one header per turn covers both halves.
+ */
+export function turnLabel(turnNumber: number): string {
+  return `turn ${turnNumber}`;
+}
 
 export type ChatWorkflowMode = "chat" | "plan" | "build";
 
@@ -104,12 +165,28 @@ export function latestFollowUpSuggestions(
   return [];
 }
 
+/** Who made a tool call: Nova itself, or the sub-agent it delegated to. */
+export type ToolActivityOwner =
+  | "nova"
+  | "coding-specialist"
+  | "research-agent"
+  | "thinker-agent"
+  | "vm-agent";
+
 export type ToolActivity = {
   id: string;
   name: string;
   state: "running" | "completed" | "failed";
   args: Record<string, string>;
   summary?: string;
+  /**
+   * Who made the call. Persisted on every row the server writes now; rows
+   * written before the field existed carry none and read as Nova's own
+   * calls (which is how they were emitted).
+   */
+  owner?: ToolActivityOwner;
+  /** When this row was written; read from the ledger row's createdAt. */
+  createdAt?: string | Date | null;
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
   /**
@@ -286,7 +363,8 @@ export function groupLiveChatItems(events: LiveChatEvent[]): LiveChatItem[] {
 }
 
 export function parsePersistedToolActivity(
-  content: string
+  content: string,
+  createdAt?: string | Date | null
 ): ToolActivity | null {
   if (!content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)) return null;
   try {
@@ -310,12 +388,152 @@ export function parsePersistedToolActivity(
       name: parsed.name,
       state: parsed.state,
       args: parseStringRecord(parsed.args),
+      owner: isToolActivityOwner(parsed.owner) ? parsed.owner : undefined,
+      createdAt: createdAt ?? undefined,
       summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
       detail: typeof parsed.detail === "string" ? parsed.detail : undefined,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a persisted row's `owner` field names a known actor. Anything else
+ * (a row written before the field existed, or an unrecognised token) leaves
+ * the activity ownerless, which the UI reads as Nova's own call - matching
+ * how those rows were emitted.
+ */
+function isToolActivityOwner(value: unknown): value is ToolActivityOwner {
+  return (
+    value === "nova" ||
+    value === "coding-specialist" ||
+    value === "research-agent" ||
+    value === "thinker-agent" ||
+    value === "vm-agent"
+  );
+}
+
+/**
+ * The actor a tool activity belongs to, as a short label and a one-sentence
+ * plain-English explanation of who ran it. `nova` is both what new rows
+ * carry and the default for ownerless rows written before the field existed.
+ */
+export type ToolActivityActor = {
+  owner: ToolActivityOwner;
+  /** Short name shown on the badge, e.g. "Coding specialist". */
+  label: string;
+  /**
+   * Plain-English explanation of who made the call and how it got there, for
+   * the badge's tooltip text.
+   */
+  description: string;
+};
+
+export function toolActivityActor(
+  activity: ToolActivity
+): ToolActivityActor {
+  const owner = activity.owner ?? ownerOfCall(activity.name);
+  switch (owner) {
+    case "coding-specialist":
+      return {
+        owner,
+        label: "Coding specialist",
+        description: "A specialist Nova delegated the coding to - not Nova itself. It reads, writes and runs files in your workspace on its own.",
+      };
+    case "research-agent":
+      return {
+        owner,
+        label: "Research agent",
+        description: "A specialist Nova delegated the research to - not Nova itself.",
+      };
+    case "thinker-agent":
+      return {
+        owner,
+        label: "Thinker",
+        description: "A specialist Nova delegated this analysis to - not Nova itself.",
+      };
+    case "vm-agent":
+      return {
+        owner,
+        label: "VM agent",
+        description: "A specialist Nova delegated this task to - not Nova itself. It runs in the workspace sandbox.",
+      };
+    default:
+      return {
+        owner: "nova",
+        label: "Nova",
+        description: "Called directly by Nova, on your behalf.",
+      };
+  }
+}
+
+/**
+ * The actor for rows that carry no `owner` field (written before the field
+ * existed): delegation tools were always sub-agent calls even then, so their
+ * rows still get the specialist's badge - never Nova's. Everything the main
+ * agent called itself stays Nova.
+ */
+function ownerOfCall(name: string): ToolActivityOwner {
+  switch (name) {
+    case "editor":
+    case "code_task":
+      return "coding-specialist";
+    case "research_web":
+      return "research-agent";
+    case "thinker":
+      return "thinker-agent";
+    case "run_vm_task":
+      return "vm-agent";
+    default:
+      return "nova";
+  }
+}
+
+/**
+ * Whether a tool activity ran on a sub-agent rather than on Nova itself.
+ * Drives the indented "inside the delegation" styling.
+ */
+export function isDelegatedToolActivity(activity: ToolActivity): boolean {
+  return toolActivityActor(activity).owner !== "nova";
+}
+
+/**
+ * The plain-English label for a turn-anchoring user message: a short
+ * snippet of what the user asked, so a long thread reads as a numbered
+ * list of topics instead of a wall of bubbles. Falls back to a generic
+ * label when the message is empty.
+ */
+export function turnAskLabel(content: string): string {
+  const singleLine = content.replace(/\s+/g, " ").trim();
+  if (!singleLine) return "your message";
+  const max = 64;
+  return singleLine.length > max
+    ? `${singleLine.slice(0, max - 1).trimEnd()}...`
+    : singleLine;
+}
+
+/**
+ * Totalling the tool work of one turn so the header can say what it cost:
+ * how many calls and how many of them were on a sub-agent. A mixed turn
+ * names both; an all-Nova turn stays quiet about delegation.
+ */
+export type TurnToolSummary = {
+  total: number;
+  delegated: number;
+  label: string;
+};
+
+export function turnToolSummary(activities: ToolActivity[]): TurnToolSummary {
+  const total = activities.length;
+  const delegated = activities.filter(isDelegatedToolActivity).length;
+  const label =
+    total === 0
+      ? "no tools"
+      : delegated === 0
+        ? `${total} tool${total === 1 ? "" : "s"}`
+        : `${total} tool${total === 1 ? "" : "s"} (${delegated} delegated)`;
+  return { total, delegated, label };
 }
 
 function parseStringRecord(value: unknown): Record<string, string> {
@@ -408,7 +626,7 @@ export function groupPersistedChatItems(
 ): ChatListItem[] {
   return groupActivityRuns(
     messages,
-    message => parsePersistedToolActivity(message.content),
+    message => parsePersistedToolActivity(message.content, message.createdAt),
     message => ({ kind: "message" as const, message })
   );
 }
@@ -428,6 +646,7 @@ export type TurnRenderItem =
       messageId: number;
       content: string;
       pending: boolean;
+      createdAt?: string | Date | null;
     }
   | {
       kind: "reply";
@@ -435,8 +654,15 @@ export type TurnRenderItem =
       messageId: number;
       content: string;
       live: boolean;
+      createdAt?: string | Date | null;
     }
-  | { kind: "toolRun"; key: string; activities: ToolActivity[]; live: boolean };
+  | {
+      kind: "toolRun";
+      key: string;
+      activities: ToolActivity[];
+      live: boolean;
+      createdAt?: string | Date | null;
+    };
 
 /**
  * Lays the current turn out in the order it actually happened: what the user
@@ -483,7 +709,10 @@ export function buildTurnItems({
   const ledgerActivities = new Map<string, ToolActivity>();
   const ledgerReplies: string[] = [];
   for (const message of messages) {
-    const activity = parsePersistedToolActivity(message.content);
+    const activity = parsePersistedToolActivity(
+      message.content,
+      message.createdAt
+    );
     if (activity) ledgerActivities.set(activity.id, activity);
     else if (message.role === "assistant") ledgerReplies.push(message.content);
   }
@@ -542,6 +771,7 @@ export function buildTurnItems({
         kind: "toolRun",
         key: `tools-${item.activities[0].id}`,
         live: false,
+        createdAt: item.activities[0].createdAt ?? null,
         activities: item.activities.map(
           activity => ledgerActivities.get(activity.id) ?? activity
         ),
@@ -553,6 +783,7 @@ export function buildTurnItems({
         messageId: item.message.id,
         content: item.message.content,
         pending: false,
+        createdAt: item.message.createdAt ?? null,
       });
     else
       items.push({
@@ -561,6 +792,7 @@ export function buildTurnItems({
         messageId: item.message.id,
         content: item.message.content,
         live: false,
+        createdAt: item.message.createdAt ?? null,
       });
   }
 

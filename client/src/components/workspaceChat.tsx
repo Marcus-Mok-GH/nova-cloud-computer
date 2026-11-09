@@ -44,6 +44,109 @@ import {
   TTS_STOP_EVENT,
 } from "@/lib/speech";
 import type { ChatComposerAttachment } from "@/lib/fileAttachments";
+import {
+  formatMessageTime,
+  toolActivityActor,
+  turnAskLabel,
+  turnLabel,
+  turnToolSummary,
+} from "@/lib/chatMessages";
+import type { TurnRenderItem, ToolActivity } from "@/lib/chatMessages";
+
+/**
+ * One message's actions - copy, read aloud, regenerate - revealed when the
+ * reader hovers the message on a pointer device and shown on focus for
+ * keyboard and touch users, so the thread rests as readable text instead of
+ * a row of permanent chrome. The buttons keep the labels and test affordances
+ * the buttons themselves render; this wrapper only controls visibility.
+ */
+export function MessageActions({
+  children,
+  align = "end",
+}: {
+  children: React.ReactNode;
+  align?: "start" | "end";
+}) {
+  const alignClass =
+    align === "start"
+      ? "left-0 flex-row"
+      : "right-0 flex-row-reverse justify-end";
+  return (
+    <div
+      className={`pointer-events-none absolute -top-3 z-20 flex gap-1.5 opacity-0 transition-opacity duration-150 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${alignClass}`}
+    >
+      <span className="pointer-events-auto flex gap-1.5 rounded-lg border border-foreground/[0.12] bg-card/95 p-1 shadow-md backdrop-blur dark:border-white/[0.14]">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The who/when line above a turn's first item: the turn's number, a
+ * plain-English snippet of the user's ask, the clock, and a tally of the
+ * tools the turn used. Later rows of a turn stay quiet - the header answers
+ * "which ask did this belong to and how long ago was it" once.
+ */
+export function TurnHeader({
+  turnNumber,
+  ask,
+  createdAt,
+  activities,
+}: {
+  /** 1-based turn number. */
+  turnNumber: number;
+  ask: string;
+  createdAt: TurnRenderItem["createdAt"];
+  activities: ToolActivity[];
+}) {
+  const summary = turnToolSummary(activities);
+  const time = formatMessageTime(createdAt ?? null);
+  return (
+    <div
+      data-testid="turn-header"
+      className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
+    >
+      <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary">
+        {turnLabel(turnNumber)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground">
+        {turnAskLabel(ask)}
+      </span>
+      {time ? (
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          {time}
+        </span>
+      ) : null}
+      {summary.total > 0 ? (
+        <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">
+          {summary.label}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Names who made a tool call. Nova's own calls are the thread's default
+ * voice and render nothing; every sub-agent is named in place, so an
+ * editor's "Write File" cannot be mistaken for Nova's own step. Exact steps
+ * the server tagged carry their actor's label; ownerless legacy rows fall
+ * back to their tool name, which is how those rows were emitted.
+ */
+export function ToolOwnerBadge({ activity }: { activity: ToolActivity }) {
+  const actor = toolActivityActor(activity);
+  if (actor.owner === "nova") return null;
+  return (
+    <span
+      data-testid="tool-owner-badge"
+      title={actor.description}
+      className="shrink-0 rounded-full border border-primary/30 bg-primary/[0.08] px-1.5 py-px text-[9.5px] font-bold tracking-wide text-primary"
+    >
+      {actor.label}
+    </span>
+  );
+}
 
 /** The tray glyph for a non-image attachment, chosen by content type. */
 function FileAttachmentGlyph({ mimeType }: { mimeType: string }) {

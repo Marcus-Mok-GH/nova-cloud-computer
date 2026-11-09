@@ -77,6 +77,7 @@ import {
   whopConfigurationMessage,
   whopPriorityConfigurationMessage,
 } from "./whop";
+import { createHitPayPaymentRequest, HitPayNotConfiguredError, hitPayConfigurationMessage, isHitPayConfigured } from "./hitpay";
 import { kickPeakQueue } from "./peakQueueScheduler";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
@@ -390,6 +391,39 @@ export const appRouter = router({
       }
       return { url };
     }),
+    /** Starts a HitPay PayNow checkout for Pro or Priority. Grants on webhook, never here. */
+    createHitPayCheckout: protectedProcedure
+      .input(z.object({ product: z.enum(["pro", "priority"]), redirectUrl: z.string().url().max(2000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!isHitPayConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: hitPayConfigurationMessage() });
+        }
+        if (input.product === "pro") {
+          const existing = await getSubscriptionForUser(ctx.user.id);
+          if (existing.plan === "paid" && !existing.cancelAtPeriodEnd) {
+            throw new TRPCError({ code: "CONFLICT", message: "Nova Pro is already active on this account." });
+          }
+        } else {
+          const existing = await getPriorityStatusForUser(ctx.user.id);
+          if (existing.priority || existing.armed) {
+            throw new TRPCError({ code: "CONFLICT", message: "Priority is already active or armed on this account." });
+          }
+        }
+        try {
+          const checkout = await createHitPayPaymentRequest({
+            ownerId: ctx.user.id,
+            product: input.product,
+            email: ctx.user.email ?? undefined,
+            name: ctx.user.name ?? undefined,
+            redirectUrl: input.redirectUrl,
+          });
+          return { url: checkout.url, referenceNumber: checkout.referenceNumber };
+        } catch (error) {
+          const detail = error instanceof HitPayNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] HitPay checkout creation failed", detail);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: isWhopCheckoutDebug() ? `Nova could not open PayNow checkout just now - try again in a moment. [debug: ${detail}]` : "Nova could not open PayNow checkout just now - try again in a moment." });
+        }
+      }),
   }),
   apiKeys: router({
     list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),

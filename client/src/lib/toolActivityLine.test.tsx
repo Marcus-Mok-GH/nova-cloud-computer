@@ -719,7 +719,7 @@ describe("ToolActivityLine", () => {
     expect(html).not.toContain("Tool activity");
   });
 
-  it("marks failed tools and spins running ones", () => {
+  it("marks failed tools and flags running ones", () => {
     const failed = renderToStaticMarkup(
       React.createElement(ToolActivityLine, {
         activity: activity("create_file", '{"name":"dup.txt"}', "failed"),
@@ -731,7 +731,8 @@ describe("ToolActivityLine", () => {
         activity: activity("create_file", '{"name":"dup.txt"}', "running"),
       })
     );
-    expect(running).toContain("animate-spin");
+    expect(running).not.toContain("animate-spin");
+    expect(running).toContain("text-amber-600");
   });
 
   it("gives a running tool the bright reply-text color instead of the muted resting tone", () => {

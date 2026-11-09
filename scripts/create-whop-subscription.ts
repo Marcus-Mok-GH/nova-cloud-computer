@@ -36,16 +36,16 @@ async function main() {
   });
   console.log(`   Product created: ${product.id}`);
 
-  // 2. Create the Plan ($7.99/month)
-  console.log("2. Creating plan ($7.99/month)...");
+  // 2. Create the Plan (S$7.99/month)
+  console.log("2. Creating plan (S$7.99/month)...");
   const plan = await whop.plans.create({
     product_id: product.id,
     name: "Pro Monthly",
     description: "10,000 credits per month (unused credits roll over), access to all premium models including Nova Pro",
     pricing_type: "recurring",
     price: {
-      amount: 799, // $7.99 in cents
-      currency: "USD",
+      amount: 799, // S$7.99 in cents
+      currency: "SGD",
       interval: "month",
     },
     billing_cycle_anchor: "immediate",
@@ -65,7 +65,7 @@ async function main() {
   const variant = await whop.variants.create({
     plan_id: plan.id,
     name: "Nova Pro Monthly",
-    description: "Monthly subscription - $7.99/month",
+    description: "Monthly subscription - S$7.99/month",
     is_archived: false,
     sort_order: 0,
     metadata: {

@@ -111,10 +111,10 @@ export function calculateInferenceCredits(modelId: string | undefined, usage: In
 /** Monthly credit allocation for an active paid subscription. */
 export const PAID_PLAN_MONTHLY_CREDITS = 10_000;
 
-/** Price of the monthly subscription, in cents (USD): $7.99. */
+/** Price of the monthly subscription, in cents (SGD): S$7.99. */
 export const PAID_PLAN_PRICE_CENTS = 799;
 
-export const PAID_PLAN_CURRENCY = "usd";
+export const PAID_PLAN_CURRENCY = "sgd";
 
 /** How many months of unspent credit a paid account may accumulate. */
 export const PAID_PLAN_CARRY_OVER_MONTHS = 12;

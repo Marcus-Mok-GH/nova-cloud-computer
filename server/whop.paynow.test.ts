@@ -58,7 +58,7 @@ describe("Whop PayNow checkout configuration", () => {
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.payment_method_configuration).toEqual({ enabled: ["paynow"], include_platform_defaults: true });
     expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow"], include_platform_defaults: true });
-    expect(body.variant.currency).toBe("usd");
+    expect(body.variant.currency).toBe("sgd");
   });
 
   it("enables PayNow on the priority checkout", async () => {

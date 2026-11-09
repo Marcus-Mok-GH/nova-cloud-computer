@@ -19,7 +19,6 @@ import {
 import {
   ArrowUp,
   Check,
-  CircleDashed,
   Copy,
   Eye,
   EyeOff,
@@ -440,20 +439,6 @@ export function SpeakMessageButton({
       )}
       {speaking ? "Stop" : "Read aloud"}
     </button>
-  );
-}
-
-export function TypingIndicator() {
-  return (
-    <span
-      data-testid="typing-indicator"
-      role="status"
-      aria-live="polite"
-      aria-label="Working"
-      className="inline-flex items-center text-muted-foreground"
-    >
-      <CircleDashed className="size-4 animate-spin" />
-    </span>
   );
 }
 

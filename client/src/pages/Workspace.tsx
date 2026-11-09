@@ -63,7 +63,6 @@ import {
   RegenerateMessageButton,
   SpeakMessageButton,
   TurnHeader,
-  TypingIndicator,
   WorkspaceError,
 } from "@/components/workspaceChat";
 
@@ -543,8 +542,7 @@ export default function Workspace() {
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-col gap-6">
                   {savedMessages.isLoading ? (
-                    <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                      <TypingIndicator />
+                    <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
                       <span>Opening the thread…</span>
                     </div>
                   ) : rows.length === 0 && !agentIsWorking ? (
@@ -785,12 +783,6 @@ export default function Workspace() {
                               Nova
                             </p>
                           )}
-                          {typingLabel && (
-                            <span className="size-1 animate-pulse rounded-full bg-primary" />
-                          )}
-                        </div>
-                        <div className="border-s border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
-                          <TypingIndicator />
                         </div>
                       </div>
                     </div>
@@ -1126,5 +1118,3 @@ export default function Workspace() {
     </DashboardLayout>
   );
 }
-
-export { TypingIndicator };

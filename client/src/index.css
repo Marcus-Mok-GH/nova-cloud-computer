@@ -206,16 +206,24 @@ button, a, [role="button"] { touch-action: manipulation; }
 .dashboard-shell main { -webkit-overflow-scrolling: touch; }
 
 /* ---------------- Landing page ---------------- */
-.landing-shell { background: var(--background); color: var(--foreground); }
+/* Faint dot grid (graph-paper texture) that fades toward the bottom of the
+   viewport, so the task prompt stays the focus of the page. */
+.landing-shell {
+  background-color: var(--background);
+  color: var(--foreground);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--foreground) 16%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 22px 22px;
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, black 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, black 75%, transparent 100%);
+}
 
 /* Plain paper background and editorial display type keep the product in focus. */
 .landing-hero { position: relative; }
 .landing-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }
-
-/* The single inverted band on the page (developer callout). Light themes use
-   the ink foreground; dark themes lift the card surface instead of glaring. */
-.landing-invert { background: var(--foreground); color: var(--background); }
-.dark .landing-invert { background: var(--card); color: var(--foreground); border-block: 1px solid var(--border); }
 
 /* The sign-in form's CTA lives in the components layer so Tailwind's
    display utilities (`hidden`, `sm:inline-flex`, ...) can override its

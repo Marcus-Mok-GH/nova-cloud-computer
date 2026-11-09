@@ -3,19 +3,6 @@ import { ArrowUpRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import type { TranslationKey } from "@/i18n";
-
-/** Anchors shared by the sticky nav and the footer's Product column. */
-export const landingAnchors: ReadonlyArray<{
-  href: string;
-  key: TranslationKey;
-}> = [
-  { href: "#product", key: "landing.nav.product" },
-  { href: "#how-it-works", key: "landing.nav.how" },
-  { href: "#channels", key: "landing.nav.channels" },
-  { href: "#pricing", key: "landing.nav.pricing" },
-  { href: "#faq", key: "landing.nav.faq" },
-];
 
 /**
  * The single sign-in / open-workspace action every CTA shares. Signed-in
@@ -30,26 +17,7 @@ export function useEnterNova() {
   };
 }
 
-/** Small uppercase label that opens every section. */
-export function Eyebrow({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <p
-      className={cn(
-        "text-xs font-bold uppercase tracking-[0.14em] text-primary",
-        className
-      )}
-    >
-      {children}
-    </p>
-  );
-}
-
+/** The page's two button shapes, shared by the nav and the hero. */
 interface CtaButtonProps {
   /** Resolved label (the caller picks the signed-in vs signed-out copy). */
   label: string;
@@ -69,7 +37,7 @@ const primaryClasses =
 const ghostClasses =
   "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-4 py-3 text-sm font-semibold text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-/** The page's two button shapes, shared by the nav, hero, pricing, and footer. */
+/** Primary and ghost shapes for the page's call to action. */
 export function CtaButton({
   label,
   variant = "primary",

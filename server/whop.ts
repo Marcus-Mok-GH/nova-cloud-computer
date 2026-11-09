@@ -18,10 +18,10 @@ import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
  * the deployment's Whop business. Checkout configurations carry
  * `metadata.nova_user_id` (and `nova_product` for priority), which Whop copies
  * onto the payments and memberships it creates so webhooks can resolve the
- * owning Nova account. PayNow (Singapore) is enabled explicitly via
- * `payment_method_configuration` on both checkouts; including the platform
- * defaults keeps card and other standard methods available. Whop surfaces
- * PayNow as a QR code for eligible Singapore customers.
+ * owning Nova account. PayNow is enabled on the **variants** themselves
+ * (`variant_id`s in Whop carry the payment method config) — checkout-level
+ * `payment_method_configuration` only works in setup mode per Whop docs and
+ * causes 400 errors in payment mode, so we rely on the variant.
  *
  * Two credentials, both server-only:
  * - WHOP_API_KEY: a `whop_...` company API key (Whop dashboard > Developer),
@@ -156,7 +156,6 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     mode: "payment",
     metadata: { nova_user_id: String(ownerId) },
     redirect_url: redirectUrl,
-    payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
   };
   if (planId) {
     body.variant_id = planId;
@@ -226,7 +225,6 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
       nova_priority_currency: PRIORITY_CURRENCY,
     },
     redirect_url: redirectUrl,
-    payment_method_configuration: PAYNOW_PAYMENT_METHOD_CONFIGURATION,
   };
   const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
     method: "POST",

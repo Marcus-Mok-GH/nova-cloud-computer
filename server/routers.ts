@@ -25,6 +25,7 @@ import {
   getOrCreateWorkspace,
   getAutomationRecordForUser,
   getActiveAgentRunInChat,
+  hasLiveRunningProcessForChat,
   getDailyCreditStatusForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
@@ -64,6 +65,7 @@ import {
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
+import { PROCESS_STALE_AFTER_MS } from "./runningProcesses";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
 import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
 import {
@@ -764,7 +766,20 @@ export const appRouter = router({
       // The chat is already resolved (and ownership proven) above, so the run is
       // looked up by that id instead of repeating the ownership lookup.
       const run = await getActiveAgentRunInChat(chat.id);
-      return run ? { active: true as const, ...run } : { active: false as const };
+      if (!run) return { active: false as const };
+      // A run row alone does not prove Nova is working: when the platform
+      // kills a serverless invocation the row is left
+      // running/awaiting_continue with no live worker, and
+      // agent_runs.updatedAt stops moving (it bumps only on state
+      // transitions). Gate on the process heartbeat, not on updatedAt -
+      // otherwise an orphaned row pins the composer to "Stop" and every
+      // new message is swallowed until the row reaps itself.
+      const live = await hasLiveRunningProcessForChat(
+        chat.id,
+        0,
+        new Date(Date.now() - PROCESS_STALE_AFTER_MS),
+      );
+      return live ? { active: true as const, ...run } : { active: false as const };
     }),
     /** Stops the chat's in-flight agent run and its queued/running VM workflows. */
     stop: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).mutation(async ({ ctx, input }) => {

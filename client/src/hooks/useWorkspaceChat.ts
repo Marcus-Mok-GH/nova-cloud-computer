@@ -32,11 +32,15 @@ import {
   type LiveChatEvent,
   type ToolActivity,
 } from "@/lib/chatMessages";
+import { decideComposerSubmit } from "@/lib/composerSubmit";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 
 /** Opening message for the guided personalisation session launched from Settings. */
 const PERSONALISATION_KICKOFF =
   "Let's set up my personalisation. Ask me one question at a time about how I work and how I want you to work with me, wait for each answer, then save what you learn with set_personalisation and turn personalisation mode on.";
+
+/** How often a "still working, so not sent" notice may repeat per user. */
+const BLOCKED_SEND_NOTICE_COOLDOWN_MS = 5_000;
 
 /**
  * Opening message for a freshly created team chat (launched from the Agents
@@ -106,6 +110,9 @@ export function useWorkspaceChat({
   // the run down are dropped, so the view stops growing the instant the button
   // is hit instead of when the cancel round-trip finally lands.
   const stopRequestedRef = useRef(false);
+  // Throttles the "a send was blocked while Nova was working" notice so rapid
+  // Enter presses don't stack toasts.
+  const lastBlockedSendNoticeAtRef = useRef(0);
   // Mirrors the chat viewport's "user scrolled up" flag: sendMessage clears it
   // so the next turn scrolls to the bottom again. It lives here because the
   // send path resets it; the scroll listeners that read it stay in the view.
@@ -233,11 +240,6 @@ export function useWorkspaceChat({
     []
   );
 
-  const contentFor = (text: string, attachments: ChatComposerAttachment[]) =>
-    text.trim() ||
-    (attachments.length === 1
-      ? `Uploaded ${attachments[0].name}`
-      : `Uploaded ${attachments.length} attachments`);
   const canSendComposer =
     Boolean(draft.trim() || composerAttachments.length) &&
     !preparingAttachments;
@@ -594,32 +596,35 @@ export function useWorkspaceChat({
   };
   const submit = async (event: FormEvent | React.KeyboardEvent) => {
     event.preventDefault();
-    // While Nova works - or while this turn waits in the peak-hours queue -
-    // both the Enter key and the composer button stop the run.
-    if (composerBusy) {
+    const decision = decideComposerSubmit({
+      busy: composerBusy,
+      draft,
+      attachments: composerAttachments,
+      chatId,
+    });
+    if (decision.kind === "stop") {
+      // While Nova works - or while this turn waits in the peak-hours queue -
+      // both the Enter key and the composer button stop the run.
       handleStopRun();
+      // Never swallow a typed message silently: if the reader clearly meant to
+      // send (non-empty draft, no attachment riding along), say so - throttled
+      // so hammering Enter doesn't spam. The draft is kept (we return before
+      // clearing it), so nothing the user wrote is lost.
+      if (draft.trim() && !composerAttachments.length) {
+        const now = Date.now();
+        if (now - lastBlockedSendNoticeAtRef.current >= BLOCKED_SEND_NOTICE_COOLDOWN_MS) {
+          lastBlockedSendNoticeAtRef.current = now;
+          toast.info(
+            "Nova is still working, so that message wasn't sent. Your text is kept in the box - press Stop when it's done, then send."
+          );
+        }
+      }
       return;
     }
-    if ((!draft.trim() && !composerAttachments.length) || !chatId) return;
-    const content = contentFor(draft, composerAttachments);
-    const images = composerAttachments.flatMap(attachment =>
-      attachment.kind === "image" ? [attachment.dataUri] : []
-    );
-    const files = composerAttachments.flatMap(
-      (attachment): ChatFileUpload[] =>
-        attachment.kind === "file"
-          ? [
-              {
-                name: attachment.name,
-                mimeType: attachment.mimeType,
-                dataUri: attachment.dataUri,
-              },
-            ]
-          : []
-    );
+    if (decision.kind === "noop") return;
     setDraft("");
     setComposerAttachments([]);
-    await sendMessage(chatId, content, images, files);
+    await sendMessage(chatId!, decision.content, decision.images, decision.files);
   };
   /**
    * Regenerates the thread from one message: reverts history from the anchor

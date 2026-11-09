@@ -22,7 +22,7 @@ vi.mock("./db", () => ({
   getOwnerIdForWhopMembership,
 }));
 
-describe("Whop PayNow checkout configuration", () => {
+describe("Whop checkout payment method configuration", () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
@@ -50,14 +50,14 @@ describe("Whop PayNow checkout configuration", () => {
     return { calls, fetchMock };
   }
 
-  it("enables PayNow on the Nova Pro checkout (inline variant)", async () => {
+  it("enables PayNow and Apple Pay on the Nova Pro checkout (inline variant)", async () => {
     const { calls } = mockCheckoutResponse();
     const { createWhopCheckout } = await import("./whop");
     const result = await createWhopCheckout({ ownerId: 42, planId: undefined, redirectUrl: "https://example.com/success" });
     expect(result.purchaseUrl).toBe("https://whop.com/checkout/ch_test_1");
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.payment_method_configuration).toBeUndefined();
-    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow"], disabled: [], include_platform_defaults: true });
+    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow", "apple_pay"], disabled: [], include_platform_defaults: true });
     expect(body.variant.currency).toBe("sgd");
   });
 

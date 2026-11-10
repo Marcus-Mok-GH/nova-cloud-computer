@@ -1,3 +1,37 @@
+2026-11-10 - the terminal no longer closes itself a few seconds after opening
+
+Two independent bugs made an open shell vanish almost immediately, both from
+the same blind spot: the workspace sandbox is shared, and the terminal session
+table lives in one server instance's memory.
+
+The sandbox is paused when it goes idle so it is not billed - on every agent
+run's exit path, and when a standalone VM run finishes. The terminal attaches
+its PTY inside that same machine, so an agent run finishing in another tab
+froze the sandbox and dropped the shell out from under the user. Worse, the
+terminal's own close/exit path pauses the machine too, so the teardown of one
+shell could end up as the cause of the next one dying. The pause sites now
+consult a small owner-scoped registry (server/sandboxLiveness.ts) and skip the
+pause while a shell is live; the terminal registers on open and clears on
+close or self-exit, so the machine stays warm exactly as long as a shell needs
+it and the idle savings resume afterwards.
+
+Separately, the client treated a single `active: false` read as proof the shell
+had died and printed "[the terminal session ended]". A poll that lands on a
+cold or rolled-over serverless instance reports no session while the PTY is
+still running, so the tab would tear itself down within seconds of opening.
+The read loop now requires the answer to hold for ~3s of consecutive polls
+before declaring the session over, which a real shell exit always does.
+
+Files: server/sandboxLiveness.ts (new), server/terminal.ts (register/clear +
+reset seam), server/sandboxWorkspace.ts (guard in pauseAgentSandbox),
+server/agentVm.ts (same guard where it pauses directly under the lifecycle
+lock), client/src/pages/Terminal.tsx (missing-read tolerance),
+server/sandboxPause.terminal.test.ts (new, 4 cases).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds. The new
+suite was written red first: it reproduced the pause-with-a-live-shell bug
+before the guard existed, and covers owner isolation plus the
+pause-resumes-after-close path.
+
 2026-11-10 - the header's plan menu lists both tiers, locking what you don't have
 
 The dropdown beside the Nova wordmark now lists every tier instead of just the

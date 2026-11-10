@@ -19,6 +19,7 @@ import {
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
 import { pauseAgentSandbox } from "./sandboxWorkspace";
+import { hasOpenTerminalSession } from "./sandboxLiveness";
 
 const ERROR_LIMIT = 1000;
 
@@ -121,8 +122,10 @@ export async function startAgentVmRun(
         // A standalone run (the VM panel, not a tool call inside an agent run)
         // is over: pause the machine so it is not billed while idle. Done
         // directly rather than through pauseAgentSandbox because we already
-        // hold the workspace lifecycle lock, which is not reentrant.
-        if (options.pauseWhenDone) await pauseE2BSandbox(completedSandbox);
+        // hold the workspace lifecycle lock, which is not reentrant - so the
+        // live-terminal guard is applied here instead.
+        if (options.pauseWhenDone && !hasOpenTerminalSession(ownerId))
+          await pauseE2BSandbox(completedSandbox);
 
         await updateWorkspacePersistentSandbox(
           syncedComputer.workspace.id,

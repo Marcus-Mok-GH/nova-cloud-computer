@@ -1,3 +1,24 @@
+2026-11-10 - the /app overview is now the task prompt
+
+The workspace home (no conversation open) is rebuilt as the task
+prompt: a dotted-grid screen with the "What does Nova need done?"
+question and a session composer. Submitting - Enter or the round start
+button - opens a fresh conversation titled after the task and hands the
+task (plus any attached images) straight to Nova. The card previews the
+conversation's controls: "Nova Lite", the free built-in model a new
+thread starts with, and "Auto" for the flow Nova picks. Under the card,
+the paperclip attaches images, the gear opens Workspace settings, and
+"My Nova" previews the workspace control. The "Tools on hand"
+connector grid and the old "What are we working on today?" heading are
+retired; connector setup stays reachable through Settings.
+
+Files: client/src/pages/Workspace.tsx (overview block, connector
+queries retired), client/src/index.css (nova-prompt-shell dot grid),
+client/src/pages/Workspace.render.test.tsx.
+Tests: pnpm vitest run client/src/pages/Workspace.render.test.tsx
+(22 passed); pnpm run check clean; pnpm test green; pnpm run build
+succeeds.
+
 2026-11-10 - the marketing landing is back
 
 The task-prompt landing shipped today was reverted at the owner's

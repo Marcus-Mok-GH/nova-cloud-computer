@@ -1,3 +1,25 @@
+2026-11-10 - removed the PayNow payment option
+
+PayNow is gone from Nova billing, in both places it existed. The HitPay
+integration that backed the custom PayNow QR checkout is deleted wholesale -
+server/hitpay.ts, the /api/hitpay/webhook route, the billing.createHitPayCheckout
+tRPC procedure, its client button on /checkout, the co-deploy allowlist entry,
+the docs page, and the HitPay tests. The `paynow` flag on the Whop variant
+payment-method configuration is dropped too (it was inert - Whop's checkout
+eligibility engine never rendered PayNow for SGD, which is why HitPay existed).
+Card and Apple Pay via Whop are untouched: /checkout now offers a single
+Card (Whop) method, and the variant keeps Apple Pay.
+
+Files: server/hitpay.ts (deleted), server/hitpay.test.ts (deleted),
+docs/hitpay-paynow.md (deleted), server/app.ts (webhook + re-export removed),
+server/routers.ts (procedure + import removed), server/whop.ts (variant config
+now enables only apple_pay), client/src/pages/Checkout.tsx (PayNow button,
+mutation and state removed), client/src/components/BillingCard.tsx (comment),
+api/[...path].ts (co-deploy allowlist), server/billing.router.test.ts and
+server/chats.router.test.ts (HitPay mocks/tests removed),
+server/whop.paynow.test.ts -> server/whop.paymentMethods.test.ts.
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds.
+
 2026-11-10 - fixed the crash when starting a task from the /app prompt
 
 Starting a conversation from the task-prompt card threw "Minified React

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Crown, CreditCard, Loader2, QrCode, Check } from "lucide-react";
+import { Crown, CreditCard, Loader2, Check } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -11,12 +11,12 @@ function isProduct(value: string | null): value is Product {
 }
 
 export default function Checkout() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const params = new URLSearchParams(window.location.search);
   const product: Product = isProduct(params.get("product")) ? (params.get("product") as Product) : "pro";
   const statusParam = params.get("status");
 
-  const [pendingMethod, setPendingMethod] = useState<"whop" | "hitpay" | null>(null);
+  const [pendingMethod, setPendingMethod] = useState<"whop" | null>(null);
 
   const whop = trpc.billing.createCheckout.useMutation({
     onSuccess: ({ url }) => {
@@ -38,16 +38,6 @@ export default function Checkout() {
     },
   });
 
-  const hitpay = trpc.billing.createHitPayCheckout.useMutation({
-    onSuccess: ({ url }) => {
-      window.location.href = url;
-    },
-    onError: error => {
-      setPendingMethod(null);
-      toast.error(error.message || "Could not open PayNow checkout.");
-    },
-  });
-
   useEffect(() => {
     if (statusParam === "success") toast.success("Payment received — your plan will activate once our server confirms it.");
     if (statusParam === "cancel" || statusParam === "cancelled" || statusParam === "failed") toast.error("Checkout was cancelled. No charge was made.");
@@ -62,8 +52,7 @@ export default function Checkout() {
     : "10,000 credits a month (unused roll over up to a year), every premium chat model, and your persistent workspace.";
 
   const cardBusy = pendingMethod === "whop" && (isPriority ? whopPriority.isPending : whop.isPending);
-  const paynowBusy = pendingMethod === "hitpay" && hitpay.isPending;
-  const anyBusy = cardBusy || paynowBusy;
+  const anyBusy = cardBusy;
 
   const chooseCard = () => {
     setPendingMethod("whop");
@@ -74,13 +63,6 @@ export default function Checkout() {
     } else {
       whop.mutate({ redirectUrl: base.toString() });
     }
-  };
-
-  const choosePayNow = () => {
-    setPendingMethod("hitpay");
-    const base = new URL(window.location.href);
-    base.searchParams.delete("status");
-    hitpay.mutate({ product, redirectUrl: base.toString() });
   };
 
   return (
@@ -96,33 +78,14 @@ export default function Checkout() {
           </div>
 
           <div className="mt-6 space-y-3">
-            {/* PayNow via HitPay */}
-            <button
-              type="button"
-              disabled={anyBusy}
-              onClick={choosePayNow}
-              className="flex w-full items-center gap-3 rounded-xl border-2 border-primary/20 bg-primary/[0.04] p-4 text-left transition hover:border-primary/40 hover:bg-primary/[0.07] disabled:opacity-60"
-            >
-              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                <QrCode className="size-5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-sm font-bold">
-                  PayNow QR <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Singapore</span>
-                </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">Scan with your banking app (DBS PayLah, UOB, etc.) via HitPay. {isPriority ? "One-time." : "One-time for the first month — re-pay monthly for another 30 days."}</span>
-              </span>
-              {paynowBusy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs font-bold text-primary">Pay ›</span>}
-            </button>
-
             {/* Card via Whop */}
             <button
               type="button"
               disabled={anyBusy}
               onClick={chooseCard}
-              className="flex w-full items-center gap-3 rounded-xl border p-4 text-left transition hover:bg-foreground/[0.04] disabled:opacity-60"
+              className="flex w-full items-center gap-3 rounded-xl border-2 border-primary/20 bg-primary/[0.04] p-4 text-left transition hover:border-primary/40 hover:bg-primary/[0.07] disabled:opacity-60"
             >
-              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-foreground/[0.06]">
+              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
                 {isPriority ? <CreditCard className="size-5" /> : <Crown className="size-5 text-amber-500" />}
               </span>
               <span className="min-w-0 flex-1">
@@ -131,7 +94,7 @@ export default function Checkout() {
                   {isPriority ? "Visa, Mastercard and more via Whop." : "Auto-renews via Whop subscription."}
                 </span>
               </span>
-              {cardBusy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs font-bold">Pay ›</span>}
+              {cardBusy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs font-bold text-primary">Pay ›</span>}
             </button>
           </div>
 

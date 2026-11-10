@@ -23,16 +23,16 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
-  CircleDashed,
+  Asterisk,
+  ChevronDown,
   CornerDownLeft,
-  Github,
+  Gauge,
   History,
   ImagePlus,
-  Mail,
+  Loader2,
   MessageSquareText,
   Paperclip,
-  Rocket,
-  Send,
+  Settings2,
   Square,
 } from "lucide-react";
 // JSX compiles to React.createElement in this build (classic runtime), so the
@@ -54,6 +54,7 @@ import {
   slashCommandQuery,
 } from "@/lib/slashCommands";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+import { toast } from "sonner";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
 import { dragCarriesFiles, isDesktopDragDrop } from "@/lib/fileAttachments";
 import {
@@ -120,14 +121,6 @@ export default function Workspace() {
       ? pendingEnvVarRequests[0]
       : undefined;
 
-  const connectorStatus = trpc.composio.status.useQuery(undefined, {
-    retry: false,
-    enabled: !chatId,
-  });
-  const telegramStatus = trpc.telegram.status.useQuery(undefined, {
-    retry: false,
-    enabled: !chatId,
-  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleChatScroll = () => {
@@ -985,135 +978,182 @@ export default function Workspace() {
     );
   }
 
-  const githubConnected =
-    connectorStatus.data?.toolkits?.github?.connected ?? false;
-  const gmailConnected =
-    connectorStatus.data?.toolkits?.gmail?.connected ?? false;
-  const vercelConnected =
-    connectorStatus.data?.toolkits?.vercel?.connected ?? false;
-  // The bot token being configured is not "connected": the owner's Telegram
-  // chat only counts as Ready once Telegram has actually linked a chat.
-  const telegramLinked = Boolean(
-    telegramStatus.data?.configured && telegramStatus.data?.chatId
-  );
-  const connectors = [
-    {
-      name: "Telegram",
-      icon: Send,
-      available: telegramLinked,
-      detail:
-        "Delivers messages and routine updates straight to your Telegram chat.",
+  /** The overview's task prompt: "Nova Lite" previews the free built-in
+   * model a new conversation starts with, and "Auto" the flow Nova picks
+   * for it - both become the thread's own controls once the chat opens.
+   * The workspace control and the gear (settings) are real; the two
+   * selectors are previews, like the landing page's. */
+  const promptControlClass =
+    "inline-flex items-center gap-1.5 text-sm font-medium text-foreground";
+
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: () => {
+      void utils.workspace.chats.invalidate();
+      void utils.workspace.computer.invalidate();
     },
-    {
-      name: "GitHub",
-      icon: Github,
-      available: githubConnected,
-      detail:
-        "Star repos, file issues and open pull requests from a task. Connect it in Settings.",
-    },
-    {
-      name: "Gmail",
-      icon: Mail,
-      available: gmailConnected,
-      detail:
-        "Search, send and reply to email from a task. Connect it in Settings.",
-    },
-    {
-      name: "Vercel",
-      icon: Rocket,
-      available: vercelConnected,
-      detail:
-        "List projects, check deployments and read build logs. Connect it in Settings.",
-    },
-    {
-      name: "More connectors",
-      icon: CircleDashed,
-      available: false,
-      detail:
-        "Slack and Notion are on the roadmap - tell Nova what you need next.",
-    },
-  ];
+  });
+  const [startingSession, setStartingSession] = useState(false);
+  const taskText = draft.trim();
+  const canStartSession =
+    (taskText.length > 0 || composerAttachments.length > 0) &&
+    !preparingAttachments &&
+    !createChat.isPending &&
+    !startingSession;
+
+  /**
+   * "Start a session": open a fresh conversation carrying the task (and any
+   * attached images/files) and hand it to Nova. The chat title starts as the
+   * task itself; the server auto-renames the thread once the first run
+   * settles, exactly like a chat started from the composer.
+   */
+  const startSession = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canStartSession) return;
+    const images = composerAttachments.flatMap(attachment =>
+      attachment.kind === "image" ? [attachment.dataUri] : []
+    );
+    const files = composerAttachments.flatMap(attachment =>
+      attachment.kind === "file"
+        ? [
+            {
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+              dataUri: attachment.dataUri,
+            },
+          ]
+        : []
+    );
+    const content =
+      taskText ||
+      (composerAttachments.length === 1
+        ? `Uploaded ${composerAttachments[0].name}`
+        : `Uploaded ${composerAttachments.length} attachments`);
+    setStartingSession(true);
+    try {
+      const chat = await createChat.mutateAsync({
+        title: content.slice(0, 48),
+      });
+      setLocation(`/app?chatId=${chat.id}`);
+      await sendMessage(chat.id, content, images, files);
+      setDraft("");
+      setComposerAttachments([]);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Nova could not start that conversation."
+      );
+    } finally {
+      setStartingSession(false);
+    }
+  };
 
   return (
     <DashboardLayout>
-      <div className="chat-editorial-shell relative min-h-full overflow-hidden">
-        <div className="chat-editorial-orbit pointer-events-none absolute -right-48 -top-56 size-[36rem] rounded-full border border-primary/[0.12] dark:border-primary/[0.16]" />
-        <div className="relative mx-auto grid max-w-[1240px] gap-12 px-4 py-12 sm:px-7 sm:py-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.65fr)] lg:items-start lg:gap-20">
-          <div className="rise-in lg:col-span-2">
-            <h1 className="max-w-3xl font-serif text-5xl font-medium leading-[0.94] tracking-[-0.055em] text-foreground sm:text-7xl">
-              What are we working on today?
-            </h1>
-            <p className="mt-6 max-w-lg text-base leading-7 text-muted-foreground">
-              Open a thread for whatever needs doing — a question, a file, or a
-              task you would rather hand off.
-            </p>
-            <div className="mt-10 flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="size-2 rounded-full bg-emerald-500" />
-              Your workspace stays private to your account
-            </div>
-          </div>
+      <div className="nova-prompt-shell chat-editorial-shell relative flex min-h-full flex-col items-center justify-center px-4 py-12 sm:px-7">
+        <h1 className="max-w-2xl text-center font-serif text-[clamp(2rem,4.5vw,3.25rem)] font-medium leading-[1.05] tracking-[-0.03em] text-muted-foreground">
+          What does <span className="text-foreground">Nova</span> need
+          done?
+        </h1>
 
-          <div className="rise-in-delay-2 lg:col-span-2">
-            <div className="mb-4 flex items-end justify-between gap-3 border-b border-foreground/[0.10] pb-3 dark:border-white/[0.10]">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-                  Tools on hand
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Nova can work across the places you already use.
-                </p>
-              </div>
-              <span className="hidden text-[10px] text-muted-foreground sm:block">
-                Connect only what you need
-              </span>
-            </div>
-            <div className="grid gap-px overflow-hidden border border-foreground/[0.10] bg-foreground/[0.10] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 dark:border-white/[0.10] dark:bg-white/[0.10]">
-              {connectors.map(connector => {
-                const ConnectorIcon = connector.icon;
-                const needsSetup =
-                  connector.name !== "More connectors" && !connector.available;
-                const Card = needsSetup ? "button" : "div";
-                return (
-                  <Card
-                    key={connector.name}
-                    onClick={
-                      needsSetup
-                        ? () => setLocation("/app/settings")
-                        : undefined
-                    }
-                    className="bg-card/85 px-4 py-4 text-start transition hover:bg-primary/[0.06] dark:bg-card/85 dark:hover:bg-white/[0.07]"
-                  >
-                    <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                      <span className="grid size-7 shrink-0 place-items-center bg-primary/10 text-primary">
-                        <ConnectorIcon className="size-3.5" />
-                      </span>
-                      <span className="min-w-0 truncate">{connector.name}</span>
-                      <span
-                        className={
-                          connector.available
-                            ? "ms-auto flex shrink-0 items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
-                            : "ms-auto shrink-0 text-[10px] font-bold text-muted-foreground"
-                        }
-                      >
-                        {connector.available && (
-                          <span className="me-1 inline-block size-1.5 rounded-full bg-emerald-500" />
-                        )}
-                        {connector.available
-                          ? "Ready"
-                          : connector.name === "More connectors"
-                            ? "Soon"
-                            : "Connect"}
-                      </span>
-                    </span>
-                    <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-                      {connector.detail}
-                    </p>
-                  </Card>
-                );
-              })}
-            </div>
+        <form
+          className="rise-in mt-8 w-full max-w-2xl rounded-2xl border border-foreground/[0.14] bg-card p-4 shadow-[0_14px_45px_rgba(36,40,34,0.10)] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]"
+          onSubmit={startSession}
+        >
+          <textarea
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void startSession(event);
+              }
+            }}
+            placeholder="Describe a task to start a conversation..."
+            aria-label="Describe a task to start a conversation"
+            autoFocus
+            rows={3}
+            className="w-full resize-none bg-transparent text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+          />
+          <AttachmentTray
+            attachments={composerAttachments}
+            onRemove={id =>
+              setComposerAttachments(previous =>
+                previous.filter(attachment => attachment.id !== id)
+              )
+            }
+          />
+          <div className="mt-3 flex items-center gap-4">
+            <span aria-hidden="true" className={promptControlClass}>
+              Nova Lite
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </span>
+            <span aria-hidden="true" className={promptControlClass}>
+              <Gauge className="size-4 text-muted-foreground" />
+              Auto
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </span>
+            <button
+              type="submit"
+              disabled={!canStartSession}
+              aria-label="Start a session"
+              className="ml-auto grid size-10 shrink-0 place-items-center rounded-full bg-foreground text-background shadow-sm transition enabled:hover:-translate-y-0.5 enabled:hover:shadow-md disabled:bg-foreground/[0.15] disabled:text-muted-foreground dark:bg-white dark:text-black"
+            >
+              {startingSession || createChat.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ArrowUp className="size-4.5" />
+              )}
+            </button>
           </div>
+        </form>
+
+        <div className="rise-in-delay-2 mt-4 flex w-full max-w-2xl items-center justify-between gap-3">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => composerImageInputRef.current?.click()}
+              disabled={preparingAttachments}
+              aria-label="Attach images"
+              className="text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+            >
+              <Paperclip className="size-4.5" />
+            </button>
+            <span aria-hidden="true" className={promptControlClass}>
+              <span className="grid size-6 place-items-center rounded-lg bg-foreground text-background">
+                <Asterisk className="size-3.5" />
+              </span>
+              My Nova
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLocation("/app/settings")}
+            aria-label="Workspace settings"
+            className="text-muted-foreground transition hover:text-foreground"
+          >
+            <Settings2 className="size-4.5" />
+          </button>
         </div>
+
+        <input
+          ref={composerImageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          hidden
+          onChange={event => {
+            const files = event.target.files;
+            if (files?.length)
+              void addChatAttachments(
+                setComposerAttachments,
+                composerAttachments,
+                files
+              );
+            event.target.value = "";
+          }}
+        />
       </div>
     </DashboardLayout>
   );

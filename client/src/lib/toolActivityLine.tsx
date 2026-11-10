@@ -7,6 +7,8 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ToolActivity } from "@/lib/chatMessages";
+import { toolActivityActor } from "@/lib/chatMessages";
+import { OwnerBlock } from "@/lib/ownerBlock";
 import { ToolOwnerBadge } from "@/components/workspaceChat";
 import { MarkdownText } from "@/lib/markdown";
 import { pluralize } from "@shared/text";
@@ -306,6 +308,47 @@ function ActivityRow({ activity }: { activity: ToolActivity }) {
     <ToolActivityPanel activity={activity} />
   ) : (
     <PlainToolActivity activity={activity} />
+  );
+}
+
+/** Group a run's steps by the actor who made them, keeping the run's order. */
+function groupByConsecutiveOwner(activities: ToolActivity[]) {
+  const groups: { owner: string; items: ToolActivity[] }[] = [];
+  for (const activity of activities) {
+    const owner = toolActivityActor(activity).owner;
+    const last = groups[groups.length - 1];
+    if (last && last.owner === owner) last.items.push(activity);
+    else groups.push({ owner, items: [activity] });
+  }
+  return groups;
+}
+
+/**
+ * Renders a run's steps, but any stretch made by a sub-agent is wrapped in
+ * its color-coded owner block while Nova's own steps stay plain rows. This is
+ * the "who is calling the tool" signal: Nova's work is the quiet default, and
+ * a specialist's work is a labeled, tinted block set in from the margin.
+ */
+function OwnerGroupedRows({ activities }: { activities: ToolActivity[] }) {
+  const groups = groupByConsecutiveOwner(activities);
+  return (
+    <>
+      {groups.map((group, index) =>
+        group.owner === "nova" ? (
+          <React.Fragment key={`nova-${index}`}>
+            {group.items.map((activity) => (
+              <ActivityRow key={activity.id} activity={activity} />
+            ))}
+          </React.Fragment>
+        ) : (
+          <OwnerBlock key={group.owner} activity={group.items[0]}>
+            {group.items.map((activity) => (
+              <ActivityRow key={activity.id} activity={activity} />
+            ))}
+          </OwnerBlock>
+        ),
+      )}
+    </>
   );
 }
 
@@ -1202,9 +1245,7 @@ function StepsDetail({ activities }: { activities: ToolActivity[] }) {
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-red-600 dark:text-red-400">
             Didn&#8217;t work
           </p>
-          {failedActivities.map(activity => (
-            <ActivityRow key={activity.id} activity={activity} />
-          ))}
+          <OwnerGroupedRows activities={failedActivities} />
         </div>
       ) : null}
       {hiddenCount > 0 && !showAll ? (
@@ -1218,9 +1259,7 @@ function StepsDetail({ activities }: { activities: ToolActivity[] }) {
         </button>
       ) : null}
       <div className="flex min-w-0 flex-col gap-2">
-        {recentShown.map(activity => (
-          <ActivityRow key={activity.id} activity={activity} />
-        ))}
+        <OwnerGroupedRows activities={recentShown} />
       </div>
       {showAll && hiddenCount > 0 ? (
         <button
@@ -1275,7 +1314,7 @@ export function ToolRunGroup({
         type="button"
         onClick={() => setOpen(previous => !previous)}
         aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.10] bg-card/60 px-3 py-2 text-start shadow-sm transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.04]"
+        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.08] bg-card/40 px-3 py-2 text-start transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.03]"
       >
         <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
         {ownerBadge}
@@ -1340,7 +1379,7 @@ export function LiveActivityCard({
   return (
     <div
       data-testid="live-activity-card"
-      className="flex w-full min-w-0 flex-col gap-2.5 border border-foreground/[0.10] bg-card/60 px-3.5 py-3 shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+      className="flex w-full min-w-0 flex-col gap-2.5 rounded-xl border border-foreground/[0.08] bg-card/40 px-3.5 py-3 dark:border-white/10 dark:bg-white/[0.03]"
     >
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
@@ -1373,9 +1412,7 @@ export function LiveActivityCard({
         </button>
       )}
       <div className="flex min-w-0 flex-col gap-2">
-        {visible.map(activity => (
-          <ActivityRow key={activity.id} activity={activity} />
-        ))}
+        <OwnerGroupedRows activities={visible} />
       </div>
       {showAll && hiddenCount > 0 ? (
         <button

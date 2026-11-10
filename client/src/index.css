@@ -96,6 +96,13 @@
   --nova-duration-fast: 140ms;
   --nova-duration-base: 240ms;
   --nova-duration-slow: 420ms;
+
+  /* Sub-agent owner accents - one hue per delegated specialist, so a
+     sub-agent's tool calls read as a distinct color from Nova's own. */
+  --nova-owner-blue: oklch(0.571 0.0756 250.5);
+  --nova-owner-teal: oklch(0.6 0.11 196);
+  --nova-owner-violet: oklch(0.6 0.19 300);
+  --nova-owner-rose: oklch(0.6 0.19 20);
 }
 
 /* Light palette — the brand default. */
@@ -123,6 +130,10 @@
   --nova-success-fg: var(--nova-success);
   --nova-warning-fg: var(--nova-warning);
   --nova-info-fg: var(--nova-info);
+  --owner-coding: var(--nova-owner-blue);
+  --owner-research: var(--nova-owner-teal);
+  --owner-thinker: var(--nova-owner-violet);
+  --owner-vm: var(--nova-owner-rose);
 }
 
 /* Dark palette — warm charcoal, with the accent stepped up to sunrise
@@ -151,6 +162,10 @@
   --nova-success-fg: var(--nova-success);
   --nova-warning-fg: var(--nova-warning);
   --nova-info-fg: var(--nova-info);
+  --owner-coding: oklch(0.7 0.1 250);
+  --owner-research: oklch(0.72 0.12 196);
+  --owner-thinker: oklch(0.74 0.2 300);
+  --owner-vm: oklch(0.72 0.18 25);
 }
 
 /* ---------- Brand utilities ---------- */

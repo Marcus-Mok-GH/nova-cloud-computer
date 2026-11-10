@@ -51,6 +51,7 @@ import {
   turnToolSummary,
 } from "@/lib/chatMessages";
 import type { TurnRenderItem, ToolActivity } from "@/lib/chatMessages";
+import { ownerAccentVar, useInOwnerBlock } from "@/lib/ownerBlock";
 
 /**
  * One message's actions - copy, read aloud, regenerate - revealed when the
@@ -135,12 +136,19 @@ export function TurnHeader({
  */
 export function ToolOwnerBadge({ activity }: { activity: ToolActivity }) {
   const actor = toolActivityActor(activity);
-  if (actor.owner === "nova") return null;
+  const inOwnerBlock = useInOwnerBlock();
+  if (actor.owner === "nova" || inOwnerBlock) return null;
+  const accent = ownerAccentVar(actor.owner);
   return (
     <span
       data-testid="tool-owner-badge"
       title={actor.description}
-      className="shrink-0 rounded-full border border-primary/30 bg-primary/[0.08] px-1.5 py-px text-[9.5px] font-bold tracking-wide text-primary"
+      className="shrink-0 rounded-full border px-1.5 py-px text-[9.5px] font-bold tracking-wide"
+      style={{
+        color: accent,
+        borderColor: `color-mix(in oklch, ${accent} 35%, transparent)`,
+        background: `color-mix(in oklch, ${accent} 12%, transparent)`,
+      }}
     >
       {actor.label}
     </span>

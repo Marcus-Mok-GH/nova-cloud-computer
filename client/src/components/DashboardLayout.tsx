@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useLocation, useSearch } from "wouter";
-import { ChevronsLeft, ChevronsRight, ChevronDown, Coins, LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Check, ChevronDown, Coins, Lock, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/lib/nav";
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
@@ -15,14 +15,35 @@ import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/i18n";
 
 /**
- * The plans an account can hold, lowest first. The header shows only the
- * highest one the account actually has, so the badge never lists a plan the
- * account does not hold. Extend this (and the i18n keys) when a plan ships.
+ * The plans an account can be on, lowest first. The header trigger shows the
+ * highest one the account holds; the menu lists them all so the next tier up is
+ * visible (locked) to an account that does not have it yet. Extend this (and
+ * the i18n keys) when a plan ships.
  */
 const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "pro"; labelKey: TranslationKey }> = [
   { id: "free", labelKey: "layout.plan.free" },
   { id: "pro", labelKey: "layout.plan.pro" },
 ];
+
+export type PlanRow = { id: "free" | "pro"; labelKey: TranslationKey; current: boolean; locked: boolean };
+
+/**
+ * The rows the plan menu renders. Every account holds Free; Pro is the only
+ * tier above it, so a free account sees Pro listed but locked — selecting it
+ * offers the upgrade rather than switching plan. Pulled out of the component
+ * because the menu bodies render in a portal, which a static render cannot see.
+ */
+export function planRows(isPaid: boolean): PlanRow[] {
+  // The highest tier the account holds is its current one: Pro needs a paid
+  // subscription, and every account is at least Free.
+  const currentId = isPaid ? "pro" : "free";
+  return ACCOUNT_PLANS.map(plan => ({
+    id: plan.id,
+    labelKey: plan.labelKey,
+    current: plan.id === currentId,
+    locked: !isPaid && plan.id !== "free",
+  }));
+}
 
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -67,15 +88,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Error count for the sidebar Notifications entry. The query is admin-gated
   // server-side, and only console operators ever see the entry.
   const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 120_000 });
-  // The highest plan the account holds. `billing.subscription.plan` is the
-  // server's own active-then-paid verdict, so a lapsed subscription reads
-  // Free without any client-side date maths. Null until the query resolves,
-  // which keeps the badge empty on first paint instead of flashing "Free"
-  // at a paying account.
-  const heldPlanIds = subscription.data?.plan === "paid" ? ["free", "pro"] : ["free"];
-  const topPlan = subscription.data
-    ? ACCOUNT_PLANS.filter(plan => heldPlanIds.includes(plan.id)).at(-1)
-    : undefined;
+  // The plan menu rows, and the highest plan the account holds (the trigger's
+  // label). `plan` is the server's own active-then-paid verdict, so a lapsed
+  // subscription reads Free without any client-side date maths. Both stay
+  // undefined until the query resolves, which keeps the badge empty on first
+  // paint instead of flashing "Free" at a paying account.
+  const isPaid = subscription.data?.plan === "paid";
+  const rows = subscription.data ? planRows(isPaid) : undefined;
+  const topPlan = rows?.find(row => row.current);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6"><div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.12)] sm:p-8"><NovaLogo size={34} className="mx-auto" /><h1 className="mt-5 text-2xl font-extrabold tracking-tight text-foreground">{t("layout.signInTitle")}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("layout.signInBody")}</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-6 w-full">{t("layout.signIn")}</button></div></div>;
@@ -122,9 +142,56 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {topPlan && <ChevronDown className="size-3.5 font-sans" />}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56 rounded-xl">
-              <DropdownMenuLabel className="nova-display text-base">{t(topPlan?.labelKey ?? "layout.plan.free")}</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => go("/app/billing")} className="cursor-pointer rounded-lg py-2.5 text-xs font-semibold text-muted-foreground">
+            <DropdownMenuContent align="start" className="w-64 rounded-xl">
+              <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                {t("layout.plan.menuLabel")}
+              </DropdownMenuLabel>
+              {(rows ?? []).map(plan => {
+                const { current, locked } = plan;
+                return (
+                  <DropdownMenuItem
+                    key={plan.id}
+                    onSelect={event => {
+                      event.preventDefault();
+                      // A locked tier is not selectable — tapping it offers the
+                      // upgrade instead, which is where the decision belongs.
+                      if (locked) go("/app/billing");
+                    }}
+                    className={`flex items-center gap-2.5 rounded-lg py-2.5 ${
+                      locked ? "cursor-pointer opacity-70" : ""
+                    }`}
+                  >
+                    <span className="grid size-4 shrink-0 place-items-center">
+                      {locked ? (
+                        <Lock className="size-3.5 text-muted-foreground" />
+                      ) : current ? (
+                        <Check className="size-4 text-primary" />
+                      ) : null}
+                    </span>
+                    <span className="nova-display flex-1 text-base">
+                      {t(plan.labelKey)}
+                    </span>
+                    {current && (
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-sans font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                        {t("layout.plan.current")}
+                      </span>
+                    )}
+                    {locked && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-sans font-bold uppercase tracking-wide text-muted-foreground">
+                        {t("layout.plan.locked")}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={event => {
+                  event.preventDefault();
+                  go("/app/billing");
+                }}
+                className="cursor-pointer rounded-lg py-2.5 text-xs font-semibold text-muted-foreground"
+              >
                 {t("layout.plan.manage")}
               </DropdownMenuItem>
             </DropdownMenuContent>

@@ -1,3 +1,22 @@
+2026-11-10 - fixed the crash when starting a task from the /app prompt
+
+Starting a conversation from the task-prompt card threw "Minified React
+error #300 - Rendered fewer hooks than expected". The prompt's model and
+effort selection hooks (the chats.create mutation, the billing.subscription
+query, and the selected-model / selected-effort / starting-session state)
+were declared after the component's early returns - the `if (chatId)` branch
+renders the open chat and returns before them. Submitting the prompt
+navigates to a chat, so that re-render skipped those hooks and dropped the
+hook count, which React rejects. The hooks are now declared at the top of
+the component, before any early return, so the hook order is identical
+whether or not a chat is open; only their derived values stay in the
+overview section.
+
+Files: client/src/pages/Workspace.tsx.
+Tests: the static render suite still renders both the prompt (model + effort
+controls) and the open-chat state without throwing; pnpm run check clean;
+pnpm test green; pnpm run build succeeds.
+
 2026-11-10 - the task prompt's model and effort selectors are live
 
 The two controls on the /app task-prompt card are no longer previews. The

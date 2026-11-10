@@ -7,6 +7,7 @@ import {
 import { getWorkspaceComputer } from "./db";
 import { persistE2BWorkspace } from "./workspace/workspaceSync";
 import { pauseAgentSandbox } from "./sandboxWorkspace";
+import { markTerminalSessionClosed, markTerminalSessionOpen, resetSandboxLivenessForTests } from "./sandboxLiveness";
 
 /**
  * Direct terminal access to the workspace's persistent agent VM (E2B). A
@@ -194,6 +195,9 @@ async function createTerminalSession(
     kill: () => pty.kill(handle.pid),
   };
   sessions.set(ownerId, session);
+  // Tell the sandbox pause sites a shell is live in the shared machine, so an
+  // agent run finishing elsewhere cannot freeze the PTY out from under it.
+  markTerminalSessionOpen(ownerId);
   // When the shell exits on its own (e.g. the user runs `exit`), drop the
   // session and import terminal-created files - without disturbing any newer
   // replacement session that may have taken over this owner's slot.
@@ -204,6 +208,7 @@ async function createTerminalSession(
         const current = sessions.get(ownerId);
         if (!current || current.ptyId !== handle.pid) return;
         sessions.delete(ownerId);
+        markTerminalSessionClosed(ownerId);
         void persistTerminalWorkspace(ownerId, current.sandboxId, {
           pause: true,
         });
@@ -311,6 +316,7 @@ export async function stopTerminalForUser(ownerId: number) {
     throw new TerminalError("Nova could not close the terminal. Please retry.");
   }
   sessions.delete(ownerId);
+  markTerminalSessionClosed(ownerId);
   await persistTerminalWorkspace(ownerId, session.sandboxId, { pause: true });
   return { success: true as const };
 }
@@ -319,4 +325,5 @@ export async function stopTerminalForUser(ownerId: number) {
 export function resetTerminalSessionsForTests() {
   sessions.clear();
   pendingStarts.clear();
+  resetSandboxLivenessForTests();
 }

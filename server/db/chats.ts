@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { chatMessages, chats, workspaces } from "../../drizzle/schema";
 import { newChatId } from "../chatId";
-import { isUniqueViolation, requireDb } from "./core";
+import { isForeignKeyViolation, isUniqueViolation, requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 
 /**
@@ -85,8 +85,7 @@ export async function listChatMessagesForUser(ownerId: number, chatId: string) {
   return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
 }
 
-/** Postgres `foreign_key_violation`. Raised when the chat row is gone. */
-const FOREIGN_KEY_VIOLATION = "23503";
+
 
 /**
  * Appends a chat message and bumps the chat's `updatedAt`.
@@ -115,7 +114,9 @@ export async function appendChatMessageForUser(ownerId: number, input: { chatId:
       // The chat row went away between the read and the insert. Retry once:
       // the re-resolved lookup either finds a live chat and the write lands,
       // or returns undefined (a genuine not-found the caller handles).
-      if ((error as { code?: string } | null)?.code === FOREIGN_KEY_VIOLATION && attempt === 0) continue;
+      // The pg error code is nested on `.cause` under Drizzle, so this must
+      // walk the chain - a bare `error.code` check never matches in production.
+      if (isForeignKeyViolation(error) && attempt === 0) continue;
       console.error("[Chat] failed to append message", error instanceof Error ? error.message : error);
       throw new Error("Your message could not be saved. Please try sending it again.");
     }

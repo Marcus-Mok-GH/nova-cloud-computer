@@ -24,12 +24,22 @@ reports a genuine not-found), throws a user-facing error on any other failure
 instead of dropping the write, and the run loop treats a missing persisted user
 row as fatal to the turn - it refuses to answer a message it could not store.
 
-Files: server/db/chats.ts (retry + throw), server/workspace/workspaceAgent.ts
-(the user-row write is now checked), server/db/chats.append.test.ts (new).
-Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds. The new
-suite was written red first and covers: the happy path, a missing chat still
-reporting not-found, the FK race retrying, and an unexpected insert failure
-surfacing instead of being swallowed.
+One subtlety worth recording, because the first version of this fix got it
+wrong: under Drizzle the thrown error is a `DrizzleQueryError` whose `.code` is
+`undefined`, with the pg error - including `code: "23503"` - nested on `.cause`.
+A `error.code === "23503"` check therefore never fires in production, so the
+retry was dead code that looked correct and passed a test built on a flat error
+shape. `server/db/core.ts` gains `isForeignKeyViolation`, which walks the cause
+chain the way the existing `isUniqueViolation` does, and the suite now drives
+the retry through a Drizzle-shaped error so the same mistake cannot pass again.
+
+Files: server/db/chats.ts (retry + throw), server/db/core.ts
+(isForeignKeyViolation), server/workspace/workspaceAgent.ts (the user-row write
+is now checked), server/db/chats.append.test.ts (new). Verified against live
+Postgres as well as in the suite: a concurrently-deleted chat raises the 23503,
+the helper retries and saves, and a message that cannot be stored fails loudly
+after exactly one retry. Tests: pnpm run check clean; pnpm test green; pnpm run
+build succeeds.
 
 2026-11-10 - the terminal no longer closes itself a few seconds after opening
 

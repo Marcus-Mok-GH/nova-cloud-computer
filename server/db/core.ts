@@ -305,6 +305,17 @@ export function isUniqueViolation(error: unknown): boolean {
   return false;
 }
 
+/** Postgres `foreign_key_violation`. Raised when a referenced row is missing. */
+export function isForeignKeyViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const code = (current as Error & { code?: unknown }).code;
+    if (code === "23503") return true;
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /** Current database server time - used so stop requests and run starts are compared on one clock. */
 export async function getDatabaseTime(): Promise<Date> {
   const db = await requireDb();

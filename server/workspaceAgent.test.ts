@@ -1926,16 +1926,33 @@ describe("Nova tool-calling workspace agent", () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
       const releaseWake = gateSandboxWake(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Hello - I am here." }));
 
       const run = runWorkspaceAgent(1, 3, "hi");
       try {
         await waitUntil(() => chatWithAiGateway.mock.calls.length > 0);
-        // The model answered while E2B had not even reached the restore step:
-        // the wake is background work, never a gate in front of the reply.
+        // The first model round is already in flight while the wake is still
+        // held short of the restore step: the reply is never gated on E2B.
         expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
       } finally {
         releaseWake();
@@ -1943,13 +1960,13 @@ describe("Nova tool-calling workspace agent", () => {
       const result = await run;
 
       expect(result.message.content).toBe("Hello - I am here.");
-      // The activity row flipped from running to completed once the machine
-      // came up, even though the tool-less run was already done.
+      // The tool that needed the machine started the wake and its row flipped
+      // running -> completed once E2B came up.
       expect(sandboxWakeRows().map(row => row.state)).toEqual([
         "running",
         "completed",
       ]);
-      // The wake that outlived the run was still synced and paused.
+      // The wake was synced and paused at run end.
       expect(persistE2BWorkspace).toHaveBeenCalledWith(1, sandbox);
       expect(sandbox.pause).toHaveBeenCalled();
     });
@@ -2006,9 +2023,26 @@ describe("Nova tool-calling workspace agent", () => {
       vi.mocked(ensurePersistentSandbox).mockRejectedValue(
         new Error("no capacity right now")
       );
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Still here." }));
 
       const result = await runWorkspaceAgent(1, 3, "hi");
@@ -2235,7 +2269,7 @@ describe("Nova tool-calling workspace agent", () => {
       ).toEqual(["call-code:c1:running", "call-code:c1:completed"]);
     });
 
-    it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {
+    it("leaves a text-only run on direct storage without booting a sandbox", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
       chatWithAiGateway
@@ -2243,6 +2277,42 @@ describe("Nova tool-calling workspace agent", () => {
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(chatResult({ text: "All set." }));
       await runWorkspaceAgent(1, 3, "hi");
+      // No tool needed the live filesystem, so nothing was woken, restored,
+      // synced, or paused - the run answered straight from durable storage.
+      expect(ensurePersistentSandbox).not.toHaveBeenCalled();
+      expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+      expect(sandbox.pause).not.toHaveBeenCalled();
+      expect(sandboxWakeRows()).toEqual([]);
+    });
+
+    it("wakes the sandbox when a file tool runs, restores into it, and syncs back at run end", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hello world",
+      });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-sbx",
+                name: "create_file",
+                arguments: JSON.stringify({
+                  name: "notes.txt",
+                  content: "hello world",
+                }),
+              },
+            ],
+          })
+        );
+      await runWorkspaceAgent(1, 3, "create notes.txt");
       expect(ensurePersistentSandbox).toHaveBeenCalledWith(
         expect.anything(),
         41,
@@ -2477,23 +2547,57 @@ describe("Nova tool-calling workspace agent", () => {
       expect(persistE2BWorkspace).not.toHaveBeenCalled();
     });
 
-    it("pauses the persistent sandbox when the run finishes", async () => {
+    it("pauses the persistent sandbox when a run that woke it finishes", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "All done." }));
       await runWorkspaceAgent(1, 3, "finish this up");
       expect(sandbox.pause).toHaveBeenCalledWith({ keepMemory: true });
     });
 
-    it("keeps the sandbox warm when the run chains into an automatic continuation", async () => {
+    it("keeps the sandbox warm when a run that woke it chains into an automatic continuation", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Continuing." }));
       await runWorkspaceAgent(1, 3, "keep going", {
         continuationPlanned: true,
@@ -2501,6 +2605,39 @@ describe("Nova tool-calling workspace agent", () => {
       // The next segment resumes within seconds: pausing would add a cold
       // resume to every continuation, so the machine is left running.
       expect(sandbox.pause).not.toHaveBeenCalled();
+    });
+
+    it("does not wake the sandbox for a run that only researches the web", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runResearchMock.mockReset().mockResolvedValueOnce({
+        report: "Findings: nothing notable.",
+        sources: [],
+      });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-research",
+                name: "research_web",
+                arguments: JSON.stringify({ topic: "quiet news" }),
+              },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(chatResult({ text: "Nothing notable." }));
+      await runWorkspaceAgent(1, 3, "research the quiet news");
+
+      // The user's rule: a web-research tool is not a sandbox tool, so no
+      // machine is booted, restored, synced, or paused for it.
+      expect(ensurePersistentSandbox).not.toHaveBeenCalled();
+      expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+      expect(sandbox.pause).not.toHaveBeenCalled();
+      expect(sandboxWakeRows()).toEqual([]);
     });
   });
 

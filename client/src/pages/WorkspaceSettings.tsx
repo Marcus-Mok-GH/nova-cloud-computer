@@ -6,7 +6,6 @@ import UserAutomationsCard from "@/components/UserAutomationsCard";
 import ApiKeysCard from "@/components/ApiKeysCard";
 import PersonalisationCard from "@/components/PersonalisationCard";
 import MemoryCard from "@/components/MemoryCard";
-import BillingCard from "@/components/BillingCard";
 import ThemeCard from "@/components/ThemeCard";
 import LanguageCard from "@/components/LanguageCard";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -17,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, Brain, Check, Clipboard, CreditCard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Rocket, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX, Variable } from "lucide-react";
+import { AlertTriangle, Brain, Check, Clipboard, Github, KeyRound, KeySquare, Loader2, LogOut, Mail, MessageCircle, Plug, RefreshCw, Rocket, Send, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UserCircle, UserX, Variable } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -31,7 +30,6 @@ const settingsTabs: ReadonlyArray<{ id: string; labelKey: TranslationKey; icon: 
   { id: "environment", labelKey: "settings.tabs.environment", icon: Variable },
   { id: "automations", labelKey: "settings.tabs.automations", icon: Sparkles },
   { id: "api", labelKey: "settings.tabs.api", icon: KeySquare },
-  { id: "billing", labelKey: "settings.tabs.billing", icon: CreditCard },
   { id: "account", labelKey: "settings.tabs.account", icon: UserCircle },
 ];
 
@@ -96,7 +94,6 @@ export default function WorkspaceSettings() {
     <div role="tabpanel" id="settings-panel-environment" aria-labelledby="settings-tab-environment" className={activeTab === "environment" ? "space-y-7" : "hidden"}><EnvironmentVarsCard /></div>
     <div role="tabpanel" id="settings-panel-automations" aria-labelledby="settings-tab-automations" className={activeTab === "automations" ? "space-y-7" : "hidden"}><UserAutomationsCard /></div>
     <div role="tabpanel" id="settings-panel-api" aria-labelledby="settings-tab-api" className={activeTab === "api" ? "space-y-7" : "hidden"}><ApiKeysCard /></div>
-    <div role="tabpanel" id="settings-panel-billing" aria-labelledby="settings-tab-billing" className={activeTab === "billing" ? "space-y-7" : "hidden"}><BillingCard /></div>
     <div role="tabpanel" id="settings-panel-account" aria-labelledby="settings-tab-account" className={activeTab === "account" ? "space-y-7" : "hidden"}><AccountManagementCard /><FactoryResetCard /></div>
   </div></DashboardLayout>;
 }

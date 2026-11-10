@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import BillingCard, { formatPriorityRemaining } from "./BillingCard";
+import BillingPriorityCard, { formatPriorityRemaining } from "./BillingPriorityCard";
 
 const { expiresAt, purchasedAt } = vi.hoisted(() => {
   const now = Date.now();
@@ -54,9 +54,9 @@ describe("formatPriorityRemaining", () => {
   });
 });
 
-describe("BillingCard countdown", () => {
+describe("BillingPriorityCard countdown", () => {
   it("shows a live remaining-time countdown while priority is active", () => {
-    const markup = renderToStaticMarkup(<BillingCard />);
+    const markup = renderToStaticMarkup(<BillingPriorityCard />);
     expect(markup).toContain("Priority active for another");
     expect(markup).toContain("priority-countdown");
     expect(markup).toMatch(/\d{2}:\d{2}/);

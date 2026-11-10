@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 let mockUser: { name: string; email: string; role?: "user" | "admin" | "developer" } = { name: "Test", email: "t@t.com" };
 let mockErrorLogs: unknown[] = [];
 let mockPath = "/app/chats";
+/** The billing.subscription payload the plan badge reads; null = still loading. */
+let mockSubscription: { plan: "free" | "paid" } | null = { plan: "free" };
 
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ loading: false, user: mockUser, logout: vi.fn() }),
@@ -26,6 +28,7 @@ vi.mock("@/lib/trpc", () => ({
       },
     },
     credits: { status: { useQuery: () => ({ data: { remainingCredits: 500, dailyCredits: 500, creditValueCents: 1 } }) } },
+    billing: { subscription: { useQuery: () => ({ data: mockSubscription }) } },
     admin: { apiErrorLogs: { useQuery: () => ({ data: mockErrorLogs }) } },
     useUtils: () => ({ workspace: { computer: { invalidate: vi.fn() } } }),
   },
@@ -56,6 +59,42 @@ describe("DashboardLayout single-menu check", () => {
     expect(html).toContain("hidden border-e border-border bg-muted ");
     // content is full width on phones (left padding only from md)
     expect(html).toMatch(/<main class="min-h-0 min-w-0 flex-1[^"]*md:ps-/);
+  });
+});
+
+describe("DashboardLayout plan badge", () => {
+  it("shows Nova Pro beside the wordmark for a paid account, in the display serif", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockSubscription = { plan: "paid" };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain('aria-label="Your plan"');
+    expect(html).toContain(">Pro<");
+    // Only the highest plan the account holds is rendered — never a list.
+    expect(html).not.toContain(">Free</button>");
+    // The trigger uses the brand display serif (DM Serif Display, weight 400
+    // only — a font-bold serif would synthesise a doubled weight).
+    expect(html).toMatch(/aria-label="Your plan"[\s\S]{0,400}nova-display/);
+  });
+
+  it("shows Free beside the wordmark for a free account", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockSubscription = { plan: "free" };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain('aria-label="Your plan"');
+    expect(html).toContain(">Free<");
+    expect(html).not.toContain(">Pro<");
+  });
+
+  it("renders no plan label until the plan is known, so a paying account never flashes Free", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockSubscription = null;
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain('aria-label="Your plan"');
+    expect(html).not.toContain(">Free<");
+    expect(html).not.toContain(">Pro<");
   });
 });
 

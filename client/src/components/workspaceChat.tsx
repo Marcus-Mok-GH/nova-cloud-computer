@@ -37,6 +37,7 @@ import NovaLogo from "@/components/NovaLogo";
 import { formatFileSize } from "@/lib/formatFileSize";
 import {
   speakMessage,
+  speechRunIdFromEvent,
   stopAllSpeech,
   stripMarkdownForSpeech,
   TTS_START_EVENT,
@@ -46,9 +47,6 @@ import type { ChatComposerAttachment } from "@/lib/fileAttachments";
 import {
   formatMessageTime,
   toolActivityActor,
-  turnAskLabel,
-  turnLabel,
-  turnToolSummary,
 } from "@/lib/chatMessages";
 import type { TurnRenderItem, ToolActivity } from "@/lib/chatMessages";
 import { ownerAccentVar, useInOwnerBlock } from "@/lib/ownerBlock";
@@ -83,46 +81,26 @@ export function MessageActions({
 }
 
 /**
- * The who/when line above a turn's first item: the turn's number, a
- * plain-English snippet of the user's ask, the clock, and a tally of the
- * tools the turn used. Later rows of a turn stay quiet - the header answers
- * "which ask did this belong to and how long ago was it" once.
+ * The quiet clock above a turn's user message. It used to carry a "turn N"
+ * number, a snippet of the ask, and a tally of the turn's tool calls; that
+ * numbered masthead read as chrome over every user bubble, so only the time
+ * remains.
  */
-export function TurnHeader({
-  turnNumber,
-  ask,
+export function TurnTimestamp({
   createdAt,
-  activities,
 }: {
-  /** 1-based turn number. */
-  turnNumber: number;
-  ask: string;
   createdAt: TurnRenderItem["createdAt"];
-  activities: ToolActivity[];
 }) {
-  const summary = turnToolSummary(activities);
   const time = formatMessageTime(createdAt ?? null);
+  if (!time) return null;
   return (
     <div
-      data-testid="turn-header"
-      className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
+      data-testid="turn-timestamp"
+      className="mb-1 flex justify-end pe-0.5"
     >
-      <span className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary">
-        {turnLabel(turnNumber)}
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        {time}
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground">
-        {turnAskLabel(ask)}
-      </span>
-      {time ? (
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {time}
-        </span>
-      ) : null}
-      {summary.total > 0 ? (
-        <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">
-          {summary.label}
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -359,9 +337,15 @@ export function SpeakMessageButton({
   // Bumped by every toggle and by another button starting, so a request that
   // resolves after its run was superseded never updates this button again.
   const runIdRef = useRef(0);
+  // The speech run this button started. speakMessage reports it before the
+  // start event is dispatched, so the event this button causes is recognised
+  // as its own - ignoring it is what stops a button from cancelling the
+  // playback it just asked for.
+  const mySpeechRunIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const handleStart = () => {
+    const handleStart = (event: Event) => {
+      if (speechRunIdFromEvent(event) === mySpeechRunIdRef.current) return;
       // A newer speak() call cancels this one; drop the stale stop handle
       // so unmounting this button cannot cut off the new message.
       runIdRef.current += 1;
@@ -410,6 +394,11 @@ export function SpeakMessageButton({
     // Choosing an engine may wait on the browser's voice list, so the stop
     // handle arrives asynchronously: a toggle that lands first wins.
     const stop = await speakMessage(clean, {
+      onStart: speechRunId => {
+        // Record which speech run this button started, so its own start
+        // event is ignored rather than cancelling the playback.
+        mySpeechRunIdRef.current = speechRunId;
+      },
       onEnd: () => {
         if (runId !== runIdRef.current) return;
         stopRef.current = null;

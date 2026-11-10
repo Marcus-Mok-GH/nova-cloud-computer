@@ -92,16 +92,6 @@ const formatClock = (date: Date): string =>
     minute: "2-digit",
   });
 
-/**
- * The plain-English turn label shown in the thread header: its number and
- * who it belongs to, so a long conversation reads as a numbered list of
- * turns instead of a wall of bubbles. `nova` labels the first assistant
- * step of a turn the same way - one header per turn covers both halves.
- */
-export function turnLabel(turnNumber: number): string {
-  return `turn ${turnNumber}`;
-}
-
 export type ChatWorkflowMode = "chat" | "plan" | "build";
 
 /**
@@ -514,44 +504,6 @@ function ownerOfCall(name: string): ToolActivityOwner {
  */
 export function isDelegatedToolActivity(activity: ToolActivity): boolean {
   return toolActivityActor(activity).owner !== "nova";
-}
-
-/**
- * The plain-English label for a turn-anchoring user message: a short
- * snippet of what the user asked, so a long thread reads as a numbered
- * list of topics instead of a wall of bubbles. Falls back to a generic
- * label when the message is empty.
- */
-export function turnAskLabel(content: string): string {
-  const singleLine = content.replace(/\s+/g, " ").trim();
-  if (!singleLine) return "your message";
-  const max = 64;
-  return singleLine.length > max
-    ? `${singleLine.slice(0, max - 1).trimEnd()}...`
-    : singleLine;
-}
-
-/**
- * Totalling the tool work of one turn so the header can say what it cost:
- * how many calls and how many of them were on a sub-agent. A mixed turn
- * names both; an all-Nova turn stays quiet about delegation.
- */
-export type TurnToolSummary = {
-  total: number;
-  delegated: number;
-  label: string;
-};
-
-export function turnToolSummary(activities: ToolActivity[]): TurnToolSummary {
-  const total = activities.length;
-  const delegated = activities.filter(isDelegatedToolActivity).length;
-  const label =
-    total === 0
-      ? "no tools"
-      : delegated === 0
-        ? `${total} tool${total === 1 ? "" : "s"}`
-        : `${total} tool${total === 1 ? "" : "s"} (${delegated} delegated)`;
-  return { total, delegated, label };
 }
 
 function parseStringRecord(value: unknown): Record<string, string> {

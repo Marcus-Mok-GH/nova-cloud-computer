@@ -407,6 +407,13 @@
       "when": 1794096388977,
       "tag": "0057_chat_effort",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794150000000,
+      "tag": "0058_workspace_personalities",
+      "breakpoints": true
     }
   ]
 }

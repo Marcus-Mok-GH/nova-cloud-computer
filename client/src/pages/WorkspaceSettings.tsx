@@ -5,6 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import UserAutomationsCard from "@/components/UserAutomationsCard";
 import ApiKeysCard from "@/components/ApiKeysCard";
 import PersonalisationCard from "@/components/PersonalisationCard";
+import PersonalitiesCard from "@/components/PersonalitiesCard";
 import MemoryCard from "@/components/MemoryCard";
 import ThemeCard from "@/components/ThemeCard";
 import LanguageCard from "@/components/LanguageCard";
@@ -54,12 +55,31 @@ function readStoredSettingsTab(): SettingsTabId {
   }
 }
 
+/**
+ * An explicit `?tab=<id>` deep link wins over the stored tab, so the
+ * composer's "Manage personalities" link lands on the right section even when
+ * the visitor last sat on a different one. The param is consumed once.
+ */
+function readDeepLinkedSettingsTab(): SettingsTabId | null {
+  if (typeof window === "undefined") return null;
+  const requested = new URLSearchParams(window.location.search).get("tab");
+  if (!requested) return null;
+  const resolved = resolveSettingsTab(requested);
+  const params = new URLSearchParams(window.location.search);
+  params.delete("tab");
+  const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", next);
+  return resolved;
+}
+
 export default function WorkspaceSettings() {
   const utils = trpc.useUtils();
   const { t } = useTranslation();
   const settings = trpc.workspace.modelSettings.useQuery(undefined, { retry: false });
   const [rules, setRules] = useState("");
-  const [activeTab, setActiveTab] = useState<SettingsTabId>(readStoredSettingsTab);
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(
+    () => readDeepLinkedSettingsTab() ?? readStoredSettingsTab()
+  );
   const selectTab = (id: SettingsTabId) => {
     setActiveTab(id);
     try {
@@ -88,7 +108,7 @@ export default function WorkspaceSettings() {
       {settingsTabs.map(tab => <button key={tab.id} type="button" role="tab" id={`settings-tab-${tab.id}`} aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => selectTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/60 ${activeTab === tab.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}><tab.icon className="size-4 shrink-0" />{t(tab.labelKey)}</button>)}
     </nav>
     <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general" className={activeTab === "general" ? "space-y-7" : "hidden"}><section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.rules.eyebrow")}</p><h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.rules.title")}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("settings.rules.body")}</p><Textarea className="mt-5 min-h-44 resize-y" value={rules} onChange={event => setRules(event.target.value)} placeholder={t("settings.rules.placeholder")} maxLength={8000} /><div className="mt-4 flex justify-end"><Button onClick={() => updateSettings.mutate({ workspaceRules: rules.trim() || null })} disabled={updateSettings.isPending}>{updateSettings.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.rules.save")}</Button></div></section><LanguageCard /><ThemeCard /></div>
-    <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalisationCard /><MemoryCard /></div>
+    <div role="tabpanel" id="settings-panel-personalisation" aria-labelledby="settings-tab-personalisation" className={activeTab === "personalisation" ? "space-y-7" : "hidden"}><PersonalitiesCard /><PersonalisationCard /><MemoryCard /></div>
     <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className={activeTab === "ai" ? "space-y-7" : "hidden"}><ModelProviderCard /></div>
     <div role="tabpanel" id="settings-panel-connections" aria-labelledby="settings-tab-connections" className={activeTab === "connections" ? "space-y-7" : "hidden"}><TelegramBotCard /><CodexConnectorCard enabled={activeTab === "connections"} /><ConnectorCard toolkit="github" /><ConnectorCard toolkit="gmail" /><ConnectorCard toolkit="vercel" /></div>
     <div role="tabpanel" id="settings-panel-environment" aria-labelledby="settings-tab-environment" className={activeTab === "environment" ? "space-y-7" : "hidden"}><EnvironmentVarsCard /></div>

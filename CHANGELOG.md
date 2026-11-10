@@ -1,3 +1,46 @@
+2026-11-10 - the composer has a personality picker
+
+The inert "My Nova" label under the task prompt (an aria-hidden span with a
+chevron that did nothing) is now a working personality selector. Nova ships one
+built-in personality, Default - its own voice, which changes nothing - and every
+other personality is defined by the user. Picking one changes how Nova writes in
+every reply; the choice is per workspace and rides into the agent's system
+prompt.
+
+A personality is a saved bundle of the structured personalisation controls plus
+free-form instructions: reply length, collaboration style, expertise, and a
+short "how it should behave" note. Settings > Personalisation is the only place
+they are created or edited (the dropdown just selects, and its footer deep-links
+to that tab); Default is listed read-only and cannot be edited or deleted.
+Deleting the personality that is currently selected falls back to Default.
+
+The prompt gained a {{personality}} block next to the existing {{style}} and
+{{personalisation}} ones. It renders empty for Default, so a workspace that
+never picked a personality keeps a byte-identical system prompt.
+
+Data: a workspace_personalities table plus an activePersonalityId column on
+workspace_settings (migration 0058). The settings row is created on demand -
+selecting a personality on a workspace that never opened Settings previously
+updated zero rows and silently lost the selection, which the live-database check
+caught.
+
+Files: shared/personalities.ts (new), drizzle/schema.ts +
+drizzle/neon/0058_workspace_personalities.sql (new) + meta/_journal.json,
+server/db/personalities.ts (new) + server/db.ts, server/routers.ts
+(workspace.personalities / setActivePersonality / createPersonality /
+updatePersonality / deletePersonality), server/workspace/workspacePrompt.ts
+(formatPersonalityForPrompt + the {{personality}} slot),
+server/workspace/workspaceAgent.ts (resolve and inject),
+client/src/components/PersonalitySelector.tsx (new, composer),
+client/src/components/PersonalitiesCard.tsx (new, Settings),
+client/src/pages/Workspace.tsx (dead label replaced),
+client/src/pages/WorkspaceSettings.tsx (?tab= deep links), and client/src/i18n
+(en + 16 generated locales).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; the
+migration applied and re-applied cleanly against a live Postgres, and the full
+create → select → resolve → update → delete → fallback lifecycle was driven
+through the real data layer.
+
 2026-11-10 - Billing is its own page in the navigation
 
 Billing was a tab buried inside Settings; it is now a first-class destination

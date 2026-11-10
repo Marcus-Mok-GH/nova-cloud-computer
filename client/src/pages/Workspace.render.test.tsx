@@ -121,6 +121,27 @@ vi.mock("@/lib/trpc", () => ({
         }),
       },
       modelSettings: { useQuery: () => ({ data: null }) },
+      personalities: {
+        useQuery: () => ({
+          data: {
+            personalities: [
+              {
+                id: "default",
+                name: "Default",
+                description: "Nova's own voice — balanced length, asks when unsure.",
+                instructions: null,
+                detail: null,
+                collaboration: null,
+                expertise: null,
+                builtIn: true,
+              },
+            ],
+            activePersonalityId: "default",
+          },
+          isLoading: false,
+        }),
+      },
+      setActivePersonality: { useMutation: () => mutation },
       updateSettings: { useMutation: () => mutation },
     },
     agentVm: {
@@ -300,7 +321,10 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain("Describe a task to start a conversation...");
     expect(markup).toContain("Nova Lite");
     expect(markup).toContain(">Auto");
-    expect(markup).toContain("My Nova");
+    // The dead "My Nova" label is now a working personality picker (Default).
+    expect(markup).toContain('aria-label="Choose personality"');
+    expect(markup).toContain("Default");
+    expect(markup).not.toContain("My Nova");
     expect(markup).toContain('aria-label="Start a session"');
     expect(markup).toContain('aria-label="Attach images"');
     expect(markup).toContain('aria-label="Workspace settings"');

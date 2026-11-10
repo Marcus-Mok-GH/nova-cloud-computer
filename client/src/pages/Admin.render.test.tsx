@@ -19,6 +19,8 @@ vi.mock("@/lib/trpc", () => ({
       onboarding: { useQuery: () => ({ data: { completed: true, source: null, useCase: null, experience: null } }) },
     },
     credits: { status: { useQuery: () => ({ data: undefined, isLoading: false }) } },
+    // The header's plan badge reads this; the layout renders on every page.
+    billing: { subscription: { useQuery: () => ({ data: { plan: "free" } }) } },
     useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, users: { invalidate: vi.fn() }, apiErrorLogs: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { users: 2, admins: 1, chats: 3, messages: 12, projects: 1, tasks: 4, automations: 0, workspaces: 2, telegramLinked: 1, activeAgentRuns: 0 }, recentUsers: [], recentAgentRuns: [] }, isLoading: false }) },

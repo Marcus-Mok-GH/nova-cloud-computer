@@ -3,7 +3,7 @@ import { Moon, Sun, X } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
-import { CtaButton, useEnterNova } from "./shared";
+import { CtaButton, landingAnchors, useEnterNova } from "./shared";
 
 const navLinkClasses =
   "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -81,6 +81,11 @@ export default function LandingNav() {
           className="hidden items-center gap-1 lg:flex"
           aria-label={t("landing.nav.aria")}
         >
+          {landingAnchors.map(anchor => (
+            <a key={anchor.href} href={anchor.href} className={navLinkClasses}>
+              {t(anchor.key)}
+            </a>
+          ))}
           <a href="/docs/api" className={navLinkClasses}>
             {t("landing.nav.apiDocs")}
           </a>
@@ -162,6 +167,19 @@ export default function LandingNav() {
       >
         <div className="max-h-[calc(100dvh-var(--landing-nav-height))] overflow-y-auto overscroll-contain px-5 py-3">
           <div className="flex flex-col gap-1">
+            {landingAnchors.map(anchor => (
+              <a
+                key={anchor.href}
+                href={anchor.href}
+                onClick={closeMenu}
+                className={cn(
+                  navLinkClasses,
+                  "rounded-lg px-3 py-2.5 text-foreground"
+                )}
+              >
+                {t(anchor.key)}
+              </a>
+            ))}
             <a
               href="/docs/api"
               onClick={closeMenu}

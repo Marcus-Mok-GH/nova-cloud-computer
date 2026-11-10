@@ -1,3 +1,13 @@
+2026-11-10 - the marketing landing is back
+
+The task-prompt landing shipped today was reverted at the owner's
+request: the marketing sections (connectors, deep dives, how it works,
+jobs, channels, pricing, FAQ, developer callout), the site footer, and
+the old page title are restored with their copy, components, and
+locale keys. The rebuilt top menu and task prompt are reverted with it;
+the rest of the app (chats, workspaces, settings, and the Nova Pro
+agent-team gate) is untouched.
+
 2026-11-09 - agent teams are part of Nova Pro
 
 Creating agent teams is now exclusive to the paid plan. The createTeam

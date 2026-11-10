@@ -1,25 +1,12 @@
-2026-11-10 - the landing page is now the task prompt
+2026-11-10 - the marketing landing is back
 
-The public landing is rebuilt as the app's empty state: a dotted-grid
-background, the "What does Nova need done?" question, and a session
-composer (task box, model / mode / workspace pills, round start button).
-Submitting - Enter or the arrow button - runs the page's single CTA,
-signing guests in or opening the workspace for signed-in visitors; the
-pills are decorative previews of the in-app controls. The marketing
-sections (connectors, deep dives, how it works, jobs, channels, pricing,
-FAQ, developer callout) and the site footer are retired along with their
-copy and components; the top menu keeps the logo, API docs link, theme
-toggle, language selector, and the main CTA.
-
-Files: client/src/pages/Home.tsx, client/src/pages/landing/Hero.tsx,
-client/src/pages/landing/LandingNav.tsx, client/src/pages/landing/shared.tsx,
-client/src/index.css, client/src/i18n/en.ts (+ regenerated locales),
-client/src/pages/Home.render.test.tsx; deleted the retired landing/
-section components (Connections, DeepDives, HowItWorks, Jobs, Channels,
-Pricing, Faq, DevCallout, SiteFooter, ProductCapture).
-Tests: pnpm vitest run client/src/pages/Home.render.test.tsx (4
-passed); pnpm i18n:translate regenerated the sixteen non-English
-locales; pnpm run check, pnpm test and pnpm run build all green.
+The task-prompt landing shipped today was reverted at the owner's
+request: the marketing sections (connectors, deep dives, how it works,
+jobs, channels, pricing, FAQ, developer callout), the site footer, and
+the old page title are restored with their copy, components, and
+locale keys. The rebuilt top menu and task prompt are reverted with it;
+the rest of the app (chats, workspaces, settings, and the Nova Pro
+agent-team gate) is untouched.
 
 2026-11-09 - agent teams are part of Nova Pro
 

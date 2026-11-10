@@ -85,13 +85,42 @@ export async function listChatMessagesForUser(ownerId: number, chatId: string) {
   return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
 }
 
+/** Postgres `foreign_key_violation`. Raised when the chat row is gone. */
+const FOREIGN_KEY_VIOLATION = "23503";
+
+/**
+ * Appends a chat message and bumps the chat's `updatedAt`.
+ *
+ * A message must never be dropped silently: the agent run writes the user's
+ * row before it starts, so a skipped write leaves the ledger holding a reply
+ * to a question that was never stored - the message the user sent disappears
+ * from the conversation on the next poll, with no error anywhere.
+ *
+ * A missing chat still returns `undefined` (that is an ownership/not-found
+ * answer the caller handles). Every other failure throws, and a foreign-key
+ * violation - the chat was pruned or deleted between the ownership read and
+ * the insert, which is a live race because several prunes and deletes run
+ * concurrently - is retried once against a freshly resolved chat.
+ */
 export async function appendChatMessageForUser(ownerId: number, input: { chatId: string; role: "user" | "assistant"; content: string }) {
-  const db = await requireDb();
-  const chat = await getChatForUser(ownerId, input.chatId);
-  if (!chat) return undefined;
-  const [message] = await db.insert(chatMessages).values({ chatId: chat.id, role: input.role, content: input.content }).returning();
-  await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chat.id));
-  return message;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const db = await requireDb();
+    const chat = await getChatForUser(ownerId, input.chatId);
+    if (!chat) return undefined;
+    try {
+      const [message] = await db.insert(chatMessages).values({ chatId: chat.id, role: input.role, content: input.content }).returning();
+      await db.update(chats).set({ updatedAt: new Date() }).where(eq(chats.id, chat.id));
+      return message;
+    } catch (error) {
+      // The chat row went away between the read and the insert. Retry once:
+      // the re-resolved lookup either finds a live chat and the write lands,
+      // or returns undefined (a genuine not-found the caller handles).
+      if ((error as { code?: string } | null)?.code === FOREIGN_KEY_VIOLATION && attempt === 0) continue;
+      console.error("[Chat] failed to append message", error instanceof Error ? error.message : error);
+      throw new Error("Your message could not be saved. Please try sending it again.");
+    }
+  }
+  return undefined;
 }
 
 /**

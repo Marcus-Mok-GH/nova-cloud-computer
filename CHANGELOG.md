@@ -1,3 +1,36 @@
+2026-11-10 - a sent message can no longer vanish from the conversation
+
+Sending a message sometimes made it disappear: the message the user typed showed
+up optimistically, then was replaced a moment later by a ledger that did not
+contain it, leaving Nova's reply hanging off nothing. Two things had to line up,
+and both are fixed.
+
+The root cause is a race in `appendChatMessageForUser`. It read the chat to
+check ownership, then inserted the message in a separate statement, and
+`chat_messages.chatId` is a foreign key onto `chats`. A chat deleted between
+those two statements - the delete endpoint, or the Telegram prune that removes
+stale chats - made the insert raise a foreign-key violation (23503), which
+propagated as a raw DB error and dropped the write on the floor.
+
+Worse, the same function returned `undefined` silently whenever it could not
+resolve the chat, and the run loop ignored the result. So when the write was
+skipped the run carried on, streamed a reply, and persisted that reply against
+a message the ledger never stored - the sent message vanished on the next poll
+with no error anywhere, in the server log or the UI.
+
+The fix: `appendChatMessageForUser` now retries once on a foreign-key violation
+(a fresh chat lookup: it either finds a live chat and the write lands, or
+reports a genuine not-found), throws a user-facing error on any other failure
+instead of dropping the write, and the run loop treats a missing persisted user
+row as fatal to the turn - it refuses to answer a message it could not store.
+
+Files: server/db/chats.ts (retry + throw), server/workspace/workspaceAgent.ts
+(the user-row write is now checked), server/db/chats.append.test.ts (new).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds. The new
+suite was written red first and covers: the happy path, a missing chat still
+reporting not-found, the FK race retrying, and an unexpected insert failure
+surfacing instead of being swallowed.
+
 2026-11-10 - the terminal no longer closes itself a few seconds after opening
 
 Two independent bugs made an open shell vanish almost immediately, both from

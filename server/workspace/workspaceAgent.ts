@@ -458,11 +458,18 @@ ${
   // typed (an inbound email), so the ledger gets what was actually sent while
   // the model still reads the framed version.
   if (options.persistUserMessage !== false) {
-    await appendChatMessageForUser(ownerId, {
+    // The user's row must land before the run starts. If it cannot be written
+    // the turn must fail here rather than continue: the reply would otherwise
+    // be persisted against a message that never made it into the ledger, and
+    // the sent message would vanish from the conversation on the next poll.
+    const persisted = await appendChatMessageForUser(ownerId, {
       chatId,
       role: "user",
       content: options.persistedUserMessage ?? content,
     });
+    if (!persisted) {
+      throw new Error("Nova could not save your message. Please try sending it again.");
+    }
   }
 
   // `/ultraplan <task>` turns this turn into a deep, planning-only pass. The

@@ -362,6 +362,24 @@ export function groupLiveChatItems(events: LiveChatEvent[]): LiveChatItem[] {
   );
 }
 
+/**
+ * The id of the first tool that follows the text segment at `index` in the
+ * live transcript, or null when no tool follows it. A live line of narration
+ * is anchored above that tool so the turn keeps the order the user watched:
+ * what Nova said, then the tools it announced.
+ */
+function nextToolActivityId(
+  items: LiveChatItem[],
+  index: number
+): string | null {
+  for (let next = index + 1; next < items.length; next += 1) {
+    const item = items[next];
+    if (item.kind === "toolRun" && item.activities[0])
+      return item.activities[0].id;
+  }
+  return null;
+}
+
 export function parsePersistedToolActivity(
   content: string,
   createdAt?: string | Date | null
@@ -798,28 +816,49 @@ export function buildTurnItems({
 
   // The live tail: the segment still streaming and any tool whose row has not
   // been polled in yet. Everything already in the ledger stays where the
-  // ledger put it.
+  // ledger put it - except a live text segment that arrived BEFORE a tool
+  // whose row already landed. That line is anchored above the tool run it
+  // announced instead of trailing the whole turn; appending it to the tail
+  // made the announcing line render below its own tool, which read as if the
+  // tool had run before Nova said anything (the ledger only records narration
+  // at round end, so mid-round the text was live while its tool was already
+  // saved).
+  const anchored: Array<{ before: string; item: TurnRenderItem }> = [];
+  const tail: TurnRenderItem[] = [];
   for (let index = 0; index < liveItems.length; index += 1) {
     const item = liveItems[index];
     if (item.kind === "text") {
       // While the run is live, an unmatched segment is the reply still
       // arriving: show it. Only a settled turn treats unmatched text as a
       // superseded draft the persisted ledger has already replaced.
-      if (!liveTextCommitted[index] && (streaming || !closingReplyPersisted))
-        items.push({
+      if (!liveTextCommitted[index] && (streaming || !closingReplyPersisted)) {
+        const replyItem: TurnRenderItem = {
           kind: "reply",
           key: `live-reply-${index}`,
           messageId: 0,
           content: item.content,
           live: true,
-        });
+        };
+        // The first tool that followed this segment in the live transcript:
+        // if its ledger row is already in the skeleton, sit above that run.
+        const nextToolId = nextToolActivityId(liveItems, index);
+        const anchor = nextToolId
+          ? items.find(
+              entry =>
+                entry.kind === "toolRun" &&
+                entry.activities.some(activity => activity.id === nextToolId)
+            )
+          : undefined;
+        if (anchor) anchored.push({ before: anchor.key, item: replyItem });
+        else tail.push(replyItem);
+      }
       continue;
     }
     const activities = item.activities.filter(
       activity => !ledgerActivities.has(activity.id)
     );
     if (activities.length > 0)
-      items.push({
+      tail.push({
         kind: "toolRun",
         key: `live-tools-${item.activities[0].id}`,
         activities,
@@ -827,7 +866,16 @@ export function buildTurnItems({
       });
   }
 
-  return items;
+  // Splice the anchored lines in ahead of their tool runs, keeping the
+  // anchored order within one anchor.
+  const positioned: TurnRenderItem[] = [];
+  for (const entry of items) {
+    for (const pending of anchored)
+      if (pending.before === entry.key) positioned.push(pending.item);
+    positioned.push(entry);
+  }
+
+  return positioned.concat(tail);
 }
 
 /**

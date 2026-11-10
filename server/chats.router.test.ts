@@ -1,0 +1,133 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { TrpcContext } from "./_core/context";
+
+const createChatForUser = vi.fn(async () => ({
+  id: "c00000000000000000000001",
+  model: null,
+  effort: null,
+}));
+const getChatForUser = vi.fn(async () => ({
+  id: "c00000000000000000000001",
+  model: "nova-ultra",
+  effort: "high",
+}));
+const getSubscriptionForUser = vi.fn(async () => ({ plan: "free" }));
+
+vi.mock("./db", () => ({
+  createChatForUser,
+  getChatForUser,
+  getSubscriptionForUser,
+}));
+
+vi.mock("./whop", () => ({
+  createWhopCheckout: vi.fn(),
+  createWhopPriorityCheckout: vi.fn(),
+  getWhopPlanId: vi.fn(() => "plan_pro"),
+  getWhopPriorityPlanId: vi.fn(() => "plan_BFyuf6PmE5wwz"),
+  isWhopConfigured: vi.fn(() => true),
+  isWhopCheckoutDebug: () => false,
+  WhopNotConfiguredError: class extends Error {},
+  whopConfigurationMessage: () => "Nova Pro is not configured on this deployment.",
+  whopPriorityConfigurationMessage: () =>
+    "Priority purchases are not configured on this deployment yet.",
+}));
+
+vi.mock("./hitpay", () => ({
+  createHitPayPaymentRequest: vi.fn(),
+  isHitPayConfigured: vi.fn(() => true),
+  HitPayNotConfiguredError: class extends Error {},
+  hitPayConfigurationMessage: () => "HitPay PayNow is not configured on this deployment yet.",
+  handleHitPayWebhook: vi.fn(),
+  isHitPayWebhookConfigured: () => true,
+}));
+
+const { appRouter } = await import("./routers");
+
+type UserRow = TrpcContext["user"];
+function contextFor(user: UserRow): TrpcContext {
+  return {
+    user,
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: {} as TrpcContext["res"],
+  };
+}
+function userRow(id: number): UserRow {
+  return {
+    id,
+    openId: `user-${id}`,
+    email: `user${id}@example.com`,
+    name: null,
+    loginMethod: "test",
+    role: "user",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  };
+}
+
+describe("chats model + effort router", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSubscriptionForUser.mockResolvedValue({ plan: "free" });
+    createChatForUser.mockResolvedValue({ id: "c1", model: null, effort: null });
+  });
+
+  it("stores a free conversation with null model and null effort", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await caller.chats.create({ title: "Task" });
+    // Free model + auto effort both persist as null.
+    expect(createChatForUser).toHaveBeenCalledWith(1, "Task", null, null);
+  });
+
+  it("rejects a premium model on a free plan", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(
+      caller.chats.create({ title: "Task", model: "nova-ultra", effort: "high" })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(createChatForUser).not.toHaveBeenCalled();
+  });
+
+  it("stores a premium model + supported effort on a paid plan", async () => {
+    getSubscriptionForUser.mockResolvedValue({ plan: "paid" });
+    const caller = appRouter.createCaller(contextFor(userRow(2)));
+    await caller.chats.create({ title: "Task", model: "nova-ultra", effort: "high" });
+    expect(createChatForUser).toHaveBeenCalledWith(2, "Task", "nova-ultra", "high");
+  });
+
+  it("downgrades an effort the model does not offer to auto (null)", async () => {
+    getSubscriptionForUser.mockResolvedValue({ plan: "paid" });
+    const caller = appRouter.createCaller(contextFor(userRow(3)));
+    // claude-sonnet-4.6 only offers "auto"; "max" must fall back to null.
+    await caller.chats.create({
+      title: "Task",
+      model: "claude-sonnet-4.6",
+      effort: "max",
+    });
+    expect(createChatForUser).toHaveBeenCalledWith(
+      3,
+      "Task",
+      "claude-sonnet-4.6",
+      null
+    );
+  });
+
+  it("rejects a model id that is not in the catalogue", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(4)));
+    await expect(
+      caller.chats.create({ title: "Task", model: "does-not-exist" })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(createChatForUser).not.toHaveBeenCalled();
+  });
+
+  it("reports the chat's effort (auto when unset) via chats.models", async () => {
+    getChatForUser.mockResolvedValueOnce({
+      id: "c1",
+      model: "nova-ultra",
+      effort: null,
+    });
+    const caller = appRouter.createCaller(contextFor(userRow(5)));
+    const result = await caller.chats.models({ chatId: "c1" });
+    expect(result.effort).toBe("auto");
+    expect(result.current).toBe("nova-ultra");
+  });
+});

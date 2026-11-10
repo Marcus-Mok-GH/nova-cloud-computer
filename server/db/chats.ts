@@ -45,14 +45,32 @@ export async function setChatModelForUser(ownerId: number, chatId: string, model
   return (await db.update(chats).set({ model, updatedAt: new Date() }).where(eq(chats.id, chat.id)).returning())[0];
 }
 
-export async function createChatForUser(ownerId: number, title: string) {
+export async function createChatForUser(
+  ownerId: number,
+  title: string,
+  model?: string | null,
+  effort?: string | null
+) {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
   // A random id keeps chat links unpredictable; retry on the astronomically
-  // unlikely collision with an existing primary key.
+  // unlikely collision with an existing primary key. Catalogue/plan validation
+  // and effort-support checks happen in the router before this write; here
+  // the values are stored verbatim so the next run reads them.
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      return (await db.insert(chats).values({ id: newChatId(), workspaceId: workspace.id, title }).returning())[0];
+      return (
+        await db
+          .insert(chats)
+          .values({
+            id: newChatId(),
+            workspaceId: workspace.id,
+            title,
+            ...(model ? { model } : {}),
+            ...(effort ? { effort } : {}),
+          })
+          .returning()
+      )[0];
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
     }

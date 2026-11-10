@@ -400,6 +400,13 @@
       "when": 1794096328977,
       "tag": "0056_two_way_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794096388977,
+      "tag": "0057_chat_effort",
+      "breakpoints": true
     }
   ]
 }

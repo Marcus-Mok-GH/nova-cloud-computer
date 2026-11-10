@@ -336,6 +336,35 @@ describe("AI gateway chat stream handling", () => {
     // GLM-4.x models take no effort field at all, whatever the override says.
     process.env.POLLINATIONS_REASONING_EFFORT = "low";
     expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
+  });
+
+  it("lets a run-level effort override the GLM-5.2+ reasoning_effort", () => {
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
+    // A deeper effort chosen on the chat wins over the deployment default.
+    expect(reasoningParamsForModel("glm-5.3-flash", "high")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+    });
+    // "auto" (or undefined) keeps the deployment default of max.
+    expect(reasoningParamsForModel("glm-5.2", "auto")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    expect(reasoningParamsForModel("glm-5.2")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    // The effort is case-insensitive and trimmed.
+    expect(reasoningParamsForModel("glm-5.2", "  LOW ")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "low",
+    });
+    // Non-thinking models still ignore the effort entirely.
+    expect(reasoningParamsForModel("ministral-14b-latest", "max")).toEqual({});
+    expect(reasoningParamsForModel("glm-4.5-flash", "max")).toEqual({
+      thinking: { type: "enabled" },
+    });
   });
 
   it("falls back to the fallback model when the primary chat model is rate-limited", async () => {

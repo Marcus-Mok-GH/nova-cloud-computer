@@ -1,3 +1,41 @@
+2026-11-10 - the task prompt's model and effort selectors are live
+
+The two controls on the /app task-prompt card are no longer previews. The
+left one is the real model dropdown - the shared catalogue, with the
+premium entries locked for free accounts and the same upgrade CTA as the
+in-chat picker - and the one to its right is the effort selector for the
+chosen model: the deep-thinking levels that particular model offers
+(auto, low, medium, high, max for the built-in Nova models; auto only on
+external premium models, since the gateway would risk a rejection sending
+reasoning_effort to a strict endpoint). Switching models re-clamps the
+effort to what the new model offers.
+
+The selection rides into the conversation it starts: chats.create now
+takes an optional model and effort, the router re-checks the plan and that
+the effort is one the model actually offers (a deeper level on an
+auto-only model falls back to auto), and the value is stored on the chat
+row. A run reads both in one read and threads the effort into the AI
+gateway, where reasoning-capable models (the GLM-5.2-and-newer families)
+receive it as reasoning_effort - a run-level choice that overrides the
+deployment's POLLINATIONS_REASONING_EFFORT default. Queued web runs and
+BYOK GLM-family models honour it the same way.
+
+Files: shared/models.ts (EffortId, per-model efforts, effortOptionsForModelId,
+normalisation), drizzle/schema.ts + migration 0057 (chats.effort),
+server/db/chats.ts (create stores model + effort), server/routers.ts
+(chats.create model + effort, chats.models reports effort, the shared
+validator), server/aiGateway.ts + byokGateway.ts + workspace/workspaceRetry.ts
+(effort through to reasoningParamsForModel), server/workspace/workspaceAgent.ts
+(read the chat's effort, pass it to the round). Client:
+components/PromptModelControls.tsx (the two dependent menus),
+pages/Workspace.tsx (selection + billing.subscription, wired into
+createChat), pages/Workspace.render.test.tsx.
+Tests: server/chats.router.test.ts (create gating + effort downgrade +
+models.effort), shared/models.test.ts (per-model effort offers +
+normalisation), server/aiGateway.chatStream.test.ts (reasoningParamsForModel
+effort override); pnpm run check clean; pnpm test green; pnpm run build
+succeeds.
+
 2026-11-10 - the /app overview is now the task prompt
 
 The workspace home (no conversation open) is rebuilt as the task

@@ -54,6 +54,11 @@ const state = vi.hoisted(() => ({
     content: string;
   }>,
   agentRunStatus: { active: false as boolean },
+  subscription: {
+    data: { plan: "free" as "free" | "paid" },
+    isLoading: false,
+    isError: false,
+  },
   envVarRequests: [] as Array<{
     id: number;
     chatId: string | null;
@@ -174,6 +179,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     billing: {
       createCheckout: { useMutation: () => mutation },
+      subscription: { useQuery: () => state.subscription },
     },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({

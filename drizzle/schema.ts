@@ -74,6 +74,13 @@ export const chats = pgTable("chats", {
   emailThreadId: varchar("emailThreadId", { length: 200 }),
   /** The chat's selected model id from shared/models.ts; null = the default free model (nova-pro). */
   model: varchar("model", { length: 64 }),
+  /**
+   * The chat's selected deep-thinking effort for its model ("auto" | "low" |
+   * "medium" | "high" | "max" from shared/models.ts); null = auto. Stored
+   * alongside the model so a run reads both in one row and the gateway can
+   * apply the effort on reasoning-capable models.
+   */
+  effort: varchar("effort", { length: 16 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [

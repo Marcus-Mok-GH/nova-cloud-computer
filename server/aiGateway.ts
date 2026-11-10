@@ -473,7 +473,10 @@ function configuredReasoningEffort(): string {
  * the BYOK gateway applies the same per-model logic to a workspace's custom
  * GLM-family models.
  */
-export function reasoningParamsForModel(modelId: string): Record<string, unknown> {
+export function reasoningParamsForModel(
+  modelId: string,
+  effort?: string
+): Record<string, unknown> {
   const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
   if (!match) return {};
   const major = Number(match[1]);
@@ -481,8 +484,13 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
   const thinks = major > 4 || (major === 4 && minor >= 5);
   if (!thinks) return {};
   const params: Record<string, unknown> = { thinking: { type: "enabled" } };
-  if (major > 5 || (major === 5 && minor >= 2))
-    params.reasoning_effort = configuredReasoningEffort();
+  if (major > 5 || (major === 5 && minor >= 2)) {
+    // A run-level effort (the chat's selected depth, "auto" or deeper)
+    // overrides the deployment default; "auto" / undefined keeps the env value.
+    const selected = (effort ?? "").trim().toLowerCase();
+    params.reasoning_effort =
+      selected && selected !== "auto" ? selected : configuredReasoningEffort();
+  }
   return params;
 }
 
@@ -1106,6 +1114,12 @@ export async function chatWithAiGateway(
      * Omitted = the built-in chain, which is exactly what `nova-pro` means.
      */
     model?: string;
+    /**
+     * The chat's selected deep-thinking effort ("auto" or a deeper level).
+     * Sent to reasoning-capable models as `reasoning_effort`; ignored on
+     * models the gateway does not accept it on. Omitted = deployment default.
+     */
+    effort?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
     /** When set, the model's private reasoning streams as it arrives. */
@@ -1295,6 +1309,7 @@ async function attemptGatewayChat(
     onChunk?: (chunk: string) => void;
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
+    effort?: string;
   },
   entry: GatewayChainEntry,
   requestTimeoutMs: number
@@ -1313,10 +1328,10 @@ async function attemptGatewayChat(
         body: JSON.stringify({
           model: resolvedModel,
           messages,
-          // Deep thinking at maximum effort for every reasoning-capable
-          // model (per-model: GLM-4.5+ takes thinking.type=enabled,
-          // GLM-5.2+ also reasoning_effort=max).
-          ...reasoningParamsForModel(resolvedModel),
+          // Deep thinking for every reasoning-capable model (per-model: GLM-4.5+
+          // takes thinking.type=enabled, GLM-5.2+ also reasoning_effort - the
+          // chat's selected effort, or the deployment default when it is auto).
+          ...reasoningParamsForModel(resolvedModel, options.effort),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),

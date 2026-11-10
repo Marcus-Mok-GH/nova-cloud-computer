@@ -13,6 +13,23 @@
  */
 export type ChatModelTier = "free" | "pro";
 
+/**
+ * The deep-thinking effort levels a model can expose. `auto` is always
+ * present: it defers to the model's own default. The deeper levels are only
+ * meaningful on reasoning-capable models - the gateway sends `reasoning_effort`
+ * for the GLM-5.2-and-newer families and ignores it everywhere else.
+ */
+export type EffortId = "auto" | "low" | "medium" | "high" | "max";
+
+/** Every effort level the gateway understands, deepest last. */
+export const CHAT_EFFORT_OPTIONS: EffortId[] = [
+  "auto",
+  "low",
+  "medium",
+  "high",
+  "max",
+];
+
 export type ChatModel = {
   /** Public id the client sends and the chat row stores. */
   id: string;
@@ -21,9 +38,22 @@ export type ChatModel = {
   tier: ChatModelTier;
   /** Gateway model id; undefined = the built-in nova-pro chain. */
   upstreamModel?: string;
+  /**
+   * The effort levels this model's selector offers, dynamically per model.
+   * Always includes `"auto"`. The built-in Nova models expose the full depth
+   * range; external premium models only offer `"auto"` because the gateway
+   * would risk a rejection sending `reasoning_effort` to a strict endpoint
+   * that does not accept it.
+   */
+  efforts: EffortId[];
 };
 
 export const FREE_CHAT_MODEL_ID = "nova-pro";
+
+/** The full depth range the built-in Nova models expose. */
+const NOVA_EFFORTS: EffortId[] = ["auto", "low", "medium", "high", "max"];
+/** Effort options for models the gateway only serves in its default depth. */
+const AUTO_ONLY_EFFORTS: EffortId[] = ["auto"];
 
 export const DEFAULT_CHAT_MODELS: ChatModel[] = [
   {
@@ -31,6 +61,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     label: "Nova Lite",
     description: "Nova's built-in model - fast, free for everyone.",
     tier: "free",
+    efforts: NOVA_EFFORTS,
   },
   {
     id: "nova-ultra",
@@ -38,6 +69,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "Nova's most capable model for hard problems and long tasks.",
     tier: "pro",
     upstreamModel: "gpt-5.2",
+    efforts: NOVA_EFFORTS,
   },
   {
     id: "claude-sonnet-4.6",
@@ -45,6 +77,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "Anthropic's latest Sonnet - strong coding and reasoning.",
     tier: "pro",
     upstreamModel: "claude-sonnet-4.6",
+    efforts: AUTO_ONLY_EFFORTS,
   },
   {
     id: "gemini-3-pro",
@@ -52,6 +85,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "Google's latest Gemini Pro - long context and multimodal.",
     tier: "pro",
     upstreamModel: "gemini-3-pro-preview",
+    efforts: AUTO_ONLY_EFFORTS,
   },
   {
     id: "grok-4.1",
@@ -59,6 +93,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "xAI's latest Grok - fast reasoning and tool use.",
     tier: "pro",
     upstreamModel: "grok-4.1-fast",
+    efforts: AUTO_ONLY_EFFORTS,
   },
 ];
 
@@ -78,6 +113,24 @@ function isChatModel(value: unknown): value is ChatModel {
 }
 
 /**
+ * Coerces a raw (possibly env-supplied) effort list into the model's public
+ * effort options: keeps only the gateway-known ids, always includes `auto`,
+ * and de-dupes. An entry with no recognisable effort list offers only auto.
+ */
+function normalizeEfforts(raw: unknown): EffortId[] {
+  const known = new Set<string>(CHAT_EFFORT_OPTIONS);
+  const cleaned = Array.isArray(raw)
+    ? raw.filter((value): value is EffortId => typeof value === "string" && known.has(value))
+    : [];
+  const deduped: EffortId[] = [];
+  for (const value of cleaned) {
+    if (!deduped.includes(value)) deduped.push(value);
+  }
+  if (!deduped.includes("auto")) deduped.unshift("auto");
+  return deduped;
+}
+
+/**
  * Reads NOVA_CHAT_MODELS_JSON without touching `process` in the browser: this
  * module is shared with the client bundle, where `process` is not defined.
  */
@@ -93,25 +146,48 @@ function defaultModelsEnv(): string | undefined {
  */
 export function getChatModels(env: string | undefined = defaultModelsEnv()): ChatModel[] {
   const raw = env?.trim();
-  if (!raw) return DEFAULT_CHAT_MODELS;
+  if (!raw) return withEfforts(DEFAULT_CHAT_MODELS);
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every(isChatModel)) {
-      return DEFAULT_CHAT_MODELS;
+      return withEfforts(DEFAULT_CHAT_MODELS);
     }
     if (!parsed.some(model => model.id === FREE_CHAT_MODEL_ID && model.tier === "free")) {
-      return DEFAULT_CHAT_MODELS;
+      return withEfforts(DEFAULT_CHAT_MODELS);
     }
-    return parsed;
+    return withEfforts(parsed);
   } catch {
-    return DEFAULT_CHAT_MODELS;
+    return withEfforts(DEFAULT_CHAT_MODELS);
   }
+}
+
+/** Guarantees every entry carries a public effort list regardless of source. */
+function withEfforts(models: ChatModel[]): ChatModel[] {
+  return models.map(model => ({
+    ...model,
+    efforts: normalizeEfforts(
+      model.efforts ?? (model.id === FREE_CHAT_MODEL_ID ? NOVA_EFFORTS : AUTO_ONLY_EFFORTS)
+    ),
+  }));
 }
 
 /** Looks up a catalogue entry by its public id. */
 export function getChatModelById(modelId: string | null | undefined, models: ChatModel[] = getChatModels()) {
   if (!modelId) return undefined;
   return models.find(model => model.id === modelId);
+}
+
+/** The effort options a single model offers (always includes `auto`). */
+export function effortOptionsForModel(model: ChatModel | undefined): EffortId[] {
+  return model?.efforts?.length ? model.efforts : ["auto"];
+}
+
+/**
+ * The effort options for a model id, resolved against the active catalogue.
+ * An unknown or default model id offers the default model's options.
+ */
+export function effortOptionsForModelId(modelId: string | null | undefined, models: ChatModel[] = getChatModels()): EffortId[] {
+  return effortOptionsForModel(getChatModelById(modelId, models) ?? getDefaultChatModel(models));
 }
 
 /** The catalogue's default selection: the free built-in model. */

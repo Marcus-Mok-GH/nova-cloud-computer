@@ -38,7 +38,23 @@ vi.mock("wouter", () => ({ useLocation: () => [mockPath, vi.fn()], useSearch: ()
 
 vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => {} }, innerWidth: 1200, addEventListener: () => {} });
 
-import DashboardLayout from "./DashboardLayout";
+import DashboardLayout, { planRows } from "./DashboardLayout";
+
+describe("planRows", () => {
+  it("lists both tiers for a free account, with Pro locked", () => {
+    expect(planRows(false)).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: true, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
+    ]);
+  });
+
+  it("lists both tiers for a paid account, with nothing locked", () => {
+    expect(planRows(true)).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: true, locked: false },
+    ]);
+  });
+});
 
 describe("DashboardLayout single-menu check", () => {
   it("renders the tab menu and NOT the chat-history sidebar on /app/chats", () => {
@@ -63,14 +79,14 @@ describe("DashboardLayout single-menu check", () => {
 });
 
 describe("DashboardLayout plan badge", () => {
-  it("shows Nova Pro beside the wordmark for a paid account, in the display serif", () => {
+  it("shows Pro beside the wordmark for a paid account, in the display serif", () => {
     mockUser = { name: "Test", email: "t@t.com", role: "user" };
     mockPath = "/app";
     mockSubscription = { plan: "paid" };
     const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
     expect(html).toContain('aria-label="Your plan"');
     expect(html).toContain(">Pro<");
-    // Only the highest plan the account holds is rendered — never a list.
+    // The trigger shows the account's own tier only, never a list.
     expect(html).not.toContain(">Free</button>");
     // The trigger uses the brand display serif (DM Serif Display, weight 400
     // only — a font-bold serif would synthesise a doubled weight).

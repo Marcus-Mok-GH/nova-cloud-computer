@@ -56,6 +56,10 @@ export const en = {
   "layout.creditsTitle.remaining": "{{remaining}} of {{daily}} credits remaining · 1 credit = {{cents}}¢",
   "layout.theme.toDark": "Switch to dark theme",
   "layout.theme.toLight": "Switch to light theme",
+  "layout.plan.aria": "Your plan",
+  "layout.plan.free": "Free",
+  "layout.plan.pro": "Pro",
+  "layout.plan.manage": "Manage your plan",
 
   // More page
   "more.title": "More",

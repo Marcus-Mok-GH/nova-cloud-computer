@@ -1,3 +1,26 @@
+2026-11-10 - the header shows which plan the account is on
+
+Beside the Nova wordmark in the top bar there is now the account's plan — the
+highest one it holds, so a Pro account reads "Pro" and a free account reads
+"Free". Nothing lists the plans it does not have. It uses the brand display
+serif (`nova-display` — DM Serif Display at weight 400, since the family ships
+no bold and a synthesised one renders as doubled glyphs), sized to sit level
+with the wordmark.
+
+Selecting it opens a small menu: the plan name, then "Manage your plan", which
+routes to /app/billing. The label is empty until `billing.subscription`
+resolves, so a paying account never flashes "Free" on first paint; a lapsed
+subscription reads Free because the server's own active-then-paid verdict is
+what the badge renders.
+
+Files: client/src/components/DashboardLayout.tsx (ACCOUNT_PLANS + the badge),
+client/src/components/DashboardLayout.verify.test.tsx (three cases: Pro, Free,
+and unresolved), client/src/i18n/en.ts + the 16 generated locales.
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; the real
+header was rendered in both themes and checked for the display serif
+(computed family "DM Serif Display", weight 400) and vertical alignment with
+the wordmark.
+
 2026-11-10 - the composer has a personality picker
 
 The inert "My Nova" label under the task prompt (an aria-hidden span with a

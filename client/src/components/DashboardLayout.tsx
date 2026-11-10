@@ -1,17 +1,28 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useLocation, useSearch } from "wouter";
-import { ChevronsLeft, ChevronsRight, Coins, LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronDown, Coins, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/lib/nav";
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
+import type { TranslationKey } from "@/i18n";
+
+/**
+ * The plans an account can hold, lowest first. The header shows only the
+ * highest one the account actually has, so the badge never lists a plan the
+ * account does not hold. Extend this (and the i18n keys) when a plan ships.
+ */
+const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "pro"; labelKey: TranslationKey }> = [
+  { id: "free", labelKey: "layout.plan.free" },
+  { id: "pro", labelKey: "layout.plan.pro" },
+];
 
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -23,6 +34,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Starter questions for brand-new accounts. Shown once until the user
   // completes (or skips) onboarding; a skip leaves it open to ask again later.
   const onboarding = trpc.auth.onboarding.useQuery(undefined, { enabled: Boolean(user), retry: false });
+  // The account's plan, for the badge beside the wordmark. Same query the
+  // billing page reads, so the two never disagree.
+  const subscription = trpc.billing.subscription.useQuery(undefined, { enabled: Boolean(user), retry: false });
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
@@ -53,6 +67,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Error count for the sidebar Notifications entry. The query is admin-gated
   // server-side, and only console operators ever see the entry.
   const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 120_000 });
+  // The highest plan the account holds. `billing.subscription.plan` is the
+  // server's own active-then-paid verdict, so a lapsed subscription reads
+  // Free without any client-side date maths. Null until the query resolves,
+  // which keeps the badge empty on first paint instead of flashing "Free"
+  // at a paying account.
+  const heldPlanIds = subscription.data?.plan === "paid" ? ["free", "pro"] : ["free"];
+  const topPlan = subscription.data
+    ? ACCOUNT_PLANS.filter(plan => heldPlanIds.includes(plan.id)).at(-1)
+    : undefined;
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6"><div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.12)] sm:p-8"><NovaLogo size={34} className="mx-auto" /><h1 className="mt-5 text-2xl font-extrabold tracking-tight text-foreground">{t("layout.signInTitle")}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("layout.signInBody")}</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-6 w-full">{t("layout.signIn")}</button></div></div>;
@@ -86,6 +109,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex min-w-0 items-center gap-1">
           <button onClick={() => setMobileNavOpen(true)} aria-label={t("layout.openMenu")} className="grid size-9 shrink-0 place-items-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 md:hidden"><Menu className="size-4.5" /></button>
           <button onClick={() => go("/app")} className="flex min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60"><NovaLogo size={30} /><span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">Nova</span></button>
+          {/* The account's plan, beside the wordmark: only the highest plan
+              the account holds, in the display serif. Selecting it opens
+              billing. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label={t("layout.plan.aria")}
+                className="nova-display flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[15px] text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+              >
+                {topPlan ? t(topPlan.labelKey) : null}
+                {topPlan && <ChevronDown className="size-3.5 font-sans" />}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 rounded-xl">
+              <DropdownMenuLabel className="nova-display text-base">{t(topPlan?.labelKey ?? "layout.plan.free")}</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => go("/app/billing")} className="cursor-pointer rounded-lg py-2.5 text-xs font-semibold text-muted-foreground">
+                {t("layout.plan.manage")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="ms-2 flex shrink-0 items-center gap-2">{isChatWorkspace && <span className="hidden items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-emerald-500" />{t("layout.chatWorkspace")}</span>}{credits.data && <span className="flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5 text-xs font-semibold text-muted-foreground" title={credits.data.unlimited ? t("layout.creditsTitle.unlimited", { cents: credits.data.creditValueCents }) : t("layout.creditsTitle.remaining", { remaining: credits.data.remainingCredits, daily: credits.data.dailyCredits, cents: credits.data.creditValueCents })}><Coins className="size-3.5 text-primary" /><span>{credits.data.unlimited ? t("layout.credits.unlimited") : credits.data.remainingCredits}</span><span className="hidden sm:inline">{t("layout.credits")}</span></span>}<DropdownMenu><DropdownMenuTrigger asChild><button className="rounded-full outline-none transition hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("layout.accountMenu")}><Avatar className="size-8 border border-border"><AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-[min(15rem,calc(100vw-1rem))] rounded-xl"><div className="border-b border-border px-3 py-3 text-xs text-muted-foreground">{user.email}</div><DropdownMenuItem onClick={toggleTheme} className="cursor-pointer rounded-lg py-2.5">{theme === "light" ? <Moon className="me-2 size-4" /> : <Sun className="me-2 size-4" />}{theme === "light" ? t("layout.theme.toDark") : t("layout.theme.toLight")}</DropdownMenuItem><DropdownMenuItem onClick={logout} className="cursor-pointer rounded-lg py-2.5 text-red-500 focus:text-red-500"><LogOut className="me-2 size-4" />{t("layout.signOut")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
       </header>

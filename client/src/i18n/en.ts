@@ -57,8 +57,11 @@ export const en = {
   "layout.theme.toDark": "Switch to dark theme",
   "layout.theme.toLight": "Switch to light theme",
   "layout.plan.aria": "Your plan",
+  "layout.plan.menuLabel": "Plan",
   "layout.plan.free": "Free",
   "layout.plan.pro": "Pro",
+  "layout.plan.current": "Current",
+  "layout.plan.locked": "Locked",
   "layout.plan.manage": "Manage your plan",
 
   // More page

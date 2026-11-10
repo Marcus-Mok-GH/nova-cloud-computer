@@ -1,3 +1,23 @@
+2026-11-10 - the header's plan menu lists both tiers, locking what you don't have
+
+The dropdown beside the Nova wordmark now lists every tier instead of just the
+account's own: Free with a Current tag, and Pro either Current (paid) or
+Locked (free). A locked tier is not selectable — tapping it opens billing,
+where the upgrade decision belongs. The trigger itself still shows only the
+account's own tier ("Free" or "Pro"), so nothing changes at a glance.
+
+The lock lives in a `planRows(isPaid)` helper rather than inline in the
+component: the menu body renders in a Radix portal, which a static render
+cannot see, so the row state would otherwise be untestable.
+
+Files: client/src/components/DashboardLayout.tsx (planRows + the menu rows),
+client/src/components/DashboardLayout.verify.test.tsx (planRows cases for both
+tiers plus the trigger cases), client/src/i18n/en.ts + the 16 generated locales
+(layout.plan.menuLabel / .current / .locked).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; both
+menu states rendered in a real browser — Free account reads "Free | Current"
+and "Pro | Locked", a Pro account reads "Pro | Current" with nothing locked.
+
 2026-11-10 - the header shows which plan the account is on
 
 Beside the Nova wordmark in the top bar there is now the account's plan — the

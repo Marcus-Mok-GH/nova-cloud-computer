@@ -69,7 +69,7 @@ import {
   EnvVarRequestComposer,
   RegenerateMessageButton,
   SpeakMessageButton,
-  TurnHeader,
+  TurnTimestamp,
   WorkspaceError,
 } from "@/components/workspaceChat";
 
@@ -420,24 +420,6 @@ export default function Workspace() {
         streaming: agentIsWorking,
       })
     );
-    // Numbered turn headers ("Turn 1" above each user message) plus, per
-    // turn, a tally of its tool calls so the reader can tell at a glance
-    // which ask a tool row belonged to and what it cost. A user row opens
-    // a new turn; tool runs after it belong to that turn until the next
-    // user row. Rows before any user row (legacy tool history) anchor to
-    // turn 0 and tally into the first header.
-    const turnNumberOfRow = new Map<string, number>();
-    const turnToolActivities = new Map<number, ToolActivity[]>();
-    let turnCount = 0;
-    for (const row of rows) {
-      if (row.kind === "user") {
-        turnCount += 1;
-        turnToolActivities.set(turnCount, []);
-      }
-      turnNumberOfRow.set(row.key, turnCount);
-      if (row.kind === "toolRun")
-        turnToolActivities.get(turnCount)?.push(...row.activities);
-    }
     // "Nova" labels the first thing it says in a turn, exactly once.
     const novaLeadsRow = (index: number) =>
       index === 0 || rows[index - 1].kind === "user";
@@ -639,7 +621,6 @@ export default function Workspace() {
                           </div>
                         );
                       if (row.kind === "user") {
-                        const number = turnNumberOfRow.get(row.key) ?? 0;
                         // The automatic-continuation turn the server
                         // persists when a segment ran out of time: the
                         // user never typed it, so it renders as a quiet
@@ -666,12 +647,7 @@ export default function Workspace() {
                             key={row.key}
                             className="chat-in flex w-full shrink-0 flex-col gap-1.5"
                           >
-                            <TurnHeader
-                              turnNumber={number}
-                              ask={row.content}
-                              createdAt={row.createdAt ?? null}
-                              activities={turnToolActivities.get(number) ?? []}
-                            />
+                            <TurnTimestamp createdAt={row.createdAt ?? null} />
                             <div className="flex flex-col items-end gap-1.5">
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
                               {row.content}

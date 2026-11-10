@@ -81,9 +81,20 @@ export function chunkSpokenText(text: string, maxChunkLength = 220): string[] {
   return splitSpeechText(text, maxChunkLength);
 }
 
-/** Event fired so every Speak button but the starter flips back to idle. */
+/**
+ * Event fired so every Speak button but the starter flips back to idle. The
+ * detail carries the id of the run that started, so the button that initiated
+ * it can ignore its own echo - otherwise a button cancels the very playback it
+ * just asked for.
+ */
 export const TTS_START_EVENT = "nova-tts-start";
 export const TTS_STOP_EVENT = "nova-tts-stop";
+
+/** The run id a TTS_START_EVENT was dispatched for. */
+export function speechRunIdFromEvent(event: Event): number | null {
+  const detail = (event as CustomEvent<{ runId?: unknown }>).detail;
+  return typeof detail?.runId === "number" ? detail.runId : null;
+}
 
 /**
  * Where the browser asks for a server-synthesised voice. Same origin, so no
@@ -169,6 +180,7 @@ function pickDefaultVoice(): SpeechSynthesisVoice | null {
 interface SpeakOptions {
   rate?: number;
   pitch?: number;
+  onStart?: (runId: number) => void;
   onEnd?: () => void;
   onError?: () => void;
 }
@@ -192,6 +204,9 @@ function speakChunks(
   // handlers in some browsers, and they must already read as stale.
   activeGeneration += 1;
   const generation = activeGeneration;
+  // Tell the caller which run this is BEFORE the start event goes out, so the
+  // button that initiated it can recognise (and ignore) its own echo.
+  options.onStart?.(generation);
   // Chrome drops a speak() issued in the same task as cancel(): the async
   // cancel clears the just-queued utterance, so playback never starts and
   // no sound plays. Only cancel when something is actually queued/playing,
@@ -286,7 +301,9 @@ function speakChunks(
     synthesis.speak(utterance);
   };
   try {
-    window.dispatchEvent(new CustomEvent(TTS_START_EVENT));
+    window.dispatchEvent(
+      new CustomEvent(TTS_START_EVENT, { detail: { runId: generation } })
+    );
   } catch {
     /* ignore */
   }

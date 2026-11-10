@@ -5,6 +5,7 @@ import {
   resolveSpeechEngine,
   speakMessage,
   speechRequestUrl,
+  speechRunIdFromEvent,
   stopAllSpeech,
   stripMarkdownForSpeech,
 } from "./speech";
@@ -277,5 +278,54 @@ describe("speech text preparation", () => {
     const chunks = chunkSpokenText("word ".repeat(400), 220);
     expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(220);
+  });
+});
+
+describe("TTS start event", () => {
+  it("carries the run id so a button can ignore its own start", async () => {
+    const dispatched: Array<{ type: string; detail?: unknown }> = [];
+    const synthesis = voicedSynthesis();
+    const localWindow: Record<string, unknown> = {
+      speechSynthesis: synthesis,
+      SpeechSynthesisUtterance: class {
+        text: string;
+        rate = 1;
+        pitch = 1;
+        voice: unknown = null;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor(text: string) {
+          this.text = text;
+        }
+      },
+      dispatchEvent: (event: Event) => {
+        const custom = event as CustomEvent;
+        dispatched.push({ type: custom.type, detail: custom.detail });
+        return true;
+      },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+    (globalThis as Record<string, unknown>).window = localWindow;
+
+    let startedRunId: number | null = null;
+    await speakMessage("Hello there.", {
+      onStart: runId => {
+        startedRunId = runId;
+      },
+    });
+
+    const startEvent = dispatched.find(e => e.type === "nova-tts-start");
+    expect(startEvent).toBeDefined();
+    expect(startedRunId).not.toBeNull();
+    // The id the caller was told about is the one the event carries - that is
+    // what lets the initiating button recognise its own start.
+    expect((startEvent?.detail as { runId?: number })?.runId).toBe(startedRunId);
+
+    // And the reader round-trips it.
+    const fakeEvent = new CustomEvent("nova-tts-start", {
+      detail: { runId: startedRunId },
+    });
+    expect(speechRunIdFromEvent(fakeEvent)).toBe(startedRunId);
   });
 });

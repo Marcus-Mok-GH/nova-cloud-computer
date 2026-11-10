@@ -655,6 +655,37 @@ describe("buildTurnItems", () => {
     });
   });
 
+  it("puts a live narration line above the tool row that already landed", () => {
+    // Mid-round the ledger holds the tool row (it persists on every state
+    // change) while the line that announced it persists only at round end.
+    // The narrated line must still render above the tool it announced, or the
+    // turn reads as if the tool ran before Nova said anything.
+    const live = upsertLiveToolEvent(
+      appendLiveTextDelta([], "Let me check that."),
+      { id: "t-1", name: "read_file", state: "running", args: {} }
+    );
+    const items = buildTurnItems({
+      messages: [userRow, toolRow("t-1", "running", 2)],
+      liveEvents: live,
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+      streaming: true,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "toolRun",
+    ]);
+    expect(items[1]).toEqual({
+      kind: "reply",
+      key: "live-reply-0",
+      messageId: 0,
+      content: "Let me check that.",
+      live: true,
+    });
+    expect(items[2].kind === "toolRun" && items[2].activities[0].id).toBe("t-1");
+  });
+
   it("keeps the optimistic user bubble until the row is persisted", () => {
     const items = buildTurnItems({
       messages: [],

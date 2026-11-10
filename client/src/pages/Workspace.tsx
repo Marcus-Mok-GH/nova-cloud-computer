@@ -311,6 +311,23 @@ export default function Workspace() {
     })();
   }, []);
 
+  // The overview's task-prompt model + effort selection. Declared before any
+  // early return so the hook count is identical whether or not a chat is open:
+  // submitting the prompt navigates to a chat, and declaring these below the
+  // `if (chatId)` return would drop hooks on that re-render (React error #300).
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: () => {
+      void utils.workspace.chats.invalidate();
+      void utils.workspace.computer.invalidate();
+    },
+  });
+  const subscription = trpc.billing.subscription.useQuery(undefined, {
+    retry: false,
+  });
+  const [selectedModelId, setSelectedModelId] = useState(FREE_CHAT_MODEL_ID);
+  const [selectedEffortId, setSelectedEffortId] = useState<EffortId>("auto");
+  const [startingSession, setStartingSession] = useState(false);
+
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) {
@@ -992,27 +1009,16 @@ export default function Workspace() {
   const promptControlClass =
     "inline-flex items-center gap-1.5 text-sm font-medium text-foreground";
 
-  const createChat = trpc.chats.create.useMutation({
-    onSuccess: () => {
-      void utils.workspace.chats.invalidate();
-      void utils.workspace.computer.invalidate();
-    },
-  });
-  // The overview's model + effort selection: the catalogue comes from the shared
-  // module, the plan from the caller's subscription (premium models lock on a
-  // free account). Effort is clamped to what the chosen model offers.
+  // `createChat`, `subscription`, `selectedModelId`, `selectedEffortId` and
+  // `startingSession` are declared at the top of the component (before the
+  // early returns) so the hook count stays stable across the overview -> chat
+  // navigation; only the derived values live here.
   const chatModels = getChatModels();
-  const subscription = trpc.billing.subscription.useQuery(undefined, {
-    retry: false,
-  });
-  const [selectedModelId, setSelectedModelId] = useState(FREE_CHAT_MODEL_ID);
-  const [selectedEffortId, setSelectedEffortId] = useState<EffortId>("auto");
   const handlePromptModelChange = (modelId: string) => {
     setSelectedModelId(modelId);
     const offered = effortOptionsForModelId(modelId);
     setSelectedEffortId(previous => (offered.includes(previous) ? previous : "auto"));
   };
-  const [startingSession, setStartingSession] = useState(false);
   const taskText = draft.trim();
   const canStartSession =
     (taskText.length > 0 || composerAttachments.length > 0) &&

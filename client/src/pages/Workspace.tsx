@@ -30,8 +30,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
-  Asterisk,
-  ChevronDown,
   CornerDownLeft,
   History,
   ImagePlus,
@@ -54,6 +52,7 @@ import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
 import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
 import { GoalBadge } from "@/components/GoalBadge";
 import { ModelSelector } from "@/components/ModelSelector";
+import { PersonalitySelector } from "@/components/PersonalitySelector";
 import {
   matchSlashCommands,
   slashCommandInsertion,
@@ -980,10 +979,8 @@ export default function Workspace() {
   /** The overview's task prompt. The model + effort selectors are real: they
    * choose the conversation the task starts on and ride into `chats.create`
    * with it (effort offers vary per model - see PromptModelControls). The
-   * "My Nova" workspace control and the gear (settings) are the remaining
+   * personality picker and the gear (settings) are the remaining
    * inline affordances on the card. */
-  const promptControlClass =
-    "inline-flex items-center gap-1.5 text-sm font-medium text-foreground";
 
   // `createChat`, `subscription`, `selectedModelId`, `selectedEffortId` and
   // `startingSession` are declared at the top of the component (before the
@@ -1123,13 +1120,7 @@ export default function Workspace() {
             >
               <Paperclip className="size-4.5" />
             </button>
-            <span aria-hidden="true" className={promptControlClass}>
-              <span className="grid size-6 place-items-center rounded-lg bg-foreground text-background">
-                <Asterisk className="size-3.5" />
-              </span>
-              My Nova
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </span>
+            <PersonalitySelector />
           </div>
           <button
             type="button"

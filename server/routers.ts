@@ -80,10 +80,14 @@ import {
   whopPriorityConfigurationMessage,
 } from "./whop";
 import { kickPeakQueue } from "./peakQueueScheduler";
+import {
+  PERSONALITY_INSTRUCTIONS_MAX,
+  PERSONALITY_NAME_MAX,
+} from "@shared/personalities";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
 import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, renameApiKeyForUser, revokeApiKeyForUser } from "./apiKeys";
-import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
+import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser, listPersonalitiesForUser, getActivePersonalityIdForUser, setActivePersonalityForUser, createPersonalityForUser, updatePersonalityForUser, deletePersonalityForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
 import { FILE_SEARCH_MAX_QUERY_LENGTH } from "./fileSearch";
@@ -179,6 +183,14 @@ const testModelEndpointInput = customModelInput.pick({ baseUrl: true, apiKey: tr
 const personalisationDetail = z.enum(["brief", "balanced", "detailed"]);
 const personalisationProactiveness = z.enum(["ask_first", "act_and_tell", "autonomous"]);
 const personalisationExpertise = z.enum(["new", "some", "expert"]);
+/** A personality as Settings submits it (Settings > Personalisation). */
+const personalityInput = z.object({
+  name: z.string().trim().min(1, "Give the personality a name.").max(PERSONALITY_NAME_MAX),
+  instructions: z.string().trim().max(PERSONALITY_INSTRUCTIONS_MAX).nullable().optional(),
+  detail: personalisationDetail.nullable().optional(),
+  collaboration: personalisationProactiveness.nullable().optional(),
+  expertise: personalisationExpertise.nullable().optional(),
+});
 const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional(), personalisationEnabled: z.boolean().optional(), personalisationProfile: z.string().trim().max(2000).nullable().optional(), personalisationTone: z.string().trim().max(60).nullable().optional(), personalisationDetail: personalisationDetail.nullable().optional(), personalisationProactiveness: personalisationProactiveness.nullable().optional(), personalisationExpertise: personalisationExpertise.nullable().optional() }).refine(atLeastOneOf(["activeProvider", "activeModelId", "activeCustomModelId", "workspaceRules", "personalisationEnabled", "personalisationProfile", "personalisationTone", "personalisationDetail", "personalisationProactiveness", "personalisationExpertise"]), { message: "Provide at least one setting change." });
 const folderInput = z.object({ name: z.string().trim().min(1, "A folder needs a name.").max(160), parentId: z.number().int().positive().nullable().optional() });
 const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "parentId"]), { message: "Provide a folder change." });
@@ -465,6 +477,46 @@ export const appRouter = router({
      * renders. */
     chats: protectedProcedure.query(({ ctx }) => listChatsForUser(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
+    /**
+     * The workspace's personality list for the composer picker: Default first,
+     * then the user's own. `activePersonalityId` is the current selection.
+     */
+    personalities: protectedProcedure.query(async ({ ctx }) => {
+      const [personalities, activeId] = await Promise.all([
+        listPersonalitiesForUser(ctx.user.id),
+        getActivePersonalityIdForUser(ctx.user.id),
+      ]);
+      return { personalities, activePersonalityId: activeId };
+    }),
+    /** Select the active personality (the composer picker's write). */
+    setActivePersonality: protectedProcedure
+      .input(z.object({ personalityId: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await setActivePersonalityForUser(ctx.user.id, input.personalityId);
+        if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return result;
+      }),
+    /** Create a personality (Settings > Personalisation). */
+    createPersonality: protectedProcedure
+      .input(personalityInput)
+      .mutation(({ ctx, input }) => createPersonalityForUser(ctx.user.id, input)),
+    /** Update a personality the workspace owns. */
+    updatePersonality: protectedProcedure
+      .input(personalityInput.extend({ id: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...rest } = input;
+        const updated = await updatePersonalityForUser(ctx.user.id, id, rest);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return updated;
+      }),
+    /** Delete a personality; the active selection falls back to Default. */
+    deletePersonality: protectedProcedure
+      .input(z.object({ id: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const deleted = await deletePersonalityForUser(ctx.user.id, input.id);
+        if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return { success: true } as const;
+      }),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
       if (input.activeModelId !== undefined) {

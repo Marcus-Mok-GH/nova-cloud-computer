@@ -136,6 +136,18 @@ vi.mock("./db", () => ({
     proactiveness: null,
     expertise: null,
   })),
+  // Default (Nova's own voice) contributes nothing to the prompt, so the
+  // personality block stays empty unless a test opts in with a mockResolvedValueOnce.
+  resolveActivePersonalityForUser: vi.fn(async () => ({
+    id: "default",
+    name: "Default",
+    description: "",
+    instructions: null,
+    detail: null,
+    collaboration: null,
+    expertise: null,
+    builtIn: true,
+  })),
   setPersonalisationForUser: vi.fn(
     async (
       _owner: number,
@@ -3360,6 +3372,33 @@ describe("Nova tool-calling workspace agent", () => {
     expect(system?.content).toContain("A solo founder writing a novel.");
     expect(system?.content).toContain("Preferred tone: playful.");
     expect(system?.content).toContain("thorough, detailed replies");
+  });
+
+  it("injects the selected personality into the system prompt", async () => {
+    const { resolveActivePersonalityForUser } = await import("./db");
+    vi.mocked(resolveActivePersonalityForUser).mockResolvedValueOnce({
+      id: "p_analyst",
+      name: "Analyst",
+      description: "",
+      instructions: "State assumptions and show your reasoning.",
+      detail: "detailed",
+      collaboration: "act_and_tell",
+      expertise: "expert",
+      builtIn: false,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain('"Analyst" personality');
+    expect(system?.content).toContain(
+      "How to behave: State assumptions and show your reasoning."
+    );
+    expect(system?.content).toContain("Collaboration style: Act & tell.");
   });
 
   it("announces an enabled personalisation mode even with no saved preferences", async () => {

@@ -27,6 +27,7 @@ import {
   getChatForUser,
   getCommunicationStyleForUser,
   getPersonalisationForUser,
+  resolveActivePersonalityForUser,
   getUserIdentityForUser,
   getWorkspaceComputer,
   listChatMessagesForUser,
@@ -185,6 +186,7 @@ import {
   failureNudgeFor,
   coderNudgeFor,
   formatPersonalisationForPrompt,
+  formatPersonalityForPrompt,
   WORKSPACE_AGENT_PROMPT,
   agentIdentityPromptBlock,
 } from "./workspacePrompt";
@@ -604,6 +606,7 @@ ${
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
     const personalisation = await getPersonalisationForUser(ownerId);
+    const personality = await resolveActivePersonalityForUser(ownerId);
     // The deployment registry - every site's ID, URL and description - rides
     // along in the system prompt so targeting deployments stays explicit
     // across every chat.
@@ -780,6 +783,10 @@ ${
             communicationStyle
               ? `The user's saved preferred communication style: "${communicationStyle}" - follow it in every reply.`
               : ""
+          )
+          .replace(
+            "{{personality}}",
+            formatPersonalityForPrompt(personality)
           )
           .replace(
             "{{personalisation}}",

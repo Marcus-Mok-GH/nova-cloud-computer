@@ -11,6 +11,13 @@ import type {
   PersonalisationProactiveness,
   PersonalisationSettings,
 } from "../db";
+import {
+  DEFAULT_PERSONALITY_ID,
+  PERSONALITY_COLLABORATION_LABELS,
+  PERSONALITY_DETAIL_LABELS,
+  PERSONALITY_EXPERTISE_LABELS,
+  type Personality,
+} from "@shared/personalities";
 import { agentAddressFor } from "../agents";
 import type { AgentChatRunOptions } from "./workspaceAgentTypes";
 
@@ -120,6 +127,31 @@ export function formatPersonalisationForPrompt(
     : intro;
 }
 
+/**
+ * Composes the personality block. It is the voice the user chose from the
+ * composer's personality picker, kept separate from the learned
+ * personalisation block: a personality is an explicit, hand-picked instruction
+ * that always applies, while personalisation is what Nova inferred over time.
+ * Default (Nova's own voice) contributes nothing, so a workspace that never
+ * picked one keeps the prompt byte-identical.
+ */
+export function formatPersonalityForPrompt(personality: Personality): string {
+  if (personality.id === DEFAULT_PERSONALITY_ID) return "";
+  const lines: string[] = [];
+  if (personality.instructions)
+    lines.push(`How to behave: ${personality.instructions}`);
+  if (personality.detail)
+    lines.push(`Preferred reply length: ${PERSONALITY_DETAIL_LABELS[personality.detail]}.`);
+  if (personality.collaboration)
+    lines.push(`Collaboration style: ${PERSONALITY_COLLABORATION_LABELS[personality.collaboration]}.`);
+  if (personality.expertise)
+    lines.push(`The user's expertise: ${PERSONALITY_EXPERTISE_LABELS[personality.expertise]}.`);
+  if (!lines.length) return "";
+  return `The user picked the "${personality.name}" personality. Adopt it for this reply:\n${lines
+    .map(line => `- ${line}`)
+    .join("\n")}`;
+}
+
 export const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}{{mode}}
 
 Your job is to get the user's work done end-to-end and to a high standard. You are a highly capable operator with a full toolkit: reason about what the user actually needs, use your own judgment for conversation and light work, and reach for tools and specialists whenever they make the result faster, more accurate, or more complete. Prefer finishing the task over narrating a plan. Match the tool to the job - editor for real code, solve_equation for math, run_vm_task / run_bash for computation and data work, thinker for hard reasoning, research_web for current or external facts, connectors for outside services, workspace file tools for durable deliverables - then verify what comes back and keep going until the goal is done. The measure of a good turn is the user's problem actually being solved - never settle for a partial, generic or hedged result when the tools to do better are right there.
@@ -161,6 +193,7 @@ Workspace rules:
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 {{style}}
+{{personality}}
 {{personalisation}}
 This request arrived via: {{channel}}.
 

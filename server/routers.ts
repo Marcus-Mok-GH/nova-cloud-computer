@@ -66,7 +66,7 @@ import {
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
 import { PROCESS_STALE_AFTER_MS } from "./runningProcesses";
-import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
+import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { CHAT_EFFORT_OPTIONS, EffortId, FREE_CHAT_MODEL_ID, getChatModelById, getChatModels, effortOptionsForModelId } from "@shared/models";
 import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
 import {
   createWhopCheckout,
@@ -121,6 +121,41 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 
 function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNullable<T> {
   if (!result) throw new TRPCError({ code: "NOT_FOUND", message: `That ${entity} is not available in your Nova space.` });
+}
+
+/**
+ * Validates the model + effort a new conversation starts with, returning the
+ * values to persist. Mirrors `chats.setModel`'s gating so a premium model or
+ * an effort the chosen model does not offer can never be smuggled in at
+ * create time. The free model and the `auto` effort both store as `null`.
+ */
+async function resolveChatModelAndEffort(
+  ownerId: number,
+  modelRaw: string | undefined,
+  effortRaw: string | undefined
+): Promise<{ model: string | null; effort: string | null }> {
+  const modelId = modelRaw?.trim() || FREE_CHAT_MODEL_ID;
+  const catalogueEntry = getChatModelById(modelId);
+  if (!catalogueEntry) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
+  }
+  if (catalogueEntry.tier === "pro") {
+    const subscription = await getSubscriptionForUser(ownerId);
+    if (subscription.plan !== "paid") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
+    }
+  }
+  // The effort must be a gateway-known level the chosen model actually offers;
+  // anything else (or a deeper level on an auto-only model) falls back to auto.
+  const requested = effortRaw?.trim().toLowerCase();
+  const effort: EffortId =
+    requested && (CHAT_EFFORT_OPTIONS as string[]).includes(requested)
+      ? (requested as EffortId)
+      : "auto";
+  const offered = effortOptionsForModelId(catalogueEntry.id);
+  const effortToStore = effort !== "auto" && offered.includes(effort) ? effort : null;
+  const modelToStore = modelId === FREE_CHAT_MODEL_ID ? null : modelId;
+  return { model: modelToStore, effort: effortToStore };
 }
 /**
  * Refinement for an update payload that has to change something: at least one
@@ -722,7 +757,18 @@ export const appRouter = router({
     delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { try { const deleted = await deleteSkillForUser(ctx.user.id, input.id); throwIfNotFound(deleted, "skill"); return { success: true as const }; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not delete that skill."); } }),
   }),
   chats: router({
-    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
+    create: protectedProcedure.input(z.object({
+      title: z.string().trim().min(1).max(160),
+      /** The model the conversation starts on; omitted = the free model. */
+      model: z.string().trim().min(1).max(64).optional(),
+      /** The deep-thinking effort the conversation starts on; omitted = auto. */
+      effort: z.string().trim().min(1).max(16).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const { model, effort } = await resolveChatModelAndEffort(ctx.user.id, input.model, input.effort);
+      const chat = await createChatForUser(ctx.user.id, input.title, model, effort);
+      if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." });
+      return chat;
+    }),
     messages: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),
     /** Reverts a conversation to an earlier message for the regenerate flow: deletes that message and everything after it. */
     revert: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), messageId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await revertChatToMessageForUser(ctx.user.id, input.chatId, input.messageId); if (!result) throwIfNotFound(result, "conversation message"); return { success: true as const, deleted: result.deletedCount }; }),    /**
@@ -735,7 +781,7 @@ export const appRouter = router({
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");
       const subscription = await getSubscriptionForUser(ctx.user.id);
-      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, plan: subscription.plan };
+      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, effort: chat.effort ?? "auto", plan: subscription.plan };
     }),
     /**
      * Sets the chat's model. Premium ids are gated on an active paid plan

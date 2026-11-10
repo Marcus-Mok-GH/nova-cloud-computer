@@ -520,11 +520,14 @@ ${
     // built-in service's sanitized notice.
     const customModel = await getActiveCustomModel(ownerId);
     byok = Boolean(customModel);
-    // The chat's selected model, read once per run: rounds and transient
-    // retries reuse it, so switching models mid-conversation cannot change
-    // the model serving a run that is already in flight. The gateway
-    // re-checks the plan on every request, so this is routing only.
-    const chatModel = (await getChatForUser(ownerId, chatId))?.model ?? undefined;
+    // The chat's selected model and deep-thinking effort, read once per run:
+    // rounds and transient retries reuse them, so switching either
+    // mid-conversation cannot change the settings serving a run that is
+    // already in flight. The gateway re-checks the plan on every request, so
+    // this is routing and depth only.
+    const chatRow = await getChatForUser(ownerId, chatId);
+    const chatModel = chatRow?.model ?? undefined;
+    const chatEffort = chatRow?.effort ?? undefined;
     if (!customModel) {
       const status = await getAiGatewayStatus(ownerId);
       if (!status.configured) {
@@ -1186,6 +1189,9 @@ ${
           // The chat's selected model; the gateway gates premium ids on the
           // owner's plan and maps them to their upstream model id.
           ...(chatModel ? { model: chatModel } : {}),
+          // The chat's selected deep-thinking effort, applied on
+          // reasoning-capable models.
+          ...(chatEffort ? { effort: chatEffort } : {}),
         });
       // Rounds after the first are raced against the deadline: a slow LLM
       // round can take up to the client's own 120s timeout, which used to

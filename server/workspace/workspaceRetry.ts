@@ -136,11 +136,17 @@ export async function chatWithGatewayRetry(
      * the gateway falls back to its default model chain.
      */
     model?: string;
+    /**
+     * The chat's selected deep-thinking effort ("auto" or a deeper level);
+     * forwarded to the gateway so reasoning-capable models honour it.
+     */
+    effort?: string;
   }
 ) {
   const gatewayOptions = (streamedChars: { count: number }) => ({
     tools: options.tools,
     ...(options.model ? { model: options.model } : {}),
+    ...(options.effort ? { effort: options.effort } : {}),
     ...(options.onReasoning ? { onReasoning: options.onReasoning } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.onChunk

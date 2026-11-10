@@ -1,8 +1,15 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import PromptModelControls from "@/components/PromptModelControls";
 import NovaLogo from "@/components/NovaLogo";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  effortOptionsForModelId,
+  FREE_CHAT_MODEL_ID,
+  getChatModels,
+  type EffortId,
+} from "@shared/models";
 import { MarkdownText } from "@/lib/markdown";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import {
@@ -26,7 +33,6 @@ import {
   Asterisk,
   ChevronDown,
   CornerDownLeft,
-  Gauge,
   History,
   ImagePlus,
   Loader2,
@@ -978,11 +984,11 @@ export default function Workspace() {
     );
   }
 
-  /** The overview's task prompt: "Nova Lite" previews the free built-in
-   * model a new conversation starts with, and "Auto" the flow Nova picks
-   * for it - both become the thread's own controls once the chat opens.
-   * The workspace control and the gear (settings) are real; the two
-   * selectors are previews, like the landing page's. */
+  /** The overview's task prompt. The model + effort selectors are real: they
+   * choose the conversation the task starts on and ride into `chats.create`
+   * with it (effort offers vary per model - see PromptModelControls). The
+   * "My Nova" workspace control and the gear (settings) are the remaining
+   * inline affordances on the card. */
   const promptControlClass =
     "inline-flex items-center gap-1.5 text-sm font-medium text-foreground";
 
@@ -992,6 +998,20 @@ export default function Workspace() {
       void utils.workspace.computer.invalidate();
     },
   });
+  // The overview's model + effort selection: the catalogue comes from the shared
+  // module, the plan from the caller's subscription (premium models lock on a
+  // free account). Effort is clamped to what the chosen model offers.
+  const chatModels = getChatModels();
+  const subscription = trpc.billing.subscription.useQuery(undefined, {
+    retry: false,
+  });
+  const [selectedModelId, setSelectedModelId] = useState(FREE_CHAT_MODEL_ID);
+  const [selectedEffortId, setSelectedEffortId] = useState<EffortId>("auto");
+  const handlePromptModelChange = (modelId: string) => {
+    setSelectedModelId(modelId);
+    const offered = effortOptionsForModelId(modelId);
+    setSelectedEffortId(previous => (offered.includes(previous) ? previous : "auto"));
+  };
   const [startingSession, setStartingSession] = useState(false);
   const taskText = draft.trim();
   const canStartSession =
@@ -1032,6 +1052,8 @@ export default function Workspace() {
     try {
       const chat = await createChat.mutateAsync({
         title: content.slice(0, 48),
+        model: selectedModelId,
+        effort: selectedEffortId,
       });
       setLocation(`/app?chatId=${chat.id}`);
       await sendMessage(chat.id, content, images, files);
@@ -1084,15 +1106,15 @@ export default function Workspace() {
             }
           />
           <div className="mt-3 flex items-center gap-4">
-            <span aria-hidden="true" className={promptControlClass}>
-              Nova Lite
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </span>
-            <span aria-hidden="true" className={promptControlClass}>
-              <Gauge className="size-4 text-muted-foreground" />
-              Auto
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </span>
+            <PromptModelControls
+              models={chatModels}
+              plan={subscription.data?.plan}
+              selectedModelId={selectedModelId}
+              selectedEffortId={selectedEffortId}
+              onModelChange={handlePromptModelChange}
+              onEffortChange={setSelectedEffortId}
+              disabled={startingSession || createChat.isPending}
+            />
             <button
               type="submit"
               disabled={!canStartSession}

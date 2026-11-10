@@ -1,4 +1,4 @@
-import { Activity, Bell, Bot, Folder, LayoutGrid, MessageSquareText, Puzzle, Rocket, Settings2, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
+import { Activity, Bell, Bot, CreditCard, Folder, LayoutGrid, MessageSquareText, Puzzle, Rocket, Settings2, ShieldCheck, SquareTerminal, type LucideIcon } from "lucide-react";
 import type { TranslationKey } from "@/i18n";
 
 /** A single entry in Nova's primary dashboard navigation. `badge` renders an optional unread-count pill. Labels and descriptions are translation keys, resolved with `t()` at render time. */
@@ -11,6 +11,7 @@ export const navItems: NavItem[] = [
   { icon: Bot, labelKey: "nav.agents", path: "/app/agents", descriptionKey: "nav.agents.desc" },
   { icon: Puzzle, labelKey: "nav.skills", path: "/app/skills", descriptionKey: "nav.skills.desc" },
   { icon: Rocket, labelKey: "nav.deployments", path: "/app/deployments", descriptionKey: "nav.deployments.desc" },
+  { icon: CreditCard, labelKey: "nav.billing", path: "/app/billing", descriptionKey: "nav.billing.desc" },
   { icon: SquareTerminal, labelKey: "nav.terminal", path: "/app/terminal", descriptionKey: "nav.terminal.desc" },
   { icon: Settings2, labelKey: "nav.settings", path: "/app/settings", descriptionKey: "nav.settings.desc" },
   { icon: Activity, labelKey: "nav.status", path: "/app/status", descriptionKey: "nav.status.desc" },

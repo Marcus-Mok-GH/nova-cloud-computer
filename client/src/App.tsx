@@ -21,6 +21,7 @@ import More from "./pages/More";
 import Profile from "./pages/Profile";
 import Workspace from "./pages/Workspace";
 import WorkspaceSettings from "./pages/WorkspaceSettings";
+import Billing from "./pages/Billing";
 import Status from "./pages/Status";
 import Admin from "./pages/Admin";
 import ApiDocs from "./pages/ApiDocs";
@@ -40,6 +41,7 @@ function Router() {
       <Route path={"/app/terminal"} component={Terminal} />
       <Route path={"/app/profile"} component={Profile} />
       <Route path={"/app/settings"} component={WorkspaceSettings} />
+      <Route path={"/app/billing"} component={Billing} />
       <Route path={"/app/status"} component={Status} />
       <Route path={"/app/more"} component={More} />
       <Route path={"/app/admin"} component={Admin} />

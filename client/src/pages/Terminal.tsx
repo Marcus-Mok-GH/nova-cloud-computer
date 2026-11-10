@@ -117,19 +117,32 @@ export default function Terminal() {
     if (!attached) return;
     aliveRef.current = true;
     let cancelled = false;
+    // A single `active: false` is NOT proof the shell died. The session lives
+    // in server memory, so a request that lands on a cold or rolled-over
+    // serverless instance reports no session while the PTY is still running in
+    // the sandbox. Treating that as the end killed the on-screen terminal
+    // within seconds of opening it. Only give up after the answer holds for
+    // several consecutive reads, which a genuine shell exit always does.
+    let missingReads = 0;
+    const MISSING_READS_BEFORE_END = 12; // ~3s at the 250ms poll
     const tick = async () => {
       if (cancelled || document.hidden) return;
       try {
         const result = await utils.terminal.read.fetch({ sinceSeq: seqRef.current });
-        if (result.active && (result.data || result.reset)) {
-          if (result.reset) termRef.current?.reset();
-          termRef.current?.write(result.data);
-          seqRef.current = result.seq;
-        } else if (!result.active) {
-          aliveRef.current = false;
-          setAttached(false);
-          termRef.current?.write("\r\n\x1b[33m[the terminal session ended]\x1b[0m\r\n");
+        if (result.active) {
+          missingReads = 0;
+          if (result.data || result.reset) {
+            if (result.reset) termRef.current?.reset();
+            termRef.current?.write(result.data);
+            seqRef.current = result.seq;
+          }
+          return;
         }
+        missingReads += 1;
+        if (missingReads < MISSING_READS_BEFORE_END) return;
+        aliveRef.current = false;
+        setAttached(false);
+        termRef.current?.write("\r\n\x1b[33m[the terminal session ended]\x1b[0m\r\n");
       } catch { /* transient poll failures are retried on the next tick */ }
     };
     const interval = setInterval(tick, READ_INTERVAL_MS);

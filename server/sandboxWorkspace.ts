@@ -12,6 +12,7 @@ import {
   createSandboxSnapshot,
 } from "./e2b";
 import { persistE2BWorkspace, restoreWorkspaceToE2B } from "./workspace/workspaceSync";
+import { hasOpenTerminalSession } from "./sandboxLiveness";
 import { safeRelativePath } from "./workspace/paths";
 import { truncateOutput } from "./truncate";
 import {
@@ -344,6 +345,11 @@ async function saveWorkspaceSnapshot(
  * it can never land in the middle of another run's restore/execute window.
  * Never throws - a sandbox with no pause primitive, or one already paused, is
  * simply left alone.
+ *
+ * An open terminal session keeps the machine warm: the shell's PTY lives in
+ * this same sandbox, and pausing it freezes the machine and drops the PTY, so
+ * a run finishing in another tab would silently kill the user's shell. The
+ * terminal's own teardown pauses the sandbox once the shell is gone.
  */
 export async function pauseAgentSandbox(
   ownerId: number,
@@ -351,6 +357,7 @@ export async function pauseAgentSandbox(
   sandbox: E2BSandboxLike | undefined
 ): Promise<boolean> {
   if (!sandbox?.pause || !isE2BConfigured()) return false;
+  if (hasOpenTerminalSession(ownerId)) return false;
   try {
     return await withE2BWorkspaceLock(ownerId, workspaceId, () =>
       pauseE2BSandbox(sandbox)

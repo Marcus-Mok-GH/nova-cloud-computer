@@ -15,13 +15,6 @@ const createWhopPriorityCheckout = vi.fn(async () => ({
 const isWhopConfigured = vi.fn(() => true);
 const getWhopPriorityPlanId = vi.fn(() => "plan_BFyuf6PmE5wwz");
 
-const createHitPayPaymentRequest = vi.fn(async () => ({
-  id: "payreq_hitpay_1",
-  url: "https://securecheckout.hit-pay.com/checkout",
-  referenceNumber: "nova-priority-1-test",
-}));
-const isHitPayConfigured = vi.fn(() => true);
-
 vi.mock("./db", () => ({
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
@@ -46,15 +39,6 @@ vi.mock("./whop", () => ({
   whopConfigurationMessage: () => "Nova Pro is not configured on this deployment. Contact the administrator to enable paid subscriptions.",
   whopPriorityConfigurationMessage: () =>
     "Priority purchases are not configured on this deployment yet. Contact the administrator to enable them.",
-}));
-
-vi.mock("./hitpay", () => ({
-  createHitPayPaymentRequest,
-  isHitPayConfigured,
-  HitPayNotConfiguredError: class extends Error {},
-  hitPayConfigurationMessage: () => "HitPay PayNow is not configured on this deployment yet.",
-  handleHitPayWebhook: vi.fn(),
-  isHitPayWebhookConfigured: () => true,
 }));
 
 const { appRouter } = await import("./routers");
@@ -150,23 +134,5 @@ describe("billing router", () => {
     const anonymous = appRouter.createCaller(contextFor(null));
     await expect(anonymous.billing.status()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(anonymous.billing.purchasePriority()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-  });
-
-  it("opens HitPay PayNow checkout for priority", async () => {
-    const caller = appRouter.createCaller(contextFor(userRow(1)));
-    const result = await caller.billing.createHitPayCheckout({
-      product: "priority",
-      redirectUrl: "https://nova-cloud-computer.vercel.app/checkout?product=priority",
-    });
-    expect(createHitPayPaymentRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerId: 1, product: "priority" })
-    );
-    expect(result).toEqual({ url: "https://securecheckout.hit-pay.com/checkout", referenceNumber: "nova-priority-1-test" });
-  });
-
-  it("rejects HitPay checkout when HitPay is not configured", async () => {
-    isHitPayConfigured.mockReturnValue(false);
-    const caller = appRouter.createCaller(contextFor(userRow(1)));
-    await expect(caller.billing.createHitPayCheckout({ product: "priority" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 });

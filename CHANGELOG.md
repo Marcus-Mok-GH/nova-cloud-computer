@@ -1,3 +1,35 @@
+2026-11-10 - Billing is its own page in the navigation
+
+Billing was a tab buried inside Settings; it is now a first-class destination
+at /app/billing, listed in the sidebar between Deployments and Terminal (and
+therefore on the More page, which renders the same nav list).
+
+The new page (client/src/pages/Billing.tsx) shows everything buyable in one
+place: the current plan with its renewal/cancellation date and a Manage
+subscription button, the paid credit balance with this month's usage and the
+carry-over window, and a card per plan — Free, Nova Pro (S$7.99/month) and
+Priority (S$4.99 one-time). Pro's card reads the live price and currency from
+`billing.subscription`, and every CTA that could charge money is disabled when
+the deployment has no Whop configuration. Buying Pro routes to the shared
+payment-methods page; Priority starts its Whop checkout directly and grants
+only when the webhook confirms payment.
+
+The Settings page no longer has a Billing tab: the tab entry, its panel, the
+BillingCard import and the dead `settings.tabs.billing` key are gone (the key
+was removed from the base locale and all seventeen generated locales). The
+priority countdown card that lived in that panel is now
+client/src/pages/BillingPriorityCard.tsx, renamed from components/BillingCard
+with its render test.
+
+Files: client/src/pages/Billing.tsx (new), client/src/pages/Billing.render.test.tsx
+(new), client/src/pages/BillingPriorityCard.tsx + .render.test.tsx (renamed from
+components/BillingCard), client/src/App.tsx (route), client/src/lib/nav.ts
+(nav entry), client/src/i18n/en.ts + locales + manifest, and
+client/src/pages/WorkspaceSettings.tsx + .render.test.tsx (Billing tab removed).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds;
+/app/billing renders for a signed-in account and redirects anonymous visits to
+the sign-in gate.
+
 2026-11-10 - removed the PayNow payment option
 
 PayNow is gone from Nova billing, in both places it existed. The HitPay

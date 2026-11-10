@@ -48,7 +48,7 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
  * much priority time is left. When it lapses the account returns to standard
  * placement and can buy again.
  */
-export default function BillingCard() {
+export default function BillingPriorityCard() {
   const utils = trpc.useUtils();
   const { t, locale } = useTranslation();
   const status = trpc.billing.status.useQuery(undefined, { retry: false });

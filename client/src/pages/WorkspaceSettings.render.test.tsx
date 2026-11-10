@@ -53,9 +53,6 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("OpenAI Codex");
     expect(markup).toContain("Automations");
     expect(markup).toContain("API keys");
-    expect(markup).toContain("Billing");
-    expect(markup).toContain("Priority requests");
-    expect(markup).toContain("Buy 1 hour of priority");
     expect(markup).toContain("Account</button>");
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("Personalisation");
@@ -114,7 +111,7 @@ describe("Workspace settings page", () => {
   });
 
   it("restores the last selected settings tab from localStorage on reload", () => {
-    const stored = new Map<string, string>([["nova.settings.tab", "billing"]]);
+    const stored = new Map<string, string>([["nova.settings.tab", "account"]]);
     vi.stubGlobal("localStorage", {
       getItem: (key: string) => stored.get(key) ?? null,
       setItem: (key: string, value: string) => { stored.set(key, String(value)); },
@@ -122,8 +119,8 @@ describe("Workspace settings page", () => {
       clear: () => { stored.clear(); },
     });
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
-    // The stored "billing" tab is selected; the default "general" tab is not.
-    expect(markup).toContain('id="settings-tab-billing" aria-selected="true"');
+    // The stored "account" tab is selected; the default "general" tab is not.
+    expect(markup).toContain('id="settings-tab-account" aria-selected="true"');
     expect(markup).toContain('id="settings-tab-general" aria-selected="false"');
   });
 

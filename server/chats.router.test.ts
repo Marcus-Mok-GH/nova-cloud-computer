@@ -32,15 +32,6 @@ vi.mock("./whop", () => ({
     "Priority purchases are not configured on this deployment yet.",
 }));
 
-vi.mock("./hitpay", () => ({
-  createHitPayPaymentRequest: vi.fn(),
-  isHitPayConfigured: vi.fn(() => true),
-  HitPayNotConfiguredError: class extends Error {},
-  hitPayConfigurationMessage: () => "HitPay PayNow is not configured on this deployment yet.",
-  handleHitPayWebhook: vi.fn(),
-  isHitPayWebhookConfigured: () => true,
-}));
-
 const { appRouter } = await import("./routers");
 
 type UserRow = TrpcContext["user"];

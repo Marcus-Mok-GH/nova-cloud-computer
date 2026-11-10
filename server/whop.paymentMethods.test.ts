@@ -50,18 +50,18 @@ describe("Whop checkout payment method configuration", () => {
     return { calls, fetchMock };
   }
 
-  it("enables PayNow and Apple Pay on the Nova Pro checkout (inline variant)", async () => {
+  it("enables Apple Pay on the Nova Pro checkout (inline variant)", async () => {
     const { calls } = mockCheckoutResponse();
     const { createWhopCheckout } = await import("./whop");
     const result = await createWhopCheckout({ ownerId: 42, planId: undefined, redirectUrl: "https://example.com/success" });
     expect(result.purchaseUrl).toBe("https://whop.com/checkout/ch_test_1");
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.payment_method_configuration).toBeUndefined();
-    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["paynow", "apple_pay"], disabled: [], include_platform_defaults: true });
+    expect(body.variant.payment_method_configuration).toEqual({ enabled: ["apple_pay"], disabled: [], include_platform_defaults: true });
     expect(body.variant.currency).toBe("sgd");
   });
 
-  it("does not send checkout-level payment method config on priority checkout (variant carries PayNow)", async () => {
+  it("does not send checkout-level payment method config on priority checkout (variant carries the config)", async () => {
     const { calls } = mockCheckoutResponse();
     const { createWhopPriorityCheckout } = await import("./whop");
     const result = await createWhopPriorityCheckout({

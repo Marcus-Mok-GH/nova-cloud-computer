@@ -42,7 +42,7 @@ function usePriorityCountdown(expiresAtMs: number | null): number | null {
 /**
  * Billing tab: a one-time S$4.99 purchase of priority queue placement.
  * The button opens the payment-methods page (/checkout?product=priority)
- * where the user chooses PayNow (HitPay) or Card (Whop). Priority is armed
+ * where the user pays by card via Whop. Priority is armed
  * only after the provider confirms payment via webhook.
  * The card shows a live countdown of the one-hour window so it is obvious how
  * much priority time is left. When it lapses the account returns to standard

@@ -280,7 +280,7 @@ describe("Workspace rendered browser states", () => {
     };
   });
 
-  it("renders the home without the starter composer or the workbench greeting", () => {
+  it("renders the home as the task prompt, not the workbench greeting", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
@@ -288,128 +288,39 @@ describe("Workspace rendered browser states", () => {
       refetch: vi.fn(),
     };
     const markup = renderWorkspace();
-    expect(markup).toContain("What are we working on today?");
-    expect(markup).not.toContain("<textarea");
+    // The prompt screen: question, composer, previews, and the row controls.
+    expect(markup).toContain("What does");
+    expect(markup).toContain("need done?");
+    expect(markup).toContain("Describe a task to start a conversation...");
+    expect(markup).toContain("Nova Lite");
+    expect(markup).toContain(">Auto");
+    expect(markup).toContain("My Nova");
+    expect(markup).toContain('aria-label="Start a session"');
+    expect(markup).toContain('aria-label="Attach images"');
+    expect(markup).toContain('aria-label="Workspace settings"');
+    expect(markup).toContain('class="nova-prompt-shell');
+    // The retired overview copy is gone.
+    expect(markup).not.toContain("What are we working on today?");
+    expect(markup).not.toContain("Tools on hand");
     expect(markup).not.toContain("What do you want Nova to help with?");
     expect(markup).not.toContain("Create thread");
     expect(markup).not.toContain("Private workbench /");
   });
 
-  it("renders workspace asset counts without folder browsing controls", () => {
-    state.computer = {
-      data: {
-        folders: [{ id: 1, name: "Plans", parentId: null }],
-        files: [
-          {
-            id: 2,
-            name: "launch-brief.md",
-            folderId: null,
-            updatedAt: new Date(),
-          },
-        ],
-      },
-      isError: false,
-      isLoading: false,
-      refetch: vi.fn(),
-    };
-
-    const markup = renderWorkspace();
-    expect(markup).toContain("What are we working on today?");
-    expect(markup).toContain("Tools on hand");
-    expect(markup).not.toContain("Private workbench /");
-    expect(markup).toContain("GitHub");
-    expect(markup).toContain("Gmail");
-    expect(markup).not.toContain("Cloud VM");
-    expect(markup).toContain("Connect");
-    expect(markup).not.toContain("Pick up where you left off");
-    expect(markup).not.toContain("Plans");
-    expect(markup).not.toContain("Workspace folders");
-    expect(markup).not.toContain("Ask Mistral");
-    expect(markup).not.toContain("Run in agent VM");
-    expect(markup).not.toContain("Codebuff");
-  });
-
-  it("shows the Telegram connector as Ready only when a chat is linked, not when only the bot token is set", () => {
+  it("keeps the session start button disabled until there is something to send", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
       isLoading: false,
       refetch: vi.fn(),
     };
-    state.composioStatus = {
-      data: {
-        keyLength: 64,
-        toolkits: {
-          github: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as const,
-            connectedAccountId: null,
-          },
-          gmail: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as const,
-            connectedAccountId: null,
-          },
-        },
-      },
-      isLoading: false,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    };
-    state.telegramStatus = {
-      data: { configured: true, chatId: null },
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    };
-    let markup = renderWorkspace();
-    expect(markup).not.toContain("Ready");
-    state.telegramStatus = {
-      data: { configured: true, chatId: "424242" },
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    };
-    markup = renderWorkspace();
-    expect(markup).toContain("Ready");
-  });
-
-  it("shows a connected connector as Ready and an unconnected one as Connect", () => {
-    state.computer = {
-      data: { folders: [], files: [] },
-      isError: false,
-      isLoading: false,
-      refetch: vi.fn(),
-    };
-    state.composioStatus = {
-      data: {
-        keyLength: 64,
-        toolkits: {
-          github: {
-            configured: true,
-            connected: true,
-            status: "active" as const,
-            connectedAccountId: "acc_1",
-          },
-          gmail: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as "active" | "disconnected",
-            connectedAccountId: null,
-          },
-        },
-      },
-      isLoading: false,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    };
     const markup = renderWorkspace();
-    expect(markup).toContain("Ready");
-    expect(markup).toContain("Connect");
+    // The initial draft is empty and nothing is attached.
+    expect(markup).toMatch(/type="submit" disabled/);
+    expect(markup).not.toContain("Tools on hand");
+    expect(markup).not.toContain("GitHub");
+    expect(markup).not.toContain("Gmail");
+    expect(markup).not.toContain("Connect");
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {
@@ -419,7 +330,7 @@ describe("Workspace rendered browser states", () => {
       isLoading: true,
       refetch: vi.fn(),
     };
-    expect(renderWorkspace()).toContain("What are we working on today?");
+    expect(renderWorkspace()).toContain("need done?");
 
     state.computer = {
       data: { folders: [], files: [] },
@@ -427,7 +338,7 @@ describe("Workspace rendered browser states", () => {
       isLoading: false,
       refetch: vi.fn(),
     };
-    expect(renderWorkspace()).toContain("Tools on hand");
+    expect(renderWorkspace()).toContain("Describe a task to start a conversation...");
 
     state.computer = {
       data: undefined,
@@ -484,8 +395,10 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Tools on hand");
+    expect(markup).toContain("need done?");
+    expect(markup).toContain("Describe a task to start a conversation...");
     expect(markup).not.toContain("Workspace folders");
+    expect(markup).not.toContain("Tools on hand");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask Mistral");
     expect(markup).not.toContain("Run in agent VM");

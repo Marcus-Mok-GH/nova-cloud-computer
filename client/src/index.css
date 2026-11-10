@@ -208,6 +208,17 @@ button, a, [role="button"] { touch-action: manipulation; }
 /* ---------------- Landing page ---------------- */
 .landing-shell { background: var(--background); color: var(--foreground); }
 
+/* The /app overview's task prompt: a faint dot grid (graph-paper texture)
+   that keeps the prompt the focus of the screen. Dots follow the theme. */
+.nova-prompt-shell {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--foreground) 14%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 22px 22px;
+}
+
 /* Plain paper background and editorial display type keep the product in focus. */
 .landing-hero { position: relative; }
 .landing-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }

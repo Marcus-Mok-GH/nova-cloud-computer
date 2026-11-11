@@ -1,3 +1,38 @@
+2026-11-11 - operators keep every Pro feature through the Admin tier
+
+The Admin tier added to the plan menu was a role marker with no
+entitlement behind it: console operators (admin/developer roles) still
+read "locked" at every Pro surface - premium models, agent and team
+creation - unless they also happened to pay for a subscription.
+
+Pro access is now a real entitlement, decided once on the server:
+
+- A new `hasProAccessForUser` predicate (next to the funding-source
+  `isPaidPlanForUser` in the credits module) reads true for an active
+  paid plan **or** a console-operator role.
+- Every Pro gate consults it: chat model selection and setting
+  (composer + send path), personal agent and team creation, and the
+  premium-model check on the AI gateway's completion path. Free
+  standard users see exactly the same locked state they always did.
+- `billing.subscription` now reports `proAccess` beside the raw plan,
+  and the web UI's Pro locks (the Agents page builders, the plan menu
+  rows) read that flag - so an operator's composer and builders read
+  unlocked even on a free subscription.
+- Credit funding stays subscription-based: an operator's runs spend
+  their role's daily credits (developers: unlimited), never a monthly
+  pool, so the funding-source predicate is unchanged.
+
+Files: server/db/credits.ts, server/routers.ts, server/aiGateway.ts,
+server/db/credits.test.ts, server/agents.router.test.ts,
+server/chats.router.test.ts, server/billing.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Workspace.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/pages/Agents.render.test.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, CHANGELOG.md.
+
+Tests: pnpm check, pnpm test (1686 passed, 11 new), pnpm build; the
+new cases watched RED first (11 failures) then GREEN.
+
 2026-11-11 - creating personal agents is now a Nova Pro feature
 
 The Agents page's "New agent" builder was open to every account: free

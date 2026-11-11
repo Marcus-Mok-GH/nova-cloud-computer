@@ -6,7 +6,9 @@ let mockUser: { name: string; email: string; role?: "user" | "admin" | "develope
 let mockErrorLogs: unknown[] = [];
 let mockPath = "/app/chats";
 /** The billing.subscription payload the plan badge reads; null = still loading. */
-let mockSubscription: { plan: "free" | "paid" } | null = { plan: "free" };
+let mockSubscription: { plan: "free" | "paid"; proAccess?: boolean } | null = {
+  plan: "free",
+};
 
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ loading: false, user: mockUser, logout: vi.fn() }),
@@ -55,18 +57,22 @@ describe("planRows", () => {
     ]);
   });
 
-  it("adds the admin tier for admin accounts, as their current tier, with Pro still locked when unpaid", () => {
-    expect(planRows(false, true)).toEqual([
+  it("adds the admin tier for admin accounts, with Pro unlocked through their Pro access", () => {
+    // Operators read proAccess true from the server even on a free
+    // subscription, so the Pro row is never locked for them.
+    expect(planRows(true, true)).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
-      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: false },
       { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
     ]);
   });
 
-  it("keeps a paid admin's Pro unlocked and the admin tier current", () => {
-    expect(planRows(true, true)).toEqual([
+  it("keeps Pro locked for an operator the server did not grant Pro access", () => {
+    // Unreachable in practice (the server sets proAccess for operators);
+    // documents the row-derivation when the flag and the role disagree.
+    expect(planRows(false, true)).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
-      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
       { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
     ]);
   });
@@ -98,7 +104,7 @@ describe("DashboardLayout plan badge", () => {
   it("shows Pro beside the wordmark for a paid account, in the display serif", () => {
     mockUser = { name: "Test", email: "t@t.com", role: "user" };
     mockPath = "/app";
-    mockSubscription = { plan: "paid" };
+    mockSubscription = { plan: "paid", proAccess: true };
     const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
     expect(html).toContain('aria-label="Your plan"');
     expect(html).toContain(">Pro<");
@@ -122,7 +128,7 @@ describe("DashboardLayout plan badge", () => {
   it("shows Admin beside the wordmark for an admin account, even on a free subscription", () => {
     mockUser = { name: "Owner", email: "owner@example.com", role: "admin" };
     mockPath = "/app";
-    mockSubscription = { plan: "free" };
+    mockSubscription = { plan: "free", proAccess: true };
     const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
     expect(html).toContain('aria-label="Your plan"');
     // The admin tier is the account's own, so it is what the trigger shows.
@@ -134,7 +140,7 @@ describe("DashboardLayout plan badge", () => {
   it("shows no admin tier to a standard user", () => {
     mockUser = { name: "Test", email: "t@t.com", role: "user" };
     mockPath = "/app";
-    mockSubscription = { plan: "paid" };
+    mockSubscription = { plan: "paid", proAccess: true };
     const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
     expect(html).not.toContain(">Admin<");
   });

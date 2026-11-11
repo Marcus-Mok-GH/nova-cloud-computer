@@ -62,6 +62,7 @@ import {
   getPriorityStatusForUser,
   getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
+  hasProAccessForUser,
   getCreditTopUpBalanceForUser,
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
@@ -152,8 +153,8 @@ async function resolveChatModelAndEffort(
     throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
   }
   if (catalogueEntry.tier === "pro") {
-    const subscription = await getSubscriptionForUser(ownerId);
-    if (subscription.plan !== "paid") {
+    // Pro models need Pro access: a paid plan or a console-operator role.
+    if (!(await hasProAccessForUser(ownerId))) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
     }
   }
@@ -395,13 +396,20 @@ export const appRouter = router({
      * window, so nothing vanishes at the month boundary.
      */
     subscription: protectedProcedure.query(async ({ ctx }) => {
-      const [subscription, monthlyCredits, creditTopUps] = await Promise.all([
+      const [subscription, monthlyCredits, creditTopUps, proAccess] = await Promise.all([
         getSubscriptionForUser(ctx.user.id),
         getMonthlyCreditStatusForUser(ctx.user.id),
         getCreditTopUpBalanceForUser(ctx.user.id),
+        hasProAccessForUser(ctx.user.id),
       ]);
       return {
         plan: subscription.plan,
+        /**
+         * Effective Pro entitlement: true for a paid plan or a
+         * console-operator role. The client's Pro locks read this, while
+         * `plan` keeps reporting the raw subscription state.
+         */
+        proAccess,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
@@ -853,12 +861,16 @@ export const appRouter = router({
     models: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");
-      const subscription = await getSubscriptionForUser(ctx.user.id);
-      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, effort: chat.effort ?? "auto", plan: subscription.plan };
+      // The effective plan, not the raw subscription: a console operator
+      // reads "paid" through the Admin tier, so the composer's lock always
+      // matches what the server will allow.
+      const proAccess = await hasProAccessForUser(ctx.user.id);
+      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, effort: chat.effort ?? "auto", plan: proAccess ? "paid" : "free" };
     }),
     /**
-     * Sets the chat's model. Premium ids are gated on an active paid plan
-     * here as well as in the composer, so the rule holds for every client.
+     * Sets the chat's model. Premium ids are gated on Pro access here as
+     * well as in the composer (a paid plan or a console-operator role), so
+     * the rule holds for every client.
      */
     setModel: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), model: z.string().trim().min(1).max(64).nullable() })).mutation(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
@@ -868,11 +880,8 @@ export const appRouter = router({
       if (!catalogueEntry) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
       }
-      if (catalogueEntry.tier === "pro") {
-        const subscription = await getSubscriptionForUser(ctx.user.id);
-        if (subscription.plan !== "paid") {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
-        }
+      if (catalogueEntry.tier === "pro" && !(await hasProAccessForUser(ctx.user.id))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
       }
       const stored = modelId === FREE_CHAT_MODEL_ID ? null : modelId;
       const updated = await setChatModelForUser(ctx.user.id, input.chatId, stored);
@@ -916,9 +925,9 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => listAgentsForUser(ctx.user.id)),
     create: protectedProcedure.input(agentCreateInput).mutation(async ({ ctx, input }) => {
       // Creating a personal agent is a Nova Pro feature; the client locks
-      // the builder, but the rule holds for every client here too.
-      const subscription = await getSubscriptionForUser(ctx.user.id);
-      if (subscription.plan !== "paid") {
+      // the builder, but the rule holds for every client here too. Pro
+      // access means a paid plan or a console-operator role.
+      if (!(await hasProAccessForUser(ctx.user.id))) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Personal agents are part of Nova Pro. Upgrade to create one." });
       }
       try {
@@ -956,9 +965,9 @@ export const appRouter = router({
     chats: protectedProcedure.query(({ ctx }) => listAgentChatsForUser(ctx.user.id)),
     createTeam: protectedProcedure.input(teamCreateInput).mutation(async ({ ctx, input }) => {
       // Team creation is a Nova Pro feature; the client locks the builder,
-      // but the rule holds for every client here too.
-      const subscription = await getSubscriptionForUser(ctx.user.id);
-      if (subscription.plan !== "paid") {
+      // but the rule holds for every client here too. Pro access means a
+      // paid plan or a console-operator role.
+      if (!(await hasProAccessForUser(ctx.user.id))) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Agent teams are part of Nova Pro. Upgrade to create one." });
       }
       const result = await createTeamChatForUser(ctx.user.id, input);

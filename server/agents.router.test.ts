@@ -1,8 +1,8 @@
 /**
  * Router-level test for the Nova Pro gate on agent creation. The builders
  * are locked in the client, but the rule must hold for every client, so the
- * create and createTeam procs re-check the subscription before creating
- * anything.
+ * create and createTeam procs re-check Pro entitlement before creating
+ * anything (an active paid plan or a console-operator role).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
@@ -15,6 +15,8 @@ const getSubscriptionForUser = vi.fn(async () => ({
   cancelAtPeriodEnd: false,
   whopCheckoutConfigId: null as string | null,
 }));
+/** The Pro-entitlement gate (paid subscription OR console-operator role). */
+const hasProAccessForUser = vi.fn(async () => false);
 const createAgentForUser = vi.fn(async (userId: number, input: unknown) => ({
   id: 42,
   userId,
@@ -32,7 +34,7 @@ const createTeamChatForUser = vi.fn(async () => ({
   members: [],
 }));
 
-vi.mock("./db", () => ({ getSubscriptionForUser }));
+vi.mock("./db", () => ({ getSubscriptionForUser, hasProAccessForUser }));
 vi.mock("./agents", () => ({
   AgentNameTakenError: class extends Error {},
   createAgentForUser,
@@ -61,39 +63,26 @@ function userRow(id: number): UserRow {
 
 const teamInput = { name: "Launch crew", goal: "Plan the launch", agentIds: [11, 12] };
 
-describe("agents.createTeam plan gate", () => {
+describe("agents.createTeam Pro gate", () => {
   beforeEach(() => {
     getSubscriptionForUser.mockClear();
     createTeamChatForUser.mockClear();
-    getSubscriptionForUser.mockResolvedValue({
-      plan: "free",
-      status: "inactive",
-      provider: "whop",
-      currentPeriodEnd: null,
-      cancelAtPeriodEnd: false,
-      whopCheckoutConfigId: null,
-    });
+    hasProAccessForUser.mockClear();
+    hasProAccessForUser.mockResolvedValue(false);
   });
 
-  it("refuses team creation for a free account", async () => {
+  it("refuses team creation without Pro access", async () => {
     const caller = appRouter.createCaller(contextFor(userRow(1)));
     await expect(caller.agents.createTeam(teamInput)).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
       message: "Agent teams are part of Nova Pro. Upgrade to create one.",
     });
-    expect(getSubscriptionForUser).toHaveBeenCalledWith(1);
+    expect(hasProAccessForUser).toHaveBeenCalledWith(1);
     expect(createTeamChatForUser).not.toHaveBeenCalled();
   });
 
-  it("lets a paid account create a team", async () => {
-    getSubscriptionForUser.mockResolvedValueOnce({
-      plan: "paid",
-      status: "active",
-      provider: "whop",
-      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
-      cancelAtPeriodEnd: false,
-      whopCheckoutConfigId: null,
-    });
+  it("lets an account with Pro access create a team", async () => {
+    hasProAccessForUser.mockResolvedValueOnce(true);
     const caller = appRouter.createCaller(contextFor(userRow(1)));
     const result = await caller.agents.createTeam(teamInput);
     expect(createTeamChatForUser).toHaveBeenCalledWith(1, teamInput);
@@ -109,10 +98,37 @@ const agentInput = {
   walletBudgetCredits: 500,
 };
 
-describe("agents.create plan gate", () => {
+describe("agents.create Pro gate", () => {
   beforeEach(() => {
     getSubscriptionForUser.mockClear();
     createAgentForUser.mockClear();
+    hasProAccessForUser.mockClear();
+    hasProAccessForUser.mockResolvedValue(false);
+  });
+
+  it("refuses agent creation without Pro access", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.agents.create(agentInput)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Personal agents are part of Nova Pro. Upgrade to create one.",
+    });
+    expect(hasProAccessForUser).toHaveBeenCalledWith(1);
+    expect(createAgentForUser).not.toHaveBeenCalled();
+  });
+
+  it("lets an account with Pro access create an agent", async () => {
+    hasProAccessForUser.mockResolvedValueOnce(true);
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const agent = await caller.agents.create(agentInput);
+    expect(createAgentForUser).toHaveBeenCalledWith(1, agentInput);
+    expect(agent.id).toBe(42);
+  });
+
+  it("lets an operator on a free subscription create an agent", async () => {
+    // The entitlement, not the raw subscription, is what the gate reads: an
+    // operator (mocked true above) must pass even though the subscription
+    // says free, and the subscription must not even be consulted.
+    hasProAccessForUser.mockResolvedValueOnce(true);
     getSubscriptionForUser.mockResolvedValue({
       plan: "free",
       status: "inactive",
@@ -121,30 +137,9 @@ describe("agents.create plan gate", () => {
       cancelAtPeriodEnd: false,
       whopCheckoutConfigId: null,
     });
-  });
-
-  it("refuses agent creation for a free account", async () => {
-    const caller = appRouter.createCaller(contextFor(userRow(1)));
-    await expect(caller.agents.create(agentInput)).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-      message: "Personal agents are part of Nova Pro. Upgrade to create one.",
-    });
-    expect(getSubscriptionForUser).toHaveBeenCalledWith(1);
-    expect(createAgentForUser).not.toHaveBeenCalled();
-  });
-
-  it("lets a paid account create an agent", async () => {
-    getSubscriptionForUser.mockResolvedValueOnce({
-      plan: "paid",
-      status: "active",
-      provider: "whop",
-      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
-      cancelAtPeriodEnd: false,
-      whopCheckoutConfigId: null,
-    });
-    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const caller = appRouter.createCaller(contextFor(userRow(2)));
     const agent = await caller.agents.create(agentInput);
-    expect(createAgentForUser).toHaveBeenCalledWith(1, agentInput);
     expect(agent.id).toBe(42);
+    expect(getSubscriptionForUser).not.toHaveBeenCalled();
   });
 });

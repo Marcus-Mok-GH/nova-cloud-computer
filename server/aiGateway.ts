@@ -4,6 +4,7 @@ import {
   claimMonthlyCreditForUser,
   claimPurchasedCreditForUser,
   getInferenceAllowanceForUser,
+  hasProAccessForUser,
   isPaidPlanForUser,
   settleDailyCreditUsageForUser,
   settleMonthlyCreditUsageForUser,
@@ -1162,15 +1163,16 @@ export async function chatWithAiGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
-  // Premium models are a paid-plan feature, and this check runs on the send
-  // path so a model id can never be smuggled past the composer's own gate.
-  // The free model (or an id the catalogue does not know) falls through to
-  // the built-in chain, which is exactly what `nova-pro` means.
+  // Premium models are a Pro feature, and this check runs on the send path
+  // so a model id can never be smuggled past the composer's own gate. Pro
+  // access means a paid plan or a console-operator role; the free model (or
+  // an id the catalogue does not know) falls through to the built-in chain,
+  // which is exactly what `nova-pro` means.
   const selectedModel = getChatModelById(options.model);
   if (selectedModel && selectedModel.tier === "pro") {
-    if (!(await isPaidPlanForUser(ownerId))) {
+    if (!(await hasProAccessForUser(ownerId))) {
       throw new AiGatewayClientError(
-        "Premium models require an active Nova Pro subscription. Upgrade to switch models, or keep using the free Nova Lite model.",
+        "Premium models require Nova Pro access. Upgrade to switch models, or keep using the free Nova Lite model.",
         "client_error"
       );
     }

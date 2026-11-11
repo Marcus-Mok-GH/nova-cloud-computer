@@ -518,11 +518,11 @@ export default function Agents() {
   const approvals = trpc.agents.approvals.useQuery();
   const inbox = trpc.agents.inbox.useQuery();
   const billing = trpc.billing.subscription.useQuery(undefined, { retry: false });
-  // Creating agents and teams is locked for free accounts once the
-  // subscription query resolves; while it is still loading the builders stay
-  // available and the server gate decides for accounts the client can't yet
-  // see.
-  const proLocked = billing.data ? billing.data.plan !== "paid" : false;
+  // Creating agents and teams is locked for accounts without Pro access once
+  // the subscription query resolves; while it is still loading the builders
+  // stay available and the server gate decides. Pro access is the server's
+  // own verdict (a paid plan or a console-operator role), not the raw plan.
+  const proLocked = billing.data ? !billing.data.proAccess : false;
 
   const [agentDialog, setAgentDialog] = useState<
     { mode: "new" } | { mode: "edit"; agent: AgentRow } | null

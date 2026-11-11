@@ -174,6 +174,20 @@ export async function isPaidPlanForUser(ownerId: number) {
 }
 
 /**
+ * Whether the owner may use every Nova Pro feature right now: an active
+ * paid plan, or a console-operator role. Operators hold the Admin tier, so
+ * Pro features unlock for them regardless of their subscription. This is
+ * the feature gate; credit funding stays subscription-based
+ * (`isPaidPlanForUser`) - an operator's runs spend their role's daily
+ * credits (developers are unlimited), never a monthly pool.
+ */
+export async function hasProAccessForUser(ownerId: number) {
+  const role = await getUserRole(ownerId);
+  if (role === "admin" || role === "developer") return true;
+  return (await getSubscriptionForUser(ownerId)).plan === "paid";
+}
+
+/**
  * Creates (or raises) the current month's allocation for a paid owner. Safe to
  * call repeatedly: the row is keyed by (ownerId, creditMonth) and the stored
  * allocation never shrinks.

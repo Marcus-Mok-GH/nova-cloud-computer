@@ -18,6 +18,8 @@ const createWhopCreditTopUpCheckout = vi.fn(async () => ({
 }));
 const isWhopConfigured = vi.fn(() => true);
 const getWhopPriorityPlanId = vi.fn(() => "plan_BFyuf6PmE5wwz");
+/** The Pro-entitlement gate (paid subscription OR console-operator role). */
+const hasProAccessForUser = vi.fn(async () => false);
 
 vi.mock("./db", () => ({
   getDailyCreditStatusForUser: vi.fn(async () => ({
@@ -30,6 +32,7 @@ vi.mock("./db", () => ({
   })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getPriorityStatusForUser,
+  hasProAccessForUser,
   getSubscriptionForUser: vi.fn(async () => ({
     plan: "free",
     status: "inactive",
@@ -113,6 +116,8 @@ describe("billing router", () => {
       id: "ch_credits_1",
       purchaseUrl: "https://whop.com/checkout/credits",
     });
+    hasProAccessForUser.mockClear();
+    hasProAccessForUser.mockResolvedValue(false);
   });
 
   it("opens checkout for a credit bundle, priced from the catalog", async () => {
@@ -213,6 +218,24 @@ describe("billing router", () => {
     const caller = appRouter.createCaller(contextFor(userRow(1)));
     await expect(caller.billing.purchasePriority()).rejects.toMatchObject({ code: "CONFLICT" });
     expect(createWhopPriorityCheckout).not.toHaveBeenCalled();
+  });
+
+  describe("billing.subscription Pro access flag", () => {
+    it("reports proAccess false for a standard user on a free plan", async () => {
+      const caller = appRouter.createCaller(contextFor(userRow(1)));
+      const result = await caller.billing.subscription();
+      expect(result.plan).toBe("free");
+      expect(result.proAccess).toBe(false);
+    });
+
+    it("reports proAccess true for an account with Pro entitlement", async () => {
+      hasProAccessForUser.mockResolvedValueOnce(true);
+      const caller = appRouter.createCaller(contextFor(userRow(2)));
+      const result = await caller.billing.subscription();
+      // The raw subscription may still say free (an operator); the flag is
+      // what the client's Pro locks read.
+      expect(result.proAccess).toBe(true);
+    });
   });
 
   it("requires a signed-in account", async () => {

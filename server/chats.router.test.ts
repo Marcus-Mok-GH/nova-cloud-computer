@@ -6,17 +6,22 @@ const createChatForUser = vi.fn(async () => ({
   model: null,
   effort: null,
 }));
-const getChatForUser = vi.fn(async () => ({
-  id: "c00000000000000000000001",
-  model: "nova-ultra",
-  effort: "high",
-}));
+const getChatForUser = vi.fn(
+  async (): Promise<{ id: string; model: string; effort: string | null }> => ({
+    id: "c0000000000000000000000001",
+    model: "nova-ultra",
+    effort: "high",
+  })
+);
 const getSubscriptionForUser = vi.fn(async () => ({ plan: "free" }));
+/** The Pro-entitlement gate (paid subscription OR console-operator role). */
+const hasProAccessForUser = vi.fn(async () => false);
 
 vi.mock("./db", () => ({
   createChatForUser,
   getChatForUser,
   getSubscriptionForUser,
+  hasProAccessForUser,
 }));
 
 vi.mock("./whop", () => ({
@@ -60,6 +65,7 @@ describe("chats model + effort router", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSubscriptionForUser.mockResolvedValue({ plan: "free" });
+    hasProAccessForUser.mockResolvedValue(false);
     createChatForUser.mockResolvedValue({ id: "c1", model: null, effort: null });
   });
 
@@ -78,15 +84,15 @@ describe("chats model + effort router", () => {
     expect(createChatForUser).not.toHaveBeenCalled();
   });
 
-  it("stores a premium model + supported effort on a paid plan", async () => {
-    getSubscriptionForUser.mockResolvedValue({ plan: "paid" });
+  it("stores a premium model + supported effort on a Pro-access account", async () => {
+    hasProAccessForUser.mockResolvedValue(true);
     const caller = appRouter.createCaller(contextFor(userRow(2)));
     await caller.chats.create({ title: "Task", model: "nova-ultra", effort: "high" });
     expect(createChatForUser).toHaveBeenCalledWith(2, "Task", "nova-ultra", "high");
   });
 
   it("downgrades an effort the model does not offer to auto (null)", async () => {
-    getSubscriptionForUser.mockResolvedValue({ plan: "paid" });
+    hasProAccessForUser.mockResolvedValue(true);
     const caller = appRouter.createCaller(contextFor(userRow(3)));
     // claude-sonnet-4.6 only offers "auto"; "max" must fall back to null.
     await caller.chats.create({
@@ -120,5 +126,18 @@ describe("chats model + effort router", () => {
     const result = await caller.chats.models({ chatId: "c1" });
     expect(result.effort).toBe("auto");
     expect(result.current).toBe("nova-ultra");
+  });
+
+  it("reports the effective plan in chats.models: an operator reads paid", async () => {
+    getChatForUser.mockResolvedValueOnce({
+      id: "c1",
+      model: "nova-ultra",
+      effort: null,
+    });
+    hasProAccessForUser.mockResolvedValueOnce(true);
+    getSubscriptionForUser.mockResolvedValueOnce({ plan: "free" });
+    const caller = appRouter.createCaller(contextFor(userRow(6)));
+    const result = await caller.chats.models({ chatId: "c1" });
+    expect(result.plan).toBe("paid");
   });
 });

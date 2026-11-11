@@ -1,20 +1,22 @@
+import React from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
 /** Circular "+" floating action button pinned near the bottom-right corner.
- * Creates a new chat and enters it. */
+ * Creates a new chat that then appears in the /app/chats archive, so the
+ * visitor stays on the page instead of being redirected into the /app
+ * thread view. */
 export default function NewChatButton() {
-  const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const create = trpc.chats.create.useMutation({ onSuccess: () => Promise.all([utils.workspace.chats.invalidate(), utils.workspace.computer.invalidate()]) });
 
   const startNewChat = async () => {
     if (create.isPending) return;
     try {
-      const chat = await create.mutateAsync({ title: "New workspace conversation" });
-      setLocation(`/app?chatId=${chat.id}`);
+      // Refetches in onSuccess push the new conversation to the top of the
+      // archive; the page itself is left alone.
+      await create.mutateAsync({ title: "New workspace conversation" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Nova could not start that conversation.");
     }

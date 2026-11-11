@@ -1,3 +1,15 @@
+2026-11-11 - the + button on Chats creates a conversation in place, without leaving the page
+
+The floating + on the Chats archive used to create the conversation and then
+navigate straight into it at `/app?chatId=...`. That made the archive's own
+action impossible to use while staying in the archive - pressing + threw the
+visitor out of the list they were working in.
+
+The button now only creates the conversation and lets the existing refetch put
+it at the top of the list, which is ordered by `updatedAt`. Opening a
+conversation still happens by selecting its row, so the two actions are no
+longer the same click.
+
 2026-11-11 - credits can be bought outright, S$5 to S$50
 
 Nova sold two things: the free daily allowance and the Nova Pro subscription

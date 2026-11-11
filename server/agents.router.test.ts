@@ -1,7 +1,8 @@
 /**
- * Router-level test for the Nova Pro gate on agent team creation. The
- * builder is locked in the client, but the rule must hold for every client,
- * so the createTeam proc re-checks the subscription before creating anything.
+ * Router-level test for the Nova Pro gate on agent creation. The builders
+ * are locked in the client, but the rule must hold for every client, so the
+ * create and createTeam procs re-check the subscription before creating
+ * anything.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
@@ -14,6 +15,17 @@ const getSubscriptionForUser = vi.fn(async () => ({
   cancelAtPeriodEnd: false,
   whopCheckoutConfigId: null as string | null,
 }));
+const createAgentForUser = vi.fn(async (userId: number, input: unknown) => ({
+  id: 42,
+  userId,
+  name: input && typeof input === "object" && "name" in input ? (input as { name: string }).name : "Mira",
+  role: null,
+  instructions: null,
+  emailAlias: "mira-9e1d@nova.local",
+  phoneHandle: "+1-555-0199",
+  walletBudgetCredits: null,
+  walletSpentCredits: 0,
+}));
 const createTeamChatForUser = vi.fn(async () => ({
   ok: true as const,
   chat: { id: "chat_team_1", title: "Launch crew", kind: "team" as const, teamGoal: "Plan the launch" },
@@ -23,6 +35,7 @@ const createTeamChatForUser = vi.fn(async () => ({
 vi.mock("./db", () => ({ getSubscriptionForUser }));
 vi.mock("./agents", () => ({
   AgentNameTakenError: class extends Error {},
+  createAgentForUser,
   createTeamChatForUser,
 }));
 
@@ -86,5 +99,52 @@ describe("agents.createTeam plan gate", () => {
     expect(createTeamChatForUser).toHaveBeenCalledWith(1, teamInput);
     expect(result.ok).toBe(true);
     expect(result.chat.id).toBe("chat_team_1");
+  });
+});
+
+const agentInput = {
+  name: "Mira",
+  role: "Researcher",
+  instructions: "Research first.",
+  walletBudgetCredits: 500,
+};
+
+describe("agents.create plan gate", () => {
+  beforeEach(() => {
+    getSubscriptionForUser.mockClear();
+    createAgentForUser.mockClear();
+    getSubscriptionForUser.mockResolvedValue({
+      plan: "free",
+      status: "inactive",
+      provider: "whop",
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      whopCheckoutConfigId: null,
+    });
+  });
+
+  it("refuses agent creation for a free account", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.agents.create(agentInput)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Personal agents are part of Nova Pro. Upgrade to create one.",
+    });
+    expect(getSubscriptionForUser).toHaveBeenCalledWith(1);
+    expect(createAgentForUser).not.toHaveBeenCalled();
+  });
+
+  it("lets a paid account create an agent", async () => {
+    getSubscriptionForUser.mockResolvedValueOnce({
+      plan: "paid",
+      status: "active",
+      provider: "whop",
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+      cancelAtPeriodEnd: false,
+      whopCheckoutConfigId: null,
+    });
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const agent = await caller.agents.create(agentInput);
+    expect(createAgentForUser).toHaveBeenCalledWith(1, agentInput);
+    expect(agent.id).toBe(42);
   });
 });

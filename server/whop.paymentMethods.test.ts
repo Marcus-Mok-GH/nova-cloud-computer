@@ -14,6 +14,7 @@ const ensureMonthlyAllocationForUser = vi.fn(async () => undefined);
 const getOwnerIdForWhopMembership = vi.fn(async () => null);
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   setWhopCheckoutConfigIdForUser,
   purchasePriorityForUser,
   recordWhopWebhookEvent,

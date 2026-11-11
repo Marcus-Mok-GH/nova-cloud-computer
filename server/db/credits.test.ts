@@ -7,16 +7,21 @@
  * for an unsubscribed operator.
  */
 import { describe, expect, it, vi } from "vitest";
-import { userSubscriptions } from "../../drizzle/schema";
+import { userSubscriptions, users } from "../../drizzle/schema";
+import type { CreditRole } from "../credits";
 
-const { getUserRole } = vi.hoisted(() => ({ getUserRole: vi.fn(async () => "user" as const) }));
+const { getUserRole } = vi.hoisted(() => ({
+  getUserRole: vi.fn(async (): Promise<CreditRole> => "user"),
+}));
 /** Rows for the userSubscriptions select; everything else the fake serves. */
 let subscriptionRows: unknown[] = [];
+/** Rows for the users select (the free-trial window is measured from createdAt). */
+let userRows: unknown[] = [];
 const fakeDb = {
   select: () => ({
     from: (table: unknown) => ({
       where: () => ({
-        limit: async () => (table === userSubscriptions ? subscriptionRows : []),
+        limit: async () => (table === userSubscriptions ? subscriptionRows : table === users ? userRows : []),
       }),
     }),
   }),
@@ -25,7 +30,12 @@ const fakeDb = {
 vi.mock("./core", () => ({ requireDb: async () => fakeDb }));
 vi.mock("./users", () => ({ getUserRole }));
 
-const { hasProAccessForUser, isPaidPlanForUser } = await import("./credits");
+const {
+  hasActiveAccessForUser,
+  hasProAccessForUser,
+  isFreeTrialActiveForUser,
+  isPaidPlanForUser,
+} = await import("./credits");
 
 describe("hasProAccessForUser", () => {
   it("grants Pro access to an admin role without any subscription", async () => {
@@ -86,5 +96,84 @@ describe("isPaidPlanForUser stays subscription-based", () => {
       },
     ];
     await expect(isPaidPlanForUser(3)).resolves.toBe(true);
+  });
+});
+
+describe("isFreeTrialActiveForUser", () => {
+  it("is active inside the 14-day window from account creation", async () => {
+    userRows = [{ createdAt: new Date(Date.now() - 3 * 86_400_000) }];
+    await expect(isFreeTrialActiveForUser(1)).resolves.toBe(true);
+  });
+
+  it("is active on the last day of the window", async () => {
+    userRows = [{ createdAt: new Date(Date.now() - 13 * 86_400_000) }];
+    await expect(isFreeTrialActiveForUser(2)).resolves.toBe(true);
+  });
+
+  it("is inactive once the 14-day window has passed", async () => {
+    userRows = [{ createdAt: new Date(Date.now() - 15 * 86_400_000) }];
+    await expect(isFreeTrialActiveForUser(3)).resolves.toBe(false);
+  });
+
+  it("stays active when the user row is missing (fail open, never lock someone out of data)", async () => {
+    userRows = [];
+    await expect(isFreeTrialActiveForUser(4)).resolves.toBe(true);
+  });
+});
+
+describe("hasActiveAccessForUser", () => {
+  // Usage entitlement: Pro access (a paid plan or an operator role) OR a
+  // still-open 14-day free trial on a standard account.
+  it("lets a fresh standard account use Nova inside the trial", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [];
+    userRows = [{ createdAt: new Date(Date.now() - 86_400_000) }];
+    await expect(hasActiveAccessForUser(1)).resolves.toBe(true);
+  });
+
+  it("ends when the trial window closes and no plan was bought", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [];
+    userRows = [{ createdAt: new Date(Date.now() - 15 * 86_400_000) }];
+    await expect(hasActiveAccessForUser(2)).resolves.toBe(false);
+  });
+
+  it("a paid plan overrides an expired trial", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [
+      {
+        plan: "paid",
+        status: "active",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+        cancelAtPeriodEnd: false,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    userRows = [{ createdAt: new Date(Date.now() - 400 * 86_400_000) }];
+    await expect(hasActiveAccessForUser(3)).resolves.toBe(true);
+  });
+
+  it("a lapsed plan leaves an old account locked: the trial was spent long ago", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [
+      {
+        plan: "paid",
+        status: "cancelled",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() - 86_400_000),
+        cancelAtPeriodEnd: true,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    userRows = [{ createdAt: new Date(Date.now() - 400 * 86_400_000) }];
+    await expect(hasActiveAccessForUser(4)).resolves.toBe(false);
+  });
+
+  it("an operator role keeps access forever, trial clock ignored", async () => {
+    getUserRole.mockResolvedValue("developer");
+    subscriptionRows = [];
+    userRows = [{ createdAt: new Date(Date.now() - 400 * 86_400_000) }];
+    await expect(hasActiveAccessForUser(5)).resolves.toBe(true);
   });
 });

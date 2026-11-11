@@ -20,8 +20,14 @@ const isWhopConfigured = vi.fn(() => true);
 const getWhopPriorityPlanId = vi.fn(() => "plan_BFyuf6PmE5wwz");
 /** The Pro-entitlement gate (paid subscription OR console-operator role). */
 const hasProAccessForUser = vi.fn(async () => false);
+/** The usage gate: Pro access OR a still-open 14-day free trial. */
+const hasActiveAccessForUser = vi.fn(async () => true);
+/** When the account's free trial ends (createdAt + 14 days); null = unknown. */
+const getFreeTrialEndsAtForUser = vi.fn(async () => null);
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser,
+  getFreeTrialEndsAtForUser,
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
     creditDay: "2026-09-24",
@@ -118,6 +124,10 @@ describe("billing router", () => {
     });
     hasProAccessForUser.mockClear();
     hasProAccessForUser.mockResolvedValue(false);
+    hasActiveAccessForUser.mockClear();
+    hasActiveAccessForUser.mockResolvedValue(true);
+    getFreeTrialEndsAtForUser.mockClear();
+    getFreeTrialEndsAtForUser.mockResolvedValue(null);
   });
 
   it("opens checkout for a credit bundle, priced from the catalog", async () => {
@@ -226,6 +236,9 @@ describe("billing router", () => {
       const result = await caller.billing.subscription();
       expect(result.plan).toBe("free");
       expect(result.proAccess).toBe(false);
+      // A fresh account is still inside its trial window.
+      expect(result.accessActive).toBe(true);
+      expect(result.trialEndsAt).toBeNull();
     });
 
     it("reports proAccess true for an account with Pro entitlement", async () => {
@@ -235,6 +248,16 @@ describe("billing router", () => {
       // The raw subscription may still say free (an operator); the flag is
       // what the client's Pro locks read.
       expect(result.proAccess).toBe(true);
+      expect(result.accessActive).toBe(true);
+    });
+
+    it("reports the trial clock closing: accessActive false once the 14 days are spent", async () => {
+      hasActiveAccessForUser.mockResolvedValueOnce(false);
+      const caller = appRouter.createCaller(contextFor(userRow(3)));
+      const result = await caller.billing.subscription();
+      expect(result.plan).toBe("free");
+      expect(result.proAccess).toBe(false);
+      expect(result.accessActive).toBe(false);
     });
   });
 

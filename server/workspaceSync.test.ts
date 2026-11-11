@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getWorkspaceComputer: async () => ({ workspace: { id: 1 }, folders: state.folders, files: state.files }),
   getOrCreateWorkspace: async () => ({ id: 1, ownerId: 8 }),
   requireWorkspaceOwner: async () => undefined,

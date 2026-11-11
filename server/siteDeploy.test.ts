@@ -29,6 +29,7 @@ const spies = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getLatestSiteDeploymentForUser: spies.getLatestSiteDeploymentForUser,
   listSiteDeploymentsForUser: spies.listSiteDeploymentsForUser,

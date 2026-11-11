@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const appendChatMessageForUser = vi.fn(async () => ({ id: 1 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   appendChatMessageForUser,
 }));
 

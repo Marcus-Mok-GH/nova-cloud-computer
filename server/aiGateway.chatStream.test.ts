@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // into "the gateway returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),

@@ -4,6 +4,7 @@ const getAllowance = vi.fn(async () => ({ usedRequests: 0, updatedAt: null }));
 const claim = vi.fn(async () => ({ usedRequests: 1 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),

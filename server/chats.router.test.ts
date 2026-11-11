@@ -18,6 +18,7 @@ const getSubscriptionForUser = vi.fn(async () => ({ plan: "free" }));
 const hasProAccessForUser = vi.fn(async () => false);
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   createChatForUser,
   getChatForUser,
   getSubscriptionForUser,

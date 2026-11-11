@@ -18,6 +18,7 @@ const { getUserByOpenId, ensureUserWorkspaceProvisioned, upsertUser } = vi.hoist
 );
 
 vi.mock("../db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getUserByOpenId,
   ensureUserWorkspaceProvisioned,
   upsertUser,

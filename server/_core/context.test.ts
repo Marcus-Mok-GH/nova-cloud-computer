@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getUserByOpenId: mocks.getUserByOpenId,
   upsertUser: mocks.upsertUser,
   ensureUserWorkspaceProvisioned: mocks.ensureUserWorkspaceProvisioned,

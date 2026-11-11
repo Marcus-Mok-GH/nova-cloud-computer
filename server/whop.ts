@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import {
   ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership,
+  grantCreditTopUp,
   purchasePriorityForUser,
   recordWhopWebhookEvent,
   setWhopCheckoutConfigIdForUser,
@@ -10,6 +11,12 @@ import {
 } from "./db";
 import { PAID_PLAN_PRICE_CENTS, PAID_PLAN_CURRENCY } from "./credits";
 import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
+import {
+  CREDIT_TOPUP_CURRENCY,
+  CREDIT_TOPUP_PRODUCT_MARKER,
+  getCreditTopUpProduct,
+  type CreditTopUpProduct,
+} from "@shared/creditTopUps";
 
 /**
  * Whop billing integration: checkout creation and signed payment/membership webhooks.
@@ -113,6 +120,10 @@ export function whopPriorityConfigurationMessage(): string {
   return "Priority purchases are not configured on this deployment yet. Contact the administrator to enable them.";
 }
 
+export function whopCreditTopUpConfigurationMessage(): string {
+  return "Credit top-ups are not available on this deployment yet. Contact the administrator to enable them.";
+}
+
 /** The monthly subscription price in whole major units, for the checkout body. */
 const PAID_PLAN_PRICE = PAID_PLAN_PRICE_CENTS / 100;
 
@@ -194,6 +205,70 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
     throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
   }
   await setWhopCheckoutConfigIdForUser(ownerId, configuration.id);
+  return { id: configuration.id, purchaseUrl };
+}
+
+type CreateWhopCreditTopUpCheckoutInput = {
+  ownerId: number;
+  product: CreditTopUpProduct;
+  redirectUrl: string | undefined;
+};
+
+/**
+ * Creates a Whop checkout for a one-time credit bundle.
+ *
+ * The bundle is described by an inline one-time variant built from the shared
+ * catalog, so a new rung on the ladder needs no new Whop product: the price and
+ * the credit amount both travel in the metadata and are re-validated against
+ * the catalog when the webhook lands. Credits are granted only then - never at
+ * checkout creation.
+ */
+export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUpCheckoutInput): Promise<CreateWhopCheckoutOutput> {
+  const apiKey = whopApiKey();
+  const accountId = whopAccountId();
+  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopCreditTopUpConfigurationMessage(), whopMissingConfigDetail());
+  const { ownerId, product, redirectUrl } = input;
+  const price = (product.priceCents / 100).toFixed(2);
+  const body: Record<string, unknown> = {
+    account_id: accountId,
+    mode: "payment",
+    metadata: {
+      nova_user_id: String(ownerId),
+      nova_product: CREDIT_TOPUP_PRODUCT_MARKER,
+      nova_credit_product_id: product.id,
+      nova_credit_amount: String(product.credits),
+    },
+    variant: {
+      billing_type: "one_time",
+      currency: CREDIT_TOPUP_CURRENCY,
+      initial_price: Number(price),
+      title: `Nova credits (${product.credits.toLocaleString("en-US")})`,
+      description: `${product.credits.toLocaleString("en-US")} Nova credits, added to your balance.`,
+      payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
+    },
+    redirect_url: redirectUrl,
+  };
+  const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "Api-Version-Date": WHOP_API_VERSION_DATE,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 400);
+    console.error("[Whop] credit top-up checkout configuration failed", response.status, detail);
+    throw new WhopNotConfiguredError("Nova's billing provider could not create the checkout - please try again shortly.", `${response.status} ${detail}`);
+  }
+  const configuration = (await response.json()) as WhopCheckoutConfiguration;
+  const purchaseUrl = configuration.purchase_url ?? null;
+  if (!configuration.id || !purchaseUrl) {
+    const detail = JSON.stringify(configuration).slice(0, 400);
+    console.error("[Whop] credit top-up checkout response missing id/purchase_url", detail);
+    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
+  }
   return { id: configuration.id, purchaseUrl };
 }
 
@@ -355,6 +430,7 @@ function membershipToState(data: Record<string, unknown>): { state: WhopSubscrip
 export type WhopWebhookOutcome =
   | { handled: true; ownerId: number; plan: "free" | "paid"; status: string }
   | { handled: true; ownerId: number; product: "priority"; armed: boolean }
+  | { handled: true; ownerId: number; product: "credits"; credits: number; granted: boolean }
   | { handled: false; reason: string };
 
 function planIdFromPayload(data: Record<string, unknown>): string | null {
@@ -380,6 +456,85 @@ function isPriorityProduct(data: Record<string, unknown>): boolean {
   const product = asRecord(data.product);
   const productMeta = asRecord(product?.metadata);
   return productMeta?.product === "priority";
+}
+
+/**
+ * Whether a payload is marked as a credit top-up at all, regardless of whether
+ * its bundle id resolves. This is what separates "not a credit payment" from
+ * "a credit payment we cannot fulfil" - the latter means someone has paid and
+ * received nothing, so it must be logged loudly rather than silently ignored.
+ */
+function isCreditTopUpMarked(data: Record<string, unknown>): boolean {
+  const metadata = asRecord(data.metadata);
+  const product = asRecord(data.product);
+  const productMeta = asRecord(product?.metadata);
+  return metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
+    || productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
+    || productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER
+    || typeof metadata?.nova_credit_product_id === "string";
+}
+
+/**
+ * The credit bundle a payment refers to, resolved from OUR catalog.
+ *
+ * The payload's credit amount is deliberately NOT trusted: a webhook body is
+ * attacker-influenceable in principle, and a tampered or stale value must not be
+ * able to mint credits. The metadata only carries the product id, and the
+ * granted amount is read from the shared ladder.
+ */
+function creditTopUpProductFromPayload(data: Record<string, unknown>): CreditTopUpProduct | undefined {
+  const metadata = asRecord(data.metadata);
+  const product = asRecord(data.product);
+  const productMeta = asRecord(product?.metadata);
+  const rawId = metadata?.nova_credit_product_id ?? productMeta?.nova_credit_product_id;
+  const isMarked = metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
+    || productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
+    || productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER;
+  if (typeof rawId !== "string" || !rawId.trim()) return undefined;
+  if (!isMarked) return undefined;
+  return getCreditTopUpProduct(rawId.trim());
+}
+
+async function grantCreditTopUpFromWebhook(
+  event: VerifiedWhopEvent,
+  paymentOrMembershipId: string | null
+): Promise<WhopWebhookOutcome> {
+  const ownerId = ownerIdFromMetadata(event.data);
+  if (ownerId === null) {
+    await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+    console.warn("[Whop] credit top-up event with no resolvable Nova account", event.type, paymentOrMembershipId);
+    return { handled: false, reason: "unknown-owner" };
+  }
+  const product = creditTopUpProductFromPayload(event.data);
+  if (!product) {
+    await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+    // Loud, distinct from a generic ignore: a marked credit payment whose
+    // bundle is not on the ladder means the customer has paid and received
+    // nothing, and support needs to see it.
+    console.error(
+      "[Whop] UNFULFILLED credit purchase - paid but the bundle id is not in the catalog",
+      event.type,
+      paymentOrMembershipId
+    );
+    return { handled: false, reason: "unknown-credit-product" };
+  }
+  const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+  if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
+  // The provider payment id is the idempotency key: Whop retries until it gets
+  // a 2xx, and this insert conflicts on a replay rather than granting twice.
+  const paymentId = paymentOrMembershipId ?? `event:${event.id}`;
+  const { granted } = await grantCreditTopUp({
+    ownerId,
+    providerPaymentId: paymentId,
+    product,
+    currency: CREDIT_TOPUP_CURRENCY,
+  });
+  console.info(
+    granted
+      ? `[Whop] ${event.type}: account ${ownerId} granted ${product.credits} credits (${product.id})`
+      : `[Whop] ${event.type}: account ${ownerId} already had payment ${paymentId} - no double grant`
+  );
+  return { handled: true, ownerId, product: "credits", credits: product.credits, granted };
 }
 
 async function grantPriorityFromWebhook(event: VerifiedWhopEvent, paymentOrMembershipId: string | null): Promise<WhopWebhookOutcome> {
@@ -413,8 +568,27 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
     return grantPriorityFromWebhook(event, paymentId);
   }
 
+  // A credit bundle is a one-time payment. It is checked before the
+  // membership-only branch below, which would otherwise drop it.
+  if (event.type === "payment.succeeded" && isCreditTopUpMarked(event.data)) {
+    const paymentId = typeof event.data.id === "string" ? event.data.id : null;
+    return grantCreditTopUpFromWebhook(event, paymentId);
+  }
+
   if (!event.type.startsWith("membership.")) {
     return { handled: false, reason: `ignored-event:${event.type}` };
+  }
+
+  // A credit bundle can also arrive as a one-time membership (Whop models a
+  // one-time checkout as a membership that never renews). Grant it on
+  // activation, and never let it touch the Nova Pro subscription row.
+  if (isCreditTopUpMarked(event.data)) {
+    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+    if (event.type === "membership.activated" || event.type === "membership.went_valid") {
+      return grantCreditTopUpFromWebhook(event, membershipId);
+    }
+    await recordWhopWebhookEvent(event.id, event.type, membershipId);
+    return { handled: false, reason: "credit-membership-ignored" };
   }
 
   if (isPriorityProduct(event.data)) {

@@ -1,3 +1,66 @@
+2026-11-11 - credits can be bought outright, S$5 to S$50
+
+Nova sold two things: the free daily allowance and the Nova Pro subscription
+that brings 10,000 credits a month. There was no way to simply buy credits. The
+Billing page now offers six one-time bundles - S$5 for 5,000 up to S$50 for
+50,000, a flat 1,000 credits per dollar, matching what Nova Pro effectively
+charges per credit.
+
+Bought credits are kept in their own ledger, one row per purchase, rather than
+folded into the monthly pool. That is deliberate: the monthly balance is derived
+from what the subscription allocates, so merging them would leave a lapsed
+subscription looking like it still held credits. Bundles are spent oldest-first
+and only once the plan's own credits are exhausted - a free account spends its
+daily allowance first, a subscriber spends the monthly pool first - so a top-up
+extends a run rather than being burned ahead of credits that would otherwise
+expire. Nothing expires.
+
+The ladder lives in one place, `shared/creditTopUps.ts`, and everything derives
+from it: checkout builds the Whop variant from it, the billing UI renders its
+cards from it, and the webhook grants from it. Prices are integer cents so no
+floating-point money reaches the database or the payment provider. Adding a rung
+needs no new Whop product, because each bundle is an inline one-time variant
+described by that catalog.
+
+Two properties are enforced in SQL rather than in application checks, because
+both are about money and both can race. A purchase is keyed by the provider's
+payment id through a unique index, so a redelivered webhook - and Whop retries
+until it receives a 2xx, so redelivery is the normal path, not an edge case -
+conflicts instead of granting twice. Spending is a conditional UPDATE on
+`remainingCredits > 0`, so two concurrent requests cannot drive a bundle
+negative; the loser moves on to the next bundle. Verified against live Postgres:
+a replayed payment inserted 0 rows and left the balance at exactly 10,000 rather
+than 20,000, and 20 claims against a 10-credit bundle ended at 0, never negative.
+
+The granted amount is read from the catalog and never from the webhook payload.
+A payload that claims a larger bundle is ignored, a bundle id that is not on the
+ladder is refused, and a payment marked as credits that cannot be fulfilled is
+logged as UNFULFILLED - loudly, because that state means someone paid and
+received nothing.
+
+Settlement follows the funding source. A request's credit cost is reserved up
+front, and when the final usage lands the extra is charged back to the same
+pool that funded the request: a daily account settles into the daily
+allowance, a Pro account into the monthly pool, an account that had to fall
+back to bought bundles settles into those bundles - otherwise a large request
+funded by a S$5 bundle would bill its remainder to a pool the account was not
+spending and the bundle would stretch far past its price. If bundles run out
+mid-request the remainder is left unbilled and a `[Credits]` warning is logged:
+the account was under-charged, and refunding would hand it more credits than
+it spent.
+
+Files: shared/creditTopUps.ts (the ladder), server/db/creditTopUps.ts
+(grant/spend/balance), drizzle/neon/0059_credit_topups.sql (table + indexes),
+server/whop.ts (checkout + webhook), server/aiGateway.ts (spend order),
+server/routers.ts (billing.subscription fields + billing.purchaseCredits),
+client/src/pages/Billing.tsx (bundle cards), client/src/pages/Checkout.tsx
+(`?credits=<id>`), README.md (env note).
+Tests: shared/creditTopUps.test.ts, server/db/creditTopUps.test.ts,
+server/whop.credits.test.ts, server/billing.router.test.ts,
+server/aiGateway.creditSource.test.ts (funding-source settlement). pnpm run check
+clean; pnpm test green; pnpm run build succeeds; the migration applies and
+re-applies cleanly.
+
 2026-11-11 - the boot screen wordmark animates while your workspace loads
 
 The first thing the app paints is the boot screen, drawn by the HTML parser

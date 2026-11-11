@@ -62,6 +62,7 @@ import {
   getPriorityStatusForUser,
   getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
+  getCreditTopUpBalanceForUser,
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
@@ -69,7 +70,14 @@ import { PROCESS_STALE_AFTER_MS } from "./runningProcesses";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { CHAT_EFFORT_OPTIONS, EffortId, FREE_CHAT_MODEL_ID, getChatModelById, getChatModels, effortOptionsForModelId } from "@shared/models";
 import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
 import {
+  CREDIT_TOPUP_CURRENCY,
+  CREDIT_TOPUP_PRODUCTS,
+  formatCreditTopUpPrice,
+  getCreditTopUpProduct,
+} from "@shared/creditTopUps";
+import {
   createWhopCheckout,
+  createWhopCreditTopUpCheckout,
   createWhopPriorityCheckout,
   getWhopPlanId,
   getWhopPriorityPlanId,
@@ -77,6 +85,7 @@ import {
   isWhopCheckoutDebug,
   WhopNotConfiguredError,
   whopConfigurationMessage,
+  whopCreditTopUpConfigurationMessage,
   whopPriorityConfigurationMessage,
 } from "./whop";
 import { kickPeakQueue } from "./peakQueueScheduler";
@@ -386,9 +395,10 @@ export const appRouter = router({
      * window, so nothing vanishes at the month boundary.
      */
     subscription: protectedProcedure.query(async ({ ctx }) => {
-      const [subscription, monthlyCredits] = await Promise.all([
+      const [subscription, monthlyCredits, creditTopUps] = await Promise.all([
         getSubscriptionForUser(ctx.user.id),
         getMonthlyCreditStatusForUser(ctx.user.id),
+        getCreditTopUpBalanceForUser(ctx.user.id),
       ]);
       return {
         plan: subscription.plan,
@@ -399,6 +409,15 @@ export const appRouter = router({
         priceCents: PAID_PLAN_PRICE_CENTS,
         currency: PAID_PLAN_CURRENCY,
         monthlyCredits,
+        creditTopUps,
+        /** The purchasable bundles, priced from the shared catalog. */
+        topUpProducts: CREDIT_TOPUP_PRODUCTS.map(product => ({
+          id: product.id,
+          priceCents: product.priceCents,
+          credits: product.credits,
+          price: formatCreditTopUpPrice(product.priceCents),
+        })),
+        topUpCurrency: CREDIT_TOPUP_CURRENCY,
       };
     }),
     /**
@@ -429,6 +448,42 @@ export const appRouter = router({
           const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
           console.error("[Billing] Whop checkout creation failed", detail);
           throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: isWhopCheckoutDebug() ? `Nova could not open checkout just now - try again in a moment. [debug: ${detail}]` : "Nova could not open checkout just now - try again in a moment." });
+        }
+      }),
+    /**
+     * Starts Whop checkout for a one-time credit bundle. Credits are granted
+     * only when the payment webhook arrives - never here - and the amount comes
+     * from the shared catalog, not from anything the client sends.
+     */
+    purchaseCredits: protectedProcedure
+      .input(z.object({
+        productId: z.string().min(1).max(40),
+        redirectUrl: z.string().url().max(2000).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const product = getCreditTopUpProduct(input.productId);
+        if (!product) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That credit bundle does not exist." });
+        }
+        if (!isWhopConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopCreditTopUpConfigurationMessage() });
+        }
+        try {
+          const checkout = await createWhopCreditTopUpCheckout({
+            ownerId: ctx.user.id,
+            product,
+            redirectUrl: input.redirectUrl,
+          });
+          return { url: checkout.purchaseUrl };
+        } catch (error) {
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop credit top-up checkout failed", detail);
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: isWhopCheckoutDebug()
+              ? `Nova could not open credit checkout just now - try again in a moment. [debug: ${detail}]`
+              : "Nova could not open credit checkout just now - try again in a moment.",
+          });
         }
       }),
     /** Whop's hosted page for managing (cancelling) the subscription. */

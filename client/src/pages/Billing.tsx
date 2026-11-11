@@ -164,6 +164,8 @@ export default function Billing() {
   const data = subscription.data;
   const isPaid = data?.plan === "paid";
   const monthly = data?.monthlyCredits;
+  const topUpProducts = data?.topUpProducts ?? [];
+  const boughtCredits = data?.creditTopUps?.remainingCredits ?? 0;
   const priorityActive = priority.data?.priority ?? false;
   const priorityArmed = priority.data?.armed ?? false;
   const periodEnd = data?.currentPeriodEnd
@@ -276,6 +278,56 @@ export default function Billing() {
             )}
           </section>
         </div>
+
+        {/* Buy credits */}
+        {topUpProducts.length > 0 && (
+          <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                  {t("billing.topUps.title")}
+                </p>
+                <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">
+                  {t("billing.topUps.body")}
+                </p>
+              </div>
+              {boughtCredits > 0 && (
+                <p className="flex items-center gap-1.5 text-xs font-semibold">
+                  <Coins className="size-3.5 text-primary" />
+                  {t("billing.topUps.owned", {
+                    count: boughtCredits.toLocaleString(locale),
+                  })}
+                </p>
+              )}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {topUpProducts.map(topUp => (
+                <button
+                  key={topUp.id}
+                  type="button"
+                  onClick={() => {
+                    setLocation(`/checkout?credits=${encodeURIComponent(topUp.id)}`);
+                  }}
+                  disabled={!data?.configured}
+                  className="group flex flex-col items-center gap-1 rounded-xl border bg-background px-3 py-4 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_6px_18px_rgba(10,10,10,0.07)] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+                >
+                  <span className="text-lg font-bold tracking-tight">{topUp.price}</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    {topUp.credits.toLocaleString(locale)} credits
+                  </span>
+                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-primary">
+                    {t("billing.topUps.buy")}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {!data?.configured && (
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                {t("billing.topUps.notConfigured")}
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Buyable plans */}
         <div className="relative">

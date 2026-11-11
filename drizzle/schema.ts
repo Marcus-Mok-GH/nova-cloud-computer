@@ -136,6 +136,38 @@ export const priorityPurchases = pgTable("priority_purchases", {
 }, table => [uniqueIndex("priority_purchases_owner_unique").on(table.ownerId)]);
 export type PriorityPurchase = typeof priorityPurchases.$inferSelect;
 
+/**
+ * A one-time purchase of a credit bundle.
+ *
+ * One row per purchase, identified by the provider's payment id so a replayed
+ * or retried webhook can never grant the same bundle twice (the unique index is
+ * the idempotency guard, not a check-then-insert). Purchased credits are kept
+ * out of the monthly ledger on purpose: that ledger's balance is derived from
+ * what the subscription allocates, so folding bought credits into it would make
+ * a lapsed subscription appear to still hold credits.
+ *
+ * `remainingCredits` counts down as the bundle is spent; `credits` records the
+ * original size so the account can be shown what it bought.
+ */
+export const creditPurchases = pgTable("credit_purchases", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Provider payment id - the idempotency key for webhook replays. */
+  providerPaymentId: varchar("providerPaymentId", { length: 120 }).notNull(),
+  /** Bundle slug from shared/creditTopUps.ts (e.g. "topup-10"). */
+  productId: varchar("productId", { length: 40 }).notNull(),
+  priceCents: integer("priceCents").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  credits: integer("credits").notNull(),
+  remainingCredits: integer("remainingCredits").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("credit_purchases_payment_unique").on(table.providerPaymentId),
+  index("credit_purchases_owner_idx").on(table.ownerId, table.createdAt),
+]);
+export type CreditPurchase = typeof creditPurchases.$inferSelect;
+
 /** Webhook update ids Nova has already handled - dedupes Telegram redeliveries. */
 export const telegramUpdateLog = pgTable("telegram_update_log", { updateId: bigint("updateId", { mode: "number" }).primaryKey(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
 export const agentStopRequests = pgTable("agent_stop_requests", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("agent_stop_requests_owner_idx").on(table.ownerId, table.createdAt)]);

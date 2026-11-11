@@ -20,5 +20,6 @@ export * from "./db/deployments";
 export * from "./db/envVars";
 export * from "./db/inferenceQueue";
 export * from "./db/priority";
+export * from "./db/creditTopUps";
 export * from "./db/processes";
 export * from "./db/personalities";

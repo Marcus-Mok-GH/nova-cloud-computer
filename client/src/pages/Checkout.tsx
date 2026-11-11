@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Crown, CreditCard, Loader2, Check } from "lucide-react";
+import { Coins, Crown, CreditCard, Loader2, Check } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -14,9 +14,18 @@ export default function Checkout() {
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(window.location.search);
   const product: Product = isProduct(params.get("product")) ? (params.get("product") as Product) : "pro";
+  // A credit bundle is bought by id (e.g. `?credits=topup-10`), so the page does
+  // not need a product branch per rung on the ladder.
+  const creditProductId = params.get("credits");
   const statusParam = params.get("status");
 
   const [pendingMethod, setPendingMethod] = useState<"whop" | null>(null);
+
+  const subscription = trpc.billing.subscription.useQuery(undefined, {
+    retry: false,
+    // only needed to describe a credit bundle
+    enabled: Boolean(creditProductId),
+  });
 
   const whop = trpc.billing.createCheckout.useMutation({
     onSuccess: ({ url }) => {
@@ -38,27 +47,51 @@ export default function Checkout() {
     },
   });
 
+  const whopCredits = trpc.billing.purchaseCredits.useMutation({
+    onSuccess: ({ url }) => {
+      window.location.href = url;
+    },
+    onError: error => {
+      setPendingMethod(null);
+      toast.error(error.message || "Could not open checkout.");
+    },
+  });
+
   useEffect(() => {
     if (statusParam === "success") toast.success("Payment received — your plan will activate once our server confirms it.");
     if (statusParam === "cancel" || statusParam === "cancelled" || statusParam === "failed") toast.error("Checkout was cancelled. No charge was made.");
   }, [statusParam]);
 
-  const isPriority = product === "priority";
-  const amount = isPriority ? "S$4.99" : "S$7.99";
-  const period = isPriority ? "one-time" : "/ month";
-  const title = isPriority ? "Nova Priority — 1 hour" : "Nova Pro — monthly";
-  const description = isPriority
-    ? "One hour of priority queue placement during peak hours. Starts with your next message."
-    : "10,000 credits a month (unused roll over up to a year), every premium chat model, and your persistent workspace.";
+  const creditTopUp = creditProductId
+    ? subscription.data?.topUpProducts.find(topUp => topUp.id === creditProductId)
+    : undefined;
 
-  const cardBusy = pendingMethod === "whop" && (isPriority ? whopPriority.isPending : whop.isPending);
+  const isPriority = product === "priority";
+  const isCredits = Boolean(creditTopUp);
+  const amount = isCredits ? creditTopUp!.price : isPriority ? "S$4.99" : "S$7.99";
+  const period = isPriority || isCredits ? "one-time" : "/ month";
+  const title = isCredits
+    ? `${creditTopUp!.credits.toLocaleString()} Nova credits`
+    : isPriority
+      ? "Nova Priority — 1 hour"
+      : "Nova Pro — monthly";
+  const description = isCredits
+    ? "Added to your balance as soon as your payment is confirmed. Bought credits never expire."
+    : isPriority
+      ? "One hour of priority queue placement during peak hours. Starts with your next message."
+      : "10,000 credits a month (unused roll over up to a year), every premium chat model, and your persistent workspace.";
+
+  const cardBusy = pendingMethod === "whop"
+    && (isCredits ? whopCredits.isPending : isPriority ? whopPriority.isPending : whop.isPending);
   const anyBusy = cardBusy;
 
   const chooseCard = () => {
     setPendingMethod("whop");
     const base = new URL(window.location.href);
     base.searchParams.delete("status");
-    if (isPriority) {
+    if (isCredits) {
+      whopCredits.mutate({ productId: creditTopUp!.id, redirectUrl: base.toString() });
+    } else if (isPriority) {
       whopPriority.mutate({ redirectUrl: base.toString() });
     } else {
       whop.mutate({ redirectUrl: base.toString() });
@@ -86,12 +119,12 @@ export default function Checkout() {
               className="flex w-full items-center gap-3 rounded-xl border-2 border-primary/20 bg-primary/[0.04] p-4 text-left transition hover:border-primary/40 hover:bg-primary/[0.07] disabled:opacity-60"
             >
               <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                {isPriority ? <CreditCard className="size-5" /> : <Crown className="size-5 text-amber-500" />}
+                {isCredits ? <Coins className="size-5" /> : isPriority ? <CreditCard className="size-5" /> : <Crown className="size-5 text-amber-500" />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="text-sm font-bold">Card (Whop)</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {isPriority ? "Visa, Mastercard and more via Whop." : "Auto-renews via Whop subscription."}
+                  {isCredits ? "One-time payment. Credits are added when it clears." : isPriority ? "Visa, Mastercard and more via Whop." : "Auto-renews via Whop subscription."}
                 </span>
               </span>
               {cardBusy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs font-bold text-primary">Pay ›</span>}

@@ -140,6 +140,7 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `WHOP_API_KEY`               | Server-only Whop company API key (`whop_...`); enables Pro subscription and priority checkout |
 | `WHOP_PLAN_ID`               | Whop plan/variant id Pro checkout is pinned to; unset disables self-serve upgrades |
 | `WHOP_PRIORITY_PLAN_ID`      | Whop one-time plan/variant id for S$4.99 priority checkout (`plan_…`); unset disables priority purchases |
+| _(credit top-ups)_           | No extra env var. Credit bundles use inline one-time variants built from `shared/creditTopUps.ts`, so they need only `WHOP_API_KEY`/`WHOP_ACCOUNT_ID`. The webhook receives `payment.succeeded` with `metadata.nova_product=credits`. |
 | `WHOP_WEBHOOK_SECRET`        | Whop webhook signing secret (`ws_...`); required to verify payment and membership webhooks |
 | `WHOP_PORTAL_URL`            | Optional Whop customer portal URL surfaced in billing settings                  |
 | `NOVA_WEB_APP_URL`           | Public app URL used as checkout success/cancel target; defaults to `https://novacloud.computer` |

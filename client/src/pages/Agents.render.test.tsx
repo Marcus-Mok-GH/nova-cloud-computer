@@ -283,6 +283,34 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("New team<span");
   });
 
+  /** The opening tag of the "New agent" header button - matched by its
+   * label like the team button, so Tailwind's always-present `disabled:`
+   * utilities cannot fake a state. */
+  function agentCreateButtonTag(markup: string): string {
+    const labelAt = markup.indexOf("New agent</button>");
+    if (labelAt < 0) return "";
+    const start = markup.lastIndexOf("<button", labelAt);
+    return start < 0 ? "" : markup.slice(start, labelAt);
+  }
+
+  it("leaves agent creation unbadged for a paid account", () => {
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    expect(agentCreateButtonTag(markup)).not.toContain("Pro</span>");
+    expect(markup).not.toContain("New agent<span");
+  });
+
+  it("marks agent creation as Nova Pro for a free account", () => {
+    state.plan = "free";
+    const markup = renderAgents();
+    // The New agent controls stay openable so the upgrade CTA in the dialog
+    // is reachable, but they carry the Pro badge and a Pro-aware tooltip.
+    expect(markup).toContain('title="Personal agents are part of Nova Pro - open to upgrade"');
+    expect(markup).toContain("New agent<span");
+  });
+
   it("shows the agent inbox when mail has been delivered", () => {
     state.inbox = [
       {

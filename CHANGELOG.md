@@ -1,3 +1,34 @@
+2026-11-11 - creating personal agents is now a Nova Pro feature
+
+The Agents page's "New agent" builder was open to every account: free
+users could create personal agents - identity, wallet, and their own
+chat - while agent teams were already locked behind Nova Pro. Creating
+an agent team *requires* two personal agents, so the Pro gate on
+teams was only half of the story.
+
+Creating a personal agent is now Pro-gated at both ends, mirroring the
+team gate that already existed:
+
+- The server re-checks the subscription before creating anything:
+  `agents.create` refuses with a clear "Personal agents are part of
+  Nova Pro. Upgrade to create one." for any account whose plan is not
+  paid, so the rule holds for every client, not just the web UI.
+- The web UI locks the builder for free accounts: the "New agent"
+  buttons carry the Pro badge and a Pro-aware tooltip, and the dialog
+  swaps its form for a lock note plus the single upgrade CTA that goes
+  to the checkout page - the only checkout entry point, exactly like
+  the team builder.
+- Editing, deleting, and opening chats for agents you already have is
+  never locked: if a Pro plan lapses, the agents you created keep
+  working and keep being tunable.
+
+Files: server/routers.ts, server/agents.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm check, pnpm test, pnpm build; the new router cases and
+button-badge cases watched RED first (2 failures) then GREEN.
+
 2026-11-11 - the plan menu beside the wordmark now knows the admin tier
 
 The plan dropdown that sits beside the Nova wordmark listed only the two

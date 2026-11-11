@@ -915,6 +915,12 @@ export const appRouter = router({
     /** The workspace's personal agents with their Nova-native identity and wallets. */
     list: protectedProcedure.query(({ ctx }) => listAgentsForUser(ctx.user.id)),
     create: protectedProcedure.input(agentCreateInput).mutation(async ({ ctx, input }) => {
+      // Creating a personal agent is a Nova Pro feature; the client locks
+      // the builder, but the rule holds for every client here too.
+      const subscription = await getSubscriptionForUser(ctx.user.id);
+      if (subscription.plan !== "paid") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Personal agents are part of Nova Pro. Upgrade to create one." });
+      }
       try {
         const agent = await createAgentForUser(ctx.user.id, input);
         if (!agent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that agent." });

@@ -146,14 +146,23 @@ export function walletBudgetFromField(
   return { ok: true, credits };
 }
 
-/** Create-or-edit dialog for one agent. `agent` null means "create". */
+/**
+ * Create-or-edit dialog for one agent. `agent` null means "create".
+ * Creating a personal agent is a Nova Pro feature; for a free account the
+ * form is replaced by a lock note and the single upgrade CTA, which is the
+ * only checkout entry point. The server re-checks the plan on create, so
+ * the lock here is presentation. `locked` is only passed in create mode -
+ * editing an existing agent is never locked, even on a lapsed Pro plan.
+ */
 function AgentDialog({
   agent,
   open,
+  locked,
   onClose,
 }: {
   agent: AgentRow | null;
   open: boolean;
+  locked: boolean;
   onClose: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -232,6 +241,23 @@ function AgentDialog({
               : "Give your agent a name, a role, and a budget. Nova mints its email alias and phone handle automatically."}
           </DialogDescription>
         </DialogHeader>
+        {locked ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Lock className="size-4" />
+              </span>
+              <p className="text-sm font-bold text-foreground dark:text-foreground">
+                Personal agents are part of Nova Pro
+              </p>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Give an agent its own identity, wallet, memory, and chat. Nova
+              Pro unlocks personal agents, agent teams, every premium model,
+              and 10,000 credits a month.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="agent-name">Name</Label>
@@ -282,10 +308,21 @@ function AgentDialog({
             </p>
           </div>
         </div>
+        )}
         <DialogFooter className="flex-row gap-2">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
+          {locked ? (
+            <Button
+              onClick={() => {
+                onClose();
+                window.location.href = "/checkout?product=pro";
+              }}
+            >
+              <Crown className="size-4" /> Upgrade - S$7.99/month
+            </Button>
+          ) : (
           <Button
             onClick={save}
             disabled={pending || !name.trim()}
@@ -293,6 +330,7 @@ function AgentDialog({
           >
             {agent ? "Save changes" : "Create agent"}
           </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -480,10 +518,11 @@ export default function Agents() {
   const approvals = trpc.agents.approvals.useQuery();
   const inbox = trpc.agents.inbox.useQuery();
   const billing = trpc.billing.subscription.useQuery(undefined, { retry: false });
-  // Team creation is locked for free accounts once the subscription query
-  // resolves; while it is still loading the builder stays available and the
-  // server gate decides for accounts the client can't yet see.
-  const teamsLocked = billing.data ? billing.data.plan !== "paid" : false;
+  // Creating agents and teams is locked for free accounts once the
+  // subscription query resolves; while it is still loading the builders stay
+  // available and the server gate decides for accounts the client can't yet
+  // see.
+  const proLocked = billing.data ? billing.data.plan !== "paid" : false;
 
   const [agentDialog, setAgentDialog] = useState<
     { mode: "new" } | { mode: "edit"; agent: AgentRow } | null
@@ -616,8 +655,18 @@ export default function Agents() {
             size="sm"
             className="gap-1.5"
             onClick={() => setAgentDialog({ mode: "new" })}
+            title={
+              proLocked
+                ? "Personal agents are part of Nova Pro - open to upgrade"
+                : "Create an agent"
+            }
           >
             <Plus className="size-4" /> New agent
+            {proLocked && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                Pro
+              </span>
+            )}
           </Button>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -697,8 +746,18 @@ export default function Agents() {
                 size="sm"
                 className="mt-4 gap-1.5"
                 onClick={() => setAgentDialog({ mode: "new" })}
+                title={
+                  proLocked
+                    ? "Personal agents are part of Nova Pro - open to upgrade"
+                    : "Create an agent"
+                }
               >
                 <Plus className="size-4" /> New agent
+                {proLocked && (
+                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                    Pro
+                  </span>
+                )}
               </Button>
             </div>
           </div>
@@ -721,13 +780,13 @@ export default function Agents() {
             title={
               agentRows.length < 2
                 ? "Create at least two agents first"
-                : teamsLocked
+                : proLocked
                   ? "Agent teams are part of Nova Pro - open to upgrade"
                   : "Create a team"
             }
           >
             <Users className="size-4" /> New team
-            {teamsLocked && (
+            {proLocked && (
               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                 Pro
               </span>
@@ -866,13 +925,14 @@ export default function Agents() {
             key={agentDialog.mode === "edit" ? agentDialog.agent.id : "new"}
             agent={agentDialog.mode === "edit" ? agentDialog.agent : null}
             open
+            locked={agentDialog.mode === "new" ? proLocked : false}
             onClose={() => setAgentDialog(null)}
           />
         )}
         <TeamDialog
           open={teamDialogOpen}
           agents={agentRows}
-          locked={teamsLocked}
+          locked={proLocked}
           onClose={() => setTeamDialogOpen(false)}
         />
       </section>

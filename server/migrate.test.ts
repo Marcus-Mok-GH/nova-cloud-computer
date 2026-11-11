@@ -142,6 +142,87 @@ describe("automatic database schema bootstrap", () => {
     expect(uncreated).toEqual([]);
   });
 
+  it("creates every column declared in the Drizzle schema", () => {
+    // The crash this prevents: a column added to drizzle/schema.ts without a
+    // committed migration. The table-level guard above cannot see it, and the
+    // first insert/select against the column fails with `column ... does not
+    // exist` in production. Replays the migration SQL (CREATE TABLE bodies,
+    // ADD/DROP COLUMN, renames, drops) and asserts every declared column ends
+    // up live.
+    const folder = resolveMigrationsFolder();
+    const schema = readFileSync(path.resolve(folder!, "../schema.ts"), "utf8");
+
+    const declared = new Map<string, Set<string>>();
+    for (const match of schema.matchAll(/pgTable\(\s*"([a-zA-Z0-9_]+)",\s*\{([\s\S]*?)\}\s*(?:,\s*table\s*=>|\))/g)) {
+      const columns = new Set<string>();
+      for (const column of match[2].matchAll(/[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*"([a-zA-Z0-9_]+)"/g)) columns.add(column[1]);
+      declared.set(match[1], columns);
+    }
+    expect(declared.size).toBeGreaterThan(0);
+
+    const journal = JSON.parse(readFileSync(path.join(folder!, "meta", "_journal.json"), "utf8")) as {
+      entries: Array<{ tag: string }>;
+    };
+    const live = new Map<string, Set<string>>();
+    for (const entry of journal.entries) {
+      const sql = readFileSync(path.join(folder!, `${entry.tag}.sql`), "utf8");
+      for (const match of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?"([a-zA-Z0-9_]+)"\s*\(([\s\S]*?)\)\s*;/gi)) {
+        const columns = live.get(match[1]) ?? new Set<string>();
+        for (const line of match[2].split("\n")) {
+          const column = line.trim().replace(/,$/, "").match(/^"([a-zA-Z0-9_]+)"/);
+          if (column) columns.add(column[1]);
+        }
+        live.set(match[1], columns);
+      }
+      for (const match of sql.matchAll(/ALTER TABLE "([a-zA-Z0-9_]+)"\s+ADD COLUMN (?:IF NOT EXISTS )?"([a-zA-Z0-9_]+)"/gi)) {
+        const columns = live.get(match[1]) ?? new Set<string>();
+        columns.add(match[2]);
+        live.set(match[1], columns);
+      }
+      for (const match of sql.matchAll(/ALTER TABLE "([a-zA-Z0-9_]+)"\s+DROP COLUMN (?:IF EXISTS )?"([a-zA-Z0-9_]+)"/gi)) {
+        live.get(match[1])?.delete(match[2]);
+      }
+      for (const match of sql.matchAll(/ALTER TABLE "([a-zA-Z0-9_]+)" RENAME TO "([a-zA-Z0-9_]+)"/gi)) {
+        const columns = live.get(match[1]);
+        if (columns) {
+          live.delete(match[1]);
+          live.set(match[2], columns);
+        }
+      }
+      for (const match of sql.matchAll(/DROP TABLE (?:IF EXISTS )?"([a-zA-Z0-9_]+)"/gi)) live.delete(match[1]);
+    }
+
+    const missing: string[] = [];
+    for (const [table, columns] of declared) {
+      const liveColumns = live.get(table);
+      if (!liveColumns) continue; // the table-level guard above covers this
+      for (const column of columns) if (!liveColumns.has(column)) missing.push(`${table}.${column}`);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("creates every enum declared in the Drizzle schema", () => {
+    // The same crash class as the table/column guards: a pgEnum added to
+    // drizzle/schema.ts without a committed CREATE TYPE makes every write to
+    // a column of that type fail in production.
+    const folder = resolveMigrationsFolder();
+    const schema = readFileSync(path.resolve(folder!, "../schema.ts"), "utf8");
+    const declared = new Set([...schema.matchAll(/pgEnum\(\s*"([a-zA-Z0-9_]+)"/g)].map(match => match[1]));
+    expect(declared.size).toBeGreaterThan(0);
+
+    const journal = JSON.parse(readFileSync(path.join(folder!, "meta", "_journal.json"), "utf8")) as {
+      entries: Array<{ tag: string }>;
+    };
+    const live = new Set<string>();
+    for (const entry of journal.entries) {
+      const sql = readFileSync(path.join(folder!, `${entry.tag}.sql`), "utf8");
+      for (const match of sql.matchAll(/CREATE TYPE\s+(?:"public"\."([a-zA-Z0-9_]+)"|"([a-zA-Z0-9_]+)")\s+AS ENUM/gi)) {
+        live.add(match[1] ?? match[2]);
+      }
+    }
+    expect([...declared].filter(enumName => !live.has(enumName))).toEqual([]);
+  });
+
   it("keeps the journal, its migration files, and the schema in lockstep", () => {
     // A journal entry whose .sql file is missing (or a stray .sql not in the
     // journal) means the bootstrap would silently skip that migration's

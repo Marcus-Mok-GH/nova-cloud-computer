@@ -56,6 +56,7 @@ export const id: Translations = {
   "layout.plan.menuLabel": "Rencana",
   "layout.plan.free": "Gratis",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Admin",
   "layout.plan.current": "Saat ini",
   "layout.plan.locked": "Terkunci",
   "layout.plan.manage": "Kelola rencana Anda",

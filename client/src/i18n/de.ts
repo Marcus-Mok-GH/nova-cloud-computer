@@ -56,6 +56,7 @@ export const de: Translations = {
   "layout.plan.menuLabel": "Plan",
   "layout.plan.free": "Kostenlos",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Administrator",
   "layout.plan.current": "Aktuell",
   "layout.plan.locked": "Gesperrt",
   "layout.plan.manage": "Plan verwalten",

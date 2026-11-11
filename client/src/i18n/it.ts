@@ -56,6 +56,7 @@ export const it: Translations = {
   "layout.plan.menuLabel": "Piano",
   "layout.plan.free": "Gratuito",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Amministratore",
   "layout.plan.current": "Attuale",
   "layout.plan.locked": "Bloccato",
   "layout.plan.manage": "Gestisci il tuo piano",

@@ -56,6 +56,7 @@ export const vi: Translations = {
   "layout.plan.menuLabel": "Kế hoạch",
   "layout.plan.free": "Miễn phí",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Quản trị",
   "layout.plan.current": "Hiện tại",
   "layout.plan.locked": "Khóa",
   "layout.plan.manage": "Quản lý gói của bạn",

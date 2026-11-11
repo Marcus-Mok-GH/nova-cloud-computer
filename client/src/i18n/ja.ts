@@ -56,6 +56,7 @@ export const ja: Translations = {
   "layout.plan.menuLabel": "プラン",
   "layout.plan.free": "無料",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "管理者",
   "layout.plan.current": "現在",
   "layout.plan.locked": "ロック済み",
   "layout.plan.manage": "プランを管理する",

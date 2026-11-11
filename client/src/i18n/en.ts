@@ -60,6 +60,7 @@ export const en = {
   "layout.plan.menuLabel": "Plan",
   "layout.plan.free": "Free",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Admin",
   "layout.plan.current": "Current",
   "layout.plan.locked": "Locked",
   "layout.plan.manage": "Manage your plan",

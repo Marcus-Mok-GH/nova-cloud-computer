@@ -56,6 +56,7 @@ export const ar: Translations = {
   "layout.plan.menuLabel": "الخطة",
   "layout.plan.free": "مجاني",
   "layout.plan.pro": "متميز",
+  "layout.plan.admin": "مدير",
   "layout.plan.current": "الحالي",
   "layout.plan.locked": "مقفل",
   "layout.plan.manage": "إدارة خطتك",

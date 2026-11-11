@@ -42,16 +42,32 @@ import DashboardLayout, { planRows } from "./DashboardLayout";
 
 describe("planRows", () => {
   it("lists both tiers for a free account, with Pro locked", () => {
-    expect(planRows(false)).toEqual([
+    expect(planRows(false, false)).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: true, locked: false },
       { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
     ]);
   });
 
   it("lists both tiers for a paid account, with nothing locked", () => {
-    expect(planRows(true)).toEqual([
+    expect(planRows(true, false)).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
       { id: "pro", labelKey: "layout.plan.pro", current: true, locked: false },
+    ]);
+  });
+
+  it("adds the admin tier for admin accounts, as their current tier, with Pro still locked when unpaid", () => {
+    expect(planRows(false, true)).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
+      { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
+    ]);
+  });
+
+  it("keeps a paid admin's Pro unlocked and the admin tier current", () => {
+    expect(planRows(true, true)).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: false },
+      { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
     ]);
   });
 });
@@ -101,6 +117,26 @@ describe("DashboardLayout plan badge", () => {
     expect(html).toContain('aria-label="Your plan"');
     expect(html).toContain(">Free<");
     expect(html).not.toContain(">Pro<");
+  });
+
+  it("shows Admin beside the wordmark for an admin account, even on a free subscription", () => {
+    mockUser = { name: "Owner", email: "owner@example.com", role: "admin" };
+    mockPath = "/app";
+    mockSubscription = { plan: "free" };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain('aria-label="Your plan"');
+    // The admin tier is the account's own, so it is what the trigger shows.
+    expect(html).toContain(">Admin<");
+    expect(html).not.toContain(">Free<");
+    expect(html).not.toContain(">Pro<");
+  });
+
+  it("shows no admin tier to a standard user", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockSubscription = { plan: "paid" };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).not.toContain(">Admin<");
   });
 
   it("renders no plan label until the plan is known, so a paying account never flashes Free", () => {

@@ -56,6 +56,7 @@ export const ko: Translations = {
   "layout.plan.menuLabel": "계획",
   "layout.plan.free": "무료",
   "layout.plan.pro": "프로",
+  "layout.plan.admin": "관리자",
   "layout.plan.current": "현재",
   "layout.plan.locked": "잠김",
   "layout.plan.manage": "계획 관리",

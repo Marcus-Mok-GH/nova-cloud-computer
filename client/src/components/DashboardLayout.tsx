@@ -20,29 +20,34 @@ import type { TranslationKey } from "@/i18n";
  * visible (locked) to an account that does not have it yet. Extend this (and
  * the i18n keys) when a plan ships.
  */
-const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "pro"; labelKey: TranslationKey }> = [
+const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "pro" | "admin"; labelKey: TranslationKey }> = [
   { id: "free", labelKey: "layout.plan.free" },
   { id: "pro", labelKey: "layout.plan.pro" },
+  { id: "admin", labelKey: "layout.plan.admin" },
 ];
 
-export type PlanRow = { id: "free" | "pro"; labelKey: TranslationKey; current: boolean; locked: boolean };
+export type PlanRow = { id: "free" | "pro" | "admin"; labelKey: TranslationKey; current: boolean; locked: boolean };
 
 /**
- * The rows the plan menu renders. Every account holds Free; Pro is the only
- * tier above it, so a free account sees Pro listed but locked — selecting it
- * offers the upgrade rather than switching plan. Pulled out of the component
- * because the menu bodies render in a portal, which a static render cannot see.
+ * The rows the plan menu renders. Every account holds Free; Pro is locked to
+ * an unpaid account — selecting it offers the upgrade rather than switching
+ * plan. The admin tier is held by the account's role, not its subscription,
+ * so it only appears for console operators and is never locked; a role does
+ * not buy a paid subscription, so Pro stays locked for an unpaid one.
+ * Pulled out of the component because the menu bodies render in a portal,
+ * which a static render cannot see.
  */
-export function planRows(isPaid: boolean): PlanRow[] {
-  // The highest tier the account holds is its current one: Pro needs a paid
-  // subscription, and every account is at least Free.
-  const currentId = isPaid ? "pro" : "free";
+export function planRows(isPaid: boolean, isAdmin: boolean): PlanRow[] {
+  // The highest tier the account holds is its current one: the admin tier for
+  // an operator, Pro for a paid subscription, and every account is at least
+  // Free.
+  const currentId = isAdmin ? "admin" : isPaid ? "pro" : "free";
   return ACCOUNT_PLANS.map(plan => ({
     id: plan.id,
     labelKey: plan.labelKey,
     current: plan.id === currentId,
-    locked: !isPaid && plan.id !== "free",
-  }));
+    locked: plan.id === "admin" ? false : !isPaid && plan.id !== "free",
+  })).filter(row => row.id !== "admin" || isAdmin);
 }
 
 
@@ -94,7 +99,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // undefined until the query resolves, which keeps the badge empty on first
   // paint instead of flashing "Free" at a paying account.
   const isPaid = subscription.data?.plan === "paid";
-  const rows = subscription.data ? planRows(isPaid) : undefined;
+  // The admin tier is role-based, not subscription-based: console operators
+  // (the same gate that owns the Admin and Notifications entries) hold it.
+  const rows = subscription.data ? planRows(isPaid, isConsoleOperator) : undefined;
   const topPlan = rows?.find(row => row.current);
 
   if (loading) return <DashboardLayoutSkeleton />;

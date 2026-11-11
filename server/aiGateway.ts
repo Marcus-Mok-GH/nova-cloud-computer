@@ -2,6 +2,7 @@ import {
   claimDailyCreditForUser,
   claimInferenceRequestForUser,
   claimMonthlyCreditForUser,
+  claimPurchasedCreditForUser,
   getInferenceAllowanceForUser,
   isPaidPlanForUser,
   settleDailyCreditUsageForUser,
@@ -598,33 +599,66 @@ async function readGatewayStreamedCompletion(
   };
 }
 
-async function claimDailyCreditOrThrow(ownerId: number) {
+/** Which ledger funded a request, so settlement charges back to the same one. */
+export type CreditFundingSource = "daily" | "monthly" | "purchased";
+
+async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSource> {
   if (await isPaidPlanForUser(ownerId)) {
     const monthlyClaim = await claimMonthlyCreditForUser(ownerId);
-    if (!monthlyClaim) {
-      throw new AiGatewayClientError(
-        "Your monthly Nova credits are used up. Unused credits carry over for up to a year, and your next 10,000 credits arrive at the start of next month.",
-        "credits_exhausted"
-      );
-    }
-    return;
-  }
-  const claim = await claimDailyCreditForUser(ownerId);
-  if (!claim) {
+    if (monthlyClaim) return "monthly";
+    // The subscription pool is empty, but bought credits never expire, so
+    // spend one of those before refusing the request.
+    const purchased = await claimPurchasedCreditForUser(ownerId);
+    if (purchased) return "purchased";
     throw new AiGatewayClientError(
-      "Your daily Nova credits are used up. They reset tomorrow.",
+      "Your Nova credits are used up. Top up from Billing, or wait for your next 10,000 monthly credits.",
       "credits_exhausted"
     );
   }
+  const claim = await claimDailyCreditForUser(ownerId);
+  if (claim) return "daily";
+  // Free accounts spend their daily allowance first, then any bundles they
+  // bought - a top-up must be usable without a subscription.
+  const purchased = await claimPurchasedCreditForUser(ownerId);
+  if (purchased) return "purchased";
+  throw new AiGatewayClientError(
+    "Your daily Nova credits are used up. They reset tomorrow, or you can top up from Billing.",
+    "credits_exhausted"
+  );
 }
 
-async function settleGatewayCredit(ownerId: number, model: string | undefined, usage: GatewayCompletion["usage"] | null) {
+async function settleGatewayCredit(
+  ownerId: number,
+  model: string | undefined,
+  usage: GatewayCompletion["usage"] | null,
+  source: CreditFundingSource
+) {
   const chargedCredits = calculateInferenceCredits(model, usage);
   try {
-    if (await isPaidPlanForUser(ownerId)) {
+    if (source === "monthly") {
       await settleMonthlyCreditUsageForUser(ownerId, chargedCredits, usage);
-    } else {
+    } else if (source === "daily") {
       await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
+    } else {
+      // A bought bundle was charged one credit up front, so the remainder must
+      // come out of a bundle too. Charging it to the daily/monthly ledger would
+      // under-charge the request and inflate a pool the account is not using.
+      const extra = Math.max(0, Math.ceil(chargedCredits) - 1);
+      if (extra > 0) {
+        let charged = 0;
+        for (let i = 0; i < extra; i += 1) {
+          const claim = await claimPurchasedCreditForUser(ownerId);
+          if (!claim) break;
+          charged += 1;
+        }
+        // If the bundles ran out mid-request the account was under-charged for
+        // this one turn. There is nothing to refund - the request was already
+        // served - so record it rather than silently pretending it was billed.
+        const shortfall = extra - charged;
+        if (shortfall > 0) {
+          console.warn(`[Credits] account ${ownerId} under-charged by ${shortfall} credit(s): bundles exhausted mid-request`);
+        }
+      }
     }
   } catch (error) {
     console.error("[Credits] Could not settle provider token usage", error instanceof Error ? error.message : error);
@@ -640,7 +674,7 @@ export async function completeWithAiGateway(
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
   await assertAiGatewayReady();
-  await claimDailyCreditOrThrow(ownerId);
+  const fundedBy = await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
   const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
@@ -762,7 +796,7 @@ export async function completeWithAiGateway(
     }
     throw lastError;
   })();
-  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
+  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage, fundedBy);
   return { ...result, creditsCharged };
 }
 
@@ -1142,7 +1176,7 @@ export async function chatWithAiGateway(
     }
   }
   await assertAiGatewayReady();
-  await claimDailyCreditOrThrow(ownerId);
+  const fundedBy = await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
   const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
@@ -1187,7 +1221,7 @@ export async function chatWithAiGateway(
         entry,
         requestTimeoutMs
       );
-      await settleGatewayCredit(ownerId, result.model, result.usage);
+      await settleGatewayCredit(ownerId, result.model, result.usage, fundedBy);
       return result;
     } catch (error) {
       lastError = error;

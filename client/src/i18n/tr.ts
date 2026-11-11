@@ -56,6 +56,7 @@ export const tr: Translations = {
   "layout.plan.menuLabel": "Plan",
   "layout.plan.free": "Ücretsiz",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Yönetici",
   "layout.plan.current": "Geçerli",
   "layout.plan.locked": "Kilitli",
   "layout.plan.manage": "Planınızı yönetin",

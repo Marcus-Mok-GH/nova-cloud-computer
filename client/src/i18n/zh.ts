@@ -56,6 +56,7 @@ export const zh: Translations = {
   "layout.plan.menuLabel": "计划",
   "layout.plan.free": "免费",
   "layout.plan.pro": "专业",
+  "layout.plan.admin": "管理员",
   "layout.plan.current": "当前",
   "layout.plan.locked": "已锁定",
   "layout.plan.manage": "管理您的套餐",

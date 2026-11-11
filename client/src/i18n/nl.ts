@@ -56,6 +56,7 @@ export const nl: Translations = {
   "layout.plan.menuLabel": "Plan",
   "layout.plan.free": "Gratis",
   "layout.plan.pro": "Pro",
+  "layout.plan.admin": "Beheerder",
   "layout.plan.current": "Huidig",
   "layout.plan.locked": "Vergrendeld",
   "layout.plan.manage": "Beheer uw abonnement",

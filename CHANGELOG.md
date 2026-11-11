@@ -1,3 +1,25 @@
+2026-11-11 - the plan menu beside the wordmark now knows the admin tier
+
+The plan dropdown that sits beside the Nova wordmark listed only the two
+subscription tiers, Free and Pro. Both are things an account *pays for*,
+which left the operator role with no tier of its own: an admin or developer
+saw "Free" or "Pro" beside the wordmark with no sign of the role they
+actually hold.
+
+A third tier, Admin, is now part of the ladder. It is held by the
+account's role, not by its subscription, so it shows up only for console
+operators - the same gate that owns the Admin and Notifications entries -
+and is never offered as something to buy. For an operator it is the
+current tier (the label beside the wordmark), while Free and Pro are still
+listed below it, Pro locked when the subscription is not paid: a role does
+not buy premium features, and the server's own model gating is unchanged.
+
+Standard users see exactly the two tiers they always did; the Admin row is
+filtered out rather than shown locked, so there is no upgrade path to tap
+into. The tier's label is i18n-wired (`layout.plan.admin`), and the
+row-derivation stays in the exported `planRows` helper so the menu's
+rendered body - which static markup cannot reach - is still unit-testable.
+
 2026-11-11 - the + button on Chats is a "start a new chat" shortcut, not a create action
 
 The floating + on the Chats archive used to create a conversation and jump

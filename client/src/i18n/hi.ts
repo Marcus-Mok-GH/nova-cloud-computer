@@ -56,6 +56,7 @@ export const hi: Translations = {
   "layout.plan.menuLabel": "योजना",
   "layout.plan.free": "मुफ़्त",
   "layout.plan.pro": "प्रो",
+  "layout.plan.admin": "प्रशासक",
   "layout.plan.current": "वर्तमान",
   "layout.plan.locked": "लॉक्ड",
   "layout.plan.manage": "अपना प्लान प्रबंधित करें",

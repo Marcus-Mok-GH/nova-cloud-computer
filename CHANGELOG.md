@@ -1,3 +1,38 @@
+2026-11-11 - the boot screen wordmark animates while your workspace loads
+
+The first thing the app paints is the boot screen, drawn by the HTML parser
+before any JavaScript runs so there is never a blank page. It said "Starting
+Nova..." over a plain background. It now opens with the brand wordmark, with a
+band of warm light continuously flowing across the letters.
+
+It is built as two layers on purpose. A solid word sits underneath and a second
+copy, filled with a moving gradient and clipped to the letterforms, is layered
+over it. That way the screen degrades to a plain static wordmark - still legible,
+still on brand - if a browser does not paint background-clip:text or the
+gradient, which matters because the entire point of this screen is that it is
+never blank. A reduced-motion preference stops the sweep and holds the light
+mid-letter.
+
+The light sweeps from the left edge of the word to the right over 2.6s, looping
+seamlessly. Getting that motion right took two corrections worth recording: the
+band is positioned with background-position percentages, and computing where it
+actually lands is not obvious - with background-size 200% the painted image is
+twice the box width, so a sweep between, say, 195% and 140% keeps the band off
+the canvas for the entire cycle and renders a static word that merely looks like
+it should be moving. The sweep now runs 130% to -30%, which carries the band from
+off one edge to off the other, and a test computes each keyframe stop through the
+same formula so an off-canvas range cannot be introduced again. The same test
+pins the clip, the reduced-motion fallback, and the presence of the fallback
+wordmark and error text.
+
+Files: client/index.html (boot wordmark markup + animation styles),
+client/src/bootGuard.test.ts (five cases covering the animation).
+Verified in a browser against the built dist/public/index.html with the app
+bundle held back so the boot screen stayed up: the wordmark animates with a
+distinct frame in all 8 samples of the loop, renders in DM Serif Display, and
+sits correctly on both the light and dark surfaces. Tests: pnpm run check clean;
+pnpm test green; pnpm run build succeeds.
+
 2026-11-10 - a sent message can no longer vanish from the conversation
 
 Sending a message sometimes made it disappear: the message the user typed showed

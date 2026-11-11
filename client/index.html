@@ -195,6 +195,62 @@
         }, 8000);
       })();
     </script>
+    <style>
+      /* Boot wordmark: the word is painted by the HTML parser before any
+         JavaScript runs, so the first thing on screen is the brand rather than
+         an empty page. Two layers keep it safe - a solid base word plus an
+         animated light band clipped over it. If the gradient or the clip fails
+         to paint on an older engine, the solid base still shows, because the
+         whole point of this screen is that it is never blank. */
+      #boot-word {
+        display: inline-block;
+        position: relative;
+        margin: 0 0 18px;
+        font-family: "DM Serif Display", ui-serif, Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: 44px;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        color: var(--foreground, #2A211C);
+      }
+      #boot-word > span { display: inline-block; }
+      #boot-word .bw-flow {
+        position: absolute;
+        left: 0;
+        top: 0;
+        white-space: nowrap;
+        color: transparent;
+        /* rgba(0,0,0,0) rather than `transparent`: a named transparent stop in a
+           gradient interpolates through black and leaves a grey fringe. */
+        background-image: linear-gradient(
+          100deg,
+          rgba(0, 0, 0, 0) 0%,
+          rgba(0, 0, 0, 0) 38%,
+          var(--primary, #D2622C) 47%,
+          var(--nova-glow, #E9CDA8) 53%,
+          rgba(0, 0, 0, 0) 62%,
+          rgba(0, 0, 0, 0) 100%
+        );
+        background-size: 200% 100%;
+        background-repeat: no-repeat;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: nova-boot-flow 2.6s linear infinite;
+      }
+      /* The band is swept between these two positions so that it crosses the
+         glyphs: with background-size 200% the image is twice the box width and
+         background-position p% shifts it by (box - 2*box) * p/100, which parks
+         the light off-canvas for the entire loop if the range is set too wide
+         (e.g. 195% -> -70%), rendering a static word that merely looks like it
+         should be moving. */
+      @keyframes nova-boot-flow {
+        0% { background-position: 130% 0; }
+        100% { background-position: -30% 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-word .bw-flow { animation: none; background-position: 47% 0; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
@@ -202,6 +258,7 @@
          there is always something on screen. Hidden as soon as React renders. -->
     <div id="boot" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:var(--background,#FCF8F3);color:var(--foreground,#2A211C);font-family:"DM Sans",ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
       <div>
+        <p id="boot-word" aria-hidden="true"><span>nova</span><span class="bw-flow">nova</span></p>
         <p id="boot-title" style="margin:0;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Starting Nova&hellip;</p>
         <p id="boot-sub" style="margin:8px 0 0;font-size:14px;line-height:1.5;opacity:0.7;">Loading your workspace.</p>
         <button id="boot-retry" type="button" hidden style="margin-top:18px;padding:10px 20px;border:0;border-radius:999px;background:var(--primary,#D2622C);color:var(--primary-foreground,#FFFFFF);font:inherit;font-size:14px;font-weight:600;cursor:pointer;">Reload Nova</button>

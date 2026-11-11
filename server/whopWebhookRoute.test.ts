@@ -28,6 +28,7 @@ process.env.WHOP_API_KEY = "whop_test_api_key_1234";
 process.env.WHOP_WEBHOOK_SECRET = `ws_${signingSecret.toString("base64")}`;
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDb: vi.fn(),
   purchasePriorityForUser: spies.purchasePriorityForUser,
   recordWhopWebhookEvent: spies.recordWhopWebhookEvent,

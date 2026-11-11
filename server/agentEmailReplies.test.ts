@@ -62,6 +62,7 @@ vi.mock("./agents", () => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDb: vi.fn(async () => ({
     insert: () => ({
       values: (values: Record<string, unknown>) => {

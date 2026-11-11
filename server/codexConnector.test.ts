@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getWorkspaceComputer: mocks.getWorkspaceComputer,
   updateWorkspacePersistentSandbox: mocks.updateWorkspacePersistentSandbox,
 }));

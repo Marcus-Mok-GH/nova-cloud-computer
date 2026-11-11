@@ -43,6 +43,7 @@ vi.mock("./backgroundWork", () => ({
   },
 }));
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   registerRunningProcess: hoisted.registerRunningProcess,
   heartbeatRunningProcesses: hoisted.heartbeatRunningProcesses,
   finishRunningProcess: hoisted.finishRunningProcess,

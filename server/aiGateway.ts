@@ -4,6 +4,7 @@ import {
   claimMonthlyCreditForUser,
   claimPurchasedCreditForUser,
   getInferenceAllowanceForUser,
+  hasActiveAccessForUser,
   hasProAccessForUser,
   isPaidPlanForUser,
   settleDailyCreditUsageForUser,
@@ -76,7 +77,12 @@ export type AiGatewayClientErrorKind =
   | "credits_exhausted"
   | "invalid_response"
   | "client_error"
-  | "stopped";
+  | "stopped"
+  /**
+   * The account's free trial has ended (or it never had one) and no Pro
+   * entitlement covers it: the account must upgrade to Nova Pro.
+   */
+  | "upgrade_required";
 
 /**
  * Maps an upstream HTTP status to the gateway error kind. 429 keeps its special
@@ -408,6 +414,20 @@ async function probeAiGatewayHealth(): Promise<GatewayHealthFlags> {
 }
 
 /**
+ * The free plan is a 14-day trial: once it closes, only a Pro entitlement
+ * (paid plan or console-operator role) keeps an account usable. This runs at
+ * the top of both gateway entry points so every AI path - chat, agents,
+ * BYOK fallback, automation planning - honours the switch to Pro.
+ */
+async function assertActiveAccess(ownerId: number) {
+  if (await hasActiveAccessForUser(ownerId)) return;
+  throw new AiGatewayClientError(
+    "Your 14-day free trial of Nova has ended. Upgrade to Nova Pro to keep using Nova.",
+    "upgrade_required"
+  );
+}
+
+/**
  * The inference hot path's readiness gate. Chat and completion calls re-claim
  * their allowance below on every call, so reading the allowance ledger here
  * would be a wasted database round-trip per model call - the gate is the
@@ -674,6 +694,7 @@ export async function completeWithAiGateway(
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
+  await assertActiveAccess(ownerId);
   await assertAiGatewayReady();
   const fundedBy = await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
@@ -1163,6 +1184,7 @@ export async function chatWithAiGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
+  await assertActiveAccess(ownerId);
   // Premium models are a Pro feature, and this check runs on the send path
   // so a model id can never be smuggled past the composer's own gate. Pro
   // access means a paid plan or a console-operator role; the free model (or

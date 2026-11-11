@@ -5,6 +5,12 @@ export const DEFAULT_DAILY_CREDITS = 500;
 export const ADMIN_DAILY_CREDITS = 1000;
 export const DEFAULT_CREDIT_REGION = "global";
 export const MINIMUM_INFERENCE_CREDITS = 1;
+/**
+ * The free plan is a trial, not a forever tier: a standard account (no paid
+ * plan, no console-operator role) can use Nova for this many days from the
+ * moment the account was created, after which it must upgrade to Nova Pro.
+ */
+export const FREE_TRIAL_DAYS = 14;
 
 /** Role names as stored in the `user_role` enum, ordered from lowest to highest privilege. */
 export type CreditRole = "user" | "admin" | "developer";

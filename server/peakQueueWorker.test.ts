@@ -17,6 +17,7 @@ const spies = {
 };
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   claimNextInferenceQueueItem: spies.claimNextInferenceQueueItem,
   completeInferenceQueueItem: spies.completeInferenceQueueItem,
   failInferenceQueueItem: spies.failInferenceQueueItem,

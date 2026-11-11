@@ -18,12 +18,13 @@ const complete = vi.fn(async (ownerId: number, prompt: string) => ({
 const listModels = vi.fn(async () => [{ id: "meta/llama-3.1-8b-instruct", kind: "text" as const }]);
 
 class MockAiGatewayClientError extends Error {
-  constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response") {
+  constructor(message: string, public readonly kind: "configuration" | "unavailable" | "rate_limit" | "invalid_response" | "upgrade_required") {
     super(message);
   }
 }
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getOrCreateWorkspace: vi.fn(), getWorkspaceComputer: vi.fn(), getWorkspaceDashboard: vi.fn(), getWorkspaceModelSettingsForUser: vi.fn(), updateWorkspaceModelSettingsForUser: vi.fn(),
@@ -67,6 +68,20 @@ describe("AI gateway protected router", () => {
     await expect(owner.ai.complete({ prompt: "x".repeat(12001) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     complete.mockRejectedValueOnce(new MockAiGatewayClientError("Workspace allowance reached.", "rate_limit"));
     await expect(owner.ai.complete({ prompt: "Draft a compact release plan" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: "Workspace allowance reached." });
+  });
+
+  it("maps an ended free trial to a precondition failure, not a server fault", async () => {
+    const owner = appRouter.createCaller(context(1));
+    complete.mockRejectedValueOnce(
+      new MockAiGatewayClientError(
+        "Your 14-day free trial of Nova has ended. Upgrade to Nova Pro to keep using Nova.",
+        "upgrade_required"
+      )
+    );
+    await expect(owner.ai.complete({ prompt: "Draft a compact release plan" })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Your 14-day free trial of Nova has ended. Upgrade to Nova Pro to keep using Nova.",
+    });
   });
 
   it("bypasses the server model cache when a refresh is requested", async () => {

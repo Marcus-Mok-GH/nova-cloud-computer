@@ -55,7 +55,11 @@ const state = vi.hoisted(() => ({
   }>,
   agentRunStatus: { active: false as boolean },
   subscription: {
-    data: { plan: "free" as "free" | "paid" },
+    data: {
+      plan: "free" as "free" | "paid",
+      proAccess: true,
+      accessActive: true,
+    },
     isLoading: false,
     isError: false,
   },
@@ -236,6 +240,11 @@ describe("Workspace rendered browser states", () => {
       isLoading: false,
       refetch: vi.fn(),
     };
+    state.subscription = {
+      data: { plan: "free", proAccess: true, accessActive: true },
+      isLoading: false,
+      isError: false,
+    };
     state.agentVmStatus = {
       data: {
         configured: false,
@@ -351,6 +360,37 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain("GitHub");
     expect(markup).not.toContain("Gmail");
     expect(markup).not.toContain("Connect");
+  });
+
+  it("locks the composer and points to Pro once the 14-day free trial has ended", () => {
+    state.computer = {
+      data: { folders: [], files: [] },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    state.subscription = {
+      data: { plan: "free", proAccess: false, accessActive: false },
+      isLoading: false,
+      isError: false,
+    };
+    const markup = renderWorkspace();
+    expect(markup).toContain("Your 14-day free trial has ended");
+    expect(markup).toContain("Upgrade - S$7.99/month");
+    expect(markup).toMatch(/type="submit" disabled/);
+  });
+
+  it("shows the same trial lock above the chat composer, not just the task prompt", () => {
+    state.subscription = {
+      data: { plan: "free", proAccess: false, accessActive: false },
+      isLoading: false,
+      isError: false,
+    };
+    const markup = renderChat();
+    // Restore the location so later tests render the task prompt again.
+    globalThis.window = { location: { search: "" } } as unknown as Window & typeof globalThis;
+    expect(markup).toContain("Your 14-day free trial has ended");
+    expect(markup).toContain("Upgrade - S$7.99/month");
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {

@@ -20,6 +20,7 @@ vi.mock("./aiGateway", () => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getActiveCustomModelForUser: vi.fn(async () => null),
 }));
 

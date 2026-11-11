@@ -31,6 +31,7 @@ import {
   ArrowLeft,
   ArrowUp,
   CornerDownLeft,
+  Crown,
   History,
   ImagePlus,
   Loader2,
@@ -73,6 +74,35 @@ import {
 } from "@/components/workspaceChat";
 
 export { teamPlanKickoff } from "@/hooks/useWorkspaceChat";
+
+/**
+ * The free plan is a 14-day trial: once it closes and the account holds no Pro
+ * entitlement, the composers lock and this notice is the only way forward.
+ * The workspace itself stays readable - nothing the account built is hidden.
+ */
+function TrialEndedNotice() {
+  return (
+    <div className="rise-in w-full max-w-2xl rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-5 text-center dark:border-amber-400/25 dark:bg-amber-400/[0.08]">
+      <p className="font-medium text-foreground">
+        Your 14-day free trial has ended
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Upgrade to Nova Pro to keep using Nova. Your workspace, files, and
+        agents stay exactly where you left them.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          window.location.href = "/checkout?product=pro";
+        }}
+        className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background transition hover:opacity-90 dark:bg-white dark:text-black"
+      >
+        <Crown className="size-4" />
+        Upgrade - S$7.99/month
+      </button>
+    </div>
+  );
+}
 
 /**
  * The Nova workspace screen: the Overview home page (headline + connectors)
@@ -323,6 +353,12 @@ export default function Workspace() {
   const subscription = trpc.billing.subscription.useQuery(undefined, {
     retry: false,
   });
+  // The free plan is a 14-day trial, not a forever tier: once the window
+  // closes and no Pro entitlement covers the account, the composers lock and
+  // the upgrade CTA is the only way forward. The server enforces the same
+  // rule on every AI path; this is the UI mirror. Unknown while the query is
+  // in flight reads active so a slow network never locks a paying account.
+  const accessActive = subscription.data?.accessActive ?? true;
   const [selectedModelId, setSelectedModelId] = useState(FREE_CHAT_MODEL_ID);
   const [selectedEffortId, setSelectedEffortId] = useState<EffortId>("auto");
   const [startingSession, setStartingSession] = useState(false);
@@ -805,8 +841,18 @@ export default function Workspace() {
             </div>
           </div>
 
+          {!accessActive && (
+            <div className="mx-auto w-full max-w-[1240px] px-4 pt-4 sm:px-7">
+              <TrialEndedNotice />
+            </div>
+          )}
+
           <form
-            onSubmit={submit}
+            onSubmit={event => {
+              // The trial lock is also enforced here: Enter-to-send and any
+              // other submit path must not slip past the disabled button.
+              if (accessActive) submit(event);
+            }}
             className="chat-editorial-composer relative z-10 shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-7 sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
           >
             <div className="relative mx-auto w-full max-w-[1240px]">
@@ -939,7 +985,7 @@ export default function Workspace() {
                       ) : (
                         <button
                           type="submit"
-                          disabled={!canSendComposer}
+                          disabled={!canSendComposer || !accessActive}
                           aria-label="Send message"
                           className={
                             canSendComposer
@@ -994,6 +1040,7 @@ export default function Workspace() {
   };
   const taskText = draft.trim();
   const canStartSession =
+    accessActive &&
     (taskText.length > 0 || composerAttachments.length > 0) &&
     !preparingAttachments &&
     !createChat.isPending &&
@@ -1056,6 +1103,8 @@ export default function Workspace() {
           What does <span className="text-foreground">Nova</span> need
           done?
         </h1>
+
+        {!accessActive && <TrialEndedNotice />}
 
         <form
           className="rise-in mt-8 w-full max-w-2xl rounded-2xl border border-foreground/[0.14] bg-card p-4 shadow-[0_14px_45px_rgba(36,40,34,0.10)] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]"

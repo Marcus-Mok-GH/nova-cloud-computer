@@ -23,6 +23,7 @@ const getChatForUser = vi.fn();
 const getActiveAgentRunInChat = vi.fn();
 const hasLiveRunningProcessForChat = vi.fn();
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getChatForUser,
   getActiveAgentRunInChat,
   hasLiveRunningProcessForChat,

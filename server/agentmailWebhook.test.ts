@@ -19,6 +19,7 @@ vi.mock("./agentEmailReplies", () => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDb: vi.fn(),
   findWorkspaceOwnerByTelegramLinkCode: vi.fn(async () => undefined),
   findWorkspaceOwnerByTelegramToken: vi.fn(async () => undefined),

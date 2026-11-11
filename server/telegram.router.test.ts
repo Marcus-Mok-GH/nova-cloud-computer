@@ -17,6 +17,7 @@ function safe(ownerId: number) {
 }
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDailyCreditStatusForUser: vi.fn(async () => ({ region: "global", creditDay: "2026-09-24", dailyCredits: 500, usedCredits: 0, remainingCredits: 500, creditValueCents: 1 })),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getTelegramSettingsForUser: vi.fn(async (ownerId: number) => safe(ownerId)),

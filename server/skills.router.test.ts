@@ -107,6 +107,7 @@ vi.mock("./skills", () => ({
 // The router's skill procedures reach the store only through ./skills, so the
 // database mock here only has to satisfy the module graph at import time.
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDb: vi.fn(async () => null),
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",

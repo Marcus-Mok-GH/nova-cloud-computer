@@ -201,6 +201,9 @@ export function mapGatewayClientError(error: AiGatewayClientError): { status: nu
       return { status: 429, type: "rate_limit_error", code: "rate_limit" };
     case "configuration":
       return { status: 503, type: "server_error", code: "model_not_configured" };
+    case "upgrade_required":
+      // The free trial ended: the account must upgrade to Nova Pro.
+      return { status: 403, type: "permission_error", code: "upgrade_required" };
     default:
       return { status: 500, type: "server_error", code: "internal_error" };
   }

@@ -258,8 +258,13 @@
          there is always something on screen. Hidden as soon as React renders. -->
     <div id="boot" style="position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;background:var(--background,#FCF8F3);color:var(--foreground,#2A211C);font-family:"DM Sans",ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
       <div>
-        <p id="boot-word" aria-hidden="true"><span>nova</span><span class="bw-flow">nova</span></p>
-        <p id="boot-title" style="margin:0;font-size:18px;font-weight:700;letter-spacing:-0.01em;">Starting Nova&hellip;</p>
+        <p id="boot-word" aria-hidden="true"><span>Nova</span><span class="bw-flow">Nova</span></p>
+        <!-- Empty while loading - the animated wordmark above IS the loading
+             state. This element must stay: it is the slot the boot guard writes
+             its error headline into ("Nova could not start"), and fail() returns
+             early when it is missing, which would silently disable the whole
+             boot-error screen. -->
+        <p id="boot-title" style="margin:0;font-size:18px;font-weight:700;letter-spacing:-0.01em;"></p>
         <p id="boot-sub" style="margin:8px 0 0;font-size:14px;line-height:1.5;opacity:0.7;">Loading your workspace.</p>
         <button id="boot-retry" type="button" hidden style="margin-top:18px;padding:10px 20px;border:0;border-radius:999px;background:var(--primary,#D2622C);color:var(--primary-foreground,#FFFFFF);font:inherit;font-size:14px;font-weight:600;cursor:pointer;">Reload Nova</button>
       </div>

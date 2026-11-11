@@ -60,6 +60,8 @@ const state = vi.hoisted(() => ({
   }>,
   /** "paid" (default) or "free"; undefined mimics the subscription query still loading. */
   plan: "paid" as "free" | "paid" | undefined,
+  /** Effective Pro entitlement: a paid plan OR a console-operator role. */
+  proAccess: true,
   isLoading: false,
 }));
 
@@ -90,7 +92,7 @@ vi.mock("@/lib/trpc", () => ({
     billing: {
       subscription: {
         useQuery: () => ({
-          data: state.plan === undefined ? undefined : { plan: state.plan },
+          data: state.plan === undefined ? undefined : { plan: state.plan, proAccess: state.proAccess },
           isLoading: false,
         }),
       },
@@ -130,6 +132,7 @@ describe("Agents page rendered states", () => {
     state.recent = [];
     state.inbox = [];
     state.plan = "paid";
+    state.proAccess = true;
     state.isLoading = false;
     mutation.mutate.mockClear();
   });
@@ -272,6 +275,7 @@ describe("Agents page rendered states", () => {
 
   it("marks team creation as Nova Pro for a free account", () => {
     state.plan = "free";
+    state.proAccess = false;
     state.agents = [
       { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
       { id: 12, name: "Pip", role: null, instructions: null, emailAlias: "pip-2@nova.local", phoneHandle: "+1-555-0102", walletBudgetCredits: 500, walletSpentCredits: 0 },
@@ -304,11 +308,28 @@ describe("Agents page rendered states", () => {
 
   it("marks agent creation as Nova Pro for a free account", () => {
     state.plan = "free";
+    state.proAccess = false;
     const markup = renderAgents();
     // The New agent controls stay openable so the upgrade CTA in the dialog
     // is reachable, but they carry the Pro badge and a Pro-aware tooltip.
     expect(markup).toContain('title="Personal agents are part of Nova Pro - open to upgrade"');
     expect(markup).toContain("New agent<span");
+  });
+
+  it("leaves agent and team creation open for an operator on a free subscription", () => {
+    // Operators hold the Admin tier: Pro entitlement rides on the role,
+    // reported by the subscription query's proAccess flag.
+    state.plan = "free";
+    state.proAccess = true;
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+      { id: 12, name: "Pip", role: null, instructions: null, emailAlias: "pip-2@nova.local", phoneHandle: "+1-555-0102", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    expect(markup).not.toContain("New agent<span");
+    expect(markup).not.toContain("New team<span");
+    expect(markup).not.toContain('title="Personal agents are part of Nova Pro - open to upgrade"');
+    expect(markup).not.toContain('title="Agent teams are part of Nova Pro - open to upgrade"');
   });
 
   it("shows the agent inbox when mail has been delivered", () => {

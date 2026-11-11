@@ -30,23 +30,25 @@ export type PlanRow = { id: "free" | "pro" | "admin"; labelKey: TranslationKey; 
 
 /**
  * The rows the plan menu renders. Every account holds Free; Pro is locked to
- * an unpaid account — selecting it offers the upgrade rather than switching
- * plan. The admin tier is held by the account's role, not its subscription,
- * so it only appears for console operators and is never locked; a role does
- * not buy a paid subscription, so Pro stays locked for an unpaid one.
+ * an account without Pro access — selecting it offers the upgrade rather
+ * than switching plan. The admin tier is held by the account's role, not its
+ * subscription, so it only appears for console operators and is never locked.
  * Pulled out of the component because the menu bodies render in a portal,
  * which a static render cannot see.
+ * `proAccess` is the server's effective Pro entitlement (a paid plan or a
+ * console-operator role): it - not the raw plan - is what locks the Pro row,
+ * so an operator on a free subscription reads Pro unlocked.
  */
-export function planRows(isPaid: boolean, isAdmin: boolean): PlanRow[] {
+export function planRows(proAccess: boolean, isAdmin: boolean): PlanRow[] {
   // The highest tier the account holds is its current one: the admin tier for
-  // an operator, Pro for a paid subscription, and every account is at least
-  // Free.
-  const currentId = isAdmin ? "admin" : isPaid ? "pro" : "free";
+  // an operator, Pro for an account with Pro access, and every account is at
+  // least Free.
+  const currentId = isAdmin ? "admin" : proAccess ? "pro" : "free";
   return ACCOUNT_PLANS.map(plan => ({
     id: plan.id,
     labelKey: plan.labelKey,
     current: plan.id === currentId,
-    locked: plan.id === "admin" ? false : !isPaid && plan.id !== "free",
+    locked: plan.id === "admin" ? false : !proAccess && plan.id !== "free",
   })).filter(row => row.id !== "admin" || isAdmin);
 }
 
@@ -98,10 +100,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // subscription reads Free without any client-side date maths. Both stay
   // undefined until the query resolves, which keeps the badge empty on first
   // paint instead of flashing "Free" at a paying account.
-  const isPaid = subscription.data?.plan === "paid";
+  // Pro access is the server's effective entitlement (paid plan or
+  // console-operator role), reported beside the raw plan.
+  const proAccess = subscription.data?.proAccess ?? false;
   // The admin tier is role-based, not subscription-based: console operators
   // (the same gate that owns the Admin and Notifications entries) hold it.
-  const rows = subscription.data ? planRows(isPaid, isConsoleOperator) : undefined;
+  const rows = subscription.data ? planRows(proAccess, isConsoleOperator) : undefined;
   const topPlan = rows?.find(row => row.current);
 
   if (loading) return <DashboardLayoutSkeleton />;

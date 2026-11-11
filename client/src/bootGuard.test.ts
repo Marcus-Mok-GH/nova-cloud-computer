@@ -136,8 +136,66 @@ describe("boot wordmark animation", () => {
     // animated layer on top
     expect((boot.match(/<span/g) || []).length).toBeGreaterThanOrEqual(2);
     expect(boot).toContain('class="bw-flow"');
-    // the word must actually be the brand word, not a placeholder
-    expect((boot.match(/>nova</g) || []).length).toBe(2);
+    // the wordmark carries the brand capitalisation, in both layers
+    expect((boot.match(/>Nova</g) || []).length).toBe(2);
+  });
+
+  it("stands in for the old 'Starting Nova...' line while loading", () => {
+    const boot = bootMarkup();
+    // the animated wordmark IS the loading state; the headline is reserved for
+    // the error path, so it ships empty
+    expect(boot).not.toContain("Starting Nova");
+    const title = /<p id="boot-title"[^>]*>([\s\S]*?)<\/p>/.exec(boot);
+    expect(title).toBeDefined();
+    expect(title![1].trim()).toBe("");
+  });
+
+  it("keeps the boot-title slot, because the error screen writes its headline there", () => {
+    // Deleting #boot-title to "remove the text" would silently disable the boot
+    // error state: fail() looks the element up and returns early when it is
+    // missing, so the reload button and the message would never appear. These
+    // assertions pin the element AND the behaviour that needs it.
+    expect(bootMarkup()).toContain('id="boot-title"');
+    expect(bootGuardScript()).toContain("Nova could not start");
+
+    // run the real fail() path against a stub carrying the boot elements
+    const elements: Record<string, { textContent: string; hidden?: boolean }> = {
+      "boot-title": { textContent: "" },
+      "boot-sub": { textContent: "" },
+      "boot-retry": { textContent: "", hidden: true },
+    };
+    const attributes: Record<string, string> = {};
+    const documentStub = {
+      documentElement: {
+        setAttribute: (n: string, v: string) => { attributes[n] = v; },
+        getAttribute: (n: string) => attributes[n] ?? null,
+        classList: { toggle: () => {} },
+        style: {},
+      },
+      getElementById: (id: string) => elements[id] ?? null,
+      createElement: () => ({ style: {}, setAttribute: () => {} }),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      body: { appendChild: () => {} },
+      readyState: "complete",
+    };
+    const windowStub: { addEventListener: () => void; __novaFail?: (r?: string) => void } = {
+      addEventListener: () => {},
+    };
+    const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    new Function(
+      "localStorage", "sessionStorage", "document", "window", "location",
+      "navigator", "setTimeout", "clearTimeout", bootGuardScript()
+    )(
+      storage, storage, documentStub, windowStub,
+      { search: "", href: "http://localhost/" }, { userAgent: "vitest" },
+      () => 0, () => 0
+    );
+
+    expect(typeof windowStub.__novaFail).toBe("function");
+    windowStub.__novaFail!("boom");
+    expect(elements["boot-title"].textContent).toBe("Nova could not start");
+    expect(elements["boot-retry"].hidden).toBe(false);
   });
 
   it("clips the flowing band to the letterforms", () => {
@@ -188,10 +246,13 @@ describe("boot wordmark animation", () => {
     expect(reduced?.[1]).toMatch(/animation:\s*none/);
   });
 
-  it("keeps the boot screen's fallback text so it is never blank", () => {
+  it("keeps the boot screen's supporting text so it is never blank", () => {
     const boot = bootMarkup();
-    expect(boot).toContain("Starting Nova");
+    // the animated wordmark is the loading state now, so the loading copy is the
+    // wordmark plus the sub-line - and the error affordances must survive too
+    expect(boot).toContain('id="boot-word"');
     expect(boot).toContain('id="boot-sub"');
+    expect(boot).toContain("Loading your workspace");
     expect(boot).toContain('id="boot-retry"');
   });
 });

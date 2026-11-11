@@ -56,6 +56,7 @@ export const ru: Translations = {
   "layout.plan.menuLabel": "План",
   "layout.plan.free": "Бесплатно",
   "layout.plan.pro": "Профи",
+  "layout.plan.admin": "Админ",
   "layout.plan.current": "Текущий",
   "layout.plan.locked": "Заблокировано",
   "layout.plan.manage": "Управляйте своим планом",

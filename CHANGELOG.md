@@ -1,3 +1,34 @@
+2026-11-11 - every database object is created automatically, and the Whop webhook bootstraps the schema
+
+Audited the whole schema-creation path against production crash risk:
+all 40 tables, every declared column, and all 16 enums in
+drizzle/schema.ts are created by the committed migrations, and both the
+deploy build (`migrate-deploy`) and the runtime bootstrap
+(`server/migrate.ts`) apply pending migrations idempotently - the
+deploy-time step is skipped safely on infrastructure failures and the
+first database-backed request retries it.
+
+Two gaps closed:
+
+- `api/whop/webhook.ts` - the dedicated Whop webhook function wrote
+  subscription state without running `ensureDatabaseSchema()` first,
+  unlike every other database-backed entrypoint. A cold function instance
+  after a skipped build-time migration would 500 on a missing table, and
+  Whop would retry a webhook that could never succeed - silently losing
+  the subscription update. It now bootstraps before handling, after the
+  cheap config check so disabled deployments still short-circuit.
+- Column- and enum-level drift guards in `server/migrate.test.ts`: the
+  existing guard only checked table names, so a column or `pgEnum` added
+  to schema.ts without a committed migration would still crash
+  production. The new guards replay the migration SQL (CREATE TABLE
+  bodies, ADD/DROP COLUMN, renames, drops, CREATE TYPE) and assert every
+  declared column and enum ends up live.
+
+Files: api/whop/webhook.ts, server/migrate.test.ts, CHANGELOG.md.
+
+Tests: pnpm check, pnpm test (160 files / 1705 tests pass, 2 new),
+pnpm build.
+
 2026-11-11 - the free plan is a 14-day trial, then Nova Pro
 
 The free plan was a forever tier: a standard account could keep using

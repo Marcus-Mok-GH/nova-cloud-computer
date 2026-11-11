@@ -38,6 +38,8 @@ function mapGatewayKind(kind: AiGatewayClientError["kind"]): { status: number; c
       return { status: 429, code: "rate_limit" };
     case "configuration":
       return { status: 503, code: "model_not_configured" };
+    case "upgrade_required":
+      return { status: 403, code: "upgrade_required" };
     default:
       return { status: 500, code: "internal_error" };
   }

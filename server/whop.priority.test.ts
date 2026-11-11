@@ -14,6 +14,7 @@ const getOwnerIdForWhopMembership = vi.fn(async () => null);
 const setWhopCheckoutConfigIdForUser = vi.fn(async () => undefined);
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   purchasePriorityForUser,
   recordWhopWebhookEvent,
   upsertSubscriptionForUser,

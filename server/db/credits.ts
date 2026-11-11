@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
-import { dailyCredits, inferenceAllowances, userSubscriptions, whopWebhookEvents } from "../../drizzle/schema";
-import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, PAID_PLAN_CARRY_OVER_MONTHS, getCarryOverFloorMonth, getCreditDay, getCreditMonth, getDailyCreditPolicyForRole, getMonthlyCreditAllocationForRole, type InferenceTokenUsage, type PlanTier } from "../credits";
+import { dailyCredits, inferenceAllowances, userSubscriptions, users, whopWebhookEvents } from "../../drizzle/schema";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, FREE_TRIAL_DAYS, PAID_PLAN_CARRY_OVER_MONTHS, getCarryOverFloorMonth, getCreditDay, getCreditMonth, getDailyCreditPolicyForRole, getMonthlyCreditAllocationForRole, type InferenceTokenUsage, type PlanTier } from "../credits";
 import { requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 import { getUserRole } from "./users";
@@ -185,6 +185,42 @@ export async function hasProAccessForUser(ownerId: number) {
   const role = await getUserRole(ownerId);
   if (role === "admin" || role === "developer") return true;
   return (await getSubscriptionForUser(ownerId)).plan === "paid";
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The free plan's trial window: a standard account can use Nova for
+ * `FREE_TRIAL_DAYS` days from the moment it was created. Pro access (a paid
+ * plan or a console-operator role) is not bounded by the clock, so this
+ * predicate only ever decides the fate of standard accounts.
+ */
+export async function isFreeTrialActiveForUser(ownerId: number): Promise<boolean> {
+  const db = await requireDb();
+  const [row] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, ownerId)).limit(1);
+  // Fail open: a missing row is a data anomaly, never a reason to lock an
+  // account out of its own workspace.
+  if (!row?.createdAt) return true;
+  return row.createdAt.getTime() + FREE_TRIAL_DAYS * DAY_MS > Date.now();
+}
+
+/** The instant the account's free trial ends (createdAt + 14 days), or null
+ * when the account row is missing. Purely informational for the billing UI. */
+export async function getFreeTrialEndsAtForUser(ownerId: number): Promise<Date | null> {
+  const db = await requireDb();
+  const [row] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, ownerId)).limit(1);
+  return row?.createdAt ? new Date(row.createdAt.getTime() + FREE_TRIAL_DAYS * DAY_MS) : null;
+}
+
+/**
+ * Whether the owner may use Nova at all right now: Pro access (a paid plan
+ * or a console-operator role), or a standard account still inside its
+ * 14-day free trial. Once the trial closes, the account must upgrade to
+ * Nova Pro - the free plan is a trial, not a forever tier.
+ */
+export async function hasActiveAccessForUser(ownerId: number): Promise<boolean> {
+  if (await hasProAccessForUser(ownerId)) return true;
+  return isFreeTrialActiveForUser(ownerId);
 }
 
 /**

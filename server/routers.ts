@@ -62,7 +62,9 @@ import {
   getPriorityStatusForUser,
   getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
+  getFreeTrialEndsAtForUser,
   hasProAccessForUser,
+  hasActiveAccessForUser,
   getCreditTopUpBalanceForUser,
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
@@ -396,11 +398,13 @@ export const appRouter = router({
      * window, so nothing vanishes at the month boundary.
      */
     subscription: protectedProcedure.query(async ({ ctx }) => {
-      const [subscription, monthlyCredits, creditTopUps, proAccess] = await Promise.all([
+      const [subscription, monthlyCredits, creditTopUps, proAccess, trialEndsAt, accessActive] = await Promise.all([
         getSubscriptionForUser(ctx.user.id),
         getMonthlyCreditStatusForUser(ctx.user.id),
         getCreditTopUpBalanceForUser(ctx.user.id),
         hasProAccessForUser(ctx.user.id),
+        getFreeTrialEndsAtForUser(ctx.user.id),
+        hasActiveAccessForUser(ctx.user.id),
       ]);
       return {
         plan: subscription.plan,
@@ -410,6 +414,14 @@ export const appRouter = router({
          * `plan` keeps reporting the raw subscription state.
          */
         proAccess,
+        /**
+         * The free plan is a 14-day trial: `accessActive` is the server's
+         * effective usage entitlement (Pro access or a trial still inside
+         * its window), and `trialEndsAt` lets the billing UI show the
+         * countdown - or the "trial ended" state that forces the switch.
+         */
+        accessActive,
+        trialEndsAt,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
@@ -761,7 +773,7 @@ export const appRouter = router({
     sendTest: protectedProcedure.input(z.object({ text: z.string().trim().min(1).max(4096).default("Nova is connected to your Telegram bot.") })).mutation(async ({ ctx, input }) => { const credentials = await getTelegramCredentialsForUser(ctx.user.id); if (!credentials?.chatId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Send /start to your bot in Telegram, then discover its chat before sending a message." }); const sent = await sendTelegramMessage(credentials.token, credentials.chatId, input.text); return { success: true as const, messageId: sent.message_id }; }),
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
-  ai: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listGatewayModels(input?.forceRefresh); } catch (error) { if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getAiGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(gatewayCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithAiGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached", "credits_exhausted"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova's AI service is temporarily unavailable. Please retry shortly." }); } }) }),
+  ai: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listGatewayModels(input?.forceRefresh); } catch (error) { if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getAiGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(gatewayCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithAiGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" || error.kind === "upgrade_required" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached", "credits_exhausted"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova's AI service is temporarily unavailable. Please retry shortly." }); } }) }),
   /**
    * Public Q&A for the landing page and API docs. No session is required:
    * `server/supportBot.ts` validates the conversation and owns the anonymous

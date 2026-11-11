@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // fetch so no real provider is contacted.
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getActiveCustomModelForUser: vi.fn(async () => null),
 }));
 

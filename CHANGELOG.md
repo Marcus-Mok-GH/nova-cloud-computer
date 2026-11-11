@@ -1,3 +1,46 @@
+2026-11-11 - the free plan is a 14-day trial, then Nova Pro
+
+The free plan was a forever tier: a standard account could keep using
+Nova on the free model indefinitely, and only premium models and agent
+creation were Pro-gated. The free plan is now a trial - 14 days from
+the moment the account was created - after which the account must
+upgrade to Nova Pro to keep using Nova at all.
+
+- A new `FREE_TRIAL_DAYS` policy (14) and two predicates in the credits
+  module: `isFreeTrialActiveForUser` (createdAt + 14 days, failing open
+  when the account row is missing) and `hasActiveAccessForUser`
+  (Pro access OR a trial still inside its window).
+- Every AI entry point is gated: both gateway paths
+  (`chatWithAiGateway`, `completeWithAiGateway`) throw an
+  `upgrade_required` error before any funding or model work, so chat,
+  agents, BYOK fallback, automation planning, and the peak queue all
+  honour the switch. The web/Telegram error paths quote the upgrade
+  message; `ai.complete` maps it to PRECONDITION_FAILED and the
+  inference API to 403.
+- `billing.subscription` now reports `accessActive` (the effective
+  usage entitlement) and `trialEndsAt`, beside the existing `proAccess`
+  flag and raw `plan`.
+- The workspace mirrors the lock: once the trial closes, both composers
+  (task prompt and chat) disable and a notice points to the Pro upgrade
+  (`/checkout?product=pro`). The workspace itself stays readable - files,
+  agents, and history are never hidden from a lapsed account.
+- Credit funding is unchanged: `isPaidPlanForUser` still decides whose
+  runs draw from the monthly pool, and a lapsed Pro account whose trial
+  was spent long ago reads locked - the trial is one-time per account.
+
+Files: server/credits.ts, server/db/credits.ts, server/aiGateway.ts,
+server/routers.ts, server/inferenceApi.ts, server/novaApiErrors.ts,
+client/src/pages/Workspace.tsx, server/db/credits.test.ts,
+server/aiGateway.trialGate.test.ts, server/aiGateway.router.test.ts,
+server/billing.router.test.ts,
+client/src/pages/Workspace.render.test.tsx, CHANGELOG.md
+(plus the `hasActiveAccessForUser` stub added to existing db-barrel
+test mocks).
+
+Tests: pnpm check, pnpm test (160 files / 1703 tests pass, 28 new),
+pnpm build; the new cases watched RED first (no gate, wrong error kind)
+then GREEN.
+
 2026-11-11 - operators keep every Pro feature through the Admin tier
 
 The Admin tier added to the plan menu was a role marker with no

@@ -18,6 +18,7 @@ const claimInferenceRequestForUser = vi.fn(async () => ({ usedRequests: 1 }));
 const getInferenceAllowanceForUser = vi.fn(async () => ({ usedRequests: 0 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser,
   claimMonthlyCreditForUser,
   claimPurchasedCreditForUser,

@@ -41,6 +41,7 @@ const spies = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
     creditDay: "2026-09-24",

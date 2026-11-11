@@ -11,6 +11,7 @@ vi.mock("./accountDeletion", () => ({
   verifyAccountDeletionOtp: (input: { email: string; otp: string }) => verifyDeletionOtpSpy(input),
 }));
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   deleteUserAccount: (userId: number) => deleteUserSpy(userId),
   requestAgentStopForUser: vi.fn(),
   cancelActiveAgentVmRunsForUser: vi.fn(),

@@ -48,6 +48,7 @@ vi.mock("./workspace/workspaceSync", () => ({
 vi.mock("./sandboxWorkspace", () => ({ pauseAgentSandbox }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getWorkspaceComputer: vi.fn(async () => ({
     workspace: { id: 31, persistentSandboxId: "sbx-1" },
     files: [],

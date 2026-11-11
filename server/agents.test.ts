@@ -124,6 +124,7 @@ vi.mock("./agentmail", () => ({
 }));
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDb: vi.fn(async () => script.fakeDb),
   getOrCreateWorkspace: vi.fn(async () => ({ id: 5, ownerId: 1 })),
   getChatForUser: vi.fn(async () => undefined),

@@ -1,14 +1,15 @@
-2026-11-11 - the + button on Chats creates a conversation in place, without leaving the page
+2026-11-11 - the + button on Chats is a "start a new chat" shortcut, not a create action
 
-The floating + on the Chats archive used to create the conversation and then
-navigate straight into it at `/app?chatId=...`. That made the archive's own
-action impossible to use while staying in the archive - pressing + threw the
-visitor out of the list they were working in.
+The floating + on the Chats archive used to create a conversation and jump
+straight into it at `/app?chatId=...`. That made the button a hidden
+"create conversation record" action: it wrote a row the user never asked for
+and skipped the workspace's own new-chat surface.
 
-The button now only creates the conversation and lets the existing refetch put
-it at the top of the list, which is ordered by `updatedAt`. Opening a
-conversation still happens by selecting its row, so the two actions are no
-longer the same click.
+Pressing + now only takes the visitor to the workspace, where the
+task-prompt screen starts a new conversation: the record comes into
+existence on first send, so nothing is pre-created and no stray "New
+workspace conversation" row is ever left in the archive. Opening an existing
+conversation remains a click on its row in the list.
 
 2026-11-11 - credits can be bought outright, S$5 to S$50
 

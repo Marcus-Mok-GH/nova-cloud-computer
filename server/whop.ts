@@ -43,6 +43,13 @@ import {
  * WHOP_PLAN_ID pins Pro checkout to an existing Whop plan (variant). Without it
  * checkout creates/reuses an inline S$7.99 / 30-day renewal variant instead.
  * WHOP_PRIORITY_PLAN_ID pins priority checkout to the S$4.99 one-time plan.
+ * WHOP_CREDIT_PLAN_IDS pins the credit top-up ladder: a JSON object mapping a
+ * catalog slug to its `plan_` id (`{"topup-10":"plan_..."}`). Pinned, the
+ * credit checkout references the variant instead of creating one inline -
+ * production company API keys are not authorized to create variants inline
+ * (Whop answers 403 "not authorized"), so the rungs live in the Whop account
+ * and the checkout just references them, exactly like Pro/Priority. Without
+ * the map, the inline-variant fallback keeps dev environments working.
  */
 
 const WHOP_API_BASE_URL = "https://api.whop.com/api/v1";
@@ -107,6 +114,29 @@ export function getWhopPlusPlanId(): string | undefined {
 /** Returns the one-time priority plan ID if set in env. */
 export function getWhopPriorityPlanId(): string | undefined {
   return process.env.WHOP_PRIORITY_PLAN_ID?.trim();
+}
+
+/**
+ * The pinned credit top-up variants: `WHOP_CREDIT_PLAN_IDS` is a JSON object
+ * mapping a catalog slug to its `plan_` id, e.g.
+ * `{"topup-10":"plan_..."}`. Returns undefined when the variable is unset or
+ * unparseable, so those deployments keep the inline-variant fallback.
+ */
+export function getWhopCreditPlanIds(): Record<string, string> | undefined {
+  const raw = process.env.WHOP_CREDIT_PLAN_IDS?.trim();
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const ids: Record<string, string> = {};
+  for (const [slug, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof value === "string" && value.trim()) ids[slug] = value.trim();
+  }
+  return Object.keys(ids).length > 0 ? ids : undefined;
 }
 
 /** Which Nova tier a membership's Whop plan ID buys. Plus is pinned by env;
@@ -237,11 +267,16 @@ type CreateWhopCreditTopUpCheckoutInput = {
 /**
  * Creates a Whop checkout for a one-time credit bundle.
  *
- * The bundle is described by an inline one-time variant built from the shared
- * catalog, so a new rung on the ladder needs no new Whop product: the price and
- * the credit amount both travel in the metadata and are re-validated against
- * the catalog when the webhook lands. Credits are granted only then - never at
- * checkout creation.
+ * When the bundle's tier is pinned (`WHOP_CREDIT_PLAN_IDS` maps its catalog
+ * slug to a `plan_` id) the checkout references that existing variant via
+ * `variant_id` - the same shape Pro and Priority use. That path works with the
+ * production company API key, which is authorized to reference a variant but
+ * not to create one inline. Without a pinned id the checkout falls back to
+ * building an inline one-time variant from the shared catalog (dev setups).
+ *
+ * The credit amount travels in the metadata either way and is re-validated
+ * against the catalog when the webhook lands. Credits are granted only then -
+ * never at checkout creation.
  */
 export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUpCheckoutInput): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
@@ -258,16 +293,24 @@ export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUp
       nova_credit_product_id: product.id,
       nova_credit_amount: String(product.credits),
     },
-    variant: {
+    redirect_url: redirectUrl,
+  };
+  const pinnedPlanId = getWhopCreditPlanIds()?.[product.id];
+  if (pinnedPlanId) {
+    // Reference the pinned variant instead of creating one inline: the
+    // production company key cannot create variants, so a new rung needs a
+    // pinned id rather than inline creation.
+    body.variant_id = pinnedPlanId;
+  } else {
+    body.variant = {
       billing_type: "one_time",
       currency: CREDIT_TOPUP_CURRENCY,
       initial_price: Number(price),
       title: `Nova credits (${product.credits.toLocaleString("en-US")})`,
       description: `${product.credits.toLocaleString("en-US")} Nova credits, added to your balance.`,
       payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
-    },
-    redirect_url: redirectUrl,
-  };
+    };
+  }
   const response = await fetch(`${WHOP_API_BASE_URL}/checkout_configurations`, {
     method: "POST",
     headers: {

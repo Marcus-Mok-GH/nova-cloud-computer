@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import Billing from "./Billing";
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -104,6 +105,28 @@ function paidAccount() {
   state.credits.data.dailyCredits = 10_000;
   state.credits.data.remainingCredits = 8_750;
 }
+
+describe("Billing hook order", () => {
+  it("calls every hook before the loading/error early returns", () => {
+    // React error #310 ("Rendered more hooks than during the previous
+    // render") shipped to production because the credits.status query was
+    // added *after* the early returns: the first paint (loading) skipped it,
+    // and the re-render carrying data added it. renderToStaticMarkup builds
+    // a fresh instance per call, so it cannot see a hook-count change - this
+    // asserts the rule at the source level instead.
+    const source = readFileSync(new URL("./Billing.tsx", import.meta.url), "utf8");
+    const body = source.slice(source.indexOf("export default function Billing()"));
+    const firstReturn = body.search(/\breturn\b/);
+    expect(firstReturn).toBeGreaterThan(-1);
+    const afterFirstReturn = body.slice(firstReturn);
+    for (const hook of ["useQuery(", "useMutation(", "useState(", "useEffect("]) {
+      expect(
+        afterFirstReturn.includes(hook),
+        `${hook} is called after an early return in Billing.tsx`
+      ).toBe(false);
+    }
+  });
+});
 
 describe("Billing page", () => {
   beforeEach(() => {

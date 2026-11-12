@@ -118,6 +118,10 @@ export default function Billing() {
     retry: false,
   });
   const priority = trpc.billing.status.useQuery(undefined, { retry: false });
+  // Every hook must run before the loading/error early returns below: a hook
+  // added after them is skipped on the first render and React throws
+  // "Rendered more hooks than during the previous render" once data arrives.
+  const daily = trpc.credits.status.useQuery(undefined, { retry: false });
   const [pending, setPending] = useState<"priority" | "portal" | null>(null);
 
   const buyPriority = trpc.billing.purchasePriority.useMutation({
@@ -166,7 +170,6 @@ export default function Billing() {
   const isPaid = plan === "paid";
   // Plus is a subscription too - it just is not Pro.
   const hasSubscription = plan !== "free";
-  const daily = trpc.credits.status.useQuery(undefined, { retry: false });
   const topUpProducts = data?.topUpProducts ?? [];
   const boughtCredits = data?.creditTopUps?.remainingCredits ?? 0;
   const priorityActive = priority.data?.priority ?? false;

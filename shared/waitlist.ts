@@ -3,10 +3,10 @@
  *
  * Until `NOVA_WAITLIST_END_AT`, `/sign-in` shows the waitlist instead of the
  * passwordless flow. The instant is a constant rather than a deploy: on
- * 1 November the real sign-in comes back on its own, with no release, no flag
+ * 13 November the real sign-in comes back on its own, with no release, no flag
  * flip, and no chance of someone forgetting to undo a temporary change.
  */
-export const NOVA_WAITLIST_END_ISO = "2026-11-01T00:00:00.000Z";
+export const NOVA_WAITLIST_END_ISO = "2026-11-13T00:00:00.000Z";
 export const NOVA_WAITLIST_END_MS = Date.parse(NOVA_WAITLIST_END_ISO);
 
 /** `?waitlist=0` (or `off` / `false`) always serves the real sign-in. */

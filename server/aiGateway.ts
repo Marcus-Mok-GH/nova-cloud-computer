@@ -1,14 +1,11 @@
 import {
   claimDailyCreditForUser,
   claimInferenceRequestForUser,
-  claimMonthlyCreditForUser,
   claimPurchasedCreditForUser,
   getInferenceAllowanceForUser,
   hasActiveAccessForUser,
   hasProAccessForUser,
-  isPaidPlanForUser,
   settleDailyCreditUsageForUser,
-  settleMonthlyCreditUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
 import { createSseLineFramer, sseDataPayload } from "./sse";
@@ -621,25 +618,13 @@ async function readGatewayStreamedCompletion(
 }
 
 /** Which ledger funded a request, so settlement charges back to the same one. */
-export type CreditFundingSource = "daily" | "monthly" | "purchased";
+export type CreditFundingSource = "daily" | "purchased";
 
 async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSource> {
-  if (await isPaidPlanForUser(ownerId)) {
-    const monthlyClaim = await claimMonthlyCreditForUser(ownerId);
-    if (monthlyClaim) return "monthly";
-    // The subscription pool is empty, but bought credits never expire, so
-    // spend one of those before refusing the request.
-    const purchased = await claimPurchasedCreditForUser(ownerId);
-    if (purchased) return "purchased";
-    throw new AiGatewayClientError(
-      "Your Nova credits are used up. Top up from Billing, or wait for your next 10,000 monthly credits.",
-      "credits_exhausted"
-    );
-  }
   const claim = await claimDailyCreditForUser(ownerId);
   if (claim) return "daily";
-  // Free accounts spend their daily allowance first, then any bundles they
-  // bought - a top-up must be usable without a subscription.
+  // The daily allowance is empty, but bought credits never expire, so spend
+  // one of those before refusing the request.
   const purchased = await claimPurchasedCreditForUser(ownerId);
   if (purchased) return "purchased";
   throw new AiGatewayClientError(
@@ -656,14 +641,13 @@ async function settleGatewayCredit(
 ) {
   const chargedCredits = calculateInferenceCredits(model, usage);
   try {
-    if (source === "monthly") {
-      await settleMonthlyCreditUsageForUser(ownerId, chargedCredits, usage);
-    } else if (source === "daily") {
+    if (source === "daily") {
       await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
     } else {
       // A bought bundle was charged one credit up front, so the remainder must
-      // come out of a bundle too. Charging it to the daily/monthly ledger would
-      // under-charge the request and inflate a pool the account is not using.
+      // come out of a bundle too. Charging it to the daily ledger would
+      // under-charge the request and inflate an allowance the account is not
+      // using.
       const extra = Math.max(0, Math.ceil(chargedCredits) - 1);
       if (extra > 0) {
         let charged = 0;

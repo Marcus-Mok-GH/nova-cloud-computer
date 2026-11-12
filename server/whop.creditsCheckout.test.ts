@@ -112,4 +112,30 @@ describe("Whop credit top-up checkout variant selection", () => {
     expect(body.variant_id).toBeUndefined();
     expect(body.variant.billing_type).toBe("one_time");
   });
+
+  it("sends variant_id (no inline variant) with the production key shape, so Whop does not reject with 403 forbidden", async () => {
+    process.env.WHOP_CREDIT_PLAN_IDS = JSON.stringify({
+      "topup-10": "plan_credit_10",
+    });
+    const { calls, fetchMock } = mockCheckoutResponse();
+    // Production company key: inline variant creation is refused.
+    fetchMock.mockImplementationOnce(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const body = JSON.parse(String(init.body));
+      if (body.variant && !body.variant_id) {
+        return { ok: false, status: 403, text: async () => JSON.stringify({ error: { type: "forbidden", message: "You are not authorized" } }), json: async () => ({}) };
+      }
+      return { ok: true, json: async () => ({ id: "ch_test_2", purchase_url: "https://whop.com/checkout/ch_test_2" }), text: async () => "" };
+    });
+    const { createWhopCreditTopUpCheckout } = await import("./whop");
+    const result = await createWhopCreditTopUpCheckout({
+      ownerId: 42,
+      product: getCreditTopUpProduct("topup-10")!,
+      redirectUrl: "https://example.com/credits",
+    });
+    expect(result.purchaseUrl).toBe("https://whop.com/checkout/ch_test_2");
+    const body = JSON.parse(String(calls[0].init.body));
+    expect(body.variant_id).toBe("plan_credit_10");
+    expect(body.variant).toBeUndefined();
+  });
 });

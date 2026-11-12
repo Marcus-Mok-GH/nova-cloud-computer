@@ -16,14 +16,35 @@ const createWhopCreditTopUpCheckout = vi.fn(async () => ({
   id: "ch_credits_1",
   purchaseUrl: "https://whop.com/checkout/credits",
 }));
+const createWhopCheckout = vi.fn(async () => ({
+  id: "ch_pro_1",
+  purchaseUrl: "https://whop.com/checkout/pro",
+}));
 const isWhopConfigured = vi.fn(() => true);
 const getWhopPriorityPlanId = vi.fn(() => "plan_BFyuf6PmE5wwz");
+const getWhopPlusPlanId = vi.fn(() => "plan_plus");
 /** The Pro-entitlement gate (paid subscription OR console-operator role). */
 const hasProAccessForUser = vi.fn(async () => false);
 /** The usage gate: Pro access OR a still-open 14-day free trial. */
 const hasActiveAccessForUser = vi.fn(async () => true);
 /** When the account's free trial ends (createdAt + 14 days); null = unknown. */
 const getFreeTrialEndsAtForUser = vi.fn(async () => null);
+/** The account's subscription row as billing sees it (free / plus / paid). */
+const getSubscriptionForUser = vi.fn(async (): Promise<{
+  plan: "free" | "plus" | "paid";
+  status: string;
+  provider: string;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  whopCheckoutConfigId: string | null;
+}> => ({
+  plan: "free",
+  status: "inactive",
+  provider: "whop",
+  currentPeriodEnd: null,
+  cancelAtPeriodEnd: false,
+  whopCheckoutConfigId: null,
+}));
 
 vi.mock("./db", () => ({
   hasActiveAccessForUser,
@@ -39,38 +60,21 @@ vi.mock("./db", () => ({
   getActiveCustomModelForUser: vi.fn(async () => null),
   getPriorityStatusForUser,
   hasProAccessForUser,
-  getSubscriptionForUser: vi.fn(async () => ({
-    plan: "free",
-    status: "inactive",
-    provider: "whop",
-    currentPeriodEnd: null,
-    cancelAtPeriodEnd: false,
-    whopCheckoutConfigId: null,
-  })),
-  getMonthlyCreditStatusForUser: vi.fn(async () => ({
-    plan: "free",
-    creditMonth: "2026-11",
-    monthlyAllocation: 0,
-    balanceCredits: 0,
-    usedCreditsThisMonth: 0,
-    carriedOverCredits: 0,
-    carryOverMonths: 12,
-    inputTokens: 0,
-    outputTokens: 0,
-    creditValueCents: 1,
-  })),
+  getSubscriptionForUser,
   getCreditTopUpBalanceForUser: vi.fn(async () => ({
     remainingCredits: 0,
     activeBundles: 0,
     purchasedCredits: 0,
   })),
+  setWhopCheckoutConfigIdForUser: vi.fn(async () => undefined),
 }));
 
 vi.mock("./whop", () => ({
-  createWhopCheckout: vi.fn(),
+  createWhopCheckout,
   createWhopCreditTopUpCheckout,
   createWhopPriorityCheckout,
   getWhopPlanId: vi.fn(() => "plan_pro"),
+  getWhopPlusPlanId,
   getWhopPriorityPlanId,
   isWhopConfigured,
   isWhopCheckoutDebug: () => false,
@@ -107,6 +111,7 @@ describe("billing router", () => {
     getPriorityStatusForUser.mockClear();
     createWhopPriorityCheckout.mockClear();
     createWhopCreditTopUpCheckout.mockClear();
+    createWhopCheckout.mockClear();
     isWhopConfigured.mockReset();
     isWhopConfigured.mockReturnValue(true);
     getWhopPriorityPlanId.mockReset();
@@ -176,6 +181,51 @@ describe("billing router", () => {
     ]);
     expect(result.topUpProducts[0].price).toBe("S$5");
     expect(result.creditTopUps).toEqual({ remainingCredits: 0, activeBundles: 0, purchasedCredits: 0 });
+    // The monthly pool is gone: every tier draws from the daily ledger now.
+    expect(result.monthlyCredits).toBeUndefined();
+  });
+
+  it("opens Pro checkout by default", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const result = await caller.billing.createCheckout({
+      redirectUrl: "https://novacloud.computer/app/billing",
+    });
+    expect(createWhopCheckout).toHaveBeenCalledWith({
+      ownerId: 1,
+      plan: "pro",
+      planId: "plan_pro",
+      redirectUrl: "https://novacloud.computer/app/billing",
+    });
+    expect(result).toEqual({ url: "https://whop.com/checkout/pro" });
+  });
+
+  it("opens Plus checkout with the Plus plan id", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const result = await caller.billing.createCheckout({
+      plan: "plus",
+      redirectUrl: "https://novacloud.computer/app/billing",
+    });
+    expect(createWhopCheckout).toHaveBeenCalledWith({
+      ownerId: 1,
+      plan: "plus",
+      planId: "plan_plus",
+      redirectUrl: "https://novacloud.computer/app/billing",
+    });
+    expect(result).toEqual({ url: "https://whop.com/checkout/pro" });
+  });
+
+  it("refuses to sell a tier the account already holds", async () => {
+    getSubscriptionForUser.mockResolvedValueOnce({
+      plan: "plus",
+      status: "active",
+      provider: "whop",
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+      cancelAtPeriodEnd: false,
+      whopCheckoutConfigId: null,
+    });
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await expect(caller.billing.createCheckout({ plan: "plus" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(createWhopCheckout).not.toHaveBeenCalled();
   });
 
   it("reports whether priority has been purchased", async () => {

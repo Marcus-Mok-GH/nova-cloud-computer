@@ -1,10 +1,8 @@
 /**
- * Unit tests for the Nova Pro entitlement predicate. `hasProAccessForUser`
+ * Unit tests for the Nova plan entitlement predicates. `hasProAccessForUser`
  * gates every Pro feature: an active paid plan OR a console-operator role.
- * The credit funding source stays subscription-based - an operator's runs
- * spend their role's daily credits (developer: unlimited, admin: elevated),
- * never a monthly pool - so `isPaidPlanForUser` must keep returning false
- * for an unsubscribed operator.
+ * `hasActiveAccessForUser` gates usage itself: a paid or plus plan, an
+ * operator role, or a standard account still inside its 14-day trial.
  */
 import { describe, expect, it, vi } from "vitest";
 import { userSubscriptions, users } from "../../drizzle/schema";
@@ -31,10 +29,10 @@ vi.mock("./core", () => ({ requireDb: async () => fakeDb }));
 vi.mock("./users", () => ({ getUserRole }));
 
 const {
+  getSubscriptionForUser,
   hasActiveAccessForUser,
   hasProAccessForUser,
   isFreeTrialActiveForUser,
-  isPaidPlanForUser,
 } = await import("./credits");
 
 describe("hasProAccessForUser", () => {
@@ -70,21 +68,53 @@ describe("hasProAccessForUser", () => {
     ];
     await expect(hasProAccessForUser(4)).resolves.toBe(true);
   });
+
+  it("a Plus subscription is not Pro access", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [
+      {
+        plan: "plus",
+        status: "active",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+        cancelAtPeriodEnd: false,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    await expect(hasProAccessForUser(6)).resolves.toBe(false);
+  });
 });
 
-describe("isPaidPlanForUser stays subscription-based", () => {
-  it("an unsubscribed operator is not a paid-plan owner", async () => {
-    // Funding source guard: the operator short-circuit must not leak into
-    // the predicate that decides whose runs draw from the monthly pool.
-    getUserRole.mockResolvedValue("admin");
-    subscriptionRows = [];
-    await expect(isPaidPlanForUser(1)).resolves.toBe(false);
-    getUserRole.mockResolvedValue("developer");
-    await expect(isPaidPlanForUser(2)).resolves.toBe(false);
+describe("getSubscriptionForUser tier mapping", () => {
+  it("reports plus for an active plus subscription", async () => {
+    subscriptionRows = [
+      {
+        plan: "plus",
+        status: "active",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+        cancelAtPeriodEnd: false,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    await expect(getSubscriptionForUser(1)).resolves.toMatchObject({ plan: "plus" });
   });
 
-  it("a paid standard user is a paid-plan owner", async () => {
-    getUserRole.mockResolvedValue("user");
+  it("reports free once the plus period has ended", async () => {
+    subscriptionRows = [
+      {
+        plan: "plus",
+        status: "active",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() - 86_400_000),
+        cancelAtPeriodEnd: false,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    await expect(getSubscriptionForUser(2)).resolves.toMatchObject({ plan: "free" });
+  });
+
+  it("reports paid for an active Pro subscription", async () => {
     subscriptionRows = [
       {
         plan: "paid",
@@ -95,7 +125,7 @@ describe("isPaidPlanForUser stays subscription-based", () => {
         whopCheckoutConfigId: null,
       },
     ];
-    await expect(isPaidPlanForUser(3)).resolves.toBe(true);
+    await expect(getSubscriptionForUser(3)).resolves.toMatchObject({ plan: "paid" });
   });
 });
 
@@ -152,6 +182,22 @@ describe("hasActiveAccessForUser", () => {
     ];
     userRows = [{ createdAt: new Date(Date.now() - 400 * 86_400_000) }];
     await expect(hasActiveAccessForUser(3)).resolves.toBe(true);
+  });
+
+  it("a Plus plan keeps an old account usable after its trial would have closed", async () => {
+    getUserRole.mockResolvedValue("user");
+    subscriptionRows = [
+      {
+        plan: "plus",
+        status: "active",
+        provider: "whop",
+        currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+        cancelAtPeriodEnd: false,
+        whopCheckoutConfigId: null,
+      },
+    ];
+    userRows = [{ createdAt: new Date(Date.now() - 400 * 86_400_000) }];
+    await expect(hasActiveAccessForUser(6)).resolves.toBe(true);
   });
 
   it("a lapsed plan leaves an old account locked: the trial was spent long ago", async () => {

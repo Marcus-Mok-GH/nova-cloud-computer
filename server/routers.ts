@@ -60,7 +60,6 @@ import {
   getInferenceQueuePosition,
   cancelWaitingInferenceQueueItemsForUser,
   getPriorityStatusForUser,
-  getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
   getFreeTrialEndsAtForUser,
   hasProAccessForUser,
@@ -71,7 +70,7 @@ import {
   activatePriorityWindowForUser } from "./db";
 import { PROCESS_STALE_AFTER_MS } from "./runningProcesses";
 import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { CHAT_EFFORT_OPTIONS, EffortId, FREE_CHAT_MODEL_ID, getChatModelById, getChatModels, effortOptionsForModelId } from "@shared/models";
-import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
+import { PAID_PLAN_CURRENCY, PAID_PLAN_PRICE_CENTS } from "./credits";
 import {
   CREDIT_TOPUP_CURRENCY,
   CREDIT_TOPUP_PRODUCTS,
@@ -83,6 +82,7 @@ import {
   createWhopCreditTopUpCheckout,
   createWhopPriorityCheckout,
   getWhopPlanId,
+  getWhopPlusPlanId,
   getWhopPriorityPlanId,
   isWhopConfigured,
   isWhopCheckoutDebug,
@@ -393,14 +393,12 @@ export const appRouter = router({
       }),
     /**
      * The Nova Pro subscription as the account sees it: plan, Whop checkout
-     * availability, and the paid credit balance. `monthlyCredits.balance`
-     * includes every unspent monthly allocation still inside the carry-over
-     * window, so nothing vanishes at the month boundary.
+     * availability, and the bought-credit balance. Every tier draws from the
+     * same daily ledger, so the allowance itself comes from `credits.status`.
      */
     subscription: protectedProcedure.query(async ({ ctx }) => {
-      const [subscription, monthlyCredits, creditTopUps, proAccess, trialEndsAt, accessActive] = await Promise.all([
+      const [subscription, creditTopUps, proAccess, trialEndsAt, accessActive] = await Promise.all([
         getSubscriptionForUser(ctx.user.id),
-        getMonthlyCreditStatusForUser(ctx.user.id),
         getCreditTopUpBalanceForUser(ctx.user.id),
         hasProAccessForUser(ctx.user.id),
         getFreeTrialEndsAtForUser(ctx.user.id),
@@ -428,7 +426,6 @@ export const appRouter = router({
         configured: isWhopConfigured(),
         priceCents: PAID_PLAN_PRICE_CENTS,
         currency: PAID_PLAN_CURRENCY,
-        monthlyCredits,
         creditTopUps,
         /** The purchasable bundles, priced from the shared catalog. */
         topUpProducts: CREDIT_TOPUP_PRODUCTS.map(product => ({
@@ -441,23 +438,35 @@ export const appRouter = router({
       };
     }),
     /**
-     * Starts Whop checkout for the monthly Nova Pro subscription. The account
-     * flips to paid when the membership webhook arrives - never here.
+     * Starts Whop checkout for a monthly subscription - Nova Pro (default) or
+     * Nova Plus. The account flips tier when the membership webhook arrives -
+     * never here.
      */
     createCheckout: protectedProcedure
-      .input(z.object({ redirectUrl: z.string().url().max(2000).optional() }).optional())
+      .input(z.object({
+        redirectUrl: z.string().url().max(2000).optional(),
+        plan: z.enum(["pro", "plus"]).default("pro"),
+      }).optional())
       .mutation(async ({ ctx, input }) => {
         if (!isWhopConfigured()) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopConfigurationMessage() });
         }
+        const target = input?.plan ?? "pro";
         const existing = await getSubscriptionForUser(ctx.user.id);
-        if (existing.plan === "paid" && !existing.cancelAtPeriodEnd) {
-          throw new TRPCError({ code: "CONFLICT", message: "Nova Pro is already active on this account." });
+        const heldTier = target === "plus" ? "plus" : "paid";
+        if (existing.plan === heldTier && !existing.cancelAtPeriodEnd) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: target === "plus"
+              ? "Nova Plus is already active on this account."
+              : "Nova Pro is already active on this account.",
+          });
         }
         try {
           const checkout = await createWhopCheckout({
             ownerId: ctx.user.id,
-            planId: getWhopPlanId(),
+            plan: target,
+            planId: target === "plus" ? getWhopPlusPlanId() : getWhopPlanId(),
             redirectUrl: input?.redirectUrl,
           });
           // Remembering the checkout id lets a webhook that arrives without

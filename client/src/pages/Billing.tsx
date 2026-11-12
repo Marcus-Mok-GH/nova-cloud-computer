@@ -162,8 +162,11 @@ export default function Billing() {
     );
 
   const data = subscription.data;
-  const isPaid = data?.plan === "paid";
-  const monthly = data?.monthlyCredits;
+  const plan = data?.plan ?? "free";
+  const isPaid = plan === "paid";
+  // Plus is a subscription too - it just is not Pro.
+  const hasSubscription = plan !== "free";
+  const daily = trpc.credits.status.useQuery(undefined, { retry: false });
   const topUpProducts = data?.topUpProducts ?? [];
   const boughtCredits = data?.creditTopUps?.remainingCredits ?? 0;
   const priorityActive = priority.data?.priority ?? false;
@@ -213,17 +216,25 @@ export default function Billing() {
                       <Crown className="size-4 text-amber-500" />
                       {t("billing.current.paid")}
                     </>
+                  ) : plan === "plus" ? (
+                    t("billing.current.plus")
                   ) : (
                     t("billing.current.free")
                   )}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {isPaid
+                  {hasSubscription
                     ? periodEnd
                       ? data?.cancelAtPeriodEnd
-                        ? t("billing.current.cancelsOn", { date: periodEnd })
-                        : t("billing.current.renewsOn", { date: periodEnd })
-                      : t("billing.current.paid")
+                        ? plan === "plus"
+                          ? t("billing.current.plusCancelsOn", { date: periodEnd })
+                          : t("billing.current.cancelsOn", { date: periodEnd })
+                        : plan === "plus"
+                          ? t("billing.current.plusRenewsOn", { date: periodEnd })
+                          : t("billing.current.renewsOn", { date: periodEnd })
+                      : isPaid
+                        ? t("billing.current.paid")
+                        : t("billing.current.plus")
                     : t("billing.current.freeBody")}
                 </p>
               </div>
@@ -231,7 +242,7 @@ export default function Billing() {
                 <CreditCard size={20} />
               </div>
             </div>
-            {isPaid && (
+            {hasSubscription && (
               <Button
                 variant="outline"
                 className="mt-5 w-full"
@@ -255,27 +266,19 @@ export default function Billing() {
             </p>
             <p className="mt-1 flex items-center gap-2 text-lg font-bold">
               <Coins className="size-4 text-primary" />
-              {isPaid && monthly
+              {hasSubscription && daily.data
                 ? t("billing.credits.balance", {
-                    count: monthly.balanceCredits.toLocaleString(locale),
+                    count: daily.data.remainingCredits?.toLocaleString(locale) ?? "0",
                   })
                 : t("billing.current.free")}
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {isPaid && monthly
-                ? t("billing.credits.thisMonth", {
-                    used: monthly.usedCreditsThisMonth.toLocaleString(locale),
-                    allocated: monthly.monthlyAllocation.toLocaleString(locale),
+              {hasSubscription && daily.data
+                ? t("billing.credits.daily", {
+                    daily: daily.data.dailyCredits?.toLocaleString(locale) ?? "unlimited",
                   })
                 : t("billing.credits.none")}
             </p>
-            {isPaid && monthly && monthly.carryOverMonths > 0 && (
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {t("billing.credits.carryOver", {
-                  months: String(monthly.carryOverMonths),
-                })}
-              </p>
-            )}
           </section>
         </div>
 
@@ -334,7 +337,7 @@ export default function Billing() {
           <h2 className="mb-4 text-lg font-bold tracking-tight">
             {t("billing.plans.title")}
           </h2>
-          <div className="grid items-stretch gap-4 md:grid-cols-3">
+          <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-4">
             <PlanCard
               name={t("billing.plan.free.name")}
               price={t("billing.plan.free.price")}
@@ -346,10 +349,27 @@ export default function Billing() {
                 t("billing.plan.free.feature.3"),
               ]}
               cta={t("billing.plan.free.cta")}
-              currentLabel={!isPaid ? t("billing.plan.free.cta") : t("billing.plan.free.included")}
+              currentLabel={!hasSubscription ? t("billing.plan.free.cta") : t("billing.plan.free.included")}
               onSelect={() => setLocation("/app")}
               busy={false}
               disabled
+            />
+
+            <PlanCard
+              name={t("billing.plan.plus.name")}
+              price={t("billing.plan.plus.price")}
+              period={t("billing.plan.plus.period")}
+              body={t("billing.plan.plus.body")}
+              features={[
+                t("billing.plan.plus.feature.1"),
+                t("billing.plan.plus.feature.2"),
+                t("billing.plan.plus.feature.3"),
+              ]}
+              cta={t("billing.plan.plus.cta")}
+              currentLabel={plan === "plus" ? t("billing.plan.plus.active") : undefined}
+              onSelect={() => setLocation("/checkout?product=plus")}
+              busy={false}
+              disabled={!data?.configured}
             />
 
             <PlanCard

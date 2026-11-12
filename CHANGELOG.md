@@ -1,3 +1,20 @@
+2026-11-12 - fix(billing): call every Billing hook before the early returns
+
+The Plus launch shipped React error #310 ("Rendered more hooks than during
+the previous render") on the Billing page. The new `credits.status` query
+was declared *after* the loading/error early returns, so the first paint
+(loading) skipped it and the re-render that carried data added it - React
+threw and the page fell back to the error boundary. The query moved above
+the returns, and a source-level regression test now asserts that no hook
+call appears after the first early return in Billing.tsx (the
+static-render tests build a fresh instance per call, so they cannot see a
+hook-count change between renders).
+
+Files: client/src/pages/Billing.tsx, client/src/pages/Billing.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm check, pnpm test, pnpm build.
+
 2026-11-12 - Nova Plus (S$4.99, 5,000 credits a day) and Pro credits replenish daily
 
 The ladder was Free (500/day) and Pro (10,000 a month, unused rolling

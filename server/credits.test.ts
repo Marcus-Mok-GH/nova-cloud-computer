@@ -1,17 +1,26 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ADMIN_DAILY_CREDITS, DEFAULT_DAILY_CREDITS, calculateInferenceCredits, getDailyCreditPolicyForRole, getTokenCreditRates } from "./credits";
+import { ADMIN_DAILY_CREDITS, DEFAULT_DAILY_CREDITS, PLUS_DAILY_CREDITS, PRO_DAILY_CREDITS, calculateInferenceCredits, getDailyCreditPolicyForAccount, getTokenCreditRates } from "./credits";
 
-describe("role-based daily credit policy", () => {
-  it("gives standard users the default allocation", () => {
-    expect(getDailyCreditPolicyForRole("user")).toEqual({ region: "global", dailyCredits: DEFAULT_DAILY_CREDITS, unlimited: false });
+describe("plan-aware daily credit policy", () => {
+  it("gives free accounts the default allocation", () => {
+    expect(getDailyCreditPolicyForAccount("user", "free")).toEqual({ region: "global", dailyCredits: DEFAULT_DAILY_CREDITS, unlimited: false });
   });
 
-  it("gives admins elevated usage", () => {
-    expect(getDailyCreditPolicyForRole("admin")).toEqual({ region: "global", dailyCredits: ADMIN_DAILY_CREDITS, unlimited: false });
+  it("raises the allowance for Plus", () => {
+    expect(getDailyCreditPolicyForAccount("user", "plus")).toEqual({ region: "global", dailyCredits: PLUS_DAILY_CREDITS, unlimited: false });
   });
 
-  it("marks developers unlimited", () => {
-    expect(getDailyCreditPolicyForRole("developer")).toEqual({ region: "global", dailyCredits: null, unlimited: true });
+  it("raises the allowance for Pro", () => {
+    expect(getDailyCreditPolicyForAccount("user", "paid")).toEqual({ region: "global", dailyCredits: PRO_DAILY_CREDITS, unlimited: false });
+  });
+
+  it("keeps admins at least at the admin allocation", () => {
+    expect(getDailyCreditPolicyForAccount("admin", "free").dailyCredits).toBe(ADMIN_DAILY_CREDITS);
+    expect(getDailyCreditPolicyForAccount("admin", "plus").dailyCredits).toBe(PLUS_DAILY_CREDITS);
+  });
+
+  it("marks developers unlimited regardless of plan", () => {
+    expect(getDailyCreditPolicyForAccount("developer", "paid")).toEqual({ region: "global", dailyCredits: null, unlimited: true });
   });
 });
 

@@ -14,7 +14,7 @@ describe("waitlist window", () => {
   });
 
   it("labels the launch date the waitlist copy prints", () => {
-    expect(waitlistLaunchLabel()).toBe("1 November");
+    expect(waitlistLaunchLabel()).toBe("13 November");
   });
 });
 

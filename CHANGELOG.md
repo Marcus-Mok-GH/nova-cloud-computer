@@ -1,3 +1,23 @@
+2026-11-12 - fix(billing): pin credit top-up checkouts to real Whop variants
+
+Credit checkout (billing.purchaseCredits) died with a Whop 403 "not
+authorized": the production company API key may reference an existing
+variant but may not create one inline, and the credit checkout was the only
+tier that still built its variant inline. Pro/Plus/Priority all pin their
+variant via env and reference it - credits now do the same:
+
+- `WHOP_CREDIT_PLAN_IDS` (new env, JSON slug -> `plan_` map) pins each ladder
+  rung; `createWhopCreditTopUpCheckout` sends `variant_id` when the bundle is
+  pinned and falls back to the inline variant when it is not (dev setups).
+- The six rungs (S$5-S$50) live on the Whop "Nova credits" product
+  (prod_vcdXKwxF7qIOl) with the same payment methods as the subscription
+  tiers; credit granting is unchanged - the webhook still resolves the
+  amount from the shared catalog via `nova_credit_product_id`.
+
+Files: server/whop.ts, server/whop.creditsCheckout.test.ts, CHANGELOG.md.
+
+Tests: pnpm vitest run server/whop.creditsCheckout.test.ts, pnpm check.
+
 2026-11-12 - fix(billing): call every Billing hook before the early returns
 
 The Plus launch shipped React error #310 ("Rendered more hooks than during

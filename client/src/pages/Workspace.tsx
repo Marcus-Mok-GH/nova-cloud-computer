@@ -1137,9 +1137,9 @@ export default function Workspace() {
             <PromptModelControls
               models={chatModels}
               // The effective plan drives the model lock: Pro access (a paid
-              // plan or a console-operator role) reads paid; the raw plan
-              // still feeds anything that must know the subscription state.
-              plan={subscription.data?.proAccess ? "paid" : subscription.data?.plan}
+              // plan or a console-operator role) reads paid; Plus buys credits
+              // only, so it reads free here and never unlocks premium models.
+              plan={subscription.data?.proAccess ? "paid" : "free"}
               selectedModelId={selectedModelId}
               selectedEffortId={selectedEffortId}
               onModelChange={handlePromptModelChange}

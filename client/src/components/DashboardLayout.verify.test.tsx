@@ -43,25 +43,44 @@ vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => {}
 import DashboardLayout, { planRows } from "./DashboardLayout";
 
 describe("planRows", () => {
-  it("lists both tiers for a free account, with Pro locked", () => {
-    expect(planRows(false, false)).toEqual([
+  it("lists every tier for a free account, with Plus and Pro locked", () => {
+    expect(planRows(false, false, "free")).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: true, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: false, locked: true },
       { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
     ]);
   });
 
-  it("lists both tiers for a paid account, with nothing locked", () => {
-    expect(planRows(true, false)).toEqual([
+  it("marks Plus as current for a Plus subscriber, with Pro still locked", () => {
+    expect(planRows(false, false, "plus")).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: true, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
+    ]);
+  });
+
+  it("marks Pro as current for a Pro subscriber, with nothing locked", () => {
+    expect(planRows(true, false, "paid")).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: false, locked: false },
+      { id: "pro", labelKey: "layout.plan.pro", current: true, locked: false },
+    ]);
+  });
+
+  it("lets an operator's Pro access outrank their Plus subscription", () => {
+    // Operators read proAccess true from the server regardless of their
+    // subscription, so Pro is the current tier and nothing reads locked.
+    expect(planRows(true, false, "plus")).toEqual([
+      { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: false, locked: false },
       { id: "pro", labelKey: "layout.plan.pro", current: true, locked: false },
     ]);
   });
 
   it("adds the admin tier for admin accounts, with Pro unlocked through their Pro access", () => {
-    // Operators read proAccess true from the server even on a free
-    // subscription, so the Pro row is never locked for them.
-    expect(planRows(true, true)).toEqual([
+    expect(planRows(true, true, "paid")).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: false, locked: false },
       { id: "pro", labelKey: "layout.plan.pro", current: false, locked: false },
       { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
     ]);
@@ -70,8 +89,9 @@ describe("planRows", () => {
   it("keeps Pro locked for an operator the server did not grant Pro access", () => {
     // Unreachable in practice (the server sets proAccess for operators);
     // documents the row-derivation when the flag and the role disagree.
-    expect(planRows(false, true)).toEqual([
+    expect(planRows(false, true, "free")).toEqual([
       { id: "free", labelKey: "layout.plan.free", current: false, locked: false },
+      { id: "plus", labelKey: "layout.plan.plus", current: false, locked: true },
       { id: "pro", labelKey: "layout.plan.pro", current: false, locked: true },
       { id: "admin", labelKey: "layout.plan.admin", current: true, locked: false },
     ]);

@@ -17,7 +17,7 @@ afterEach(() => {
 describe("Waitlist page", () => {
   it("promises one launch email and collects an address", () => {
     const markup = renderToStaticMarkup(<Waitlist />);
-    expect(markup).toContain("Nova opens on 1 November.");
+    expect(markup).toContain("Nova opens on 13 November.");
     expect(markup).toContain('type="email"');
     expect(markup).toContain("you@example.com");
     expect(markup).toContain("Join the waitlist");

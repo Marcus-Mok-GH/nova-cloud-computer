@@ -296,6 +296,7 @@ export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUp
     redirect_url: redirectUrl,
   };
   const pinnedPlanId = getWhopCreditPlanIds()?.[product.id];
+  console.log("[Whop] credit checkout product.id=", product.id, "| WHOP_CREDIT_PLAN_IDS parsed:", getWhopCreditPlanIds() ? "present" : "EMPTY/undefined", "| resolved plan_id:", pinnedPlanId);
   if (pinnedPlanId) {
     // Reference the pinned variant instead of creating one inline: the
     // production company key cannot create variants, so a new rung needs a

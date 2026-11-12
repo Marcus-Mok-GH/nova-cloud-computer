@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import {
-  ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership,
   grantCreditTopUp,
   purchasePriorityForUser,
@@ -9,7 +8,7 @@ import {
   upsertSubscriptionForUser,
   type WhopSubscriptionState,
 } from "./db";
-import { PAID_PLAN_PRICE_CENTS, PAID_PLAN_CURRENCY } from "./credits";
+import { PAID_PLAN_CURRENCY, PAID_PLAN_PRICE_CENTS, PLUS_PLAN_PRICE_CENTS, type PlanTier } from "./credits";
 import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
 import {
   CREDIT_TOPUP_CURRENCY,
@@ -100,9 +99,22 @@ export function getWhopPlanId(): string | undefined {
   return process.env.WHOP_PLAN_ID?.trim();
 }
 
+/** Returns the Plus plan ID if set in env, otherwise undefined (inline plan created). */
+export function getWhopPlusPlanId(): string | undefined {
+  return process.env.WHOP_PLUS_PLAN_ID?.trim();
+}
+
 /** Returns the one-time priority plan ID if set in env. */
 export function getWhopPriorityPlanId(): string | undefined {
   return process.env.WHOP_PRIORITY_PLAN_ID?.trim();
+}
+
+/** Which Nova tier a membership's Whop plan ID buys. Plus is pinned by env;
+ * anything else is Pro (the pinned Pro variant, or an inline checkout). */
+function membershipPlanTier(data: Record<string, unknown>): PlanTier {
+  const planId = planIdFromPayload(data);
+  if (planId && getWhopPlusPlanId() && planId === getWhopPlusPlanId()) return "plus";
+  return "paid";
 }
 
 /** Human-readable message when Whop is not configured. */
@@ -127,6 +139,9 @@ export function whopCreditTopUpConfigurationMessage(): string {
 /** The monthly subscription price in whole major units, for the checkout body. */
 const PAID_PLAN_PRICE = PAID_PLAN_PRICE_CENTS / 100;
 
+/** The Plus subscription price in whole major units, for the inline variant. */
+const PLUS_PLAN_PRICE = PLUS_PLAN_PRICE_CENTS / 100;
+
 /** The one-time priority price in whole major units, for documentation/checkout bodies. */
 const PRIORITY_PLAN_PRICE = PRIORITY_PRICE_CENTS / 100;
 
@@ -137,6 +152,7 @@ type WhopCheckoutConfiguration = {
 
 type CreateWhopCheckoutInput = {
   ownerId: number;
+  plan: "pro" | "plus";
   planId: string | undefined;
   redirectUrl: string | undefined;
 };
@@ -162,7 +178,9 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
   const apiKey = whopApiKey();
   const accountId = whopAccountId();
   if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopConfigurationMessage(), whopMissingConfigDetail());
-  const { ownerId, planId, redirectUrl } = input;
+  const { ownerId, plan, planId, redirectUrl } = input;
+  const isPlus = plan === "plus";
+  const planPrice = isPlus ? PLUS_PLAN_PRICE : PAID_PLAN_PRICE;
   const body: Record<string, unknown> = {
     account_id: accountId,
     mode: "payment",
@@ -176,10 +194,12 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
       billing_type: "renewal",
       billing_period: 30,
       currency: PAID_PLAN_CURRENCY,
-      initial_price: PAID_PLAN_PRICE,
-      renewal_price: PAID_PLAN_PRICE,
-      title: "Nova Pro (monthly)",
-      description: "10,000 Nova credits every month - unused credits carry over - plus access to premium models.",
+      initial_price: planPrice,
+      renewal_price: planPrice,
+      title: isPlus ? "Nova Plus (monthly)" : "Nova Pro (monthly)",
+      description: isPlus
+        ? "5,000 Nova credits every day."
+        : "10,000 Nova credits every day - plus access to premium models.",
       payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
     };
   }
@@ -404,7 +424,7 @@ const ACTIVE_MEMBERSHIP_STATUSES = new Set(["active", "trialing"]);
  * `mem_` ids tie every later event back to the activation; `metadata` carries
  * the checkout's `nova_user_id` so the first event can resolve the owner.
  */
-function membershipToState(data: Record<string, unknown>): { state: WhopSubscriptionState; membershipId: string | null; ownerIdFromMetadata: number | null } {
+function membershipToState(data: Record<string, unknown>, tier: PlanTier): { state: WhopSubscriptionState; membershipId: string | null; ownerIdFromMetadata: number | null } {
   const metadata = asRecord(data.metadata);
   const rawOwnerId = metadata?.nova_user_id;
   const ownerIdFromMetadata = typeof rawOwnerId === "string" || typeof rawOwnerId === "number" ? Number(rawOwnerId) : NaN;
@@ -413,7 +433,7 @@ function membershipToState(data: Record<string, unknown>): { state: WhopSubscrip
   const active = ACTIVE_MEMBERSHIP_STATUSES.has(status) && (periodEnd === null || periodEnd.getTime() > Date.now());
   return {
     state: {
-      plan: active ? "paid" : "free",
+      plan: active ? tier : "free",
       status,
       whopMembershipId: typeof data.id === "string" ? data.id : null,
       whopUserId: typeof data.user_id === "string" ? data.user_id : null,
@@ -428,7 +448,7 @@ function membershipToState(data: Record<string, unknown>): { state: WhopSubscrip
 }
 
 export type WhopWebhookOutcome =
-  | { handled: true; ownerId: number; plan: "free" | "paid"; status: string }
+  | { handled: true; ownerId: number; plan: "free" | "plus" | "paid"; status: string }
   | { handled: true; ownerId: number; product: "priority"; armed: boolean }
   | { handled: true; ownerId: number; product: "credits"; credits: number; granted: boolean }
   | { handled: false; reason: string };
@@ -602,9 +622,9 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
     return { handled: false, reason: "priority-membership-ignored" };
   }
 
-  const proPlanId = getWhopPlanId();
+  const pinnedPlanIds = [getWhopPlanId(), getWhopPlusPlanId()].filter((id): id is string => Boolean(id));
   const membershipPlanId = planIdFromPayload(event.data);
-  if (proPlanId && membershipPlanId && membershipPlanId !== proPlanId) {
+  if (pinnedPlanIds.length > 0 && membershipPlanId && !pinnedPlanIds.includes(membershipPlanId)) {
     const membershipId = typeof event.data.id === "string" ? event.data.id : null;
     await recordWhopWebhookEvent(event.id, event.type, membershipId);
     return { handled: false, reason: "ignored-non-pro-membership" };
@@ -614,7 +634,7 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
   const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, membershipId);
   if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
 
-  const { state, ownerIdFromMetadata: ownerFromMembership } = membershipToState(event.data);
+  const { state, ownerIdFromMetadata: ownerFromMembership } = membershipToState(event.data, membershipPlanTier(event.data));
   let ownerId = ownerFromMembership;
   if (ownerId === null && membershipId) {
     ownerId = await getOwnerIdForWhopMembership(membershipId);
@@ -627,9 +647,6 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
   }
 
   const summary = await upsertSubscriptionForUser(ownerId, state);
-  if (summary.plan === "paid") {
-    await ensureMonthlyAllocationForUser(ownerId);
-  }
   console.info(`[Whop] ${event.type}: account ${ownerId} -> ${summary.plan} (${summary.status})`);
   return { handled: true, ownerId, plan: summary.plan, status: summary.status };
 }

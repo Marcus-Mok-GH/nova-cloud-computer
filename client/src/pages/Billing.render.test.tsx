@@ -5,29 +5,38 @@ import Billing from "./Billing";
 
 const mutation = { mutate: vi.fn(), isPending: false };
 
-/** Swapped per test so both the free and paid views can be rendered. */
+/** Swapped per test so every tier's view can be rendered. */
 const state = vi.hoisted(() => ({
   subscription: {
     data: {
-      plan: "free" as "free" | "paid",
+      plan: "free" as "free" | "plus" | "paid",
       status: "inactive",
       currentPeriodEnd: null as Date | null,
       cancelAtPeriodEnd: false,
       configured: true,
       priceCents: 799,
       currency: "sgd",
-      monthlyCredits: {
-        plan: "free",
-        creditMonth: "2026-11",
-        monthlyAllocation: 0,
-        balanceCredits: 0,
-        usedCreditsThisMonth: 0,
-        carriedOverCredits: 0,
-        carryOverMonths: 12,
-        inputTokens: 0,
-        outputTokens: 0,
-        creditValueCents: 1,
-      },
+      proAccess: false,
+      accessActive: true,
+      trialEndsAt: null as Date | null,
+      creditTopUps: { remainingCredits: 0, activeBundles: 0, purchasedCredits: 0 },
+    },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
+  /** The daily allowance chip - every tier now draws from this ledger. */
+  credits: {
+    data: {
+      region: "global",
+      creditDay: "2026-11-12",
+      unlimited: false,
+      dailyCredits: 500,
+      usedCredits: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      remainingCredits: 500,
+      creditValueCents: 1,
     },
     isLoading: false,
     isError: false,
@@ -59,6 +68,9 @@ vi.mock("@/lib/trpc", () => ({
       purchasePriority: { useMutation: () => mutation },
       portal: { useMutation: () => mutation },
     },
+    credits: {
+      status: { useQuery: () => state.credits },
+    },
     useUtils: () => ({ billing: { status: { invalidate: vi.fn() } } }),
   },
 }));
@@ -72,17 +84,25 @@ vi.mock("wouter", () => ({ useLocation: () => ["/app/billing", vi.fn()] }));
 function freeAccount() {
   state.subscription.data.plan = "free";
   state.subscription.data.currentPeriodEnd = null;
-  state.subscription.data.monthlyCredits.monthlyAllocation = 0;
-  state.subscription.data.monthlyCredits.balanceCredits = 0;
-  state.subscription.data.monthlyCredits.usedCreditsThisMonth = 0;
+  state.subscription.data.proAccess = false;
+  state.credits.data.dailyCredits = 500;
+  state.credits.data.remainingCredits = 500;
+}
+
+function plusAccount() {
+  state.subscription.data.plan = "plus";
+  state.subscription.data.currentPeriodEnd = new Date("2026-12-10T00:00:00Z");
+  state.subscription.data.proAccess = false;
+  state.credits.data.dailyCredits = 5_000;
+  state.credits.data.remainingCredits = 4_250;
 }
 
 function paidAccount() {
   state.subscription.data.plan = "paid";
   state.subscription.data.currentPeriodEnd = new Date("2026-12-10T00:00:00Z");
-  state.subscription.data.monthlyCredits.monthlyAllocation = 10_000;
-  state.subscription.data.monthlyCredits.balanceCredits = 7_500;
-  state.subscription.data.monthlyCredits.usedCreditsThisMonth = 2_500;
+  state.subscription.data.proAccess = true;
+  state.credits.data.dailyCredits = 10_000;
+  state.credits.data.remainingCredits = 8_750;
 }
 
 describe("Billing page", () => {
@@ -95,26 +115,41 @@ describe("Billing page", () => {
   it("lists every buyable plan for a free account", () => {
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).toContain("Plans &amp; credits");
+    expect(markup).toContain("Nova Plus");
     expect(markup).toContain("Nova Pro");
     expect(markup).toContain("Priority");
     expect(markup).toContain("S$7.99");
     expect(markup).toContain("S$4.99");
-    // A free account is offered the upgrade rather than a "your plan" chip.
+    // A free account is offered the upgrades rather than "your plan" chips.
+    expect(markup).toContain("Upgrade to Plus");
     expect(markup).toContain("Upgrade to Pro");
     expect(markup).toContain("Buy priority");
     expect(markup).not.toContain("Manage subscription");
   });
 
-  it("shows the current plan, credit balance, and manage button for a paid account", () => {
+  it("shows the current plan, today's credit balance, and manage button for a paid account", () => {
     paidAccount();
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).toContain("Nova Pro");
-    expect(markup).toContain("7,500 credits available");
-    expect(markup).toContain("2,500 of 10,000 used this month");
+    expect(markup).toContain("8,750 credits available");
     expect(markup).toContain("Manage subscription");
     // The Pro card is now marked as the active plan, not an upgrade.
     expect(markup).toContain("Your plan");
     expect(markup).not.toContain("Upgrade to Pro");
+  });
+
+  it("shows Plus as the current tier with its own management, but not Pro", () => {
+    plusAccount();
+    const markup = renderToStaticMarkup(<Billing />);
+    expect(markup).toContain("Nova Plus");
+    expect(markup).toContain("4,250 credits available");
+    // Plus is a subscription, so its own card reads as the active plan...
+    expect(markup).toContain("Your plan");
+    expect(markup).not.toContain("Upgrade to Plus");
+    // ...and its Whop membership can be managed like Pro's.
+    expect(markup).toContain("Manage subscription");
+    // But it is not Pro: the Pro card stays an upgrade.
+    expect(markup).toContain("Upgrade to Pro");
   });
 
   it("marks an active priority window instead of offering the purchase again", () => {

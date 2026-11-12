@@ -126,8 +126,8 @@ export function PromptModelControls({
               <DropdownMenuSeparator />
               <div className="px-2 py-2">
                 <p className="text-xs leading-snug text-muted-foreground">
-                  Nova Pro unlocks every premium model, 10,000 credits a
-                  month, and unused credits roll over.
+                  Nova Pro unlocks every premium model and 10,000 credits a
+                  day.
                 </p>
                 <button
                   type="button"

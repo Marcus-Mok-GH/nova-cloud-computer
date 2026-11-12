@@ -20,35 +20,38 @@ import type { TranslationKey } from "@/i18n";
  * visible (locked) to an account that does not have it yet. Extend this (and
  * the i18n keys) when a plan ships.
  */
-const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "pro" | "admin"; labelKey: TranslationKey }> = [
+const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "plus" | "pro" | "admin"; labelKey: TranslationKey }> = [
   { id: "free", labelKey: "layout.plan.free" },
+  { id: "plus", labelKey: "layout.plan.plus" },
   { id: "pro", labelKey: "layout.plan.pro" },
   { id: "admin", labelKey: "layout.plan.admin" },
 ];
 
-export type PlanRow = { id: "free" | "pro" | "admin"; labelKey: TranslationKey; current: boolean; locked: boolean };
+export type PlanRow = { id: "free" | "plus" | "pro" | "admin"; labelKey: TranslationKey; current: boolean; locked: boolean };
 
 /**
- * The rows the plan menu renders. Every account holds Free; Pro is locked to
- * an account without Pro access — selecting it offers the upgrade rather
- * than switching plan. The admin tier is held by the account's role, not its
+ * The rows the plan menu renders. Every account holds Free; Plus is locked to
+ * an account without a Plus subscription, and Pro is locked to an account
+ * without Pro access — selecting either offers the upgrade rather than
+ * switching plan. The admin tier is held by the account's role, not its
  * subscription, so it only appears for console operators and is never locked.
  * Pulled out of the component because the menu bodies render in a portal,
  * which a static render cannot see.
  * `proAccess` is the server's effective Pro entitlement (a paid plan or a
  * console-operator role): it - not the raw plan - is what locks the Pro row,
- * so an operator on a free subscription reads Pro unlocked.
+ * so an operator on a free subscription reads Pro unlocked. `plan` is the
+ * account's raw subscription tier (free / plus / paid).
  */
-export function planRows(proAccess: boolean, isAdmin: boolean): PlanRow[] {
+export function planRows(proAccess: boolean, isAdmin: boolean, plan: "free" | "plus" | "paid"): PlanRow[] {
   // The highest tier the account holds is its current one: the admin tier for
-  // an operator, Pro for an account with Pro access, and every account is at
-  // least Free.
-  const currentId = isAdmin ? "admin" : proAccess ? "pro" : "free";
-  return ACCOUNT_PLANS.map(plan => ({
-    id: plan.id,
-    labelKey: plan.labelKey,
-    current: plan.id === currentId,
-    locked: plan.id === "admin" ? false : !proAccess && plan.id !== "free",
+  // an operator, Pro for an account with Pro access, Plus for a Plus
+  // subscriber, and every account is at least Free.
+  const currentId = isAdmin ? "admin" : proAccess ? "pro" : plan === "plus" ? "plus" : "free";
+  return ACCOUNT_PLANS.map(row => ({
+    id: row.id,
+    labelKey: row.labelKey,
+    current: row.id === currentId,
+    locked: row.id === "admin" ? false : row.id === "pro" ? !proAccess : row.id === "plus" ? plan === "free" : false,
   })).filter(row => row.id !== "admin" || isAdmin);
 }
 
@@ -105,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const proAccess = subscription.data?.proAccess ?? false;
   // The admin tier is role-based, not subscription-based: console operators
   // (the same gate that owns the Admin and Notifications entries) hold it.
-  const rows = subscription.data ? planRows(proAccess, isConsoleOperator) : undefined;
+  const rows = subscription.data ? planRows(proAccess, isConsoleOperator, subscription.data.plan) : undefined;
   const topPlan = rows?.find(row => row.current);
 
   if (loading) return <DashboardLayoutSkeleton />;

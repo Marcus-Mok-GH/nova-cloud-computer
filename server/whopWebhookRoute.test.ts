@@ -17,8 +17,7 @@ const spies = vi.hoisted(() => ({
     expiresAt: null as Date | null,
   })),
   recordWhopWebhookEvent: vi.fn(async () => true),
-  upsertSubscriptionForUser: vi.fn(async () => ({ plan: "paid" as const, status: "active" })),
-  ensureMonthlyAllocationForUser: vi.fn(async () => undefined),
+  upsertSubscriptionForUser: vi.fn(async (_ownerId: number, state: { plan: string; status: string }) => ({ plan: state.plan, status: state.status })),
   getOwnerIdForWhopMembership: vi.fn(async () => null),
   setWhopCheckoutConfigIdForUser: vi.fn(async () => undefined),
 }));
@@ -33,7 +32,6 @@ vi.mock("./db", () => ({
   purchasePriorityForUser: spies.purchasePriorityForUser,
   recordWhopWebhookEvent: spies.recordWhopWebhookEvent,
   upsertSubscriptionForUser: spies.upsertSubscriptionForUser,
-  ensureMonthlyAllocationForUser: spies.ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership: spies.getOwnerIdForWhopMembership,
   setWhopCheckoutConfigIdForUser: spies.setWhopCheckoutConfigIdForUser,
   findWorkspaceOwnerByTelegramLinkCode: vi.fn(async () => undefined),
@@ -144,20 +142,33 @@ describe("Whop billing webhook route", () => {
     },
   });
 
-  function signedHeaders(body: string, timestamp = Math.floor(Date.now() / 1000)) {
+  function signedHeaders(body: string, eventId = "evt_test_1", timestamp = Math.floor(Date.now() / 1000)) {
     // Capture the configured secret at call time via the module-level value so
     // the "disabled" test can delete the env var without breaking HMAC setup.
     const secret = `ws_${signingSecret.toString("base64")}`;
     const signature = createHmac("sha256", Buffer.from(secret, "utf8"))
-      .update(`evt_test_1.${timestamp}.${body}`)
+      .update(`${eventId}.${timestamp}.${body}`)
       .digest("base64");
     return {
       "content-type": "application/json",
-      "webhook-id": "evt_test_1",
+      "webhook-id": eventId,
       "webhook-timestamp": String(timestamp),
       "webhook-signature": `v1,${signature}`,
     };
   }
+
+  const membershipPayload = (eventId: string, planId: string, userId = "42") =>
+    JSON.stringify({
+      id: eventId,
+      type: "membership.activated",
+      data: {
+        id: `mem_${eventId}`,
+        status: "active",
+        metadata: { nova_user_id: userId },
+        current_period_end: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        plan_id: planId,
+      },
+    });
 
   it("verifies the signature over the raw bytes and arms the priority purchase", async () => {
     const response = await realFetch(`${baseUrl}/api/whop/webhook`, {
@@ -196,6 +207,59 @@ describe("Whop billing webhook route", () => {
       expect(spies.purchasePriorityForUser).not.toHaveBeenCalled();
     } finally {
       process.env.WHOP_WEBHOOK_SECRET = savedSecret;
+    }
+  });
+
+  it("maps a pinned Plus membership to the plus tier", async () => {
+    process.env.WHOP_PLUS_PLAN_ID = "plan_plus_test";
+    try {
+      const body = membershipPayload("evt_plus_1", "plan_plus_test");
+      const response = await realFetch(`${baseUrl}/api/whop/webhook`, {
+        method: "POST",
+        headers: signedHeaders(body, "evt_plus_1"),
+        body,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, handled: true, ownerId: 42, plan: "plus" });
+      expect(spies.upsertSubscriptionForUser).toHaveBeenCalledWith(42, expect.objectContaining({ plan: "plus" }));
+    } finally {
+      delete process.env.WHOP_PLUS_PLAN_ID;
+    }
+  });
+
+  it("maps a pinned Pro membership to the paid tier", async () => {
+    process.env.WHOP_PLAN_ID = "plan_pro_test";
+    try {
+      const body = membershipPayload("evt_pro_1", "plan_pro_test");
+      const response = await realFetch(`${baseUrl}/api/whop/webhook`, {
+        method: "POST",
+        headers: signedHeaders(body, "evt_pro_1"),
+        body,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, handled: true, ownerId: 42, plan: "paid" });
+      expect(spies.upsertSubscriptionForUser).toHaveBeenCalledWith(42, expect.objectContaining({ plan: "paid" }));
+    } finally {
+      delete process.env.WHOP_PLAN_ID;
+    }
+  });
+
+  it("ignores a membership whose plan id is not pinned", async () => {
+    process.env.WHOP_PLAN_ID = "plan_pro_test";
+    process.env.WHOP_PLUS_PLAN_ID = "plan_plus_test";
+    try {
+      const body = membershipPayload("evt_other_1", "plan_unpinned");
+      const response = await realFetch(`${baseUrl}/api/whop/webhook`, {
+        method: "POST",
+        headers: signedHeaders(body, "evt_other_1"),
+        body,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, handled: false, reason: "ignored-non-pro-membership" });
+      expect(spies.upsertSubscriptionForUser).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.WHOP_PLAN_ID;
+      delete process.env.WHOP_PLUS_PLAN_ID;
     }
   });
 });

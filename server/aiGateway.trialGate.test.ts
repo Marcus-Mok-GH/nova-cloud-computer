@@ -17,7 +17,6 @@ vi.mock("./db", () => ({
   getActiveCustomModelForUser: vi.fn(async () => null),
   getInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
   claimInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
-  isPaidPlanForUser: vi.fn(async () => false),
   hasProAccessForUser: vi.fn(async () => false),
   hasActiveAccessForUser,
 }));

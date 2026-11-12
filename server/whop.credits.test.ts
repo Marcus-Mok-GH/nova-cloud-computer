@@ -11,7 +11,6 @@ const grantCreditTopUp = vi.fn(async () => ({ granted: true }));
 const recordWhopWebhookEvent = vi.fn(async () => true);
 const purchasePriorityForUser = vi.fn(async () => ({ priority: false, armed: true }));
 const upsertSubscriptionForUser = vi.fn(async () => ({ plan: "paid" as const, status: "active" }));
-const ensureMonthlyAllocationForUser = vi.fn(async () => undefined);
 const getOwnerIdForWhopMembership = vi.fn(async () => null);
 const setWhopCheckoutConfigIdForUser = vi.fn(async () => undefined);
 
@@ -21,7 +20,6 @@ vi.mock("./db", () => ({
   recordWhopWebhookEvent,
   purchasePriorityForUser,
   upsertSubscriptionForUser,
-  ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership,
   setWhopCheckoutConfigIdForUser,
 }));

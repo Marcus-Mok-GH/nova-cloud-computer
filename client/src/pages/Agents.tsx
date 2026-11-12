@@ -254,7 +254,7 @@ function AgentDialog({
             <p className="text-xs leading-5 text-muted-foreground">
               Give an agent its own identity, wallet, memory, and chat. Nova
               Pro unlocks personal agents, agent teams, every premium model,
-              and 10,000 credits a month.
+              and 10,000 credits a day.
             </p>
           </div>
         ) : (
@@ -416,7 +416,7 @@ function TeamDialog({
             <p className="text-xs leading-5 text-muted-foreground">
               Put several agents in one group chat with a shared goal. Nova
               Pro unlocks agent teams, every premium model, and 10,000
-              credits a month.
+              credits a day.
             </p>
           </div>
         ) : (

@@ -1,6 +1,10 @@
 /** Central policy for Nova credits. Rates can be replaced per model without changing billing flow. */
 export const CREDIT_VALUE_CENTS = 1;
 export const DEFAULT_DAILY_CREDITS = 500;
+/** Plus (S$4.99/month) raises the daily allowance only - no premium models. */
+export const PLUS_DAILY_CREDITS = 5_000;
+/** Nova Pro (S$7.99/month) allowance, replenished every UTC day. */
+export const PRO_DAILY_CREDITS = 10_000;
 /** Admins get elevated usage: a higher daily allocation than a standard account. */
 export const ADMIN_DAILY_CREDITS = 1000;
 export const DEFAULT_CREDIT_REGION = "global";
@@ -77,15 +81,25 @@ export function getDailyCreditPolicy(region = DEFAULT_CREDIT_REGION) {
 }
 
 /**
- * Daily credit policy for an account's role. A developer is unlimited
- * (`dailyCredits: null`); an admin gets `ADMIN_DAILY_CREDITS`; everyone else
- * gets the region's standard allocation.
+ * The daily allowance a plan grants, regardless of role.
  */
-export function getDailyCreditPolicyForRole(role: CreditRole, region = DEFAULT_CREDIT_REGION) {
+export function getDailyCreditPolicyForPlan(plan: PlanTier) {
+  if (plan === "paid") return PRO_DAILY_CREDITS;
+  if (plan === "plus") return PLUS_DAILY_CREDITS;
+  return DEFAULT_DAILY_CREDITS;
+}
+
+/**
+ * Daily credit policy for an account: the plan sets the allowance and the role
+ * only elevates it (admins get at least `ADMIN_DAILY_CREDITS`, developers are
+ * unlimited).
+ */
+export function getDailyCreditPolicyForAccount(role: CreditRole, plan: PlanTier, region = DEFAULT_CREDIT_REGION) {
   const base = getDailyCreditPolicy(region);
   if (role === "developer") return { region: base.region, dailyCredits: null, unlimited: true } as const;
-  if (role === "admin") return { region: base.region, dailyCredits: ADMIN_DAILY_CREDITS, unlimited: false } as const;
-  return { region: base.region, dailyCredits: base.dailyCredits, unlimited: false } as const;
+  const planDaily = getDailyCreditPolicyForPlan(plan);
+  if (role === "admin") return { region: base.region, dailyCredits: Math.max(ADMIN_DAILY_CREDITS, planDaily), unlimited: false } as const;
+  return { region: base.region, dailyCredits: planDaily, unlimited: false } as const;
 }
 
 /** Credits reset at UTC midnight for now; the policy is deliberately isolated for region-aware resets later. */
@@ -107,69 +121,19 @@ export function calculateInferenceCredits(modelId: string | undefined, usage: In
 }
 
 /* ------------------------------------------------------------------------- *
- * Paid plan (Nova Pro)
+ * Plans
  *
- * A paid plan grants a monthly credit pool instead of the free daily
- * allocation. Unused credits carry over: the balance is the sum of every
- * month's unspent allocation, so nothing expires at the month boundary.
+ * Every tier draws from the same daily ledger (`daily_credits`), replenished at
+ * UTC midnight. Free is the trial tier, Plus raises the allowance only, and
+ * Nova Pro raises it further and unlocks the premium models on top.
  * ------------------------------------------------------------------------- */
 
-/** Monthly credit allocation for an active paid subscription. */
-export const PAID_PLAN_MONTHLY_CREDITS = 10_000;
+/** Price of the Plus subscription, in cents (SGD): S$4.99. */
+export const PLUS_PLAN_PRICE_CENTS = 499;
 
-/** Price of the monthly subscription, in cents (SGD): S$7.99. */
+/** Price of the Pro subscription, in cents (SGD): S$7.99. */
 export const PAID_PLAN_PRICE_CENTS = 799;
 
 export const PAID_PLAN_CURRENCY = "sgd";
 
-/** How many months of unspent credit a paid account may accumulate. */
-export const PAID_PLAN_CARRY_OVER_MONTHS = 12;
-
-export type PlanTier = "free" | "paid";
-
-/**
- * The credit month key (`YYYY-MM`, UTC). Monthly allocations are created under
- * this key, exactly as `getCreditDay` keys the free daily ledger.
- */
-export function getCreditMonth(now = new Date()) {
-  return now.toISOString().slice(0, 7);
-}
-
-/** First instant of the month after `now`, used to date the next allocation. */
-export function getNextCreditMonthStart(now = new Date()) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
-}
-
-/** `YYYY-MM` for an offset in months from the given date (negative = past). */
-export function shiftCreditMonth(month: string, offset: number) {
-  const [year, monthIndex] = month.split("-").map(Number);
-  if (!year || !monthIndex) return month;
-  const shifted = new Date(Date.UTC(year, monthIndex - 1 + offset, 1));
-  return getCreditMonth(shifted);
-}
-
-/**
- * Whole months between two credit-month keys. Used to decide whether a paid
- * account lapsed long enough to exhaust the carry-over window.
- */
-export function monthsBetweenCreditMonths(from: string, to: string) {
-  const [fromYear, fromMonth] = from.split("-").map(Number);
-  const [toYear, toMonth] = to.split("-").map(Number);
-  if (!fromYear || !fromMonth || !toYear || !toMonth) return 0;
-  return (toYear - fromYear) * 12 + (toMonth - fromMonth);
-}
-
-/**
- * The oldest credit month that still counts toward a balance at `month`.
- * Anything older has fallen outside the carry-over window and is not spendable.
- */
-export function getCarryOverFloorMonth(month: string) {
-  return shiftCreditMonth(month, -(PAID_PLAN_CARRY_OVER_MONTHS - 1));
-}
-
-/** A paid plan's monthly allowance, by role. Admins and developers keep their elevated access. */
-export function getMonthlyCreditAllocationForRole(role: CreditRole) {
-  if (role === "developer") return null;
-  if (role === "admin") return Math.max(ADMIN_DAILY_CREDITS, PAID_PLAN_MONTHLY_CREDITS);
-  return PAID_PLAN_MONTHLY_CREDITS;
-}
+export type PlanTier = "free" | "plus" | "paid";

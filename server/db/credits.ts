@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { dailyCredits, inferenceAllowances, userSubscriptions, users, whopWebhookEvents } from "../../drizzle/schema";
-import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, FREE_TRIAL_DAYS, PAID_PLAN_CARRY_OVER_MONTHS, getCarryOverFloorMonth, getCreditDay, getCreditMonth, getDailyCreditPolicyForRole, getMonthlyCreditAllocationForRole, type InferenceTokenUsage, type PlanTier } from "../credits";
+import { CREDIT_VALUE_CENTS, DEFAULT_CREDIT_REGION, DEFAULT_DAILY_CREDITS, FREE_TRIAL_DAYS, getCreditDay, getDailyCreditPolicyForAccount, type InferenceTokenUsage, type PlanTier } from "../credits";
 import { requireDb } from "./core";
 import { getOrCreateWorkspace } from "./workspace";
 import { getUserRole } from "./users";
@@ -46,15 +46,9 @@ export async function getDailyCreditStatusForUser(ownerId: number) {
     .where(and(eq(dailyCredits.ownerId, ownerId), eq(dailyCredits.creditDay, creditDay)))
     .limit(1);
   const role = await getUserRole(ownerId);
-  const policy = getDailyCreditPolicyForRole(role, row?.region ?? DEFAULT_CREDIT_REGION);
-  const storedAllocation = Number(row?.allocatedCredits ?? policy.dailyCredits);
-  // A developer is unlimited; an admin always gets the elevated allocation;
-  // everyone else keeps the allocation recorded on their row (or the policy).
-  const dailyCreditsTotal = policy.unlimited
-    ? null
-    : role === "admin"
-      ? policy.dailyCredits ?? storedAllocation
-      : storedAllocation;
+  const plan = (await getSubscriptionForUser(ownerId)).plan;
+  const policy = getDailyCreditPolicyForAccount(role, plan, row?.region ?? DEFAULT_CREDIT_REGION);
+  const dailyCreditsTotal = policy.unlimited ? null : policy.dailyCredits ?? Number(row?.allocatedCredits ?? DEFAULT_DAILY_CREDITS);
   const usedCredits = Number(row?.usedCredits ?? 0);
   return {
     region: policy.region,
@@ -69,33 +63,30 @@ export async function getDailyCreditStatusForUser(ownerId: number) {
   };
 }
 
-/** Atomically claim one built-in inference credit for the current UTC day. A
- * developer is unlimited: the claim always succeeds and records usage without
- * a cap. */
+/** Atomically claim one built-in inference credit for the current UTC day. The
+ * allowance comes from the account's plan (free / plus / pro), elevated by the
+ * role. A developer is unlimited: the claim always succeeds and records usage
+ * without a cap. */
 export async function claimDailyCreditForUser(ownerId: number) {
   const db = await requireDb();
   const creditDay = getCreditDay();
   const role = await getUserRole(ownerId);
-  const policy = getDailyCreditPolicyForRole(role);
+  const plan = (await getSubscriptionForUser(ownerId)).plan;
+  const policy = getDailyCreditPolicyForAccount(role, plan);
   // The stored allocation is only a record-keeping value for an unlimited
   // developer, so keep it at the standard size in case the role changes later.
   const storedAllocation = policy.unlimited ? DEFAULT_DAILY_CREDITS : policy.dailyCredits ?? DEFAULT_DAILY_CREDITS;
-  // A limited claim only succeeds while usage is under the role's allocation;
-  // an unlimited claim has no cap. Elevating a limited account refreshes the
-  // row's allocation to the role policy so the raised cap takes effect today.
-  const capClause = policy.unlimited
-    ? sql``
-    : role === "admin"
-      ? sql`WHERE "daily_credits"."usedCredits" < ${storedAllocation}`
-      : sql`WHERE "daily_credits"."usedCredits" < "daily_credits"."allocatedCredits"`;
-  const allocationSet = role === "user" ? sql`` : sql`, "allocatedCredits" = ${storedAllocation}`;
+  // The allocation is refreshed on every claim so a plan change (free -> plus
+  // -> pro, or an elevation) takes effect the same day. A limited claim only
+  // succeeds while usage is under that allowance; an unlimited claim has no cap.
   const result = await db.execute(sql`
     INSERT INTO "daily_credits" ("ownerId", "creditDay", "region", "allocatedCredits", "usedCredits", "createdAt", "updatedAt")
     VALUES (${ownerId}, ${creditDay}, ${policy.region}, ${storedAllocation}, 1, now(), now())
     ON CONFLICT ("ownerId", "creditDay") DO UPDATE
-    SET "usedCredits" = "daily_credits"."usedCredits" + 1${allocationSet},
+    SET "usedCredits" = "daily_credits"."usedCredits" + 1,
+        "allocatedCredits" = ${storedAllocation},
         "updatedAt" = now()
-    ${capClause}
+    ${policy.unlimited ? sql`` : sql`WHERE "daily_credits"."usedCredits" < ${storedAllocation}`}
     RETURNING "usedCredits", "allocatedCredits"
   `) as unknown as { rows?: Array<{ usedCredits: number; allocatedCredits: number }> } | Array<{ usedCredits: number; allocatedCredits: number }>;
   const rows = Array.isArray(result) ? result : result.rows ?? [];
@@ -126,13 +117,13 @@ export async function settleDailyCreditUsageForUser(ownerId: number, chargedCred
   return settled ? { usedCredits: Number(settled.usedCredits), inputTokens: Number(settled.inputTokens), outputTokens: Number(settled.outputTokens) } : undefined;
 }
 
-/* ------------------------------------------------------------------------- *
- * Paid plan ledger (Nova Pro)
+/* -------------------------------------------------------------------------
+ * Subscription ledger
  *
- * A paid subscription allocates `PAID_PLAN_MONTHLY_CREDITS` at the start of
- * each UTC month. Nothing expires at the month boundary: the spendable balance
- * is the sum of unspent allocation across every month still inside the
- * carry-over window, spent oldest-first.
+ * Whop membership webhooks drive the single `user_subscriptions` row; the
+ * tier stored there selects the daily allowance (`daily_credits`) the account
+ * spends from. There is no monthly pool any more - every tier replenishes at
+ * UTC midnight.
  * ------------------------------------------------------------------------- */
 
 export type SubscriptionSummary = {
@@ -157,9 +148,10 @@ export async function getSubscriptionForUser(ownerId: number): Promise<Subscript
     return { plan: "free", status: "inactive", provider: "whop", currentPeriodEnd: null, cancelAtPeriodEnd: false, whopCheckoutConfigId: null };
   }
   const periodEnd = row.currentPeriodEnd ?? null;
-  const active = row.plan === "paid" && isSubscriptionActive(row.status, periodEnd);
+  const active = isSubscriptionActive(row.status, periodEnd);
+  const plan: PlanTier = !active ? "free" : row.plan === "paid" ? "paid" : row.plan === "plus" ? "plus" : "free";
   return {
-    plan: active ? "paid" : "free",
+    plan,
     status: row.status,
     provider: row.provider,
     currentPeriodEnd: periodEnd,
@@ -168,18 +160,11 @@ export async function getSubscriptionForUser(ownerId: number): Promise<Subscript
   };
 }
 
-/** Whether the owner is entitled to the paid plan right now. */
-export async function isPaidPlanForUser(ownerId: number) {
-  return (await getSubscriptionForUser(ownerId)).plan === "paid";
-}
-
 /**
  * Whether the owner may use every Nova Pro feature right now: an active
  * paid plan, or a console-operator role. Operators hold the Admin tier, so
  * Pro features unlock for them regardless of their subscription. This is
- * the feature gate; credit funding stays subscription-based
- * (`isPaidPlanForUser`) - an operator's runs spend their role's daily
- * credits (developers are unlimited), never a monthly pool.
+ * the feature gate; Plus deliberately does not count - it buys credits only.
  */
 export async function hasProAccessForUser(ownerId: number) {
   const role = await getUserRole(ownerId);
@@ -213,166 +198,16 @@ export async function getFreeTrialEndsAtForUser(ownerId: number): Promise<Date |
 }
 
 /**
- * Whether the owner may use Nova at all right now: Pro access (a paid plan
- * or a console-operator role), or a standard account still inside its
- * 14-day free trial. Once the trial closes, the account must upgrade to
- * Nova Pro - the free plan is a trial, not a forever tier.
+ * Whether the owner may use Nova at all right now: a Plus or paid plan, a
+ * console-operator role, or a standard account still inside its 14-day free
+ * trial. Once the trial closes, the account must upgrade - the free plan is
+ * a trial, not a forever tier.
  */
 export async function hasActiveAccessForUser(ownerId: number): Promise<boolean> {
-  if (await hasProAccessForUser(ownerId)) return true;
+  const plan = (await getSubscriptionForUser(ownerId)).plan;
+  if (plan === "plus") return true;
+  if (await hasProAccessForUser(ownerId)) return true; // a paid plan or a console-operator role
   return isFreeTrialActiveForUser(ownerId);
-}
-
-/**
- * Creates (or raises) the current month's allocation for a paid owner. Safe to
- * call repeatedly: the row is keyed by (ownerId, creditMonth) and the stored
- * allocation never shrinks.
- */
-export async function ensureMonthlyAllocationForUser(ownerId: number) {
-  const role = await getUserRole(ownerId);
-  const allocation = getMonthlyCreditAllocationForRole(role);
-  if (allocation === null) return null;
-  const db = await requireDb();
-  const creditMonth = getCreditMonth();
-  const result = await db.execute(sql`
-    INSERT INTO "monthly_credits" ("ownerId", "creditMonth", "allocatedCredits", "usedCredits", "createdAt", "updatedAt")
-    VALUES (${ownerId}, ${creditMonth}, ${allocation}, 0, now(), now())
-    ON CONFLICT ("ownerId", "creditMonth") DO UPDATE
-    SET "allocatedCredits" = GREATEST("monthly_credits"."allocatedCredits", ${allocation}),
-        "updatedAt" = now()
-    RETURNING "allocatedCredits", "usedCredits"
-  `) as unknown as { rows?: Array<{ allocatedCredits: number; usedCredits: number }> } | Array<{ allocatedCredits: number; usedCredits: number }>;
-  const rows = Array.isArray(result) ? result : result.rows ?? [];
-  const row = rows[0];
-  return row ? { allocatedCredits: Number(row.allocatedCredits), usedCredits: Number(row.usedCredits) } : null;
-}
-
-type MonthlyCreditRow = { creditMonth: string; allocatedCredits: number; usedCredits: number };
-
-export type MonthlyCreditStatus = {
-  plan: PlanTier;
-  creditMonth: string;
-  monthlyAllocation: number;
-  balanceCredits: number;
-  usedCreditsThisMonth: number;
-  carriedOverCredits: number;
-  carryOverMonths: number;
-  inputTokens: number;
-  outputTokens: number;
-  creditValueCents: number;
-};
-
-/** Spendable paid-plan balance, including unspent credits carried over. */
-export async function getMonthlyCreditStatusForUser(ownerId: number): Promise<MonthlyCreditStatus> {
-  const subscription = await getSubscriptionForUser(ownerId);
-  const creditMonth = getCreditMonth();
-  const base = {
-    plan: subscription.plan,
-    creditMonth,
-    monthlyAllocation: 0,
-    balanceCredits: 0,
-    usedCreditsThisMonth: 0,
-    carriedOverCredits: 0,
-    carryOverMonths: PAID_PLAN_CARRY_OVER_MONTHS,
-    inputTokens: 0,
-    outputTokens: 0,
-    creditValueCents: CREDIT_VALUE_CENTS,
-  };
-  if (subscription.plan !== "paid") return base;
-  const current = await ensureMonthlyAllocationForUser(ownerId);
-  if (current === null) return base;
-  const db = await requireDb();
-  const floor = getCarryOverFloorMonth(creditMonth);
-  const result = await db.execute(sql`
-    SELECT "creditMonth", "allocatedCredits", "usedCredits", "inputTokens", "outputTokens"
-    FROM "monthly_credits"
-    WHERE "ownerId" = ${ownerId} AND "creditMonth" >= ${floor}
-    ORDER BY "creditMonth" ASC
-  `) as unknown as { rows?: Array<MonthlyCreditRow & { inputTokens: number; outputTokens: number }> } | Array<MonthlyCreditRow & { inputTokens: number; outputTokens: number }>;
-  const rows = Array.isArray(result) ? result : result.rows ?? [];
-  let balance = 0;
-  let usedThisMonth = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  for (const row of rows) {
-    const allocated = Number(row.allocatedCredits);
-    const used = Number(row.usedCredits);
-    balance += Math.max(0, allocated - used);
-    if (row.creditMonth === creditMonth) {
-      usedThisMonth = used;
-      inputTokens = Number(row.inputTokens);
-      outputTokens = Number(row.outputTokens);
-    }
-  }
-  return {
-    ...base,
-    monthlyAllocation: current.allocatedCredits,
-    balanceCredits: balance,
-    usedCreditsThisMonth: usedThisMonth,
-    carriedOverCredits: Math.max(0, balance - Math.max(0, current.allocatedCredits - current.usedCredits)),
-    inputTokens,
-    outputTokens,
-  };
-}
-
-/**
- * Atomically spends one credit from the oldest month that still has room, so
- * carried-over credits are used before the current month's allocation.
- * Returns undefined when the paid balance is exhausted.
- */
-export async function claimMonthlyCreditForUser(ownerId: number) {
-  const current = await ensureMonthlyAllocationForUser(ownerId);
-  if (current === null) return undefined;
-  const db = await requireDb();
-  const floor = getCarryOverFloorMonth(getCreditMonth());
-  const result = await db.execute(sql`
-    SELECT "creditMonth" FROM "monthly_credits"
-    WHERE "ownerId" = ${ownerId} AND "creditMonth" >= ${floor} AND "usedCredits" < "allocatedCredits"
-    ORDER BY "creditMonth" ASC
-  `) as unknown as { rows?: Array<{ creditMonth: string }> } | Array<{ creditMonth: string }>;
-  const candidates = (Array.isArray(result) ? result : result.rows ?? []).map(row => row.creditMonth);
-  for (const creditMonth of candidates) {
-    const claimed = await db.execute(sql`
-      UPDATE "monthly_credits"
-      SET "usedCredits" = "monthly_credits"."usedCredits" + 1, "updatedAt" = now()
-      WHERE "ownerId" = ${ownerId} AND "creditMonth" = ${creditMonth} AND "usedCredits" < "allocatedCredits"
-      RETURNING "usedCredits", "allocatedCredits", "creditMonth"
-    `) as unknown as { rows?: Array<{ usedCredits: number; allocatedCredits: number; creditMonth: string }> } | Array<{ usedCredits: number; allocatedCredits: number; creditMonth: string }>;
-    const rows = Array.isArray(claimed) ? claimed : claimed.rows ?? [];
-    const row = rows[0];
-    if (row) {
-      return {
-        creditMonth: row.creditMonth,
-        usedCredits: Number(row.usedCredits),
-        allocatedCredits: Number(row.allocatedCredits),
-      };
-    }
-  }
-  return undefined;
-}
-
-/** Records provider token usage and any cost above the one-credit reservation. */
-export async function settleMonthlyCreditUsageForUser(ownerId: number, chargedCredits: number, usage: InferenceTokenUsage) {
-  await ensureMonthlyAllocationForUser(ownerId);
-  const db = await requireDb();
-  const creditMonth = getCreditMonth();
-  const additionalCredits = Math.max(0, Math.ceil(chargedCredits) - 1);
-  const inputValue = Number(usage?.prompt_tokens ?? 0);
-  const outputValue = Number(usage?.completion_tokens ?? 0);
-  const inputTokens = Number.isFinite(inputValue) ? Math.max(0, Math.floor(inputValue)) : 0;
-  const outputTokens = Number.isFinite(outputValue) ? Math.max(0, Math.floor(outputValue)) : 0;
-  const result = await db.execute(sql`
-    UPDATE "monthly_credits"
-    SET "usedCredits" = "monthly_credits"."usedCredits" + ${additionalCredits},
-        "inputTokens" = "monthly_credits"."inputTokens" + ${inputTokens},
-        "outputTokens" = "monthly_credits"."outputTokens" + ${outputTokens},
-        "updatedAt" = now()
-    WHERE "ownerId" = ${ownerId} AND "creditMonth" = ${creditMonth}
-    RETURNING "usedCredits", "inputTokens", "outputTokens"
-  `) as unknown as { rows?: Array<{ usedCredits: number; inputTokens: number; outputTokens: number }> } | Array<{ usedCredits: number; inputTokens: number; outputTokens: number }>;
-  const rows = Array.isArray(result) ? result : result.rows ?? [];
-  const settled = rows[0];
-  return settled ? { usedCredits: Number(settled.usedCredits), inputTokens: Number(settled.inputTokens), outputTokens: Number(settled.outputTokens) } : undefined;
 }
 
 /* -------------------------------------------------------------------------

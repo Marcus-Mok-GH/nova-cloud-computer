@@ -4,10 +4,10 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-type Product = "pro" | "priority";
+type Product = "pro" | "plus" | "priority";
 
 function isProduct(value: string | null): value is Product {
-  return value === "pro" || value === "priority";
+  return value === "pro" || value === "plus" || value === "priority";
 }
 
 export default function Checkout() {
@@ -67,19 +67,24 @@ export default function Checkout() {
     : undefined;
 
   const isPriority = product === "priority";
+  const isPlus = product === "plus";
   const isCredits = Boolean(creditTopUp);
-  const amount = isCredits ? creditTopUp!.price : isPriority ? "S$4.99" : "S$7.99";
+  const amount = isCredits ? creditTopUp!.price : isPriority ? "S$4.99" : isPlus ? "S$4.99" : "S$7.99";
   const period = isPriority || isCredits ? "one-time" : "/ month";
   const title = isCredits
     ? `${creditTopUp!.credits.toLocaleString()} Nova credits`
     : isPriority
       ? "Nova Priority — 1 hour"
-      : "Nova Pro — monthly";
+      : isPlus
+        ? "Nova Plus — monthly"
+        : "Nova Pro — monthly";
   const description = isCredits
     ? "Added to your balance as soon as your payment is confirmed. Bought credits never expire."
     : isPriority
       ? "One hour of priority queue placement during peak hours. Starts with your next message."
-      : "10,000 credits a month (unused roll over up to a year), every premium chat model, and your persistent workspace.";
+      : isPlus
+        ? "5,000 credits a day, every day. The built-in Nova models - no premium models."
+        : "10,000 credits a day, every day, every premium chat model, and your persistent workspace.";
 
   const cardBusy = pendingMethod === "whop"
     && (isCredits ? whopCredits.isPending : isPriority ? whopPriority.isPending : whop.isPending);
@@ -94,7 +99,10 @@ export default function Checkout() {
     } else if (isPriority) {
       whopPriority.mutate({ redirectUrl: base.toString() });
     } else {
-      whop.mutate({ redirectUrl: base.toString() });
+      whop.mutate({
+        redirectUrl: base.toString(),
+        plan: product === "plus" ? "plus" : "pro",
+      });
     }
   };
 

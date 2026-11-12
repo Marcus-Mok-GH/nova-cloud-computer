@@ -1,3 +1,52 @@
+2026-11-12 - Nova Plus (S$4.99, 5,000 credits a day) and Pro credits replenish daily
+
+The ladder was Free (500/day) and Pro (10,000 a month, unused rolling
+over for a year). Pro users who spent their pool mid-month had nothing
+until the next month, and there was no tier between Free and Pro for
+someone who only wanted more credits.
+
+- New **Nova Plus** tier at S$4.99/month: 5,000 credits a day, nothing
+  else. It is a real subscription tier (`user_subscriptions.plan` holds
+  `plus`; no schema change), purchasable at `/checkout?product=plus`,
+  granted by the Whop webhook, and shown in the billing page and the
+  account plan menu. It deliberately does NOT unlock premium models,
+  agents, or teams - `hasProAccessForUser` still reads Pro-only.
+- **Pro credits now replenish daily**: 10,000 credits a day, UTC reset,
+  replacing the 10,000/month pool and its 12-month carry-over. Every
+  tier now spends the same `daily_credits` ledger; the monthly
+  machinery (`claimMonthlyCreditForUser`,
+  `settleMonthlyCreditUsageForUser`,
+  `ensureMonthlyAllocationForUser`,
+  `getMonthlyCreditStatusForUser`, `isPaidPlanForUser`) is deleted.
+- The daily allowance is plan-aware and role-elevated
+  (`getDailyCreditPolicyForAccount`): free 500, plus 5,000, pro 10,000;
+  admins keep at least their 1,000 and developers stay unlimited. A
+  claim refreshes the row's allocation, so an upgrade applies the same
+  day.
+- `billing.subscription` drops `monthlyCredits`; the billing page shows
+  today's remaining allowance from `credits.status` instead.
+- Whop: `getWhopPlusPlanId()` pins the Plus variant
+  (`WHOP_PLUS_PLAN_ID`); the webhook maps the pinned Plus plan id to the
+  new tier and ignores only unpinned ids (previously any non-Pro
+  membership was dropped silently). Set `WHOP_PLUS_PLAN_ID` before
+  advertising Plus - without it the checkout falls back to an inline
+  S$4.99 variant.
+
+Existing Pro subscribers' unused monthly balance is forfeited - the
+daily allowance is strictly more generous. The `monthly_credits` table
+is left in place but unused.
+
+Files: server/credits.ts, server/db/credits.ts, server/aiGateway.ts,
+server/whop.ts, server/routers.ts, client/src/pages/Billing.tsx,
+client/src/pages/Checkout.tsx, client/src/pages/Workspace.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/components/ModelSelector.tsx,
+client/src/components/PromptModelControls.tsx, client/src/pages/Agents.tsx,
+client/src/i18n/en.ts + 16 locales, and the billing/credits tests.
+
+Tests: pnpm check, pnpm test, pnpm build; every task landed
+test-first (RED -> GREEN).
+
 2026-11-11 - every database object is created automatically, and the Whop webhook bootstraps the schema
 
 Audited the whole schema-creation path against production crash risk:

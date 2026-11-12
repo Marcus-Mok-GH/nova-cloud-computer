@@ -1096,6 +1096,15 @@ export default function Workspace() {
     }
   };
 
+  /** Concrete prompts a first-time visitor can tap to dive straight into the
+      agent's "aha" moment, rather than staring at a blank box. */
+  const starterSuggestions: readonly string[] = Object.freeze([
+    "Summarize a topic and write it as a report",
+    "Review the files in my workspace and summarize them",
+    "Schedule a daily recap of my tasks at 9 AM",
+    "Research a question and save the answer as a file",
+  ]);
+
   return (
     <DashboardLayout>
       <div className="nova-prompt-shell chat-editorial-shell relative flex min-h-full flex-col items-center justify-center px-4 py-12 sm:px-7">
@@ -1160,6 +1169,25 @@ export default function Workspace() {
             </button>
           </div>
         </form>
+
+        {/* Starter suggestions: a blank prompt screen is the main reason
+            first-time visitors bounce. A single tap lets them dive straight into
+            the agent's "aha" moment instead of staring at an empty box. */}
+        <div className="rise-in-delay-2 mt-4 flex w-full max-w-2xl flex-wrap gap-2">
+          {starterSuggestions.map(suggestion => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => {
+                setDraft(suggestion);
+                composerRef.current?.focus();
+              }}
+              className="border border-primary/35 bg-primary/[0.06] px-3.5 py-2 text-start text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12]"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
 
         <div className="rise-in-delay-2 mt-4 flex w-full max-w-2xl items-center justify-between gap-3">
           <div className="flex items-center gap-4">

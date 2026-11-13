@@ -105,8 +105,16 @@ describe("landing and sign-in render", () => {
 
   it("renders the Zo-style sign-in page", () => {
     const markup = renderToStaticMarkup(<SignIn />);
-    expect(markup).toContain("Sign in to Nova.");
-    expect(markup).toContain("Email me a sign-in code");
+    expect(markup).toContain("Get started with Nova.");
+    expect(markup).toContain("Create my account");
     expect(markup).toContain("you@example.com");
+    // A visitor who clicked "Get started" must be told this creates an account,
+    // that the trial is free, and that no card is needed - the page used to read
+    // as a login wall for accounts that already exist.
+    expect(markup).toContain("create your account automatically");
+    expect(markup).toContain("free 14-day trial");
+    expect(markup).toContain("no card required");
+    expect(markup).not.toContain("Sign in to Nova.");
+    expect(markup).not.toContain("Email me a sign-in code");
   });
 });

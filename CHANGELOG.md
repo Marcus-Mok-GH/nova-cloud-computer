@@ -1,3 +1,24 @@
+2026-11-13 - fix(auth): give the sign-in code step a resend path
+
+The OTP step dead-ended for every visitor whose code was merely late. After
+"Check your email" the only actions were typing a six-digit code the visitor
+may never have received and "Use a different email" - a button that reads as
+a typo fix, not a recovery path - so a correct address with a delayed, spam-
+foldered, or expired code had no way forward at the moment of highest intent.
+The step now offers "Didn't get the code? Resend it" behind a 60-second
+cooldown (long enough that mashing it cannot trip Neon's send rate limit),
+confirms each send with "We sent another code to <email>", clears a stale
+code on resend, and states plainly that codes expire after a few minutes and
+that the spam folder is worth checking before resending.
+
+Files: client/src/pages/SignIn.tsx, client/src/pages/SignIn.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/SignIn.render.test.tsx, pnpm check,
+pnpm build, pnpm test (162 files, 1726 passed). Verified in a browser at
+1440x900 and 390x844: resend fires, notice shows, cooldown counts down with
+the button disabled, no overflow or overlap, no console errors.
+
 2026-11-13 - fix(auth): make the sign-in page read as account creation, not a login wall
 
 Every "Get started" call to action on the public site - nav, hero, pricing,

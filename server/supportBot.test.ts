@@ -142,6 +142,29 @@ describe("answerSupportQuestion", () => {
     expect(options).toMatchObject({ maxTokens: 600 });
   });
 
+  it("carries the real plan prices in the server-owned brief", async () => {
+    chatMock.mockResolvedValue({
+      text: "Free 14-day trial, Plus S$4.99/mo, Pro S$7.99/mo.",
+      model: "test",
+    });
+
+    await answerSupportQuestion(
+      [{ role: "user", content: "How much does Nova cost?" }],
+      "client"
+    );
+
+    const [messages] = chatMock.mock.calls[0];
+    const system = messages[0].content;
+    expect(system).toContain("14-day trial");
+    expect(system).toContain("S$4.99");
+    expect(system).toContain("S$7.99");
+    expect(system).toContain("5,000 credits");
+    expect(system).toContain("10,000 credits");
+    expect(system).toContain("1,000 credits per S$1");
+    // The bot must quote the brief's prices, not invent them.
+    expect(system).toContain("Quote the brief's prices exactly");
+  });
+
   it("maps gateway throttling to a retryable public error without leaking details", async () => {
     chatMock.mockRejectedValue(
       new FakeAiGatewayClientError("provider quota secret", "rate_limit")

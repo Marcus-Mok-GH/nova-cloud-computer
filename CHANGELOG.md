@@ -1,3 +1,19 @@
+2026-11-13 - fix(support-bot): give the public Q&A assistant Nova's real prices
+
+The landing page's Q&A assistant answered "I don't have Nova's monthly
+pricing details" for the most common buying question, because its
+server-owned product brief carried no prices and the system prompt
+forbade inventing them. The brief now lists the real ladder - free
+14-day trial (500 credits/day), Plus S$4.99/mo (5,000/day), Pro
+S$7.99/mo (10,000/day plus premium models), priority S$4.99 one-time,
+and credit top-ups from S$5 - and the prompt tells the assistant to
+quote those prices exactly rather than guess.
+
+Files: server/supportBot.ts, server/supportBot.test.ts, CHANGELOG.md.
+
+Tests: pnpm vitest run server/supportBot.test.ts, pnpm check, pnpm test,
+pnpm build.
+
 2026-11-13 - feat(landing): show real plan prices in the pricing section
 
 A visitor could not find out what Nova costs anywhere on the public site:

@@ -688,6 +688,23 @@ export const en = {
     "Create a key for your workspace and call Nova through an OpenAI-compatible API using the same daily credits.",
   "landing.pricing.note":
     "Need a faster place in the queue at peak times? Find priority placement in your billing settings.",
+  "landing.pricing.plans.free.name": "Free trial",
+  "landing.pricing.plans.free.price": "S$0",
+  "landing.pricing.plans.free.period": "14 days",
+  "landing.pricing.plans.free.feature1": "500 credits a day",
+  "landing.pricing.plans.free.feature2": "No card required",
+  "landing.pricing.plans.plus.name": "Plus",
+  "landing.pricing.plans.plus.price": "S$4.99",
+  "landing.pricing.plans.plus.period": "per month",
+  "landing.pricing.plans.plus.feature1": "5,000 credits a day",
+  "landing.pricing.plans.plus.feature2": "Everything in Free",
+  "landing.pricing.plans.pro.name": "Pro",
+  "landing.pricing.plans.pro.price": "S$7.99",
+  "landing.pricing.plans.pro.period": "per month",
+  "landing.pricing.plans.pro.feature1": "10,000 credits a day",
+  "landing.pricing.plans.pro.feature2": "Premium models",
+  "landing.pricing.extra":
+    "Priority is a one-time S$4.99, and credit top-ups start at S$5 (1,000 credits per S$1).",
 
   // Landing: FAQ
   "landing.faq.eyebrow": "Questions",
@@ -709,7 +726,7 @@ export const en = {
     "Yes. Automations run on schedule in the cloud, day or night, and Nova can message you on Telegram or by email when a job is done.",
   "landing.faq.q6": "How much does it cost?",
   "landing.faq.a6":
-    "Nova starts on daily credits with no card required. Bring your own OpenAI-compatible key, and priority placement during peak hours is optional.",
+    "Nova starts with a free 14-day trial, no card required. Plus is S$4.99 a month (5,000 credits a day) and Pro is S$7.99 a month (10,000 credits a day plus premium models). Priority is a one-time S$4.99, and credit top-ups start at S$5.",
 
   // Landing: developer callout
   "landing.dev.eyebrow": "For developers",

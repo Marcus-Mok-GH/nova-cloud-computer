@@ -1,3 +1,21 @@
+2026-11-13 - feat(landing): show real plan prices in the pricing section
+
+A visitor could not find out what Nova costs anywhere on the public site:
+the nav promises "Pricing" but the section described only the daily-credit
+model, the FAQ cost answer carried no numbers, and the on-page Q&A
+assistant answered "I don't have Nova's monthly pricing details". The
+pricing section now leads with the real plan ladder - Free trial (S$0, 14
+days, 500 credits a day), Plus (S$4.99/mo, 5,000 credits a day) and Pro
+(S$7.99/mo, 10,000 credits a day plus premium models) - followed by a line
+for priority (S$4.99 one-time) and credit top-ups (from S$5). The FAQ
+"How much does it cost?" answer now carries the same figures.
+
+Files: client/src/pages/landing/Pricing.tsx, client/src/i18n/en.ts,
+client/src/i18n/*.ts, client/src/pages/Home.render.test.tsx, CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Home.render.test.tsx, pnpm check,
+pnpm test, pnpm build.
+
 2026-11-12 - fix(billing): pin credit top-up checkouts to real Whop variants
 
 Credit checkout (billing.purchaseCredits) died with a Whop 403 "not

@@ -8,7 +8,12 @@ import {
   upsertSubscriptionForUser,
   type WhopSubscriptionState,
 } from "./db";
-import { PAID_PLAN_CURRENCY, PAID_PLAN_PRICE_CENTS, PLUS_PLAN_PRICE_CENTS, type PlanTier } from "./credits";
+import {
+  PAID_PLAN_CURRENCY,
+  PAID_PLAN_PRICE_CENTS,
+  PLUS_PLAN_PRICE_CENTS,
+  type PlanTier,
+} from "./credits";
 import { PRIORITY_CURRENCY, PRIORITY_PRICE_CENTS } from "./db/priority";
 import {
   CREDIT_TOPUP_CURRENCY,
@@ -64,7 +69,10 @@ const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
 export class WhopNotConfiguredError extends Error {
   detail?: string;
-  constructor(message = "Nova's paid plan is not configured on this deployment yet.", detail?: string) {
+  constructor(
+    message = "Nova's paid plan is not configured on this deployment yet.",
+    detail?: string
+  ) {
     super(message);
     this.name = "WhopNotConfiguredError";
     if (detail) this.detail = detail;
@@ -125,15 +133,42 @@ export function getWhopPriorityPlanId(): string | undefined {
 export function getWhopCreditPlanIds(): Record<string, string> | undefined {
   const raw = process.env.WHOP_CREDIT_PLAN_IDS?.trim();
   if (!raw) return undefined;
+  const candidates = [raw];
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    candidates.push(raw.slice(1, -1).trim());
+  }
+  for (const candidate of [...candidates]) {
+    if (candidate.includes('\\"')) {
+      candidates.push(candidate.replace(/\\"/g, '"'));
+    }
+  }
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  let parsedOk = false;
+  for (const candidate of candidates) {
+    try {
+      const value = JSON.parse(candidate);
+      parsed = typeof value === "string" ? JSON.parse(value) : value;
+      parsedOk = true;
+      break;
+    } catch {
+      // try next candidate normalization
+    }
+  }
+  if (!parsedOk) {
+    console.warn(
+      "[Whop] WHOP_CREDIT_PLAN_IDS is set but could not be parsed as JSON"
+    );
     return undefined;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return undefined;
   const ids: Record<string, string> = {};
-  for (const [slug, value] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [slug, value] of Object.entries(
+    parsed as Record<string, unknown>
+  )) {
     if (typeof value === "string" && value.trim()) ids[slug] = value.trim();
   }
   return Object.keys(ids).length > 0 ? ids : undefined;
@@ -143,7 +178,8 @@ export function getWhopCreditPlanIds(): Record<string, string> | undefined {
  * anything else is Pro (the pinned Pro variant, or an inline checkout). */
 function membershipPlanTier(data: Record<string, unknown>): PlanTier {
   const planId = planIdFromPayload(data);
-  if (planId && getWhopPlusPlanId() && planId === getWhopPlusPlanId()) return "plus";
+  if (planId && getWhopPlusPlanId() && planId === getWhopPlusPlanId())
+    return "plus";
   return "paid";
 }
 
@@ -204,10 +240,16 @@ const VARIANT_PAYMENT_METHOD_CONFIGURATION = {
  * and returns its hosted URL. The configuration is remembered on the
  * subscription row so support can trace a purchase back to it.
  */
-export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promise<CreateWhopCheckoutOutput> {
+export async function createWhopCheckout(
+  input: CreateWhopCheckoutInput
+): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
   const accountId = whopAccountId();
-  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopConfigurationMessage(), whopMissingConfigDetail());
+  if (!apiKey || !accountId)
+    throw new WhopNotConfiguredError(
+      whopConfigurationMessage(),
+      whopMissingConfigDetail()
+    );
   const { ownerId, plan, planId, redirectUrl } = input;
   const isPlus = plan === "plus";
   const planPrice = isPlus ? PLUS_PLAN_PRICE : PAID_PLAN_PRICE;
@@ -244,15 +286,28 @@ export async function createWhopCheckout(input: CreateWhopCheckoutInput): Promis
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
-    console.error("[Whop] checkout configuration failed", response.status, detail);
-    throw new WhopNotConfiguredError("Nova's billing provider could not create the checkout - please try again shortly.", `${response.status} ${detail}`);
+    console.error(
+      "[Whop] checkout configuration failed",
+      response.status,
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider could not create the checkout - please try again shortly.",
+      `${response.status} ${detail}`
+    );
   }
   const configuration = (await response.json()) as WhopCheckoutConfiguration;
   const purchaseUrl = configuration.purchase_url ?? null;
   if (!configuration.id || !purchaseUrl) {
     const detail = JSON.stringify(configuration).slice(0, 400);
-    console.error("[Whop] checkout configuration response missing id/purchase_url", detail);
-    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
+    console.error(
+      "[Whop] checkout configuration response missing id/purchase_url",
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider returned an unusable checkout - please try again shortly.",
+      `missing id/purchase_url: ${detail}`
+    );
   }
   await setWhopCheckoutConfigIdForUser(ownerId, configuration.id);
   return { id: configuration.id, purchaseUrl };
@@ -278,10 +333,16 @@ type CreateWhopCreditTopUpCheckoutInput = {
  * against the catalog when the webhook lands. Credits are granted only then -
  * never at checkout creation.
  */
-export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUpCheckoutInput): Promise<CreateWhopCheckoutOutput> {
+export async function createWhopCreditTopUpCheckout(
+  input: CreateWhopCreditTopUpCheckoutInput
+): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
   const accountId = whopAccountId();
-  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopCreditTopUpConfigurationMessage(), whopMissingConfigDetail());
+  if (!apiKey || !accountId)
+    throw new WhopNotConfiguredError(
+      whopCreditTopUpConfigurationMessage(),
+      whopMissingConfigDetail()
+    );
   const { ownerId, product, redirectUrl } = input;
   const price = (product.priceCents / 100).toFixed(2);
   const body: Record<string, unknown> = {
@@ -296,7 +357,6 @@ export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUp
     redirect_url: redirectUrl,
   };
   const pinnedPlanId = getWhopCreditPlanIds()?.[product.id];
-  console.log("[Whop] credit checkout product.id=", product.id, "| WHOP_CREDIT_PLAN_IDS parsed:", getWhopCreditPlanIds() ? "present" : "EMPTY/undefined", "| resolved plan_id:", pinnedPlanId);
   if (pinnedPlanId) {
     // Reference the pinned variant instead of creating one inline: the
     // production company key cannot create variants, so a new rung needs a
@@ -323,15 +383,28 @@ export async function createWhopCreditTopUpCheckout(input: CreateWhopCreditTopUp
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
-    console.error("[Whop] credit top-up checkout configuration failed", response.status, detail);
-    throw new WhopNotConfiguredError("Nova's billing provider could not create the checkout - please try again shortly.", `${response.status} ${detail}`);
+    console.error(
+      "[Whop] credit top-up checkout configuration failed",
+      response.status,
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider could not create the checkout - please try again shortly.",
+      `${response.status} ${detail}`
+    );
   }
   const configuration = (await response.json()) as WhopCheckoutConfiguration;
   const purchaseUrl = configuration.purchase_url ?? null;
   if (!configuration.id || !purchaseUrl) {
     const detail = JSON.stringify(configuration).slice(0, 400);
-    console.error("[Whop] credit top-up checkout response missing id/purchase_url", detail);
-    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
+    console.error(
+      "[Whop] credit top-up checkout response missing id/purchase_url",
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider returned an unusable checkout - please try again shortly.",
+      `missing id/purchase_url: ${detail}`
+    );
   }
   return { id: configuration.id, purchaseUrl };
 }
@@ -347,12 +420,19 @@ type CreateWhopPriorityCheckoutInput = {
  * one-time). Priority is armed only when `payment.succeeded` arrives — never
  * at checkout creation.
  */
-export async function createWhopPriorityCheckout(input: CreateWhopPriorityCheckoutInput): Promise<CreateWhopCheckoutOutput> {
+export async function createWhopPriorityCheckout(
+  input: CreateWhopPriorityCheckoutInput
+): Promise<CreateWhopCheckoutOutput> {
   const apiKey = whopApiKey();
   const accountId = whopAccountId();
-  if (!apiKey || !accountId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage(), whopMissingConfigDetail());
+  if (!apiKey || !accountId)
+    throw new WhopNotConfiguredError(
+      whopPriorityConfigurationMessage(),
+      whopMissingConfigDetail()
+    );
   const { ownerId, planId, redirectUrl } = input;
-  if (!planId) throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
+  if (!planId)
+    throw new WhopNotConfiguredError(whopPriorityConfigurationMessage());
   const body: Record<string, unknown> = {
     account_id: accountId,
     mode: "payment",
@@ -377,15 +457,28 @@ export async function createWhopPriorityCheckout(input: CreateWhopPriorityChecko
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 400);
-    console.error("[Whop] priority checkout configuration failed", response.status, detail);
-    throw new WhopNotConfiguredError("Nova's billing provider could not create the priority checkout - please try again shortly.", `${response.status} ${detail}`);
+    console.error(
+      "[Whop] priority checkout configuration failed",
+      response.status,
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider could not create the priority checkout - please try again shortly.",
+      `${response.status} ${detail}`
+    );
   }
   const configuration = (await response.json()) as WhopCheckoutConfiguration;
   const purchaseUrl = configuration.purchase_url ?? null;
   if (!configuration.id || !purchaseUrl) {
     const detail = JSON.stringify(configuration).slice(0, 400);
-    console.error("[Whop] priority checkout configuration response missing id/purchase_url", detail);
-    throw new WhopNotConfiguredError("Nova's billing provider returned an unusable priority checkout - please try again shortly.", `missing id/purchase_url: ${detail}`);
+    console.error(
+      "[Whop] priority checkout configuration response missing id/purchase_url",
+      detail
+    );
+    throw new WhopNotConfiguredError(
+      "Nova's billing provider returned an unusable priority checkout - please try again shortly.",
+      `missing id/purchase_url: ${detail}`
+    );
   }
   return { id: configuration.id, purchaseUrl };
 }
@@ -413,15 +506,30 @@ function whopSigningKey(secret: string): Buffer {
  * the parsed event. Throws when the secret is missing, the signature does not
  * match, or the timestamp is outside the replay window.
  */
-export function verifyWhopWebhook(rawBody: Buffer, headers: { "webhook-id"?: string; "webhook-timestamp"?: string; "webhook-signature"?: string }): VerifiedWhopEvent {
+export function verifyWhopWebhook(
+  rawBody: Buffer,
+  headers: {
+    "webhook-id"?: string;
+    "webhook-timestamp"?: string;
+    "webhook-signature"?: string;
+  }
+): VerifiedWhopEvent {
   const secret = whopWebhookSecret();
-  if (!secret) throw new WhopNotConfiguredError("Nova's billing webhooks are not configured on this deployment yet.");
+  if (!secret)
+    throw new WhopNotConfiguredError(
+      "Nova's billing webhooks are not configured on this deployment yet."
+    );
   const webhookId = headers["webhook-id"];
   const timestamp = headers["webhook-timestamp"];
   const signatureHeader = headers["webhook-signature"];
-  if (!webhookId || !timestamp || !signatureHeader) throw new Error("Missing Whop webhook headers.");
+  if (!webhookId || !timestamp || !signatureHeader)
+    throw new Error("Missing Whop webhook headers.");
   const sentAtSeconds = Number(timestamp);
-  if (!Number.isFinite(sentAtSeconds) || Math.abs(Date.now() / 1000 - sentAtSeconds) > WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS) {
+  if (
+    !Number.isFinite(sentAtSeconds) ||
+    Math.abs(Date.now() / 1000 - sentAtSeconds) >
+      WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+  ) {
     throw new Error("Whop webhook timestamp is outside the accepted window.");
   }
   const expected = crypto
@@ -436,10 +544,19 @@ export function verifyWhopWebhook(rawBody: Buffer, headers: { "webhook-id"?: str
     const decoded = Buffer.from(encoded, "base64");
     if (decoded.length > 0) offered.push(decoded);
   }
-  const matches = offered.some(candidate => candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected));
+  const matches = offered.some(
+    candidate =>
+      candidate.length === expected.length &&
+      crypto.timingSafeEqual(candidate, expected)
+  );
   if (!matches) throw new Error("Whop webhook signature verification failed.");
-  const event = JSON.parse(rawBody.toString("utf8")) as { id?: string; type?: string; data?: Record<string, unknown> };
-  if (!event.id || !event.type || !event.data) throw new Error("Whop webhook payload is malformed.");
+  const event = JSON.parse(rawBody.toString("utf8")) as {
+    id?: string;
+    type?: string;
+    data?: Record<string, unknown>;
+  };
+  if (!event.id || !event.type || !event.data)
+    throw new Error("Whop webhook payload is malformed.");
   return { id: event.id, type: event.type, data: event.data };
 }
 
@@ -448,11 +565,14 @@ export function verifyWhopWebhook(rawBody: Buffer, headers: { "webhook-id"?: str
 /* ------------------------------------------------------------------------- */
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function asDate(value: unknown): Date | null {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) return new Date(value * 1000);
+  if (typeof value === "number" && Number.isFinite(value) && value > 0)
+    return new Date(value * 1000);
   if (typeof value === "string" && value.trim()) {
     const parsed = new Date(value);
     if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -468,13 +588,25 @@ const ACTIVE_MEMBERSHIP_STATUSES = new Set(["active", "trialing"]);
  * `mem_` ids tie every later event back to the activation; `metadata` carries
  * the checkout's `nova_user_id` so the first event can resolve the owner.
  */
-function membershipToState(data: Record<string, unknown>, tier: PlanTier): { state: WhopSubscriptionState; membershipId: string | null; ownerIdFromMetadata: number | null } {
+function membershipToState(
+  data: Record<string, unknown>,
+  tier: PlanTier
+): {
+  state: WhopSubscriptionState;
+  membershipId: string | null;
+  ownerIdFromMetadata: number | null;
+} {
   const metadata = asRecord(data.metadata);
   const rawOwnerId = metadata?.nova_user_id;
-  const ownerIdFromMetadata = typeof rawOwnerId === "string" || typeof rawOwnerId === "number" ? Number(rawOwnerId) : NaN;
+  const ownerIdFromMetadata =
+    typeof rawOwnerId === "string" || typeof rawOwnerId === "number"
+      ? Number(rawOwnerId)
+      : NaN;
   const status = typeof data.status === "string" ? data.status : "inactive";
   const periodEnd = asDate(data.current_period_end);
-  const active = ACTIVE_MEMBERSHIP_STATUSES.has(status) && (periodEnd === null || periodEnd.getTime() > Date.now());
+  const active =
+    ACTIVE_MEMBERSHIP_STATUSES.has(status) &&
+    (periodEnd === null || periodEnd.getTime() > Date.now());
   return {
     state: {
       plan: active ? tier : "free",
@@ -487,27 +619,46 @@ function membershipToState(data: Record<string, unknown>, tier: PlanTier): { sta
       cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
     },
     membershipId: typeof data.id === "string" ? data.id : null,
-    ownerIdFromMetadata: Number.isInteger(ownerIdFromMetadata) && ownerIdFromMetadata > 0 ? ownerIdFromMetadata : null,
+    ownerIdFromMetadata:
+      Number.isInteger(ownerIdFromMetadata) && ownerIdFromMetadata > 0
+        ? ownerIdFromMetadata
+        : null,
   };
 }
 
 export type WhopWebhookOutcome =
-  | { handled: true; ownerId: number; plan: "free" | "plus" | "paid"; status: string }
+  | {
+      handled: true;
+      ownerId: number;
+      plan: "free" | "plus" | "paid";
+      status: string;
+    }
   | { handled: true; ownerId: number; product: "priority"; armed: boolean }
-  | { handled: true; ownerId: number; product: "credits"; credits: number; granted: boolean }
+  | {
+      handled: true;
+      ownerId: number;
+      product: "credits";
+      credits: number;
+      granted: boolean;
+    }
   | { handled: false; reason: string };
 
 function planIdFromPayload(data: Record<string, unknown>): string | null {
-  if (typeof data.plan_id === "string" && data.plan_id.trim()) return data.plan_id.trim();
+  if (typeof data.plan_id === "string" && data.plan_id.trim())
+    return data.plan_id.trim();
   const plan = asRecord(data.plan);
-  if (plan && typeof plan.id === "string" && plan.id.trim()) return plan.id.trim();
+  if (plan && typeof plan.id === "string" && plan.id.trim())
+    return plan.id.trim();
   return null;
 }
 
 function ownerIdFromMetadata(data: Record<string, unknown>): number | null {
   const metadata = asRecord(data.metadata);
   const rawOwnerId = metadata?.nova_user_id;
-  const ownerId = typeof rawOwnerId === "string" || typeof rawOwnerId === "number" ? Number(rawOwnerId) : NaN;
+  const ownerId =
+    typeof rawOwnerId === "string" || typeof rawOwnerId === "number"
+      ? Number(rawOwnerId)
+      : NaN;
   return Number.isInteger(ownerId) && ownerId > 0 ? ownerId : null;
 }
 
@@ -532,10 +683,12 @@ function isCreditTopUpMarked(data: Record<string, unknown>): boolean {
   const metadata = asRecord(data.metadata);
   const product = asRecord(data.product);
   const productMeta = asRecord(product?.metadata);
-  return metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
-    || productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
-    || productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER
-    || typeof metadata?.nova_credit_product_id === "string";
+  return (
+    metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER ||
+    productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER ||
+    productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER ||
+    typeof metadata?.nova_credit_product_id === "string"
+  );
 }
 
 /**
@@ -546,14 +699,18 @@ function isCreditTopUpMarked(data: Record<string, unknown>): boolean {
  * able to mint credits. The metadata only carries the product id, and the
  * granted amount is read from the shared ladder.
  */
-function creditTopUpProductFromPayload(data: Record<string, unknown>): CreditTopUpProduct | undefined {
+function creditTopUpProductFromPayload(
+  data: Record<string, unknown>
+): CreditTopUpProduct | undefined {
   const metadata = asRecord(data.metadata);
   const product = asRecord(data.product);
   const productMeta = asRecord(product?.metadata);
-  const rawId = metadata?.nova_credit_product_id ?? productMeta?.nova_credit_product_id;
-  const isMarked = metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
-    || productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER
-    || productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER;
+  const rawId =
+    metadata?.nova_credit_product_id ?? productMeta?.nova_credit_product_id;
+  const isMarked =
+    metadata?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER ||
+    productMeta?.nova_product === CREDIT_TOPUP_PRODUCT_MARKER ||
+    productMeta?.product === CREDIT_TOPUP_PRODUCT_MARKER;
   if (typeof rawId !== "string" || !rawId.trim()) return undefined;
   if (!isMarked) return undefined;
   return getCreditTopUpProduct(rawId.trim());
@@ -566,7 +723,11 @@ async function grantCreditTopUpFromWebhook(
   const ownerId = ownerIdFromMetadata(event.data);
   if (ownerId === null) {
     await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
-    console.warn("[Whop] credit top-up event with no resolvable Nova account", event.type, paymentOrMembershipId);
+    console.warn(
+      "[Whop] credit top-up event with no resolvable Nova account",
+      event.type,
+      paymentOrMembershipId
+    );
     return { handled: false, reason: "unknown-owner" };
   }
   const product = creditTopUpProductFromPayload(event.data);
@@ -582,7 +743,11 @@ async function grantCreditTopUpFromWebhook(
     );
     return { handled: false, reason: "unknown-credit-product" };
   }
-  const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+  const firstDelivery = await recordWhopWebhookEvent(
+    event.id,
+    event.type,
+    paymentOrMembershipId
+  );
   if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
   // The provider payment id is the idempotency key: Whop retries until it gets
   // a 2xx, and this insert conflicts on a replay rather than granting twice.
@@ -598,21 +763,40 @@ async function grantCreditTopUpFromWebhook(
       ? `[Whop] ${event.type}: account ${ownerId} granted ${product.credits} credits (${product.id})`
       : `[Whop] ${event.type}: account ${ownerId} already had payment ${paymentId} - no double grant`
   );
-  return { handled: true, ownerId, product: "credits", credits: product.credits, granted };
+  return {
+    handled: true,
+    ownerId,
+    product: "credits",
+    credits: product.credits,
+    granted,
+  };
 }
 
-async function grantPriorityFromWebhook(event: VerifiedWhopEvent, paymentOrMembershipId: string | null): Promise<WhopWebhookOutcome> {
+async function grantPriorityFromWebhook(
+  event: VerifiedWhopEvent,
+  paymentOrMembershipId: string | null
+): Promise<WhopWebhookOutcome> {
   const ownerId = ownerIdFromMetadata(event.data);
   if (ownerId === null) {
     await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
-    console.warn("[Whop] priority event with no resolvable Nova account", event.type, paymentOrMembershipId);
+    console.warn(
+      "[Whop] priority event with no resolvable Nova account",
+      event.type,
+      paymentOrMembershipId
+    );
     return { handled: false, reason: "unknown-owner" };
   }
-  const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, paymentOrMembershipId);
+  const firstDelivery = await recordWhopWebhookEvent(
+    event.id,
+    event.type,
+    paymentOrMembershipId
+  );
   if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
 
   const status = await purchasePriorityForUser(ownerId);
-  console.info(`[Whop] ${event.type}: account ${ownerId} -> priority armed=${status.armed}`);
+  console.info(
+    `[Whop] ${event.type}: account ${ownerId} -> priority armed=${status.armed}`
+  );
   return { handled: true, ownerId, product: "priority", armed: status.armed };
 }
 
@@ -624,7 +808,10 @@ async function grantPriorityFromWebhook(event: VerifiedWhopEvent, paymentOrMembe
  * `payment.succeeded` (and membership activation for the priority plan) arms
  * one-hour priority. Other `membership.*` events update Nova Pro only.
  */
-export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typeof verifyWhopWebhook>[1]): Promise<WhopWebhookOutcome> {
+export async function handleWhopWebhook(
+  rawBody: Buffer,
+  headers: Parameters<typeof verifyWhopWebhook>[1]
+): Promise<WhopWebhookOutcome> {
   const event = verifyWhopWebhook(rawBody, headers);
 
   if (event.type === "payment.succeeded" && isPriorityProduct(event.data)) {
@@ -647,8 +834,12 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
   // one-time checkout as a membership that never renews). Grant it on
   // activation, and never let it touch the Nova Pro subscription row.
   if (isCreditTopUpMarked(event.data)) {
-    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
-    if (event.type === "membership.activated" || event.type === "membership.went_valid") {
+    const membershipId =
+      typeof event.data.id === "string" ? event.data.id : null;
+    if (
+      event.type === "membership.activated" ||
+      event.type === "membership.went_valid"
+    ) {
       return grantCreditTopUpFromWebhook(event, membershipId);
     }
     await recordWhopWebhookEvent(event.id, event.type, membershipId);
@@ -657,28 +848,47 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
 
   if (isPriorityProduct(event.data)) {
     // One-time priority memberships must never flip the Nova Pro subscription.
-    if (event.type === "membership.activated" || event.type === "membership.went_valid") {
-      const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+    if (
+      event.type === "membership.activated" ||
+      event.type === "membership.went_valid"
+    ) {
+      const membershipId =
+        typeof event.data.id === "string" ? event.data.id : null;
       return grantPriorityFromWebhook(event, membershipId);
     }
-    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+    const membershipId =
+      typeof event.data.id === "string" ? event.data.id : null;
     await recordWhopWebhookEvent(event.id, event.type, membershipId);
     return { handled: false, reason: "priority-membership-ignored" };
   }
 
-  const pinnedPlanIds = [getWhopPlanId(), getWhopPlusPlanId()].filter((id): id is string => Boolean(id));
+  const pinnedPlanIds = [getWhopPlanId(), getWhopPlusPlanId()].filter(
+    (id): id is string => Boolean(id)
+  );
   const membershipPlanId = planIdFromPayload(event.data);
-  if (pinnedPlanIds.length > 0 && membershipPlanId && !pinnedPlanIds.includes(membershipPlanId)) {
-    const membershipId = typeof event.data.id === "string" ? event.data.id : null;
+  if (
+    pinnedPlanIds.length > 0 &&
+    membershipPlanId &&
+    !pinnedPlanIds.includes(membershipPlanId)
+  ) {
+    const membershipId =
+      typeof event.data.id === "string" ? event.data.id : null;
     await recordWhopWebhookEvent(event.id, event.type, membershipId);
     return { handled: false, reason: "ignored-non-pro-membership" };
   }
 
   const membershipId = typeof event.data.id === "string" ? event.data.id : null;
-  const firstDelivery = await recordWhopWebhookEvent(event.id, event.type, membershipId);
+  const firstDelivery = await recordWhopWebhookEvent(
+    event.id,
+    event.type,
+    membershipId
+  );
   if (!firstDelivery) return { handled: false, reason: "duplicate-delivery" };
 
-  const { state, ownerIdFromMetadata: ownerFromMembership } = membershipToState(event.data, membershipPlanTier(event.data));
+  const { state, ownerIdFromMetadata: ownerFromMembership } = membershipToState(
+    event.data,
+    membershipPlanTier(event.data)
+  );
   let ownerId = ownerFromMembership;
   if (ownerId === null && membershipId) {
     ownerId = await getOwnerIdForWhopMembership(membershipId);
@@ -686,11 +896,17 @@ export async function handleWhopWebhook(rawBody: Buffer, headers: Parameters<typ
   if (ownerId === null) {
     // Not a Nova checkout (or one from before metadata existed) - keep the
     // delivery recorded so a retry does not loop, but change nothing.
-    console.warn("[Whop] membership event with no resolvable Nova account", event.type, membershipId);
+    console.warn(
+      "[Whop] membership event with no resolvable Nova account",
+      event.type,
+      membershipId
+    );
     return { handled: false, reason: "unknown-owner" };
   }
 
   const summary = await upsertSubscriptionForUser(ownerId, state);
-  console.info(`[Whop] ${event.type}: account ${ownerId} -> ${summary.plan} (${summary.status})`);
+  console.info(
+    `[Whop] ${event.type}: account ${ownerId} -> ${summary.plan} (${summary.status})`
+  );
   return { handled: true, ownerId, plan: summary.plan, status: summary.status };
 }

@@ -100,6 +100,7 @@ describe("Whop credit top-up checkout variant selection", () => {
   });
 
   it("ignores an unparseable WHOP_CREDIT_PLAN_IDS and keeps the inline fallback", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.WHOP_CREDIT_PLAN_IDS = "not-json";
     const { calls } = mockCheckoutResponse();
     const { createWhopCreditTopUpCheckout } = await import("./whop");
@@ -111,6 +112,23 @@ describe("Whop credit top-up checkout variant selection", () => {
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.variant_id).toBeUndefined();
     expect(body.variant.billing_type).toBe("one_time");
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it("recovers pinned variant IDs when WHOP_CREDIT_PLAN_IDS has shell-escaped quotes", async () => {
+    process.env.WHOP_CREDIT_PLAN_IDS =
+      '{\\"topup-5\\":\\"plan_credit_5\\",\\"topup-10\\":\\"plan_credit_10\\"}';
+    const { calls } = mockCheckoutResponse();
+    const { createWhopCreditTopUpCheckout } = await import("./whop");
+    await createWhopCreditTopUpCheckout({
+      ownerId: 42,
+      product: getCreditTopUpProduct("topup-5")!,
+      redirectUrl: "https://example.com/credits",
+    });
+    const body = JSON.parse(String(calls[0].init.body));
+    expect(body.variant_id).toBe("plan_credit_5");
+    expect(body.variant).toBeUndefined();
   });
 
   it("sends variant_id (no inline variant) with the production key shape, so Whop does not reject with 403 forbidden", async () => {
@@ -123,9 +141,24 @@ describe("Whop credit top-up checkout variant selection", () => {
       calls.push({ url, init });
       const body = JSON.parse(String(init.body));
       if (body.variant && !body.variant_id) {
-        return { ok: false, status: 403, text: async () => JSON.stringify({ error: { type: "forbidden", message: "You are not authorized" } }), json: async () => ({}) };
+        return {
+          ok: false,
+          status: 403,
+          text: async () =>
+            JSON.stringify({
+              error: { type: "forbidden", message: "You are not authorized" },
+            }),
+          json: async () => ({}),
+        };
       }
-      return { ok: true, json: async () => ({ id: "ch_test_2", purchase_url: "https://whop.com/checkout/ch_test_2" }), text: async () => "" };
+      return {
+        ok: true,
+        json: async () => ({
+          id: "ch_test_2",
+          purchase_url: "https://whop.com/checkout/ch_test_2",
+        }),
+        text: async () => "",
+      };
     });
     const { createWhopCreditTopUpCheckout } = await import("./whop");
     const result = await createWhopCreditTopUpCheckout({

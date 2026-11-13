@@ -1,3 +1,25 @@
+2026-11-13 - fix(auth): make the sign-in page read as account creation, not a login wall
+
+Every "Get started" call to action on the public site - nav, hero, pricing,
+footer - lands on `/sign-in`, which was titled "Sign in to Nova." and said
+nothing about what happens next. A first-time visitor who had just clicked
+"Get started" was asked for an email with no statement that this creates an
+account, no mention of the free 14-day trial, and no assurance that no card is
+required, so the page read as a login wall they could not pass. The page now
+opens with "Get started with Nova.", states that the account is created
+automatically and that new workspaces start with a free 14-day trial with no
+card required (while still signing returning visitors back in), its primary
+action is "Create my account", and the fine print spells out the passwordless
+one-time code in plain language instead of "we do not store a password for
+this sign-in method".
+
+Files: client/src/pages/SignIn.tsx, client/src/pages/Home.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Home.render.test.tsx,
+pnpm vitest run client/src/pages/Waitlist.render.test.tsx, pnpm check,
+pnpm test, pnpm build.
+
 2026-11-13 - fix(support-bot): give the public Q&A assistant Nova's real prices
 
 The landing page's Q&A assistant answered "I don't have Nova's monthly

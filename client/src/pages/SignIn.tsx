@@ -132,8 +132,11 @@ export default function SignIn() {
           <NovaLogo size={26} ariaHidden={false} />
           <span className="text-lg font-extrabold tracking-tight text-card-foreground">Nova</span>
         </div>
-        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-card-foreground">Sign in to Nova.</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Run your projects, files, and AI in a space that works 24/7.</p>
+        <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-card-foreground">Get started with Nova.</h1>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          Enter your email and we&rsquo;ll create your account automatically &mdash; new workspaces start with a free
+          14-day trial, no card required. Already have one? This signs you back in.
+        </p>
 
         {sent ? (
           <div className="mt-7 rounded-2xl border border-primary/25 bg-primary/10 p-5">
@@ -157,11 +160,11 @@ export default function SignIn() {
               <input className="mt-2 h-12 w-full rounded-xl border border-input bg-background px-4 text-base text-foreground outline-none transition placeholder:text-muted-foreground sm:text-sm focus:border-ring focus:ring-4 focus:ring-ring/15" name={EMAIL_INPUT_NAME} value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder="you@example.com" />
             </label>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">{pending ? "Sending code..." : <>Email me a sign-in code <ArrowRight size={15} className="rtl:-scale-x-100" /></>}</button>
+            <button className="pill-btn pill-btn-primary w-full" disabled={pending} type="submit">{pending ? "Sending code..." : <>Create my account <ArrowRight size={15} className="rtl:-scale-x-100" /></>}</button>
           </form>
         )}
 
-        <p className="mt-6 text-xs leading-relaxed text-muted-foreground">Nova uses a passwordless, time-limited OTP code. We do not store a password for this sign-in method.</p>
+        <p className="mt-6 text-xs leading-relaxed text-muted-foreground">No password, no card, no install &mdash; we email a one-time code that signs you in or opens your workspace. Your trial starts free and nothing is charged unless you choose a plan.</p>
       </section>
     </main>
   );

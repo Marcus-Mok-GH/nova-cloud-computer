@@ -95,11 +95,13 @@ export async function getUserRole(ownerId: number): Promise<CreditRole> {
 }
 
 /** The starter-question answers a new user gave on first sign-in, or null when
- * they have not completed onboarding yet. */
+ * they have not completed onboarding yet. `country` is the ISO 3166-1 alpha-2
+ * code from the country question, or null when it was skipped. */
 export async function getUserOnboarding(userId: number): Promise<{
   source: string | null;
   useCase: string | null;
   experience: string | null;
+  country: string | null;
   completedAt: Date | null;
 } | null> {
   const db = await requireDb();
@@ -108,13 +110,20 @@ export async function getUserOnboarding(userId: number): Promise<{
       source: users.onboardingSource,
       useCase: users.onboardingUseCase,
       experience: users.onboardingExperience,
+      country: users.onboardingCountry,
       completedAt: users.onboardingCompletedAt,
     })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
   if (!row) return null;
-  return { source: row.source, useCase: row.useCase, experience: row.experience, completedAt: row.completedAt };
+  return {
+    source: row.source,
+    useCase: row.useCase,
+    experience: row.experience,
+    country: row.country,
+    completedAt: row.completedAt,
+  };
 }
 
 /** Records the starter-question answers for a user. `completedAt` is set only
@@ -122,7 +131,7 @@ export async function getUserOnboarding(userId: number): Promise<{
  * open to be asked again later. */
 export async function saveUserOnboarding(
   userId: number,
-  answers: { source: string | null; useCase: string | null; experience: string | null },
+  answers: { source: string | null; useCase: string | null; experience: string | null; country: string | null },
   completed: boolean
 ): Promise<void> {
   const db = await requireDb();
@@ -132,6 +141,7 @@ export async function saveUserOnboarding(
       onboardingSource: answers.source,
       onboardingUseCase: answers.useCase,
       onboardingExperience: answers.experience,
+      onboardingCountry: answers.country,
       ...(completed ? { onboardingCompletedAt: new Date() } : {}),
       updatedAt: new Date(),
     })

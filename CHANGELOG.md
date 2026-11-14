@@ -1,3 +1,29 @@
+2026-11-14 - feat(onboarding): ask the signup country and switch Nova's language to match
+
+New accounts now get a fourth onboarding question - which country they are
+in, over the full ISO 3166-1 list with names localised through
+Intl.DisplayNames. Saving a completed onboarding switches the interface to
+that country's language: shared/countries.ts maps a country only when its
+formal language is one Nova ships, while multilingual countries (Canada,
+Belgium, Switzerland, India...) and unsupported-language countries stay
+unmapped so the browser's language survives. The country is stored on the
+user row (migration 0060), returned by auth.onboarding, and injected into
+the agent's system prompt as the account language, so Nova's replies pin to
+that language instead of drifting into another one mid-conversation; the
+base prompt rule also hardened from "match the user's language when
+practical" to "never switch to a different language on your own".
+
+Files: shared/countries.ts, shared/countries.test.ts, drizzle/schema.ts,
+drizzle/neon/0060_onboarding_country.sql, drizzle/neon/meta/_journal.json,
+server/db/users.ts, server/routers.ts, server/onboarding.router.test.ts,
+server/workspace/workspaceAgent.ts, server/workspace/workspacePrompt.ts,
+server/workspaceAgent.test.ts, client/src/components/OnboardingModal.tsx,
+client/src/components/OnboardingModal.render.test.tsx, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/countries.test.ts server/onboarding.router.test.ts
+client/src/components/OnboardingModal.render.test.tsx server/workspaceAgent.test.ts,
+pnpm check, pnpm build, pnpm test.
+
 2026-11-14 - feat(models): switch Nova Ultra to MiniMax M3.1 Flash
 
 Updated `nova-ultra` in the shared chat model catalogue (`DEFAULT_CHAT_MODELS`)

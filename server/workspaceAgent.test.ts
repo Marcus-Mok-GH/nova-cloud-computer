@@ -123,6 +123,7 @@ vi.mock("./db", () => ({
     email: "test@example.com",
   }),
   getCommunicationStyleForUser: vi.fn(async () => null),
+  getUserOnboarding: vi.fn(async () => null),
   setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) =>
     style.trim().slice(0, 500)
   ),
@@ -3400,6 +3401,52 @@ describe("Nova tool-calling workspace agent", () => {
       "How to behave: State assumptions and show your reasoning."
     );
     expect(system?.content).toContain("Collaboration style: Act & tell.");
+  });
+
+  it("pins replies to the account language from the onboarding country", async () => {
+    const { getUserOnboarding } = await import("./db");
+    vi.mocked(getUserOnboarding).mockResolvedValueOnce({
+      source: null,
+      useCase: null,
+      experience: null,
+      country: "MX",
+      completedAt: new Date(),
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain("account language is Spanish");
+    expect(system?.content).toContain("write your replies in Spanish");
+    // The generic rule still stands for the moment the user switches.
+    expect(system?.content).toContain(
+      "Always reply in the language the user is writing in"
+    );
+  });
+
+  it("adds no language block when the account has no mapped country", async () => {
+    const { getUserOnboarding } = await import("./db");
+    vi.mocked(getUserOnboarding).mockResolvedValueOnce({
+      source: null,
+      useCase: null,
+      experience: null,
+      country: null,
+      completedAt: null,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).not.toContain("account language is");
+    expect(system?.content).not.toContain("{{language}}");
   });
 
   it("announces an enabled personalisation mode even with no saved preferences", async () => {

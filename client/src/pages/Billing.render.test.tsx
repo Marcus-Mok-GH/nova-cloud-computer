@@ -156,12 +156,12 @@ describe("Billing page", () => {
 
   it("lists every buyable plan for a free account", () => {
     const markup = renderToStaticMarkup(<Billing />);
-    expect(markup).toContain("Plans &amp; credits");
+    expect(markup).toContain("Plans &amp; balance");
     expect(markup).toContain("Nova Plus");
     expect(markup).toContain("Nova Pro");
     expect(markup).toContain("Priority");
-    expect(markup).toContain("S$7.99");
-    expect(markup).toContain("S$4.99");
+    expect(markup).toContain("$7.99");
+    expect(markup).toContain("$4.99");
     // A free account is offered the upgrades rather than "your plan" chips.
     expect(markup).toContain("Upgrade to Plus");
     expect(markup).toContain("Upgrade to Pro");
@@ -173,7 +173,7 @@ describe("Billing page", () => {
     paidAccount();
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).toContain("Nova Pro");
-    expect(markup).toContain("8,750 credits available");
+    expect(markup).toContain("$8.75 available");
     expect(markup).toContain("Manage subscription");
     // The Pro card is now marked as the active plan, not an upgrade.
     expect(markup).toContain("Your plan");
@@ -201,7 +201,7 @@ describe("Billing page", () => {
     plusAccount();
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).toContain("Nova Plus");
-    expect(markup).toContain("4,250 credits available");
+    expect(markup).toContain("$4.25 available");
     // Plus is a subscription, so its own card reads as the active plan...
     expect(markup).toContain("Your plan");
     expect(markup).not.toContain("Upgrade to Plus");
@@ -222,7 +222,7 @@ describe("Billing page", () => {
     state.subscription.isLoading = true;
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).not.toContain("Upgrade to Pro");
-    expect(markup).not.toContain("Plans &amp; credits");
+    expect(markup).not.toContain("Plans &amp; balance");
     state.subscription.isLoading = false;
   });
 });

@@ -19,6 +19,7 @@ import {
   type Personality,
 } from "@shared/personalities";
 import { agentAddressFor } from "../agents";
+import { formatCredits } from "@shared/money";
 import { languages } from "../../client/src/i18n/languages";
 import type { AgentChatRunOptions } from "./workspaceAgentTypes";
 
@@ -232,11 +233,11 @@ export function agentIdentityPromptBlock(
   // A wallet with no cap (budget null) has no "of N" figure to report.
   const wallet =
     profile.walletBudgetCredits === null
-      ? `unlimited, no budget cap (${profile.walletSpentCredits} credits spent)`
-      : `${Math.max(
+      ? `unlimited, no budget cap (${formatCredits(profile.walletSpentCredits)} spent)`
+      : `${formatCredits(Math.max(
           0,
           profile.walletBudgetCredits - profile.walletSpentCredits
-        )} of ${profile.walletBudgetCredits} credits remaining`;
+        ))} of ${formatCredits(profile.walletBudgetCredits)} remaining`;
   const lines = [
     ` In this conversation you are not the default workspace assistant - you are ${profile.name}${profile.role ? `, the ${profile.role}` : ""}, a personal agent of this workspace: stay in character, act and sign your replies as ${profile.name}.`,
     profile.instructions

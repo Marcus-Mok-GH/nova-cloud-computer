@@ -58,11 +58,10 @@ export function getCreditTopUpProduct(id: string): CreditTopUpProduct | undefine
 export const CREDIT_TOPUP_PRODUCT_MARKER = "credits";
 
 /**
- * Formats a bundle price for display, e.g. `S$5`. Whole-dollar bundles drop the
+ * Formats a bundle price for display, e.g. `$5`. Whole-dollar bundles drop the
  * decimals; anything with cents keeps exactly two.
  */
 export function formatCreditTopUpPrice(priceCents: number): string {
-  const symbol = CREDIT_TOPUP_CURRENCY.toUpperCase() === "SGD" ? "S$" : "$";
   const whole = priceCents % 100 === 0;
-  return `${symbol}${(priceCents / 100).toFixed(whole ? 0 : 2)}`;
+  return `$${(priceCents / 100).toFixed(whole ? 0 : 2)}`;
 }

@@ -1,3 +1,19 @@
+2026-11-14 - feat(billing): present the credit ledger as dollars
+
+Every surface that showed credits now shows plain dollars at the flat
+top-up rate ($1 = 1,000 credits): the header chip reads "$0.47 left" with
+a "$0.47 of $0.50 remaining - resets at UTC midnight" tooltip, the Billing
+balance card and plan features read in dollars (Free $0.50/day, Plus
+$5.00/day, Pro $10.00/day), a $5.00 top-up grants $5.00, and S$ price
+labels are now plain $. Landing pricing, FAQ, API-docs copy, checkout
+summaries, the support bot's pricing brief and Whop variant descriptions
+all follow. Agent wallets join in: the wallet line in an agent's identity
+prompt, the purchase approval messages, and the request_purchase tool
+(argument renamed amount_dollars) all speak dollars, converted through
+the new shared/money.ts. The ledger itself still stores integer credits -
+no schema, Whop product, plan price or flow changed, and the
+insufficient_credits API error code is untouched.
+
 2026-11-14 - feat(models): move the Gemini and Sonnet slots to Coarena
 
 Two picker slots now upstream to Coarena's OpenAI-compatible Model API

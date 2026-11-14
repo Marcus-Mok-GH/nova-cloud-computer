@@ -1929,7 +1929,7 @@ ${
         "Nova's shared request allowance has been reached. New requests are blocked until an administrator raises the cap.";
     } else if (kind === "credits_exhausted") {
       reply =
-        "Your daily Nova credits are used up (1 credit = 1¢). They reset tomorrow; everything so far is saved.";
+        "Your daily Nova balance is used up. It resets tomorrow; everything so far is saved.";
     } else if (kind === "rate_limit") {
       reply =
         "Too many requests right now. Everything so far is saved - please try again in a little while.";

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Coins, Crown, CreditCard, Loader2, Check } from "lucide-react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { formatCredits } from "@shared/money";
 import { toast } from "sonner";
 
 type Product = "pro" | "plus" | "priority";
@@ -69,22 +70,22 @@ export default function Checkout() {
   const isPriority = product === "priority";
   const isPlus = product === "plus";
   const isCredits = Boolean(creditTopUp);
-  const amount = isCredits ? creditTopUp!.price : isPriority ? "S$4.99" : isPlus ? "S$4.99" : "S$7.99";
+  const amount = isCredits ? creditTopUp!.price : isPriority ? "$4.99" : isPlus ? "$4.99" : "$7.99";
   const period = isPriority || isCredits ? "one-time" : "/ month";
   const title = isCredits
-    ? `${creditTopUp!.credits.toLocaleString()} Nova credits`
+    ? `${formatCredits(creditTopUp!.credits)} Nova balance`
     : isPriority
       ? "Nova Priority — 1 hour"
       : isPlus
         ? "Nova Plus — monthly"
         : "Nova Pro — monthly";
   const description = isCredits
-    ? "Added to your balance as soon as your payment is confirmed. Bought credits never expire."
+    ? "Added to your balance as soon as your payment is confirmed. Added funds never expire."
     : isPriority
       ? "One hour of priority queue placement during peak hours. Starts with your next message."
       : isPlus
-        ? "5,000 credits a day, every day. The built-in Nova models - no premium models."
-        : "10,000 credits a day, every day, every premium chat model, and your persistent workspace.";
+        ? "$5.00 a day, every day. The built-in Nova models - no premium models."
+        : "$10.00 a day, every day, every premium chat model, and your persistent workspace.";
 
   const cardBusy = pendingMethod === "whop"
     && (isCredits ? whopCredits.isPending : isPriority ? whopPriority.isPending : whop.isPending);
@@ -132,7 +133,7 @@ export default function Checkout() {
               <span className="min-w-0 flex-1">
                 <span className="text-sm font-bold">Card (Whop)</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {isCredits ? "One-time payment. Credits are added when it clears." : isPriority ? "Visa, Mastercard and more via Whop." : "Auto-renews via Whop subscription."}
+                  {isCredits ? "One-time payment. Funds are added when it clears." : isPriority ? "Visa, Mastercard and more via Whop." : "Auto-renews via Whop subscription."}
                 </span>
               </span>
               {cardBusy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs font-bold text-primary">Pay ›</span>}

@@ -164,7 +164,7 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("Researcher");
     expect(markup).toContain("mira-4f2a@nova.local");
     expect(markup).toContain("+1-555-0142");
-    expect(markup).toContain("380 of 500 credits left");
+    expect(markup).toContain("$0.38 of $0.50 left");
     expect(markup).toContain("Open chat");
     // The empty-state prompt disappears once an agent exists.
     expect(markup).not.toContain("No agents yet");
@@ -185,7 +185,7 @@ describe("Agents page rendered states", () => {
     ];
     const markup = renderAgents();
     expect(markup).toContain("Unlimited");
-    expect(markup).toContain("40 spent");
+    expect(markup).toContain("$0.04 spent");
     expect(markup).not.toContain("credits left");
   });
 
@@ -378,15 +378,16 @@ describe("agent budget field", () => {
     expect(walletBudgetFromField("   ")).toEqual({ ok: true, credits: null });
   });
 
-  it("keeps a typed budget as a plain credit count", () => {
-    expect(walletBudgetFromField("500")).toEqual({ ok: true, credits: 500 });
-    expect(walletBudgetFromField(" 250 ")).toEqual({ ok: true, credits: 250 });
+  it("converts a typed dollar budget into whole ledger credits", () => {
+    expect(walletBudgetFromField("500")).toEqual({ ok: true, credits: 500_000 });
+    expect(walletBudgetFromField(" 0.5 ")).toEqual({ ok: true, credits: 500 });
     expect(walletBudgetFromField("0")).toEqual({ ok: true, credits: 0 });
+    expect(walletBudgetFromField("12.5")).toEqual({ ok: true, credits: 12_500 });
   });
 
-  it("rejects anything that is not a non-negative count of credits", () => {
+  it("rejects anything that is not a non-negative dollar amount", () => {
     expect(walletBudgetFromField("-5")).toEqual({ ok: false });
     expect(walletBudgetFromField("lots")).toEqual({ ok: false });
-    expect(walletBudgetFromField("500.5")).toEqual({ ok: false });
+    expect(walletBudgetFromField("NaN")).toEqual({ ok: false });
   });
 });

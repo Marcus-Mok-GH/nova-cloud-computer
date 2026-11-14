@@ -6341,7 +6341,7 @@ describe("agent identity prompt wallet line", () => {
       { profile: { ...profile } },
       "no pending requests"
     );
-    expect(block).toContain("380 of 500 credits remaining");
+    expect(block).toContain("$0.38 of $0.50 remaining");
   });
 
   it("tells the agent an uncapped wallet has no budget at all", () => {
@@ -6349,7 +6349,7 @@ describe("agent identity prompt wallet line", () => {
       { profile: { ...profile, walletBudgetCredits: null } },
       "no pending requests"
     );
-    expect(block).toContain("wallet: unlimited, no budget cap (120 credits spent)");
+    expect(block).toContain("wallet: unlimited, no budget cap ($0.12 spent)");
     expect(block).not.toContain("credits remaining");
   });
 });

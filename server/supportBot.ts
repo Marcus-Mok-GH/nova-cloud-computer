@@ -65,12 +65,12 @@ const SUPPORT_BOT_BRIEF = `
 - The public API documentation is at /docs/api.
 
 ## Pricing and models
-- Nova starts with a free 14-day trial: 500 credits a day, no card required.
-- Plus is S$4.99 a month and raises the daily allowance to 5,000 credits.
-- Pro is S$7.99 a month: 10,000 credits a day plus the premium models.
-- Priority placement during peak hours is a one-time S$4.99 for one hour.
-- Credit top-ups start at S$5 (1,000 credits per S$1) and are one-time purchases.
-- Built-in models use a daily credit balance that resets every day. Users can connect their own OpenAI-compatible provider (BYOK); the key is stored encrypted and sent only to that provider.
+- Nova starts with a free 14-day trial: $0.50 a day, no card required.
+- Plus is $4.99 a month and raises the daily allowance to $5.00 a day.
+- Pro is $7.99 a month: $10.00 a day plus the premium models.
+- Priority placement during peak hours is a one-time $4.99 for one hour.
+- Top-ups start at $5 and are one-time purchases; added funds never expire.
+- Built-in models use a daily dollar balance that resets every day. Users can connect their own OpenAI-compatible provider (BYOK); the key is stored encrypted and sent only to that provider.
 - API access is included: users create per-workspace keys in Settings.
 
 ## Public API

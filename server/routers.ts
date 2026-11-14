@@ -516,7 +516,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const product = getCreditTopUpProduct(input.productId);
         if (!product) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That credit bundle does not exist." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That top-up bundle does not exist." });
         }
         if (!isWhopConfigured()) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopCreditTopUpConfigurationMessage() });

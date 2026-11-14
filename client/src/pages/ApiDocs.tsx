@@ -337,7 +337,7 @@ export default function ApiDocs() {
 
             <article id="me" className={cn(sectionScroll, "mt-3 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5 dark:border-white/10 dark:bg-[var(--card)] sm:mt-4 sm:p-8")}>
               <div className="flex flex-wrap items-center gap-3"><MethodPill tone="green">GET</MethodPill><code className="text-sm font-semibold">/me</code></div>
-              <p className="mt-5 text-sm leading-6 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">Check that a key is valid and read the current daily credit status for its owner.</p>
+              <p className="mt-5 text-sm leading-6 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">Check that a key is valid and read the current daily balance for its owner.</p>
               <div className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4 text-xs leading-6 text-[var(--muted-foreground)] dark:border-white/10 dark:bg-white/5"><span className="font-semibold text-[var(--foreground)] dark:text-white">Returns:</span> <code>{"{ authenticated: true, credits: ... }"}</code></div>
             </article>
 

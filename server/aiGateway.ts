@@ -673,7 +673,7 @@ async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSo
   const purchased = await claimPurchasedCreditForUser(ownerId);
   if (purchased) return "purchased";
   throw new AiGatewayClientError(
-    "Your daily Nova credits are used up. They reset tomorrow, or you can top up from Billing.",
+    "Your daily Nova balance is used up. It resets tomorrow, or you can top up from Billing.",
     "credits_exhausted"
   );
 }

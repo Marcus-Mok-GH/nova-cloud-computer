@@ -21,6 +21,7 @@ import {
   getCreditTopUpProduct,
   type CreditTopUpProduct,
 } from "@shared/creditTopUps";
+import { formatCredits } from "@shared/money";
 
 /**
  * Whop billing integration: checkout creation and signed payment/membership webhooks.
@@ -270,8 +271,8 @@ export async function createWhopCheckout(
       renewal_price: planPrice,
       title: isPlus ? "Nova Plus (monthly)" : "Nova Pro (monthly)",
       description: isPlus
-        ? "5,000 Nova credits every day."
-        : "10,000 Nova credits every day - plus access to premium models.",
+        ? "$5.00 of Nova usage every day."
+        : "$10.00 of Nova usage every day - plus access to premium models.",
       payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
     };
   }
@@ -367,8 +368,8 @@ export async function createWhopCreditTopUpCheckout(
       billing_type: "one_time",
       currency: CREDIT_TOPUP_CURRENCY,
       initial_price: Number(price),
-      title: `Nova credits (${product.credits.toLocaleString("en-US")})`,
-      description: `${product.credits.toLocaleString("en-US")} Nova credits, added to your balance.`,
+      title: `Nova balance (${formatCredits(product.credits, "en-US")})`,
+      description: `${formatCredits(product.credits, "en-US")} added to your balance.`,
       payment_method_configuration: VARIANT_PAYMENT_METHOD_CONFIGURATION,
     };
   }

@@ -376,7 +376,7 @@ describe("Workspace rendered browser states", () => {
     };
     const markup = renderWorkspace();
     expect(markup).toContain("Your 14-day free trial has ended");
-    expect(markup).toContain("Upgrade - S$7.99/month");
+    expect(markup).toContain("Upgrade - $7.99/month");
     expect(markup).toMatch(/type="submit" disabled/);
   });
 
@@ -390,7 +390,7 @@ describe("Workspace rendered browser states", () => {
     // Restore the location so later tests render the task prompt again.
     globalThis.window = { location: { search: "" } } as unknown as Window & typeof globalThis;
     expect(markup).toContain("Your 14-day free trial has ended");
-    expect(markup).toContain("Upgrade - S$7.99/month");
+    expect(markup).toContain("Upgrade - $7.99/month");
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {

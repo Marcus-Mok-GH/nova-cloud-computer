@@ -179,7 +179,7 @@ describe("billing router", () => {
       ["topup-40", 4_000, 40_000],
       ["topup-50", 5_000, 50_000],
     ]);
-    expect(result.topUpProducts[0].price).toBe("S$5");
+    expect(result.topUpProducts[0].price).toBe("$5");
     expect(result.creditTopUps).toEqual({ remainingCredits: 0, activeBundles: 0, purchasedCredits: 0 });
     // The monthly pool is gone: every tier draws from the daily ledger now.
     expect(result.monthlyCredits).toBeUndefined();

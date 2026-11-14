@@ -13,6 +13,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
+import { formatCredits } from "@shared/money";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import {
@@ -224,7 +225,7 @@ export default function Billing() {
       ? credits.unlimited
         ? t("layout.credits.unlimited")
         : t("billing.credits.balance", {
-            count: credits.remainingCredits?.toLocaleString(locale) ?? "0",
+            count: formatCredits(credits.remainingCredits ?? 0, locale),
           })
       : t("billing.current.free");
   const creditDetail =
@@ -232,13 +233,13 @@ export default function Billing() {
       ? credits.unlimited
         ? t("billing.credits.unlimitedBody")
         : t("billing.credits.daily", {
-            daily: credits.dailyCredits?.toLocaleString(locale) ?? "unlimited",
+            daily: credits.dailyCredits != null ? formatCredits(credits.dailyCredits, locale) : "unlimited",
           })
       : t("billing.credits.none");
   const proPrice =
     data?.currency && data.currency.toUpperCase() !== "SGD"
       ? `${data.currency.toUpperCase()} ${(data.priceCents / 100).toFixed(2)}`
-      : "S$7.99";
+      : "$7.99";
 
   return (
     <DashboardLayout>
@@ -327,7 +328,7 @@ export default function Billing() {
                 <p className="flex items-center gap-1.5 text-xs font-semibold">
                   <Coins className="size-3.5 text-primary" />
                   {t("billing.topUps.owned", {
-                    count: boughtCredits.toLocaleString(locale),
+                    count: formatCredits(boughtCredits, locale),
                   })}
                 </p>
               )}
@@ -345,7 +346,7 @@ export default function Billing() {
                 >
                   <span className="text-lg font-bold tracking-tight">{topUp.price}</span>
                   <span className="text-[11px] font-semibold text-muted-foreground">
-                    {topUp.credits.toLocaleString(locale)} credits
+                    {formatCredits(topUp.credits, locale)}
                   </span>
                   <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-primary">
                     {t("billing.topUps.buy")}
@@ -428,7 +429,7 @@ export default function Billing() {
 
             <PlanCard
               name={t("billing.plan.priority.name")}
-              price="S$4.99"
+              price="$4.99"
               period={t("billing.plan.priority.period")}
               body={t("billing.plan.priority.body")}
               features={[

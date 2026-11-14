@@ -98,7 +98,7 @@ function TrialEndedNotice() {
         className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background transition hover:opacity-90 dark:bg-white dark:text-black"
       >
         <Crown className="size-4" />
-        Upgrade - S$7.99/month
+        Upgrade - $7.99/month
       </button>
     </div>
   );

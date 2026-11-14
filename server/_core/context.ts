@@ -3,7 +3,12 @@ import { COOKIE_NAME, SEVEN_DAYS_MS, isDeveloperEmail } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { User } from "../../drizzle/schema";
-import { ensureUserWorkspaceProvisioned, getUserByOpenId, upsertUser } from "../db";
+import {
+  adoptUserByEmail,
+  ensureUserWorkspaceProvisioned,
+  getUserByOpenId,
+  upsertUser,
+} from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV, type NeonAuthVerificationConfig } from "./env";
 import { sdk } from "./sdk";
@@ -99,6 +104,12 @@ async function verifyNeonBearerToken(token: string, keySet: ReturnType<typeof ge
   let user = await getUserByOpenId(identity.openId);
   if (user?.bannedAt) return { banned: true }; // Banned accounts cannot sign in, even with a valid Neon token.
   if (!user || needsSignInRefresh(user.lastSignedIn)) {
+    // A new subject for an address that already has a row is the same human
+    // (Neon Auth re-issued their `sub`), not a second account: adopt the row
+    // so sign-in cannot fork a duplicate beside it.
+    if (!user && identity.email) {
+      await adoptUserByEmail(identity.email, identity.openId);
+    }
     await upsertUser({ ...identity, loginMethod: "neon_email_otp", lastSignedIn: new Date() });
     // The upsert can (re)assert the pinned developer rank, so the stored row
     // is read back instead of reusing the one fetched before the write.

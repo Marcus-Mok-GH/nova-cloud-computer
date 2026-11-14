@@ -1,3 +1,14 @@
+2026-11-14 - feat(models): switch Nova Ultra to MiniMax M3.1 Flash
+
+Updated `nova-ultra` in the shared chat model catalogue (`DEFAULT_CHAT_MODELS`)
+from `gpt-5.2` to `minimax/minimax-m3.1-flash` on the Pollinations AI gateway,
+keeping its Pro-tier gating and full effort range.
+
+Files: shared/models.ts, shared/models.test.ts, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/models.test.ts server/chats.router.test.ts,
+pnpm check, pnpm build, pnpm test.
+
 2026-11-14 - fix(billing): read an operator's Pro access from the role, not the subscription
 
 An operator account (role `admin` or `developer`) holds Pro access through the

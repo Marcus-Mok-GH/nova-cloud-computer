@@ -10,6 +10,7 @@ import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
+import { CountryPromptModal } from "./CountryPromptModal";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/i18n";
@@ -69,6 +70,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // billing page reads, so the two never disagree.
   const subscription = trpc.billing.subscription.useQuery(undefined, { enabled: Boolean(user), retry: false });
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  // Legacy accounts (onboarding done before the country question existed)
+  // get the one-shot country prompt; the server stops offering it the moment
+  // the answer or dismissal lands, this state just quietens the current view.
+  const [countryPromptDismissed, setCountryPromptDismissed] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -232,6 +237,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
       {user && onboarding.data && !onboarding.data.completed && !onboardingDismissed && (
         <OnboardingModal onClose={() => setOnboardingDismissed(true)} />
+      )}
+      {user && onboarding.data?.needsCountry && !countryPromptDismissed && (
+        <CountryPromptModal onClose={() => setCountryPromptDismissed(true)} />
       )}
     </div>
   );

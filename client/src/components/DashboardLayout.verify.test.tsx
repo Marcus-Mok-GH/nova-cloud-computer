@@ -9,6 +9,22 @@ let mockPath = "/app/chats";
 let mockSubscription: { plan: "free" | "paid"; proAccess?: boolean } | null = {
   plan: "free",
 };
+/** The auth.onboarding payload; `needsCountry` gates the one-shot prompt. */
+let mockOnboarding: {
+  completed: boolean;
+  source: string | null;
+  useCase: string | null;
+  experience: string | null;
+  country: string | null;
+  needsCountry: boolean;
+} = {
+  completed: true,
+  source: null,
+  useCase: null,
+  experience: null,
+  country: null,
+  needsCountry: false,
+};
 
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ loading: false, user: mockUser, logout: vi.fn() }),
@@ -17,7 +33,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     auth: {
       setUsername: { useMutation: () => ({ isPending: false, mutate: vi.fn() }) },
-      onboarding: { useQuery: () => ({ data: { completed: true, source: null, useCase: null, experience: null } }) },
+      onboarding: { useQuery: () => ({ data: mockOnboarding }) },
     },
     workspace: {
       computer: {
@@ -36,6 +52,14 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => ({ theme: "light", toggleTheme: vi.fn() }) }));
+// The prompt itself has its own render test; this file only gates WHEN it
+// shows, and a Radix portal emits nothing under renderToStaticMarkup.
+vi.mock("./CountryPromptModal", async () => {
+  const { createElement } = await import("react");
+  return {
+    CountryPromptModal: () => createElement("div", null, "Country prompt shown"),
+  };
+});
 vi.mock("wouter", () => ({ useLocation: () => [mockPath, vi.fn()], useSearch: () => "" }));
 
 vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => {} }, innerWidth: 1200, addEventListener: () => {} });
@@ -173,6 +197,26 @@ describe("DashboardLayout plan badge", () => {
     expect(html).toContain('aria-label="Your plan"');
     expect(html).not.toContain(">Free<");
     expect(html).not.toContain(">Pro<");
+  });
+});
+
+describe("DashboardLayout one-shot country prompt", () => {
+  it("shows the prompt to a legacy account the server flags", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockOnboarding = { completed: true, source: null, useCase: null, experience: null, country: null, needsCountry: true };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain("Country prompt shown");
+    mockOnboarding = { completed: true, source: null, useCase: null, experience: null, country: null, needsCountry: false };
+  });
+
+  it("stays quiet once the prompt was answered or dismissed", () => {
+    mockUser = { name: "Test", email: "t@t.com", role: "user" };
+    mockPath = "/app";
+    mockOnboarding = { completed: true, source: null, useCase: null, experience: null, country: "MX", needsCountry: false };
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).not.toContain("Country prompt shown");
+    mockOnboarding = { completed: true, source: null, useCase: null, experience: null, country: null, needsCountry: false };
   });
 });
 

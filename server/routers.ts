@@ -16,6 +16,7 @@ import {
   setUsernameForUser,
   getUserOnboarding,
   saveUserOnboarding,
+  saveUserCountryPrompt,
   deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
@@ -265,12 +266,17 @@ export const appRouter = router({
      * while `completed` is false. */
     onboarding: protectedProcedure.query(async ({ ctx }) => {
       const saved = await getUserOnboarding(ctx.user.id);
+      // Legacy accounts finished onboarding before the country question
+      // existed: completed, no country, never prompted. They get the
+      // one-shot country prompt on their next sign-in.
+      const needsCountry = Boolean(saved?.completedAt) && !saved?.country && !saved?.countryPromptedAt;
       return {
         completed: Boolean(saved?.completedAt),
         source: saved?.source ?? null,
         useCase: saved?.useCase ?? null,
         experience: saved?.experience ?? null,
         country: saved?.country ?? null,
+        needsCountry,
       };
     }),
     /** Records the starter-question answers. `completed` is false when the user
@@ -296,6 +302,18 @@ export const appRouter = router({
           },
           input.completed
         );
+        return { success: true } as const;
+      }),
+    /** One-shot country prompt for accounts that predate the question:
+     * records the prompt as answered (country given) or merely as seen
+     * (dismissed), so legacy accounts are asked exactly once. The client
+     * switches the interface language itself when an answer arrives. */
+    saveCountryPrompt: protectedProcedure
+      .input(z.object({
+        country: z.string().trim().regex(/^[A-Za-z]{2}$/).refine(value => COUNTRY_CODES.includes(value.toUpperCase()), { message: "That country is not recognised." }).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await saveUserCountryPrompt(ctx.user.id, input.country ? input.country.toUpperCase() : null);
         return { success: true } as const;
       }),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),

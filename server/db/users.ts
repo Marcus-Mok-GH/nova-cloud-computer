@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { InsertUser, users } from "../../drizzle/schema";
 import { isDeveloperEmail } from "@shared/const";
 import type { CreditRole } from "../credits";
@@ -43,6 +43,36 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 export async function getUserByOpenId(openId: string) {
   const db = await requireDb();
   return (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
+}
+
+/**
+ * One human, one row. Neon Auth can issue a second `sub` for an address it
+ * already knows (e.g. a recreated account), and inserting a row for that new
+ * subject would fork the user: workspace, credit ledger and role pin all
+ * split across two accounts. Called only on the openId-miss sign-in path:
+ * when the address already owns a row, rebind that row to the incoming
+ * subject so the sign-in lands on it. Returns the adopted row's id, or null
+ * when the address is unknown.
+ */
+export async function adoptUserByEmail(
+  email: string,
+  openId: string
+): Promise<number | null> {
+  const db = await requireDb();
+  const [existing] = await db
+    .select({ id: users.id, openId: users.openId })
+    .from(users)
+    .where(eq(users.email, email))
+    .orderBy(desc(users.lastSignedIn))
+    .limit(1);
+  if (!existing) return null;
+  if (existing.openId !== openId) {
+    await db
+      .update(users)
+      .set({ openId, updatedAt: new Date() })
+      .where(eq(users.id, existing.id));
+  }
+  return existing.id;
 }
 
 export async function deleteUserAccount(userId: number): Promise<boolean> {

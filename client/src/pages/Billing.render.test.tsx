@@ -86,6 +86,7 @@ function freeAccount() {
   state.subscription.data.plan = "free";
   state.subscription.data.currentPeriodEnd = null;
   state.subscription.data.proAccess = false;
+  state.credits.data.unlimited = false;
   state.credits.data.dailyCredits = 500;
   state.credits.data.remainingCredits = 500;
 }
@@ -106,6 +107,14 @@ function paidAccount() {
   state.credits.data.remainingCredits = 8_750;
 }
 
+/** A console operator: the role grants Pro access, so no subscription exists. */
+function operatorAccount() {
+  state.subscription.data.plan = "free";
+  state.subscription.data.currentPeriodEnd = null;
+  state.subscription.data.proAccess = true;
+  state.credits.data.unlimited = true;
+}
+
 describe("Billing hook order", () => {
   it("calls every hook before the loading/error early returns", () => {
     // React error #310 ("Rendered more hooks than during the previous
@@ -114,12 +123,22 @@ describe("Billing hook order", () => {
     // and the re-render carrying data added it. renderToStaticMarkup builds
     // a fresh instance per call, so it cannot see a hook-count change - this
     // asserts the rule at the source level instead.
-    const source = readFileSync(new URL("./Billing.tsx", import.meta.url), "utf8");
-    const body = source.slice(source.indexOf("export default function Billing()"));
+    const source = readFileSync(
+      new URL("./Billing.tsx", import.meta.url),
+      "utf8"
+    );
+    const body = source.slice(
+      source.indexOf("export default function Billing()")
+    );
     const firstReturn = body.search(/\breturn\b/);
     expect(firstReturn).toBeGreaterThan(-1);
     const afterFirstReturn = body.slice(firstReturn);
-    for (const hook of ["useQuery(", "useMutation(", "useState(", "useEffect("]) {
+    for (const hook of [
+      "useQuery(",
+      "useMutation(",
+      "useState(",
+      "useEffect(",
+    ]) {
       expect(
         afterFirstReturn.includes(hook),
         `${hook} is called after an early return in Billing.tsx`
@@ -159,6 +178,23 @@ describe("Billing page", () => {
     // The Pro card is now marked as the active plan, not an upgrade.
     expect(markup).toContain("Your plan");
     expect(markup).not.toContain("Upgrade to Pro");
+  });
+
+  it("reads an operator's role grant as the Admin tier with unlimited credits", () => {
+    operatorAccount();
+    const markup = renderToStaticMarkup(<Billing />);
+    // The header badge reads Admin for this account, so this page must too.
+    expect(markup).toContain("Admin");
+    expect(markup).toContain("Included with your operator access.");
+    // A developer's ledger is unlimited - never "Free", and never a zero balance.
+    expect(markup).toContain("Unlimited");
+    expect(markup).toContain("No daily cap - every premium model is unlocked.");
+    expect(markup).not.toContain("You are on the free plan.");
+    expect(markup).not.toContain("credits available");
+    // There is no Whop membership to manage, and Pro is already held.
+    expect(markup).not.toContain("Manage subscription");
+    expect(markup).toContain("Your plan");
+    expect(markup).toContain("Included");
   });
 
   it("shows Plus as the current tier with its own management, but not Pro", () => {

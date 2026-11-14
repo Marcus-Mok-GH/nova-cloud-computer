@@ -19,6 +19,7 @@ import {
   type GatewayToolCall,
 } from "../aiGateway";
 import { getSkillByNameForUser } from "../skills";
+import { dollarsToCredits } from "@shared/money";
 import { type SandboxOp, mirrorWorkspaceOp } from "../sandboxWorkspace";
 import { type E2BSandboxLike } from "../e2b";
 
@@ -211,7 +212,7 @@ export async function executeWorkspaceTool(
         agentId: agentChat.profile.id,
         chatId: chatId ?? null,
         item: str(args.item),
-        amountCredits: Number(args.amount_credits),
+        amountCredits: dollarsToCredits(Number(args.amount_dollars)),
         note: str(args.note) || null,
       });
       if (!outcome.ok)

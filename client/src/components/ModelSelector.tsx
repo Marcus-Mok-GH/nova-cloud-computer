@@ -110,7 +110,7 @@ export function ModelSelector({ chatId }: { chatId: string }) {
             <DropdownMenuSeparator />
             <div className="px-2 py-2">
               <p className="text-xs leading-snug text-muted-foreground">
-                Nova Pro unlocks every premium model and 10,000 credits a
+                Nova Pro unlocks every premium model and $10.00 a
                 day.
               </p>
               <button
@@ -121,7 +121,7 @@ export function ModelSelector({ chatId }: { chatId: string }) {
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 py-2 text-xs font-bold text-background transition hover:opacity-90 disabled:opacity-60 dark:bg-white dark:text-black"
               >
                 <Crown className="size-3.5" />
-                Upgrade - S$7.99/month
+                Upgrade - $7.99/month
               </button>
             </div>
           </>

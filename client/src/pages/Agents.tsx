@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { creditsToDollars, dollarsToCredits, formatCredits } from "@shared/money";
 import {
   Bot,
   CheckCircle2,
@@ -109,8 +110,8 @@ function WalletBar({ agent }: { agent: AgentRow }) {
   const used = budget === null ? 0 : Math.min(budget, spent);
   const label =
     budget === null
-      ? `Unlimited${spent > 0 ? ` · ${spent} spent` : ""}`
-      : `${budget - used} of ${budget} credits left`;
+      ? `Unlimited${spent > 0 ? ` · ${formatCredits(spent)} spent` : ""}`
+      : `${formatCredits(budget - used)} of ${formatCredits(budget)} left`;
   const spentPercent =
     budget === null ? 100 : budget > 0 ? Math.round((used / budget) * 100) : 0;
   return (
@@ -134,16 +135,17 @@ function WalletBar({ agent }: { agent: AgentRow }) {
 /**
  * The wallet budget field, the dialog's one piece of real logic: an empty
  * field is how the user asks for no cap at all (an unlimited wallet), and
- * anything else must be a non-negative number of credits.
+ * anything else must be a non-negative dollar amount (converted to the
+ * ledger's integer credits before it is stored).
  */
 export function walletBudgetFromField(
   raw: string
 ): { ok: true; credits: number | null } | { ok: false } {
   const trimmed = raw.trim();
   if (trimmed === "") return { ok: true, credits: null };
-  const credits = Number(trimmed);
-  if (!Number.isInteger(credits) || credits < 0) return { ok: false };
-  return { ok: true, credits };
+  const dollars = Number(trimmed);
+  if (!Number.isFinite(dollars) || dollars < 0) return { ok: false };
+  return { ok: true, credits: dollarsToCredits(dollars) };
 }
 
 /**
@@ -174,8 +176,8 @@ function AgentDialog({
     agent
       ? agent.walletBudgetCredits === null
         ? ""
-        : String(agent.walletBudgetCredits)
-      : "500"
+        : String(creditsToDollars(agent.walletBudgetCredits))
+      : "0.5"
   );
 
   const createAgent = trpc.agents.create.useMutation({
@@ -199,7 +201,7 @@ function AgentDialog({
     const parsed = walletBudgetFromField(budget);
     if (!parsed.ok) {
       toast.error(
-        "The wallet budget must be 0 or more credits - or empty for unlimited."
+        "The wallet budget must be $0.00 or more - or empty for unlimited."
       );
       return;
     }
@@ -254,7 +256,7 @@ function AgentDialog({
             <p className="text-xs leading-5 text-muted-foreground">
               Give an agent its own identity, wallet, memory, and chat. Nova
               Pro unlocks personal agents, agent teams, every premium model,
-              and 10,000 credits a day.
+              and $10.00 a day.
             </p>
           </div>
         ) : (
@@ -292,12 +294,13 @@ function AgentDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="agent-budget">Wallet budget (credits)</Label>
+            <Label htmlFor="agent-budget">Wallet budget ($)</Label>
             <Input
               id="agent-budget"
               type="number"
               min={0}
-              max={100000}
+              step={0.001}
+              max={100}
               value={budget}
               placeholder="Unlimited"
               onChange={event => setBudget(event.target.value)}
@@ -320,7 +323,7 @@ function AgentDialog({
                 window.location.href = "/checkout?product=pro";
               }}
             >
-              <Crown className="size-4" /> Upgrade - S$7.99/month
+              <Crown className="size-4" /> Upgrade - $7.99/month
             </Button>
           ) : (
           <Button
@@ -415,8 +418,8 @@ function TeamDialog({
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
               Put several agents in one group chat with a shared goal. Nova
-              Pro unlocks agent teams, every premium model, and 10,000
-              credits a day.
+              Pro unlocks agent teams, every premium model, and $10.00
+              a day.
             </p>
           </div>
         ) : (
@@ -487,7 +490,7 @@ function TeamDialog({
                 window.location.href = "/checkout?product=pro";
               }}
             >
-              <Crown className="size-4" /> Upgrade - S$7.99/month
+              <Crown className="size-4" /> Upgrade - $7.99/month
             </Button>
           ) : (
             <Button

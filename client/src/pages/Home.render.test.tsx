@@ -45,12 +45,12 @@ describe("landing and sign-in render", () => {
     // How it works, channels, pricing, FAQ
     expect(markup).toContain("A small handoff can change your whole day.");
     expect(markup).toContain("Keep the conversation close.");
-    expect(markup).toContain("Daily credits, or your own model.");
+    expect(markup).toContain("Daily balance, or your own model.");
     // Real plan prices belong on the pricing section, not only behind sign-in.
     expect(markup).toContain("Free trial");
-    expect(markup).toContain("S$4.99");
-    expect(markup).toContain("S$7.99");
-    expect(markup).toContain("10,000 credits a day");
+    expect(markup).toContain("$4.99");
+    expect(markup).toContain("$7.99");
+    expect(markup).toContain("$10.00 a day");
     expect(markup).toContain("What exactly is Nova?");
     // Developer callout and footer
     expect(markup).toContain("POST /api/v1/chat/completions");

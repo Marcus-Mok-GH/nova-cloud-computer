@@ -21,6 +21,7 @@ import {
   type AgentProfileRow,
 } from "../drizzle/schema";
 import { newChatId } from "./chatId";
+import { formatCredits } from "@shared/money";
 
 /**
  * Personal agents (Nova's Cue-style agent layer). Every agent belongs to one
@@ -762,7 +763,7 @@ export async function requestWalletPurchaseApproval(
   if (!Number.isFinite(amount) || amount < 1 || amount > MAX_PURCHASE_CREDITS) {
     return {
       ok: false,
-      error: `The amount must be between 1 and ${MAX_PURCHASE_CREDITS} credits.`,
+      error: `The amount must be between $0.001 and ${formatCredits(MAX_PURCHASE_CREDITS)}.`,
     };
   }
   const item = input.item.trim().slice(0, 240);
@@ -771,7 +772,7 @@ export async function requestWalletPurchaseApproval(
   if (amount > remaining) {
     return {
       ok: false,
-      error: `Over budget: "${item}" costs ${amount} credits but only ${remaining} of ${agent.walletBudgetCredits} remain in ${agent.name}'s wallet.`,
+      error: `Over budget: "${item}" costs ${formatCredits(amount)} but only ${formatCredits(remaining)} of ${formatCredits(agent.walletBudgetCredits ?? 0)} remain in ${agent.name}'s wallet.`,
     };
   }
   // An unlimited wallet (budget null) never hits the check above.
@@ -797,7 +798,7 @@ export async function requestWalletPurchaseApproval(
   return {
     ok: true,
     approvalId: approval.id,
-    message: `Approval #${approval.id} is pending: the user must confirm purchases in Nova's Agents page before any credits are spent. Nothing has been paid yet - tell the user a purchase of ${amount} credits for "${item}" is waiting for their approval, then end your turn.`,
+    message: `Approval #${approval.id} is pending: the user must confirm purchases in Nova's Agents page before any funds are spent. Nothing has been paid yet - tell the user a purchase of ${formatCredits(amount)} for "${item}" is waiting for their approval, then end your turn.`,
   };
 }
 
@@ -902,7 +903,7 @@ function approvalSummary(action: string, params: Record<string, unknown>): strin
     const amount = Number(params.amountCredits ?? 0);
     const item = String(params.item ?? "a purchase");
     const note = params.note ? ` - ${String(params.note)}` : "";
-    return `Purchase "${item}" for ${amount} credits${note}`;
+    return `Purchase "${item}" for ${formatCredits(amount)}${note}`;
   }
   const to = String(params.to ?? "");
   const subject = String(params.subject ?? "");
@@ -1062,18 +1063,18 @@ export async function decideApprovalForUser(
       const remaining = agent ? walletRemainingCredits(agent) : 0;
       return finish(
         "failed",
-        `Not completed: the wallet budget is exhausted (${remaining} credits left), so "${item}" could not be paid.`,
+        `Not completed: the wallet budget is exhausted (${formatCredits(remaining)} left), so "${item}" could not be paid.`,
         false
       );
     }
     const agent = await getAgentForUser(ownerId, claimed.agentId);
     const remaining = agent ? walletRemainingCredits(agent) : 0;
     const remainNote = Number.isFinite(remaining)
-      ? `${remaining} credits remain in the wallet.`
-      : `The wallet has no budget cap - ${agent?.walletSpentCredits ?? 0} credits spent so far.`;
+      ? `${formatCredits(remaining)} remains in the wallet.`
+      : `The wallet has no budget cap - ${formatCredits(agent?.walletSpentCredits ?? 0)} spent so far.`;
     return finish(
       "executed",
-      `Approved - paid ${amount} credits for "${item}". ${remainNote}`,
+      `Approved - paid ${formatCredits(amount)} for "${item}". ${remainNote}`,
       true
     );
   }

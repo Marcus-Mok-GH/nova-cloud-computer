@@ -156,11 +156,11 @@ describe("answerSupportQuestion", () => {
     const [messages] = chatMock.mock.calls[0];
     const system = messages[0].content;
     expect(system).toContain("14-day trial");
-    expect(system).toContain("S$4.99");
-    expect(system).toContain("S$7.99");
-    expect(system).toContain("5,000 credits");
-    expect(system).toContain("10,000 credits");
-    expect(system).toContain("1,000 credits per S$1");
+    expect(system).toContain("$4.99");
+    expect(system).toContain("$7.99");
+    expect(system).toContain("$5.00");
+    expect(system).toContain("$10.00");
+    expect(system).toContain("Top-ups start at $5");
     // The bot must quote the brief's prices, not invent them.
     expect(system).toContain("Quote the brief's prices exactly");
   });

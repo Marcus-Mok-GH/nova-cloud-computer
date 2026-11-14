@@ -47,8 +47,8 @@ describe("credit top-up catalog", () => {
   });
 
   it("formats whole-dollar prices without decimals", () => {
-    expect(formatCreditTopUpPrice(500)).toBe("S$5");
-    expect(formatCreditTopUpPrice(5_000)).toBe("S$50");
-    expect(formatCreditTopUpPrice(550)).toBe("S$5.50");
+    expect(formatCreditTopUpPrice(500)).toBe("$5");
+    expect(formatCreditTopUpPrice(5_000)).toBe("$50");
+    expect(formatCreditTopUpPrice(550)).toBe("$5.50");
   });
 });

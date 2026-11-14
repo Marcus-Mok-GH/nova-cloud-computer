@@ -18,6 +18,12 @@ describe("shared model catalogue - effort options", () => {
     expect(ultra.efforts).toEqual(CHAT_EFFORT_OPTIONS);
   });
 
+  it("maps nova-ultra to Pollinations MiniMax M3.1 Flash", () => {
+    const ultra = getChatModelById("nova-ultra")!;
+    expect(ultra.tier).toBe("pro");
+    expect(ultra.upstreamModel).toBe("minimax/minimax-m3.1-flash");
+  });
+
   it("offers only auto on external premium models", () => {
     const models = getChatModels();
     for (const id of ["claude-sonnet-4.6", "gemini-3-pro", "grok-4.1"]) {
@@ -61,7 +67,7 @@ describe("shared model catalogue - effort options", () => {
         label: "Nova Ultra",
         description: "x",
         tier: "pro",
-        upstreamModel: "gpt-5.2",
+        upstreamModel: "minimax/minimax-m3.1-flash",
       },
     ]);
     const models = getChatModels(json);

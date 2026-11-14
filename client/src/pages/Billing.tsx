@@ -170,6 +170,16 @@ export default function Billing() {
   const isPaid = plan === "paid";
   // Plus is a subscription too - it just is not Pro.
   const hasSubscription = plan !== "free";
+  // Pro access is the server's *effective* entitlement: a paid plan, or a
+  // console-operator role. A role on its own leaves the subscription row
+  // "free", so the tier verdicts below read `proAccess` rather than `plan` -
+  // gating on `plan` alone made an operator's header badge read "Admin" while
+  // this page read "Free" and offered upgrades the account already holds.
+  const proAccess = data?.proAccess ?? false;
+  const hasPaidAccess = hasSubscription || proAccess;
+  // Pro access with no subscription behind it can only come from the role.
+  const accessFromRole = proAccess && !hasSubscription;
+  const credits = daily.data;
   const topUpProducts = data?.topUpProducts ?? [];
   const boughtCredits = data?.creditTopUps?.remainingCredits ?? 0;
   const priorityActive = priority.data?.priority ?? false;
@@ -181,6 +191,50 @@ export default function Billing() {
         day: "numeric",
       })
     : null;
+  // The current-plan card's headline and sub-line, resolved once so the JSX
+  // below stays readable. An operator's tier is the Admin tier, matching the
+  // header badge; the sub-line explains the grant instead of pitching an
+  // upgrade the account already owns.
+  const planName = accessFromRole
+    ? t("layout.plan.admin")
+    : isPaid
+      ? t("billing.current.paid")
+      : plan === "plus"
+        ? t("billing.current.plus")
+        : t("billing.current.free");
+  const planDetail = hasSubscription
+    ? periodEnd
+      ? data?.cancelAtPeriodEnd
+        ? plan === "plus"
+          ? t("billing.current.plusCancelsOn", { date: periodEnd })
+          : t("billing.current.cancelsOn", { date: periodEnd })
+        : plan === "plus"
+          ? t("billing.current.plusRenewsOn", { date: periodEnd })
+          : t("billing.current.renewsOn", { date: periodEnd })
+      : isPaid
+        ? t("billing.current.paid")
+        : t("billing.current.plus")
+    : accessFromRole
+      ? t("billing.current.operatorBody")
+      : t("billing.current.freeBody");
+  // The credits card reads the effective entitlement too: a developer's
+  // ledger is unlimited, which the balance string cannot express.
+  const creditBalance =
+    credits && hasPaidAccess
+      ? credits.unlimited
+        ? t("layout.credits.unlimited")
+        : t("billing.credits.balance", {
+            count: credits.remainingCredits?.toLocaleString(locale) ?? "0",
+          })
+      : t("billing.current.free");
+  const creditDetail =
+    credits && hasPaidAccess
+      ? credits.unlimited
+        ? t("billing.credits.unlimitedBody")
+        : t("billing.credits.daily", {
+            daily: credits.dailyCredits?.toLocaleString(locale) ?? "unlimited",
+          })
+      : t("billing.credits.none");
   const proPrice =
     data?.currency && data.currency.toUpperCase() !== "SGD"
       ? `${data.currency.toUpperCase()} ${(data.priceCents / 100).toFixed(2)}`
@@ -214,31 +268,11 @@ export default function Billing() {
                   {t("billing.current.title")}
                 </p>
                 <p className="mt-1 flex items-center gap-2 text-lg font-bold">
-                  {isPaid ? (
-                    <>
-                      <Crown className="size-4 text-amber-500" />
-                      {t("billing.current.paid")}
-                    </>
-                  ) : plan === "plus" ? (
-                    t("billing.current.plus")
-                  ) : (
-                    t("billing.current.free")
-                  )}
+                  {isPaid && <Crown className="size-4 text-amber-500" />}
+                  {planName}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {hasSubscription
-                    ? periodEnd
-                      ? data?.cancelAtPeriodEnd
-                        ? plan === "plus"
-                          ? t("billing.current.plusCancelsOn", { date: periodEnd })
-                          : t("billing.current.cancelsOn", { date: periodEnd })
-                        : plan === "plus"
-                          ? t("billing.current.plusRenewsOn", { date: periodEnd })
-                          : t("billing.current.renewsOn", { date: periodEnd })
-                      : isPaid
-                        ? t("billing.current.paid")
-                        : t("billing.current.plus")
-                    : t("billing.current.freeBody")}
+                  {planDetail}
                 </p>
               </div>
               <div className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -269,18 +303,10 @@ export default function Billing() {
             </p>
             <p className="mt-1 flex items-center gap-2 text-lg font-bold">
               <Coins className="size-4 text-primary" />
-              {hasSubscription && daily.data
-                ? t("billing.credits.balance", {
-                    count: daily.data.remainingCredits?.toLocaleString(locale) ?? "0",
-                  })
-                : t("billing.current.free")}
+              {creditBalance}
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {hasSubscription && daily.data
-                ? t("billing.credits.daily", {
-                    daily: daily.data.dailyCredits?.toLocaleString(locale) ?? "unlimited",
-                  })
-                : t("billing.credits.none")}
+              {creditDetail}
             </p>
           </section>
         </div>
@@ -352,7 +378,11 @@ export default function Billing() {
                 t("billing.plan.free.feature.3"),
               ]}
               cta={t("billing.plan.free.cta")}
-              currentLabel={!hasSubscription ? t("billing.plan.free.cta") : t("billing.plan.free.included")}
+              currentLabel={
+                !hasPaidAccess
+                  ? t("billing.plan.free.cta")
+                  : t("billing.plan.free.included")
+              }
               onSelect={() => setLocation("/app")}
               busy={false}
               disabled
@@ -388,7 +418,9 @@ export default function Billing() {
               badge={t("billing.plan.popular")}
               highlighted
               cta={t("billing.plan.pro.cta")}
-              currentLabel={isPaid ? t("billing.plan.pro.active") : undefined}
+              currentLabel={
+                proAccess ? t("billing.plan.pro.active") : undefined
+              }
               onSelect={() => setLocation("/checkout?product=pro")}
               busy={false}
               disabled={!data?.configured}

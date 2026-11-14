@@ -1,3 +1,25 @@
+2026-11-14 - fix(billing): read an operator's Pro access from the role, not the subscription
+
+An operator account (role `admin` or `developer`) holds Pro access through the
+role, so its Whop subscription row stays `free` and inactive. The billing page
+decided whether the account had a paid tier from that raw plan, so it read
+"Current plan: Free", "Credits: Free", and an upgrade pitch for Pro the account
+already owned - while the header badge beside the wordmark correctly read
+"Admin", and every other Pro gate in the app (model picker, agents, workspace)
+already read the server's effective `proAccess` flag. The page now reads that
+flag too: an operator sees the Admin tier with "Included with your operator
+access.", the Pro card marked as its plan, Free marked as included, and - for a
+developer's unlimited ledger - "Unlimited" instead of a zero balance. The
+Manage subscription button still requires a real subscription, so an account
+with no Whop membership is not offered a portal it cannot use.
+
+Files: client/src/pages/Billing.tsx, client/src/pages/Billing.render.test.tsx,
+client/src/i18n/en.ts + the 16 generated locales and manifest, CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Billing.render.test.tsx,
+client/src/contexts/LanguageContext.test.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, pnpm check.
+
 2026-11-13 - fix(auth): give the sign-in code step a resend path
 
 The OTP step dead-ended for every visitor whose code was merely late. After

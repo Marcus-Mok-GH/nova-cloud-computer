@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
+import { COUNTRY_CODES } from "@shared/countries";
 import { SKILL_BODY_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH, SKILL_DESCRIPTION_MESSAGE, SKILL_NAME_MAX_LENGTH, SKILL_NAME_MESSAGE, SKILL_NAME_PATTERN } from "@shared/skills";
 import { z } from "zod";
 import {
@@ -269,15 +270,19 @@ export const appRouter = router({
         source: saved?.source ?? null,
         useCase: saved?.useCase ?? null,
         experience: saved?.experience ?? null,
+        country: saved?.country ?? null,
       };
     }),
     /** Records the starter-question answers. `completed` is false when the user
-     * skipped, which leaves onboarding open to be asked again later. */
+     * skipped, which leaves onboarding open to be asked again later. `country`
+     * is an ISO 3166-1 alpha-2 code; the client switches the interface
+     * language to the country's language once the answers are saved. */
     saveOnboarding: protectedProcedure
       .input(z.object({
         source: z.string().trim().max(120).nullable().optional(),
         useCase: z.string().trim().max(120).nullable().optional(),
         experience: z.string().trim().max(40).nullable().optional(),
+        country: z.string().trim().regex(/^[A-Za-z]{2}$/).refine(value => COUNTRY_CODES.includes(value.toUpperCase()), { message: "That country is not recognised." }).nullable().optional(),
         completed: z.boolean().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -287,6 +292,7 @@ export const appRouter = router({
             source: input.source ?? null,
             useCase: input.useCase ?? null,
             experience: input.experience ?? null,
+            country: input.country ? input.country.toUpperCase() : null,
           },
           input.completed
         );

@@ -5,6 +5,7 @@ const claim = vi.fn(async () => ({ usedRequests: 1 }));
 
 vi.mock("./db", () => ({
   hasActiveAccessForUser: vi.fn(async () => true),
+  hasProAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),
@@ -27,6 +28,8 @@ const {
 const POLLINATIONS_BASE_URL = "https://gen.pollinations.ai/v1";
 const MIRROR_URL = "https://token-harbor-mirror.example.com/v1";
 const API_KEY = "sk-pollinations_" + "k".repeat(40);
+const COARENA_BASE_URL = "https://coarena.ai/api/v1";
+const COARENA_KEY = "ca-" + "c".repeat(40);
 
 /** The chat-completion model ids sent across every fetch call, in order. */
 function postedModels() {
@@ -40,6 +43,7 @@ describe("AI gateway client", () => {
   const originalKey = process.env.POLLINATIONS_API_KEY;
   const originalUrl = process.env.POLLINATIONS_GATEWAY_URL;
   const originalFallback = process.env.POLLINATIONS_FALLBACK_MODEL;
+  const originalCoarenaKey = process.env.COARENA_API_KEY;
 
   beforeEach(() => {
     delete process.env.POLLINATIONS_API_KEY;
@@ -47,6 +51,7 @@ describe("AI gateway client", () => {
     delete process.env.POLLINATIONS_FALLBACK_MODEL;
     process.env.POLLINATIONS_API_KEY = API_KEY;
     process.env.POLLINATIONS_GATEWAY_URL = MIRROR_URL;
+    process.env.COARENA_API_KEY = COARENA_KEY;
     getAllowance.mockResolvedValue({ usedRequests: 0, updatedAt: null });
     claim.mockResolvedValue({ usedRequests: 1 });
     resetAiGatewayHealthCache();
@@ -58,6 +63,7 @@ describe("AI gateway client", () => {
     if (originalKey === undefined) delete process.env.POLLINATIONS_API_KEY; else process.env.POLLINATIONS_API_KEY = originalKey;
     if (originalUrl === undefined) delete process.env.POLLINATIONS_GATEWAY_URL; else process.env.POLLINATIONS_GATEWAY_URL = originalUrl;
     if (originalFallback === undefined) delete process.env.POLLINATIONS_FALLBACK_MODEL; else process.env.POLLINATIONS_FALLBACK_MODEL = originalFallback;
+    if (originalCoarenaKey === undefined) delete process.env.COARENA_API_KEY; else process.env.COARENA_API_KEY = originalCoarenaKey;
   });
 
   it("targets Pollinations' base URL by default", async () => {
@@ -215,6 +221,55 @@ describe("AI gateway client", () => {
     const result = await chatWithAiGateway(7, [{ role: "user", content: "hello" }], {});
     expect(result).toMatchObject({ text: "chat reply", model: POLLINATIONS_CHAT_MODEL });
     expect(postedModels()).toEqual([POLLINATIONS_CHAT_MODEL]);
+  });
+
+  it("routes the Gemini slot to Coarena with its own credential", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "carbon reply" } }], model: "gemini-4-carbon" }), { status: 200 }));
+
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-4-carbon" });
+    expect(result).toMatchObject({ text: "carbon reply" });
+    // The health probe stays on Pollinations; the chat hop goes to Coarena.
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1, `${MIRROR_URL}/models`, expect.anything());
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${COARENA_KEY}` }) }));
+  });
+
+  it("routes the Claude Sonnet slot to Coarena under its upstream id", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "sonnet reply" } }], model: "claude-sonnet-5-5" }), { status: 200 }));
+
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "claude-sonnet-5.5" });
+    expect(result).toMatchObject({ text: "sonnet reply" });
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.anything());
+    // The catalogue id (dot) becomes the upstream id (hyphen) on the wire.
+    expect(postedModels()).toEqual(["claude-sonnet-5-5"]);
+  });
+
+  it("falls back to Pollinations behind a failed Coarena hop", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "busy" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: POLLINATIONS_CHAT_MODEL }), { status: 200 }));
+
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-4-carbon" });
+    expect(result).toMatchObject({ text: "fallback reply" });
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.anything());
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(3, `${MIRROR_URL}/chat/completions`, expect.anything());
+    // One allowance claim covers both provider hops.
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a Coarena model when no Coarena credential is configured", async () => {
+    delete process.env.COARENA_API_KEY;
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await expect(
+      chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "claude-sonnet-5.5" })
+    ).rejects.toMatchObject({ kind: "configuration" });
+    // Only the Pollinations health probe ever left the process.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("answers public questions without claiming a workspace allowance", async () => {

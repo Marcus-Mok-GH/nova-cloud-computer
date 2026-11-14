@@ -115,6 +115,15 @@ export class AiGatewayClientError extends Error {
  * same request is retried against the fallback before the error surfaces.
  */
 const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
+/**
+ * Coarena's OpenAI-compatible endpoint: the upstream for the Gemini and
+ * Claude Sonnet slots (see shared/models.ts). Only models named here leave
+ * the Pollinations gateway; the routing reads each request's own body, so a
+ * Pollinations fallback hop behind a Coarena model crosses back
+ * automatically.
+ */
+const COARENA_API_BASE_URL = "https://coarena.ai/api/v1";
+const COARENA_MODELS = new Set(["gemini-4-carbon", "claude-sonnet-5-5"]);
 
 /** The primary model Nova's built-in gateway serves. */
 export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
@@ -189,6 +198,12 @@ function pollinationsToken() {
   return token && token.length >= 32 ? token : undefined;
 }
 
+/** The Coarena credential; shorter values are treated as placeholders. */
+function coarenaToken() {
+  const token = process.env.COARENA_API_KEY?.trim();
+  return token && token.length >= 16 ? token : undefined;
+}
+
 /** Validates an https base URL, returning it without a trailing slash (or undefined). */
 function httpsBaseUrl(raw: string) {
   try {
@@ -209,6 +224,42 @@ function configuredGatewayUrl() {
 
 function configuredGatewayToken() {
   return pollinationsToken();
+}
+
+/** The model a gateway request targets, read from its JSON body; non-chat
+ * calls (GET /models, form uploads) have no body model and stay on
+ * Pollinations. */
+function requestBodyModel(init: RequestInit): string | undefined {
+  if (typeof init.body !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(init.body) as { model?: unknown };
+    return typeof parsed.model === "string" ? parsed.model : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Base URL + bearer credential for the provider the request's model routes
+ * to: Coarena for its two catalogue models, Pollinations for everything
+ * else. Throws a configuration error when the needed credential is absent. */
+function providerEndpointFor(model: string | undefined) {
+  if (model && COARENA_MODELS.has(model)) {
+    const token = coarenaToken();
+    if (!token)
+      throw new AiGatewayClientError(
+        "Nova’s AI service is not connected to this model yet. An administrator must finish setting it up.",
+        "configuration"
+      );
+    return { baseUrl: COARENA_API_BASE_URL, token };
+  }
+  const baseUrl = configuredGatewayUrl();
+  const token = configuredGatewayToken();
+  if (!baseUrl || !token)
+    throw new AiGatewayClientError(
+      "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
+      "configuration"
+    );
+  return { baseUrl, token };
 }
 
 /**
@@ -316,13 +367,7 @@ async function gatewayFetch(
   timeoutMs = REQUEST_TIMEOUT_MS,
   externalSignal?: AbortSignal
 ) {
-  const baseUrl = configuredGatewayUrl();
-  const token = configuredGatewayToken();
-  if (!baseUrl || !token)
-    throw new AiGatewayClientError(
-      "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
-      "configuration"
-    );
+  const { baseUrl, token } = providerEndpointFor(requestBodyModel(init));
   const controller = new AbortController();
   // A user's /stop aborts the in-flight request just like the timeout does.
   const abortWithStop = () => controller.abort();

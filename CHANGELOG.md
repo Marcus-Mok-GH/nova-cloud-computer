@@ -1,3 +1,28 @@
+2026-11-14 - feat(models): move the Gemini and Sonnet slots to Coarena
+
+Two picker slots now upstream to Coarena's OpenAI-compatible Model API
+(https://coarena.ai/api/v1, COARENA_API_KEY) instead of Pollinations: the
+Gemini slot follows Google's newest flagship - label "Gemini 4 Carbon",
+id gemini-4-carbon - and the former Grok 4.1 slot now serves Claude Sonnet
+5.5 (catalogue id claude-sonnet-5.5, upstream claude-sonnet-5-5). Routing
+lives in gatewayFetch: it reads the model from each request's own body, so
+only those two ids leave Pollinations and a Pollinations fallback hop
+behind a failed Coarena hop crosses back automatically; a missing Coarena
+credential fails those models with a clean configuration error while the
+rest of the gateway is untouched. Migration 0063 remaps stored chats from
+gemini-3-pro and grok-4.1 to the new ids. Both Coarena Claude models were
+temporarily off platform-wide at ship time ("try again later"), so the
+Sonnet slot answers with Coarena's own model-off message until they return.
+
+Files: shared/models.ts, shared/models.test.ts, server/aiGateway.ts,
+server/aiGateway.client.test.ts, drizzle/neon/0063_coarena_slots.sql,
+drizzle/neon/meta/_journal.json, CHANGELOG.md (plus the COARENA_API_KEY
+environment variable in Vercel Production).
+
+Tests: pnpm exec vitest run server/aiGateway.client.test.ts
+shared/models.test.ts server/chats.router.test.ts, pnpm check, pnpm build,
+pnpm test.
+
 2026-11-14 - feat(models): replace Claude Sonnet 4.6 with DeepSeek V4.1 Flash 1017
 
 The premium picker slot that served Claude Sonnet 4.6 now serves DeepSeek

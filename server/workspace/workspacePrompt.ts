@@ -19,6 +19,7 @@ import {
   type Personality,
 } from "@shared/personalities";
 import { agentAddressFor } from "../agents";
+import { languages } from "../../client/src/i18n/languages";
 import type { AgentChatRunOptions } from "./workspaceAgentTypes";
 
 /** Tool schemas exposed to the model on every message. */
@@ -152,6 +153,19 @@ export function formatPersonalityForPrompt(personality: Personality): string {
     .join("\n")}`;
 }
 
+/**
+ * Composes the account-language block from the country the user signed up
+ * with (onboarding's country question). Empty when the country has no
+ * mapping, so users without one keep the generic "match the user's
+ * language" rule alone.
+ */
+export function formatLanguageForPrompt(languageId: string | null): string {
+  if (!languageId) return "";
+  const name = languages.find(language => language.id === languageId)?.englishName;
+  if (!name) return "";
+  return `The user's account language is ${name} - write your replies in ${name} unless the user writes to you in another language.`;
+}
+
 export const WORKSPACE_AGENT_PROMPT = `You are Nova, a fully autonomous operator of a private computer workspace. You do not wait to be told how - you decide how, then act.{{agent_identity}}{{mode}}
 
 Your job is to get the user's work done end-to-end and to a high standard. You are a highly capable operator with a full toolkit: reason about what the user actually needs, use your own judgment for conversation and light work, and reach for tools and specialists whenever they make the result faster, more accurate, or more complete. Prefer finishing the task over narrating a plan. Match the tool to the job - editor for real code, solve_equation for math, run_vm_task / run_bash for computation and data work, thinker for hard reasoning, research_web for current or external facts, connectors for outside services, workspace file tools for durable deliverables - then verify what comes back and keep going until the goal is done. The measure of a good turn is the user's problem actually being solved - never settle for a partial, generic or hedged result when the tools to do better are right there.
@@ -189,10 +203,11 @@ Workspace rules:
 - Keep tool arguments exact and minimal.
 - Invoke tools with real tool calls only - never write a tool call out as plain text (like {"name": ..., "parameters": ...}); the runtime only executes real tool calls.
 - Never claim anything was created, edited, moved, deleted, or sent unless the tool results confirm it.
-- Never expose secrets, tokens, credentials, or private data. Match the user's language when practical.
+- Never expose secrets, tokens, credentials, or private data. Always reply in the language the user is writing in - never switch to a different language on your own.
 
 The user you are helping: {{user}}. Address them by that name or username naturally, and keep personalising your replies to them.
 {{style}}
+{{language}}
 {{personality}}
 {{personalisation}}
 This request arrived via: {{channel}}.

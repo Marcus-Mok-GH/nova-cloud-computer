@@ -5,6 +5,7 @@ import {
   TOOL_ACTIVITY_MESSAGE_PREFIX,
 } from "@shared/const";
 import { sleep } from "@shared/timing";
+import { languageForCountry } from "@shared/countries";
 import { isE2BConfigured, type E2BSandboxLike } from "../e2b";
 import {
   pauseAgentSandbox,
@@ -29,6 +30,7 @@ import {
   getPersonalisationForUser,
   resolveActivePersonalityForUser,
   getUserIdentityForUser,
+  getUserOnboarding,
   getWorkspaceComputer,
   listChatMessagesForUser,
   renameChatIfDefaultForUser,
@@ -187,6 +189,7 @@ import {
   coderNudgeFor,
   formatPersonalisationForPrompt,
   formatPersonalityForPrompt,
+  formatLanguageForPrompt,
   WORKSPACE_AGENT_PROMPT,
   agentIdentityPromptBlock,
 } from "./workspacePrompt";
@@ -612,6 +615,11 @@ ${
     const connectedConnectors = await getConnectedConnectorToolkits(ownerId);
     const identity = await getUserIdentityForUser(ownerId);
     const communicationStyle = await getCommunicationStyleForUser(ownerId);
+    // The country the user signed up with (onboarding's country question)
+    // picks the reply language: when it maps to one Nova ships, every reply
+    // is pinned to that language instead of letting the model drift into
+    // some other one mid-conversation.
+    const accountLanguage = languageForCountry((await getUserOnboarding(ownerId))?.country);
     const personalisation = await getPersonalisationForUser(ownerId);
     const personality = await resolveActivePersonalityForUser(ownerId);
     // The deployment registry - every site's ID, URL and description - rides
@@ -791,6 +799,7 @@ ${
               ? `The user's saved preferred communication style: "${communicationStyle}" - follow it in every reply.`
               : ""
           )
+          .replace("{{language}}", formatLanguageForPrompt(accountLanguage))
           .replace(
             "{{personality}}",
             formatPersonalityForPrompt(personality)

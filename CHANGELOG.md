@@ -1,3 +1,16 @@
+2026-11-14 - fix(auth): adopt an existing account when Neon re-issues a subject
+
+Sign-in resolves users by the Neon Auth subject alone, so a re-issued `sub`
+for an address that already owns a row inserted a second account next to the
+first - workspace, credit ledger and role pin split across two rows (the
+pinned developer ended up with two DEVELOPER entries in the admin list).
+Both create paths (Neon token verification and the session OAuth sync) now
+call adoptUserByEmail on the openId miss: the row already holding the
+address is rebound to the incoming subject, and the sign-in lands on it.
+Covered by server/db/users.test.ts; the pre-existing duplicate pair was
+merged in production (one row, both workspaces' chats and files combined,
+daily ledger summed, linked Telegram binding kept).
+
 2026-11-14 - feat(billing): present the credit ledger as dollars
 
 Every surface that showed credits now shows plain dollars at the flat

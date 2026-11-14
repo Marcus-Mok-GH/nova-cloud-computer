@@ -1,3 +1,30 @@
+2026-11-14 - feat(onboarding): prompt existing accounts for their country on next sign-in
+
+Accounts that finished onboarding before the country question existed now
+get a one-shot country prompt on their next sign-in: auth.onboarding returns
+needsCountry (completed + no country + never prompted), DashboardLayout
+renders the new CountryPromptModal for it, and auth.saveCountryPrompt records
+the answer (switching the interface language, same as onboarding) or the
+dismissal - either way the account is asked exactly once. New signups stamp
+the same marker when they submit onboarding, so they are never re-asked, and
+the country-select markup moved to client/src/lib/countryOptions.ts, shared
+by both dialogs.
+
+Files: drizzle/schema.ts, drizzle/neon/0061_country_prompted.sql,
+drizzle/neon/meta/_journal.json, server/db/users.ts, server/routers.ts,
+server/onboarding.router.test.ts, client/src/lib/countryOptions.ts,
+client/src/components/OnboardingModal.tsx,
+client/src/components/CountryPromptModal.tsx,
+client/src/components/CountryPromptModal.render.test.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, CHANGELOG.md.
+
+Tests: pnpm exec vitest run server/onboarding.router.test.ts
+client/src/components/CountryPromptModal.render.test.tsx
+client/src/components/OnboardingModal.render.test.tsx
+client/src/components/DashboardLayout.verify.test.tsx, pnpm check,
+pnpm build, pnpm test.
+
 2026-11-14 - feat(onboarding): ask the signup country and switch Nova's language to match
 
 New accounts now get a fourth onboarding question - which country they are

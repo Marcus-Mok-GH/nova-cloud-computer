@@ -2,7 +2,8 @@ import React, { useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { COUNTRY_CODES, languageForCountry } from "@shared/countries";
+import { languageForCountry } from "@shared/countries";
+import { buildCountryOptions } from "@/lib/countryOptions";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,20 +31,8 @@ export function OnboardingModal({ onClose }: { onClose: () => void }) {
   const [country, setCountry] = useState("");
 
   // Country names render in the active language via Intl.DisplayNames, so the
-  // picker relabels itself the moment the language changes; runtimes without
-  // it fall back to the raw ISO code.
-  const countryOptions = useMemo(() => {
-    let displayNames: Intl.DisplayNames | null = null;
-    try {
-      displayNames = new Intl.DisplayNames([locale], { type: "region" });
-    } catch {
-      /* Intl.DisplayNames is unavailable - fall back to the codes */
-    }
-    return COUNTRY_CODES.map(code => ({
-      code,
-      name: displayNames?.of(code) ?? code,
-    })).sort((a, b) => a.name.localeCompare(b.name, locale));
-  }, [locale]);
+  // picker relabels itself the moment the language changes.
+  const countryOptions = useMemo(() => buildCountryOptions(locale), [locale]);
 
   const save = trpc.auth.saveOnboarding.useMutation({
     onSuccess: (_data, variables) => {

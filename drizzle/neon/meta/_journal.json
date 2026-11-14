@@ -435,6 +435,13 @@
       "when": 1794680151263,
       "tag": "0061_country_prompted",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794682536979,
+      "tag": "0062_swap_sonnet_deepseek",
+      "breakpoints": true
     }
   ]
 }

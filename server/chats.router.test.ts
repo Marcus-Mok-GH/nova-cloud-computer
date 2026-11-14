@@ -95,16 +95,16 @@ describe("chats model + effort router", () => {
   it("downgrades an effort the model does not offer to auto (null)", async () => {
     hasProAccessForUser.mockResolvedValue(true);
     const caller = appRouter.createCaller(contextFor(userRow(3)));
-    // claude-sonnet-4.6 only offers "auto"; "max" must fall back to null.
+    // deepseek-v4.1-flash only offers "auto"; "max" must fall back to null.
     await caller.chats.create({
       title: "Task",
-      model: "claude-sonnet-4.6",
+      model: "deepseek-v4.1-flash",
       effort: "max",
     });
     expect(createChatForUser).toHaveBeenCalledWith(
       3,
       "Task",
-      "claude-sonnet-4.6",
+      "deepseek-v4.1-flash",
       null
     );
   });

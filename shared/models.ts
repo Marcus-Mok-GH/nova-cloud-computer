@@ -68,7 +68,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     label: "Nova Ultra",
     description: "Nova's most capable model for hard problems and long tasks.",
     tier: "pro",
-    upstreamModel: "gpt-5.2",
+    upstreamModel: "minimax/minimax-m3.1-flash",
     efforts: NOVA_EFFORTS,
   },
   {

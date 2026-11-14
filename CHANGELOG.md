@@ -1,3 +1,22 @@
+2026-11-14 - feat(models): replace Claude Sonnet 4.6 with DeepSeek V4.1 Flash 1017
+
+The premium picker slot that served Claude Sonnet 4.6 now serves DeepSeek
+V4.1 Flash: catalogue id `deepseek-v4.1-flash`, upstream
+`deepseek/deepseek-v4.1-flash` on Pollinations (verified live: free tier,
+tool calling, reasoning, healthy). The UI label carries the build number -
+"DeepSeek V4.1 Flash 1017" - while neither id gets it appended. Tier (Pro)
+and the auto-only effort range are unchanged, and migration 0062 remaps
+chats that had the Sonnet slot selected to the new id so they keep their
+chosen model instead of resolving to no catalogue entry and falling through
+to the built-in chain.
+
+Files: shared/models.ts, shared/models.test.ts,
+server/chats.router.test.ts, drizzle/neon/0062_swap_sonnet_deepseek.sql,
+drizzle/neon/meta/_journal.json, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/models.test.ts server/chats.router.test.ts,
+pnpm check, pnpm build, pnpm test.
+
 2026-11-14 - feat(onboarding): prompt existing accounts for their country on next sign-in
 
 Accounts that finished onboarding before the country question existed now

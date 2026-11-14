@@ -72,11 +72,11 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     efforts: NOVA_EFFORTS,
   },
   {
-    id: "claude-sonnet-4.6",
-    label: "Claude Sonnet 4.6",
-    description: "Anthropic's latest Sonnet - strong coding and reasoning.",
+    id: "deepseek-v4.1-flash",
+    label: "DeepSeek V4.1 Flash 1017",
+    description: "DeepSeek's V4.1 Flash - fast, strong coding and reasoning.",
     tier: "pro",
-    upstreamModel: "claude-sonnet-4.6",
+    upstreamModel: "deepseek/deepseek-v4.1-flash",
     efforts: AUTO_ONLY_EFFORTS,
   },
   {

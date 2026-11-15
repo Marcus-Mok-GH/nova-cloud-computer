@@ -1,3 +1,16 @@
+2026-11-15 - feat(chat): the thinking panel follows its live reasoning text
+
+The Thinking panel caps at max-h-72 and scrolls internally, but as the
+model's reasoning streamed in, the view stayed parked at the top -
+past the first screenful the newest thinking was invisible. The panel
+now keeps itself scrolled to the bottom while the round is running and
+the panel is open, so the newest line is always visible; a settled
+panel is never yanked when re-opened to read the full reasoning. Adds
+jsdom as a dev dependency and the first DOM-level test in the suite
+(client/src/lib/toolActivityLine.scroll.test.tsx, @vitest-environment
+jsdom), covering both directions: follow-while-running and
+rest-when-finished.
+
 2026-11-15 - feat(models): offer every reasoning effort mode on every model
 
 The external premium slots (DeepSeek, Gemini, GPT-6.1 Sol) only offered

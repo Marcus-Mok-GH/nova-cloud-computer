@@ -111,6 +111,25 @@ describe("first-party session developer pin", () => {
     expect(mocks.upsertUser).not.toHaveBeenCalled();
     expect(ctx.user?.role).toBe("admin");
   });
+
+  it("re-provisions a missing identity row from the signed session (cold standby)", async () => {
+    mocks.verifySession.mockResolvedValue({ openId: "open-1", name: "Marcus" });
+    mocks.getUserByOpenId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(storedUser({ email: null, role: "user" }));
+
+    const ctx = await createContext(sessionOptions());
+
+    // The row is re-created from the verified cookie - openId + name only;
+    // the email is refilled by the next real sign-in.
+    expect(mocks.upsertUser).toHaveBeenCalledTimes(1);
+    expect(mocks.upsertUser).toHaveBeenCalledWith(
+      expect.objectContaining({ openId: "open-1", name: "Marcus" })
+    );
+    const argument = mocks.upsertUser.mock.calls[0][0] as Record<string, unknown>;
+    expect(argument.email).toBeUndefined();
+    expect(ctx.user?.id).toBe(1);
+  });
 });
 
 describe("workspace provisioning check", () => {

@@ -124,6 +124,15 @@ Caveats for the second standby:
 - **Reconciliation stays primary <-> backup.** The reconciler compares
   the primary pair; bring the second standby back in line with the
   failback dump/reload procedure if it served traffic.
+- **Login verification.** Session cookies are HMAC-verified locally,
+  and a verified cookie re-provisions its missing identity row on a
+  cold standby (openId + name only; the next real sign-in refills the
+  email, same openId so failback cannot fork an account), so existing
+  sessions keep working. New sign-ins, OTP, and bearer/JWKS checks
+  need the Neon Auth service - on the primary project, failing over
+  to `NEON_AUTH_BACKUP_BASE_URL` at the proxy - and stay down while
+  both are over quota. The standby sync must therefore include the
+  `users` table (login identity), not just workspace data.
 
 ## Environment variables
 

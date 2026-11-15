@@ -1,3 +1,22 @@
+2026-11-15 - feat(ai): resolve auto effort from the user's request
+
+"Auto" effort was a fixed depth: GLM-5.2+ sent the deployment's
+reasoning_effort (max, unless POLLINATIONS_REASONING_EFFORT pinned it) and
+Coarena's models (Gemini 4 Carbon, GPT-6.1 Sol) got no effort field at
+all - every request burned the same thinking. Auto now classifies the
+newest user message deterministically (server/requestEffort.ts:
+greetings and short factual questions -> low, ordinary task imperatives
+-> medium, code fences, step-by-step/architecture/trade-off language,
+lists and long input -> high) and sends that level as reasoning_effort
+to the models verified to accept it: GLM-5.2+ (an explicitly pinned env
+lever still wins) and both Coarena entries (probed accepting
+low/medium/high with 200 OK on 2026-11-15). Explicit efforts are
+untouched, models outside the set still receive no unknown fields, and a
+text-less turn keeps the provider default. Also fixes the GLM family
+match to tolerate the provider prefix on the wire (the built-in fallback
+is sent as z-ai/glm-5.3-flash) - the thinking fields never applied to
+that hop before.
+
 2026-11-15 - feat(models): replace the Claude Sonnet 5.5 slot with GPT-6.1 Sol
 
 The Sonnet slot was dead on Coarena - Anthropic's models stopped being

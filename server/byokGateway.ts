@@ -17,6 +17,7 @@ import {
   type GatewayToolCall,
   type GatewayToolDefinition,
 } from "./aiGateway";
+import { lastUserText } from "./requestEffort";
 import type { CustomModel } from "../drizzle/schema";
 
 /**
@@ -227,9 +228,13 @@ export async function chatWithCustomModel(
           messages,
           // Same per-model deep-thinking logic as the built-in gateway: a
           // GLM-family custom model thinks at the chat's selected effort (or
-          // the deployment default on auto); anything else sends no unknown
-          // fields to the user's own endpoint.
-          ...reasoningParamsForModel(model.modelId, options.effort),
+          // auto resolved from the request's text); anything else sends no
+          // unknown fields to the user's own endpoint.
+          ...reasoningParamsForModel(
+            model.modelId,
+            options.effort,
+            lastUserText(messages)
+          ),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),

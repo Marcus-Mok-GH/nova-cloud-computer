@@ -554,24 +554,23 @@ export function reasoningParamsForModel(
   // is sent as "z-ai/glm-5.3-flash"), so match the family after it.
   const match = /^(?:[a-z0-9._-]+\/)?glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
   if (!match) {
-    // Coarena's OpenAI-compatible models were probed accepting
-    // `reasoning_effort` (low/medium/high, 200 OK) on 2026-11-15; an id
-    // outside that set must never see the field - strict endpoints may
-    // reject parameters they do not implement.
-    if (COARENA_MODELS.has(modelId)) {
-      if (!isAuto) {
-        // sol tops out at "xhigh"; every other level maps by name.
-        const level =
-          selected === "max" && modelId === "gpt-6-1-sol" ? "xhigh" : selected;
-        return { reasoning_effort: level };
-      }
-      // Auto resolves from the request; with no text to classify the
-      // provider's own default stands (no field at all).
-      return userText
-        ? { reasoning_effort: classifyRequestEffort(userText) }
-        : {};
+    // Every other model Nova routes to honours `reasoning_effort`: each
+    // Pollinations id lists it in supported_parameters and both Coarena
+    // entries were probed live accepting it (2026-11-15), so a chosen
+    // level is sent rather than stripped.
+    if (!isAuto) {
+      return { reasoning_effort: upstreamEffortValue(selected, modelId) };
     }
-    return {};
+    // Auto sends the level the request text classifies to; a text-less
+    // turn keeps the provider's own default (no field at all).
+    return userText
+      ? {
+          reasoning_effort: upstreamEffortValue(
+            classifyRequestEffort(userText),
+            modelId
+          ),
+        }
+      : {};
   }
   const major = Number(match[1]);
   const minor = Number(match[2] ?? 0);
@@ -582,12 +581,30 @@ export function reasoningParamsForModel(
     // A run-level effort (the chat's selected depth, "auto" or deeper)
     // overrides everything; auto classifies the request text, falling back
     // to the deployment lever (or its "max" default) when pinned/absent.
-    params.reasoning_effort = isAuto
-      ? (pinnedReasoningEffort() ??
-        (userText ? classifyRequestEffort(userText) : configuredReasoningEffort()))
-      : selected;
+    params.reasoning_effort = upstreamEffortValue(
+      isAuto
+        ? (pinnedReasoningEffort() ??
+          (userText ? classifyRequestEffort(userText) : configuredReasoningEffort()))
+        : selected,
+      modelId
+    );
   }
   return params;
+}
+
+/**
+ * Our deepest level ("max") is named differently per route: Pollinations'
+ * request schema accepts none | minimal | low | medium | high | xhigh and
+ * rejects anything else with a 400, which does NOT fall back, Coarena's
+ * GPT-6.1 Sol tops out at "xhigh", while Coarena's Gemini and bare GLM ids
+ * (BYOK against the Zhipu API, which documents "max") keep "max". Levels
+ * below max pass through unchanged.
+ */
+function upstreamEffortValue(level: string, modelId: string): string {
+  if (level !== "max") return level;
+  if (modelId === "gemini-4-carbon") return "max";
+  if (/^glm-/i.test(modelId.trim())) return "max";
+  return "xhigh";
 }
 
 /**

@@ -92,10 +92,10 @@ describe("chats model + effort router", () => {
     expect(createChatForUser).toHaveBeenCalledWith(2, "Task", "nova-ultra", "high");
   });
 
-  it("downgrades an effort the model does not offer to auto (null)", async () => {
+  it("stores an explicit effort on an external premium model (all levels offered)", async () => {
     hasProAccessForUser.mockResolvedValue(true);
     const caller = appRouter.createCaller(contextFor(userRow(3)));
-    // deepseek-v4.1-flash only offers "auto"; "max" must fall back to null.
+    // Every model offers the full range now, so deepseek keeps "max".
     await caller.chats.create({
       title: "Task",
       model: "deepseek-v4.1-flash",
@@ -103,6 +103,23 @@ describe("chats model + effort router", () => {
     });
     expect(createChatForUser).toHaveBeenCalledWith(
       3,
+      "Task",
+      "deepseek-v4.1-flash",
+      "max"
+    );
+  });
+
+  it("downgrades an effort level that does not exist to auto (null)", async () => {
+    hasProAccessForUser.mockResolvedValue(true);
+    const caller = appRouter.createCaller(contextFor(userRow(5)));
+    // Unknown levels can still never be smuggled in at create time.
+    await caller.chats.create({
+      title: "Task",
+      model: "deepseek-v4.1-flash",
+      effort: "ultra",
+    });
+    expect(createChatForUser).toHaveBeenCalledWith(
+      5,
       "Task",
       "deepseek-v4.1-flash",
       null

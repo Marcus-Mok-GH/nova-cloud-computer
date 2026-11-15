@@ -360,8 +360,11 @@ describe("AI gateway chat stream handling", () => {
       thinking: { type: "enabled" },
       reasoning_effort: "low",
     });
-    // Non-thinking models still ignore the effort entirely.
-    expect(reasoningParamsForModel("ministral-14b-latest", "max")).toEqual({});
+    // The chosen level reaches any model: max maps to that route's top
+    // value. GLM 4.5 has the thinking toggle but no per-level knob yet.
+    expect(reasoningParamsForModel("ministral-14b-latest", "max")).toEqual({
+      reasoning_effort: "xhigh",
+    });
     expect(reasoningParamsForModel("glm-4.5-flash", "max")).toEqual({
       thinking: { type: "enabled" },
     });
@@ -415,14 +418,14 @@ describe("AI gateway chat stream handling", () => {
     expect(
       reasoningParamsForModel("z-ai/glm-5.3-flash", "auto", "hi")
     ).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "low" });
-    // Models outside the effort set ignore request text entirely.
+    // Even models without a thinking mode receive their classified level.
     expect(
       reasoningParamsForModel(
         "ministral-14b-latest",
         "auto",
         "Design a system with trade-offs, step by step."
       )
-    ).toEqual({});
+    ).toEqual({ reasoning_effort: "high" });
   });
 
   it("falls back to the fallback model when the primary chat model is rate-limited", async () => {
@@ -450,7 +453,7 @@ describe("AI gateway chat stream handling", () => {
     expect(calls).toBe(2);
   });
 
-  it("posts the primary Pollinations model without GLM thinking fields", async () => {
+  it("posts no GLM thinking fields on the primary, but the request-classified effort", async () => {
     let requestBody: Record<string, unknown> = {};
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -464,9 +467,11 @@ describe("AI gateway chat stream handling", () => {
     const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Thought it through.");
     expect(requestBody.model).toBe("openai/gpt-6-luna");
-    // GPT-6 Luna is not in the GLM family, so no thinking fields are added.
+    // GPT-6 Luna is not in the GLM family, so there is no thinking field -
+    // but it honours reasoning_effort (listed in its supported_parameters),
+    // and the shallow request classifies low.
     expect(requestBody.thinking).toBeUndefined();
-    expect(requestBody.reasoning_effort).toBeUndefined();
+    expect(requestBody.reasoning_effort).toBe("low");
   });
 
   it("posts the request-classified effort for an auto-effort GLM chat", async () => {
@@ -492,14 +497,42 @@ describe("AI gateway chat stream handling", () => {
       { effort: "auto" }
     );
     expect(result.text).toBe("On it.");
-    // The primary GPT hop carries no thinking fields...
-    expect(bodies[0].reasoning_effort).toBeUndefined();
+    // The primary GPT hop carries the classified effort but no GLM
+    // thinking toggle; the fallback hop keeps both.
+    expect(bodies[0].reasoning_effort).toBe("low");
+    expect(bodies[0].thinking).toBeUndefined();
     // ...while the GLM fallback hop carries the request-classified effort:
     // a shallow ask resolves low instead of the old fixed deployment max.
     const fallbackBody = bodies[1];
     expect(fallbackBody.model).toBe("z-ai/glm-5.3-flash");
     expect(fallbackBody.reasoning_effort).toBe("low");
     expect(fallbackBody.thinking).toEqual({ type: "enabled" });
+  });
+
+  it("maps the max level to each route's top value", () => {
+    // Pollinations' request schema has no "max" - xhigh is its top.
+    expect(reasoningParamsForModel("openai/gpt-6-luna", "max")).toEqual({
+      reasoning_effort: "xhigh",
+    });
+    expect(reasoningParamsForModel("z-ai/glm-5.3-flash", "max")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "xhigh",
+    });
+    expect(reasoningParamsForModel("deepseek/deepseek-v4.1-flash", "max")).toEqual({
+      reasoning_effort: "xhigh",
+    });
+    // Bare GLM ids (BYOK against Zhipu) and Coarena's Gemini keep "max";
+    // Coarena's sol tops out at "xhigh".
+    expect(reasoningParamsForModel("glm-5.3-flash", "max")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    expect(reasoningParamsForModel("gemini-4-carbon", "max")).toEqual({
+      reasoning_effort: "max",
+    });
+    expect(reasoningParamsForModel("gpt-6-1-sol", "max")).toEqual({
+      reasoning_effort: "xhigh",
+    });
   });
 
   it("abandons a wedged streamed primary after the header timeout and falls back", async () => {

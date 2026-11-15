@@ -123,7 +123,7 @@ const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
  * automatically.
  */
 const COARENA_API_BASE_URL = "https://coarena.ai/api/v1";
-const COARENA_MODELS = new Set(["gemini-4-carbon", "claude-sonnet-5-5"]);
+const COARENA_MODELS = new Set(["gemini-4-carbon", "gpt-6-1-sol"]);
 
 /** The primary model Nova's built-in gateway serves. */
 export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";

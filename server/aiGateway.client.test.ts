@@ -235,16 +235,16 @@ describe("AI gateway client", () => {
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${COARENA_KEY}` }) }));
   });
 
-  it("routes the Claude Sonnet slot to Coarena under its upstream id", async () => {
+  it("routes the GPT-6.1 Sol slot to Coarena under its upstream id", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "sonnet reply" } }], model: "claude-sonnet-5-5" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "sol reply" } }], model: "gpt-6-1-sol" }), { status: 200 }));
 
-    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "claude-sonnet-5.5" });
-    expect(result).toMatchObject({ text: "sonnet reply" });
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6.1-sol" });
+    expect(result).toMatchObject({ text: "sol reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.anything());
     // The catalogue id (dot) becomes the upstream id (hyphen) on the wire.
-    expect(postedModels()).toEqual(["claude-sonnet-5-5"]);
+    expect(postedModels()).toEqual(["gpt-6-1-sol"]);
   });
 
   it("falls back to Pollinations behind a failed Coarena hop", async () => {
@@ -266,7 +266,7 @@ describe("AI gateway client", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await expect(
-      chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "claude-sonnet-5.5" })
+      chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6.1-sol" })
     ).rejects.toMatchObject({ kind: "configuration" });
     // Only the Pollinations health probe ever left the process.
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);

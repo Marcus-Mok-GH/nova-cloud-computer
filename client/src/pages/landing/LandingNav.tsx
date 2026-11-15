@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { CtaButton, landingAnchors, useEnterNova } from "./shared";
 
 const navLinkClasses =
-  "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "whitespace-nowrap rounded-full px-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const NAV_HEIGHT = 72;
 
@@ -16,6 +16,11 @@ export default function LandingNav() {
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated, enterNova } = useEnterNova();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [compactNav, setCompactNav] = useState(true);
+  const headerContentRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLAnchorElement>(null);
+  const desktopNavRef = useRef<HTMLElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuPanelRef = useRef<HTMLElement>(null);
   const ctaLabel = isAuthenticated
@@ -30,6 +35,68 @@ export default function LandingNav() {
     setMenuOpen(false);
     menuButtonRef.current?.focus({ preventScroll: true });
   };
+
+  useEffect(() => {
+    const row = headerContentRef.current;
+    const brand = brandRef.current;
+    const desktopNav = desktopNavRef.current;
+    const controls = controlsRef.current;
+    if (!row || !brand || !desktopNav || !controls) return;
+
+    const measure = () => {
+      if (window.innerWidth < 1024) {
+        setCompactNav(true);
+        return;
+      }
+
+      const rowStyle = window.getComputedStyle(row);
+      const controlsStyle = window.getComputedStyle(controls);
+      const horizontalPadding =
+        parseFloat(rowStyle.paddingLeft) + parseFloat(rowStyle.paddingRight);
+      const availableWidth = row.clientWidth - horizontalPadding;
+      if (availableWidth <= 0 || desktopNav.scrollWidth === 0) return;
+
+      const outerGap = parseFloat(rowStyle.columnGap) || 0;
+      const controlGap = parseFloat(controlsStyle.columnGap) || 0;
+      const visibleControls = Array.from(controls.children).filter(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement &&
+          element !== menuButtonRef.current &&
+          window.getComputedStyle(element).display !== "none"
+      );
+      const controlsWidth =
+        visibleControls.reduce(
+          (width, element) => width + element.getBoundingClientRect().width,
+          0
+        ) +
+        controlGap * Math.max(0, visibleControls.length - 1);
+      const requiredWidth =
+        brand.scrollWidth +
+        desktopNav.scrollWidth +
+        controlsWidth +
+        outerGap * 2;
+
+      setCompactNav(requiredWidth > availableWidth + 1);
+    };
+
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(row);
+    observer?.observe(brand);
+    observer?.observe(desktopNav);
+    observer?.observe(controls);
+    window.addEventListener("resize", measure);
+    measure();
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [language, ctaLabel]);
+
+  useEffect(() => {
+    if (!compactNav) setMenuOpen(false);
+  }, [compactNav]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -62,8 +129,16 @@ export default function LandingNav() {
         if (event.key === "Escape" && menuOpen) closeMenu();
       }}
     >
-      <div className="mx-auto flex h-[var(--landing-nav-height)] max-w-6xl items-center justify-between gap-6 px-5 sm:px-8">
-        <a href="#top" className="flex items-center gap-2.5" aria-label="Nova">
+      <div
+        ref={headerContentRef}
+        className="mx-auto flex h-[var(--landing-nav-height)] max-w-6xl items-center justify-between gap-4 px-5 sm:px-8"
+      >
+        <a
+          ref={brandRef}
+          href="#top"
+          className="flex items-center gap-2.5"
+          aria-label="Nova"
+        >
           <img
             src="/logo-96.png"
             alt=""
@@ -78,7 +153,16 @@ export default function LandingNav() {
         </a>
 
         <nav
-          className="hidden items-center gap-1 lg:flex"
+          ref={desktopNavRef}
+          className={cn(
+            "items-center gap-1",
+            compactNav
+              ? "invisible pointer-events-none fixed top-0 flex w-max"
+              : "hidden lg:flex"
+          )}
+          style={compactNav ? { left: -10000 } : undefined}
+          aria-hidden={compactNav}
+          inert={compactNav}
           aria-label={t("landing.nav.aria")}
         >
           {landingAnchors.map(anchor => (
@@ -91,7 +175,7 @@ export default function LandingNav() {
           </a>
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div ref={controlsRef} className="flex items-center gap-2">
           <button
             type="button"
             onClick={toggleTheme}
@@ -130,7 +214,10 @@ export default function LandingNav() {
             ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen(open => !open)}
-            className="grid size-9 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+            className={cn(
+              "grid size-9 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              compactNav ? "lg:grid" : "lg:hidden"
+            )}
             aria-expanded={menuOpen}
             aria-controls="landing-mobile-nav"
             aria-label={
@@ -158,7 +245,8 @@ export default function LandingNav() {
         aria-label={t("landing.nav.aria")}
         inert={!menuOpen}
         className={cn(
-          "absolute inset-x-0 top-full border-b border-border bg-background shadow-lg lg:hidden",
+          "absolute inset-x-0 top-full border-b border-border bg-background shadow-lg",
+          compactNav ? "" : "lg:hidden",
           "transition-[transform,opacity,visibility] motion-reduce:transition-none",
           menuOpen
             ? "visible translate-y-0 opacity-100 duration-200 ease-out"

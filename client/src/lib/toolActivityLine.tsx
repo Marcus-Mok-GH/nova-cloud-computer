@@ -689,6 +689,11 @@ export function toolChipContainerClass(
   return `${base} ${tone}`;
 }
 
+/** Scroll a panel to its bottom edge; a null ref (unmounted) is a no-op. */
+export function scrollPanelToBottom(el: HTMLElement | null): void {
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
 /**
  * thinking blocks: the private reasoning a reasoning-capable model streams
  * before its answer (reasoning_content), as a collapsible panel like the
@@ -699,10 +704,17 @@ export function toolChipContainerClass(
 export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
   const running = activity.state === "running";
   const [open, setOpen] = useState(running);
+  const detailRef = useRef<HTMLDivElement>(null);
   // Collapse when the round settles so the finished answer leads the panel.
   useEffect(() => {
     if (activity.state !== "running") setOpen(false);
   }, [activity.state]);
+  // Follow the live stream: each new reasoning chunk lands at the panel's
+  // bottom, so while the model thinks keep it scrolled to show the newest
+  // text. A settled panel stays put when re-opened for reading.
+  useEffect(() => {
+    if (running && open) scrollPanelToBottom(detailRef.current);
+  }, [running, open, activity.detail]);
   return (
     <div
       data-testid="thinking-tool-activity"
@@ -731,6 +743,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
       </button>
       {open && (
         <div
+          ref={detailRef}
           data-testid="thinking-detail-panel"
           className="mt-2 max-h-72 w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-xl border border-border/70 bg-background/70 px-3.5 py-3 shadow-inner dark:border-white/10"
         >

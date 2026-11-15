@@ -45,7 +45,12 @@ describe("landing and sign-in render", () => {
     // How it works, channels, pricing, FAQ
     expect(markup).toContain("A small handoff can change your whole day.");
     expect(markup).toContain("Keep the conversation close.");
-    expect(markup).toContain("Daily credits, or your own model.");
+    expect(markup).toContain("Daily balance, or your own model.");
+    // Real plan prices belong on the pricing section, not only behind sign-in.
+    expect(markup).toContain("Free trial");
+    expect(markup).toContain("$4.99");
+    expect(markup).toContain("$7.99");
+    expect(markup).toContain("$10.00 a day");
     expect(markup).toContain("What exactly is Nova?");
     // Developer callout and footer
     expect(markup).toContain("POST /api/v1/chat/completions");
@@ -100,8 +105,16 @@ describe("landing and sign-in render", () => {
 
   it("renders the Zo-style sign-in page", () => {
     const markup = renderToStaticMarkup(<SignIn />);
-    expect(markup).toContain("Sign in to Nova.");
-    expect(markup).toContain("Email me a sign-in code");
+    expect(markup).toContain("Get started with Nova.");
+    expect(markup).toContain("Create my account");
     expect(markup).toContain("you@example.com");
+    // A visitor who clicked "Get started" must be told this creates an account,
+    // that the trial is free, and that no card is needed - the page used to read
+    // as a login wall for accounts that already exist.
+    expect(markup).toContain("create your account automatically");
+    expect(markup).toContain("free 14-day trial");
+    expect(markup).toContain("no card required");
+    expect(markup).not.toContain("Sign in to Nova.");
+    expect(markup).not.toContain("Email me a sign-in code");
   });
 });

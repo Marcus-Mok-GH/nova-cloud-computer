@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WorkspaceSettings from "./WorkspaceSettings";
 
 const mutation = { mutate: vi.fn(), isPending: false };
@@ -8,7 +8,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 1, email
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, environmentVars: { useQuery: () => ({ data: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }], isLoading: false, isError: false, refetch: vi.fn() }) }, setEnvironmentVars: { useMutation: () => mutation }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
+    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, personalities: { useQuery: () => ({ data: { personalities: [{ id: "default", name: "Default", description: "Nova's own voice — balanced length, asks when unsure.", instructions: null, detail: null, collaboration: null, expertise: null, builtIn: true }], activePersonalityId: "default" }, isLoading: false, isError: false, refetch: vi.fn() }) }, setActivePersonality: { useMutation: () => mutation }, createPersonality: { useMutation: () => mutation }, updatePersonality: { useMutation: () => mutation }, deletePersonality: { useMutation: () => mutation }, environmentVars: { useQuery: () => ({ data: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }], isLoading: false, isError: false, refetch: vi.fn() }) }, setEnvironmentVars: { useMutation: () => mutation }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
     chats: { create: { useMutation: () => mutation } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
     ai: { status: { useQuery: () => ({ data: { model: "chat-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
@@ -19,7 +19,7 @@ vi.mock("@/lib/trpc", () => ({
     billing: { status: { useQuery: () => ({ data: { priority: false, armed: false, purchasedAt: null, activatedAt: null, expiresAt: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, purchasePriority: { useMutation: () => mutation } },
     composio: { status: { useQuery: () => ({ data: { keyLength: 40, toolkits: { github: { configured: true, connected: true, status: "active", connectedAccountId: "acc_github" }, gmail: { configured: true, connected: false, status: "disconnected", connectedAccountId: null }, vercel: { configured: true, connected: false, status: "disconnected", connectedAccountId: null } } }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
     codex: { status: { useQuery: () => ({ data: { configured: true, connected: false, pending: false, state: "disconnected", verificationUrl: null, userCode: null }, isLoading: false, isFetching: false, isError: false, refetch: vi.fn() }) }, connect: { useMutation: () => mutation }, disconnect: { useMutation: () => mutation } },
-    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, environmentVars: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, codex: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ workspace: { modelSettings: { invalidate: vi.fn() }, personalities: { invalidate: vi.fn() }, environmentVars: { invalidate: vi.fn() }, dashboard: { invalidate: vi.fn() }, listMemories: { invalidate: vi.fn() } }, telegram: { status: { invalidate: vi.fn() } }, automations: { list: { invalidate: vi.fn() }, runs: { invalidate: vi.fn() } }, composio: { status: { invalidate: vi.fn() } }, codex: { status: { invalidate: vi.fn() } }, billing: { status: { invalidate: vi.fn() } } }),
   },
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -40,6 +40,10 @@ vi.mock("@/contexts/ThemeContext", () => ({
 }));
 
 describe("Workspace settings page", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders workspace rules, Telegram connection, and natural-language automations", () => {
     const markup = renderToStaticMarkup(<WorkspaceSettings />);
     expect(markup).toContain('role="tablist"');
@@ -49,14 +53,14 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("OpenAI Codex");
     expect(markup).toContain("Automations");
     expect(markup).toContain("API keys");
-    expect(markup).toContain("Billing");
-    expect(markup).toContain("Priority requests");
-    expect(markup).toContain("Buy 1 hour of priority");
     expect(markup).toContain("Account</button>");
     expect(markup).toContain("Workspace rules");
     expect(markup).toContain("Personalisation");
     expect(markup).toContain("Tune Nova to how you work");
     expect(markup).toContain("Personalisation mode");
+    // Personalities live on the Personalisation tab, above the existing card.
+    expect(markup).toContain("Personalities");
+    expect(markup).toContain("Create personality");
     expect(markup).toContain("What Nova knows about you");
     expect(markup).toContain("Start guided setup");
     expect(markup).toContain("What Nova remembers");
@@ -107,5 +111,31 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Confirmed with a code sent to your email");
     expect(markup).not.toContain("Change password");
     expect(markup).not.toContain("Current password");
+  });
+
+  it("restores the last selected settings tab from localStorage on reload", () => {
+    const stored = new Map<string, string>([["nova.settings.tab", "account"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, String(value)); },
+      removeItem: (key: string) => { stored.delete(key); },
+      clear: () => { stored.clear(); },
+    });
+    const markup = renderToStaticMarkup(<WorkspaceSettings />);
+    // The stored "account" tab is selected; the default "general" tab is not.
+    expect(markup).toContain('id="settings-tab-account" aria-selected="true"');
+    expect(markup).toContain('id="settings-tab-general" aria-selected="false"');
+  });
+
+  it("falls back to the general tab when the stored value is unknown", () => {
+    const stored = new Map<string, string>([["nova.settings.tab", "nonexistent"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, String(value)); },
+      removeItem: (key: string) => { stored.delete(key); },
+      clear: () => { stored.clear(); },
+    });
+    const markup = renderToStaticMarkup(<WorkspaceSettings />);
+    expect(markup).toContain('id="settings-tab-general" aria-selected="true"');
   });
 });

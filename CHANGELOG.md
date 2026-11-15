@@ -1,3 +1,962 @@
+2026-11-14 - fix(auth): adopt an existing account when Neon re-issues a subject
+
+Sign-in resolves users by the Neon Auth subject alone, so a re-issued `sub`
+for an address that already owns a row inserted a second account next to the
+first - workspace, credit ledger and role pin split across two rows (the
+pinned developer ended up with two DEVELOPER entries in the admin list).
+Both create paths (Neon token verification and the session OAuth sync) now
+call adoptUserByEmail on the openId miss: the row already holding the
+address is rebound to the incoming subject, and the sign-in lands on it.
+Covered by server/db/users.test.ts; the pre-existing duplicate pair was
+merged in production (one row, both workspaces' chats and files combined,
+daily ledger summed, linked Telegram binding kept).
+
+2026-11-14 - feat(billing): present the credit ledger as dollars
+
+Every surface that showed credits now shows plain dollars at the flat
+top-up rate ($1 = 1,000 credits): the header chip reads "$0.47 left" with
+a "$0.47 of $0.50 remaining - resets at UTC midnight" tooltip, the Billing
+balance card and plan features read in dollars (Free $0.50/day, Plus
+$5.00/day, Pro $10.00/day), a $5.00 top-up grants $5.00, and S$ price
+labels are now plain $. Landing pricing, FAQ, API-docs copy, checkout
+summaries, the support bot's pricing brief and Whop variant descriptions
+all follow. Agent wallets join in: the wallet line in an agent's identity
+prompt, the purchase approval messages, and the request_purchase tool
+(argument renamed amount_dollars) all speak dollars, converted through
+the new shared/money.ts. The ledger itself still stores integer credits -
+no schema, Whop product, plan price or flow changed, and the
+insufficient_credits API error code is untouched.
+
+2026-11-14 - feat(models): move the Gemini and Sonnet slots to Coarena
+
+Two picker slots now upstream to Coarena's OpenAI-compatible Model API
+(https://coarena.ai/api/v1, COARENA_API_KEY) instead of Pollinations: the
+Gemini slot follows Google's newest flagship - label "Gemini 4 Carbon",
+id gemini-4-carbon - and the former Grok 4.1 slot now serves Claude Sonnet
+5.5 (catalogue id claude-sonnet-5.5, upstream claude-sonnet-5-5). Routing
+lives in gatewayFetch: it reads the model from each request's own body, so
+only those two ids leave Pollinations and a Pollinations fallback hop
+behind a failed Coarena hop crosses back automatically; a missing Coarena
+credential fails those models with a clean configuration error while the
+rest of the gateway is untouched. Migration 0063 remaps stored chats from
+gemini-3-pro and grok-4.1 to the new ids. Both Coarena Claude models were
+temporarily off platform-wide at ship time ("try again later"), so the
+Sonnet slot answers with Coarena's own model-off message until they return.
+
+Files: shared/models.ts, shared/models.test.ts, server/aiGateway.ts,
+server/aiGateway.client.test.ts, drizzle/neon/0063_coarena_slots.sql,
+drizzle/neon/meta/_journal.json, CHANGELOG.md (plus the COARENA_API_KEY
+environment variable in Vercel Production).
+
+Tests: pnpm exec vitest run server/aiGateway.client.test.ts
+shared/models.test.ts server/chats.router.test.ts, pnpm check, pnpm build,
+pnpm test.
+
+2026-11-14 - feat(models): replace Claude Sonnet 4.6 with DeepSeek V4.1 Flash 1017
+
+The premium picker slot that served Claude Sonnet 4.6 now serves DeepSeek
+V4.1 Flash: catalogue id `deepseek-v4.1-flash`, upstream
+`deepseek/deepseek-v4.1-flash` on Pollinations (verified live: free tier,
+tool calling, reasoning, healthy). The UI label carries the build number -
+"DeepSeek V4.1 Flash 1017" - while neither id gets it appended. Tier (Pro)
+and the auto-only effort range are unchanged, and migration 0062 remaps
+chats that had the Sonnet slot selected to the new id so they keep their
+chosen model instead of resolving to no catalogue entry and falling through
+to the built-in chain.
+
+Files: shared/models.ts, shared/models.test.ts,
+server/chats.router.test.ts, drizzle/neon/0062_swap_sonnet_deepseek.sql,
+drizzle/neon/meta/_journal.json, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/models.test.ts server/chats.router.test.ts,
+pnpm check, pnpm build, pnpm test.
+
+2026-11-14 - feat(onboarding): prompt existing accounts for their country on next sign-in
+
+Accounts that finished onboarding before the country question existed now
+get a one-shot country prompt on their next sign-in: auth.onboarding returns
+needsCountry (completed + no country + never prompted), DashboardLayout
+renders the new CountryPromptModal for it, and auth.saveCountryPrompt records
+the answer (switching the interface language, same as onboarding) or the
+dismissal - either way the account is asked exactly once. New signups stamp
+the same marker when they submit onboarding, so they are never re-asked, and
+the country-select markup moved to client/src/lib/countryOptions.ts, shared
+by both dialogs.
+
+Files: drizzle/schema.ts, drizzle/neon/0061_country_prompted.sql,
+drizzle/neon/meta/_journal.json, server/db/users.ts, server/routers.ts,
+server/onboarding.router.test.ts, client/src/lib/countryOptions.ts,
+client/src/components/OnboardingModal.tsx,
+client/src/components/CountryPromptModal.tsx,
+client/src/components/CountryPromptModal.render.test.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, CHANGELOG.md.
+
+Tests: pnpm exec vitest run server/onboarding.router.test.ts
+client/src/components/CountryPromptModal.render.test.tsx
+client/src/components/OnboardingModal.render.test.tsx
+client/src/components/DashboardLayout.verify.test.tsx, pnpm check,
+pnpm build, pnpm test.
+
+2026-11-14 - feat(onboarding): ask the signup country and switch Nova's language to match
+
+New accounts now get a fourth onboarding question - which country they are
+in, over the full ISO 3166-1 list with names localised through
+Intl.DisplayNames. Saving a completed onboarding switches the interface to
+that country's language: shared/countries.ts maps a country only when its
+formal language is one Nova ships, while multilingual countries (Canada,
+Belgium, Switzerland, India...) and unsupported-language countries stay
+unmapped so the browser's language survives. The country is stored on the
+user row (migration 0060), returned by auth.onboarding, and injected into
+the agent's system prompt as the account language, so Nova's replies pin to
+that language instead of drifting into another one mid-conversation; the
+base prompt rule also hardened from "match the user's language when
+practical" to "never switch to a different language on your own".
+
+Files: shared/countries.ts, shared/countries.test.ts, drizzle/schema.ts,
+drizzle/neon/0060_onboarding_country.sql, drizzle/neon/meta/_journal.json,
+server/db/users.ts, server/routers.ts, server/onboarding.router.test.ts,
+server/workspace/workspaceAgent.ts, server/workspace/workspacePrompt.ts,
+server/workspaceAgent.test.ts, client/src/components/OnboardingModal.tsx,
+client/src/components/OnboardingModal.render.test.tsx, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/countries.test.ts server/onboarding.router.test.ts
+client/src/components/OnboardingModal.render.test.tsx server/workspaceAgent.test.ts,
+pnpm check, pnpm build, pnpm test.
+
+2026-11-14 - feat(models): switch Nova Ultra to MiniMax M3.1 Flash
+
+Updated `nova-ultra` in the shared chat model catalogue (`DEFAULT_CHAT_MODELS`)
+from `gpt-5.2` to `minimax/minimax-m3.1-flash` on the Pollinations AI gateway,
+keeping its Pro-tier gating and full effort range.
+
+Files: shared/models.ts, shared/models.test.ts, CHANGELOG.md.
+
+Tests: pnpm exec vitest run shared/models.test.ts server/chats.router.test.ts,
+pnpm check, pnpm build, pnpm test.
+
+2026-11-14 - fix(billing): read an operator's Pro access from the role, not the subscription
+
+An operator account (role `admin` or `developer`) holds Pro access through the
+role, so its Whop subscription row stays `free` and inactive. The billing page
+decided whether the account had a paid tier from that raw plan, so it read
+"Current plan: Free", "Credits: Free", and an upgrade pitch for Pro the account
+already owned - while the header badge beside the wordmark correctly read
+"Admin", and every other Pro gate in the app (model picker, agents, workspace)
+already read the server's effective `proAccess` flag. The page now reads that
+flag too: an operator sees the Admin tier with "Included with your operator
+access.", the Pro card marked as its plan, Free marked as included, and - for a
+developer's unlimited ledger - "Unlimited" instead of a zero balance. The
+Manage subscription button still requires a real subscription, so an account
+with no Whop membership is not offered a portal it cannot use.
+
+Files: client/src/pages/Billing.tsx, client/src/pages/Billing.render.test.tsx,
+client/src/i18n/en.ts + the 16 generated locales and manifest, CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Billing.render.test.tsx,
+client/src/contexts/LanguageContext.test.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, pnpm check.
+
+2026-11-13 - fix(auth): give the sign-in code step a resend path
+
+The OTP step dead-ended for every visitor whose code was merely late. After
+"Check your email" the only actions were typing a six-digit code the visitor
+may never have received and "Use a different email" - a button that reads as
+a typo fix, not a recovery path - so a correct address with a delayed, spam-
+foldered, or expired code had no way forward at the moment of highest intent.
+The step now offers "Didn't get the code? Resend it" behind a 60-second
+cooldown (long enough that mashing it cannot trip Neon's send rate limit),
+confirms each send with "We sent another code to <email>", clears a stale
+code on resend, and states plainly that codes expire after a few minutes and
+that the spam folder is worth checking before resending.
+
+Files: client/src/pages/SignIn.tsx, client/src/pages/SignIn.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/SignIn.render.test.tsx, pnpm check,
+pnpm build, pnpm test (162 files, 1726 passed). Verified in a browser at
+1440x900 and 390x844: resend fires, notice shows, cooldown counts down with
+the button disabled, no overflow or overlap, no console errors.
+
+2026-11-13 - fix(auth): make the sign-in page read as account creation, not a login wall
+
+Every "Get started" call to action on the public site - nav, hero, pricing,
+footer - lands on `/sign-in`, which was titled "Sign in to Nova." and said
+nothing about what happens next. A first-time visitor who had just clicked
+"Get started" was asked for an email with no statement that this creates an
+account, no mention of the free 14-day trial, and no assurance that no card is
+required, so the page read as a login wall they could not pass. The page now
+opens with "Get started with Nova.", states that the account is created
+automatically and that new workspaces start with a free 14-day trial with no
+card required (while still signing returning visitors back in), its primary
+action is "Create my account", and the fine print spells out the passwordless
+one-time code in plain language instead of "we do not store a password for
+this sign-in method".
+
+Files: client/src/pages/SignIn.tsx, client/src/pages/Home.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Home.render.test.tsx,
+pnpm vitest run client/src/pages/Waitlist.render.test.tsx, pnpm check,
+pnpm test, pnpm build.
+
+2026-11-13 - fix(support-bot): give the public Q&A assistant Nova's real prices
+
+The landing page's Q&A assistant answered "I don't have Nova's monthly
+pricing details" for the most common buying question, because its
+server-owned product brief carried no prices and the system prompt
+forbade inventing them. The brief now lists the real ladder - free
+14-day trial (500 credits/day), Plus S$4.99/mo (5,000/day), Pro
+S$7.99/mo (10,000/day plus premium models), priority S$4.99 one-time,
+and credit top-ups from S$5 - and the prompt tells the assistant to
+quote those prices exactly rather than guess.
+
+Files: server/supportBot.ts, server/supportBot.test.ts, CHANGELOG.md.
+
+Tests: pnpm vitest run server/supportBot.test.ts, pnpm check, pnpm test,
+pnpm build.
+
+2026-11-13 - feat(landing): show real plan prices in the pricing section
+
+A visitor could not find out what Nova costs anywhere on the public site:
+the nav promises "Pricing" but the section described only the daily-credit
+model, the FAQ cost answer carried no numbers, and the on-page Q&A
+assistant answered "I don't have Nova's monthly pricing details". The
+pricing section now leads with the real plan ladder - Free trial (S$0, 14
+days, 500 credits a day), Plus (S$4.99/mo, 5,000 credits a day) and Pro
+(S$7.99/mo, 10,000 credits a day plus premium models) - followed by a line
+for priority (S$4.99 one-time) and credit top-ups (from S$5). The FAQ
+"How much does it cost?" answer now carries the same figures.
+
+Files: client/src/pages/landing/Pricing.tsx, client/src/i18n/en.ts,
+client/src/i18n/*.ts, client/src/pages/Home.render.test.tsx, CHANGELOG.md.
+
+Tests: pnpm vitest run client/src/pages/Home.render.test.tsx, pnpm check,
+pnpm test, pnpm build.
+
+2026-11-12 - fix(billing): pin credit top-up checkouts to real Whop variants
+
+Credit checkout (billing.purchaseCredits) died with a Whop 403 "not
+authorized": the production company API key may reference an existing
+variant but may not create one inline, and the credit checkout was the only
+tier that still built its variant inline. Pro/Plus/Priority all pin their
+variant via env and reference it - credits now do the same:
+
+- `WHOP_CREDIT_PLAN_IDS` (new env, JSON slug -> `plan_` map) pins each ladder
+  rung; `createWhopCreditTopUpCheckout` sends `variant_id` when the bundle is
+  pinned and falls back to the inline variant when it is not (dev setups).
+- The six rungs (S$5-S$50) live on the Whop "Nova credits" product
+  (prod_vcdXKwxF7qIOl) with the same payment methods as the subscription
+  tiers; credit granting is unchanged - the webhook still resolves the
+  amount from the shared catalog via `nova_credit_product_id`.
+
+Files: server/whop.ts, server/whop.creditsCheckout.test.ts, CHANGELOG.md.
+
+Tests: pnpm vitest run server/whop.creditsCheckout.test.ts, pnpm check.
+
+2026-11-12 - fix(billing): call every Billing hook before the early returns
+
+The Plus launch shipped React error #310 ("Rendered more hooks than during
+the previous render") on the Billing page. The new `credits.status` query
+was declared *after* the loading/error early returns, so the first paint
+(loading) skipped it and the re-render that carried data added it - React
+threw and the page fell back to the error boundary. The query moved above
+the returns, and a source-level regression test now asserts that no hook
+call appears after the first early return in Billing.tsx (the
+static-render tests build a fresh instance per call, so they cannot see a
+hook-count change between renders).
+
+Files: client/src/pages/Billing.tsx, client/src/pages/Billing.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm check, pnpm test, pnpm build.
+
+2026-11-12 - Nova Plus (S$4.99, 5,000 credits a day) and Pro credits replenish daily
+
+The ladder was Free (500/day) and Pro (10,000 a month, unused rolling
+over for a year). Pro users who spent their pool mid-month had nothing
+until the next month, and there was no tier between Free and Pro for
+someone who only wanted more credits.
+
+- New **Nova Plus** tier at S$4.99/month: 5,000 credits a day, nothing
+  else. It is a real subscription tier (`user_subscriptions.plan` holds
+  `plus`; no schema change), purchasable at `/checkout?product=plus`,
+  granted by the Whop webhook, and shown in the billing page and the
+  account plan menu. It deliberately does NOT unlock premium models,
+  agents, or teams - `hasProAccessForUser` still reads Pro-only.
+- **Pro credits now replenish daily**: 10,000 credits a day, UTC reset,
+  replacing the 10,000/month pool and its 12-month carry-over. Every
+  tier now spends the same `daily_credits` ledger; the monthly
+  machinery (`claimMonthlyCreditForUser`,
+  `settleMonthlyCreditUsageForUser`,
+  `ensureMonthlyAllocationForUser`,
+  `getMonthlyCreditStatusForUser`, `isPaidPlanForUser`) is deleted.
+- The daily allowance is plan-aware and role-elevated
+  (`getDailyCreditPolicyForAccount`): free 500, plus 5,000, pro 10,000;
+  admins keep at least their 1,000 and developers stay unlimited. A
+  claim refreshes the row's allocation, so an upgrade applies the same
+  day.
+- `billing.subscription` drops `monthlyCredits`; the billing page shows
+  today's remaining allowance from `credits.status` instead.
+- Whop: `getWhopPlusPlanId()` pins the Plus variant
+  (`WHOP_PLUS_PLAN_ID`); the webhook maps the pinned Plus plan id to the
+  new tier and ignores only unpinned ids (previously any non-Pro
+  membership was dropped silently). Set `WHOP_PLUS_PLAN_ID` before
+  advertising Plus - without it the checkout falls back to an inline
+  S$4.99 variant.
+
+Existing Pro subscribers' unused monthly balance is forfeited - the
+daily allowance is strictly more generous. The `monthly_credits` table
+is left in place but unused.
+
+Files: server/credits.ts, server/db/credits.ts, server/aiGateway.ts,
+server/whop.ts, server/routers.ts, client/src/pages/Billing.tsx,
+client/src/pages/Checkout.tsx, client/src/pages/Workspace.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/components/ModelSelector.tsx,
+client/src/components/PromptModelControls.tsx, client/src/pages/Agents.tsx,
+client/src/i18n/en.ts + 16 locales, and the billing/credits tests.
+
+Tests: pnpm check, pnpm test, pnpm build; every task landed
+test-first (RED -> GREEN).
+
+2026-11-11 - every database object is created automatically, and the Whop webhook bootstraps the schema
+
+Audited the whole schema-creation path against production crash risk:
+all 40 tables, every declared column, and all 16 enums in
+drizzle/schema.ts are created by the committed migrations, and both the
+deploy build (`migrate-deploy`) and the runtime bootstrap
+(`server/migrate.ts`) apply pending migrations idempotently - the
+deploy-time step is skipped safely on infrastructure failures and the
+first database-backed request retries it.
+
+Two gaps closed:
+
+- `api/whop/webhook.ts` - the dedicated Whop webhook function wrote
+  subscription state without running `ensureDatabaseSchema()` first,
+  unlike every other database-backed entrypoint. A cold function instance
+  after a skipped build-time migration would 500 on a missing table, and
+  Whop would retry a webhook that could never succeed - silently losing
+  the subscription update. It now bootstraps before handling, after the
+  cheap config check so disabled deployments still short-circuit.
+- Column- and enum-level drift guards in `server/migrate.test.ts`: the
+  existing guard only checked table names, so a column or `pgEnum` added
+  to schema.ts without a committed migration would still crash
+  production. The new guards replay the migration SQL (CREATE TABLE
+  bodies, ADD/DROP COLUMN, renames, drops, CREATE TYPE) and assert every
+  declared column and enum ends up live.
+
+Files: api/whop/webhook.ts, server/migrate.test.ts, CHANGELOG.md.
+
+Tests: pnpm check, pnpm test (160 files / 1705 tests pass, 2 new),
+pnpm build.
+
+2026-11-11 - the free plan is a 14-day trial, then Nova Pro
+
+The free plan was a forever tier: a standard account could keep using
+Nova on the free model indefinitely, and only premium models and agent
+creation were Pro-gated. The free plan is now a trial - 14 days from
+the moment the account was created - after which the account must
+upgrade to Nova Pro to keep using Nova at all.
+
+- A new `FREE_TRIAL_DAYS` policy (14) and two predicates in the credits
+  module: `isFreeTrialActiveForUser` (createdAt + 14 days, failing open
+  when the account row is missing) and `hasActiveAccessForUser`
+  (Pro access OR a trial still inside its window).
+- Every AI entry point is gated: both gateway paths
+  (`chatWithAiGateway`, `completeWithAiGateway`) throw an
+  `upgrade_required` error before any funding or model work, so chat,
+  agents, BYOK fallback, automation planning, and the peak queue all
+  honour the switch. The web/Telegram error paths quote the upgrade
+  message; `ai.complete` maps it to PRECONDITION_FAILED and the
+  inference API to 403.
+- `billing.subscription` now reports `accessActive` (the effective
+  usage entitlement) and `trialEndsAt`, beside the existing `proAccess`
+  flag and raw `plan`.
+- The workspace mirrors the lock: once the trial closes, both composers
+  (task prompt and chat) disable and a notice points to the Pro upgrade
+  (`/checkout?product=pro`). The workspace itself stays readable - files,
+  agents, and history are never hidden from a lapsed account.
+- Credit funding is unchanged: `isPaidPlanForUser` still decides whose
+  runs draw from the monthly pool, and a lapsed Pro account whose trial
+  was spent long ago reads locked - the trial is one-time per account.
+
+Files: server/credits.ts, server/db/credits.ts, server/aiGateway.ts,
+server/routers.ts, server/inferenceApi.ts, server/novaApiErrors.ts,
+client/src/pages/Workspace.tsx, server/db/credits.test.ts,
+server/aiGateway.trialGate.test.ts, server/aiGateway.router.test.ts,
+server/billing.router.test.ts,
+client/src/pages/Workspace.render.test.tsx, CHANGELOG.md
+(plus the `hasActiveAccessForUser` stub added to existing db-barrel
+test mocks).
+
+Tests: pnpm check, pnpm test (160 files / 1703 tests pass, 28 new),
+pnpm build; the new cases watched RED first (no gate, wrong error kind)
+then GREEN.
+
+2026-11-11 - operators keep every Pro feature through the Admin tier
+
+The Admin tier added to the plan menu was a role marker with no
+entitlement behind it: console operators (admin/developer roles) still
+read "locked" at every Pro surface - premium models, agent and team
+creation - unless they also happened to pay for a subscription.
+
+Pro access is now a real entitlement, decided once on the server:
+
+- A new `hasProAccessForUser` predicate (next to the funding-source
+  `isPaidPlanForUser` in the credits module) reads true for an active
+  paid plan **or** a console-operator role.
+- Every Pro gate consults it: chat model selection and setting
+  (composer + send path), personal agent and team creation, and the
+  premium-model check on the AI gateway's completion path. Free
+  standard users see exactly the same locked state they always did.
+- `billing.subscription` now reports `proAccess` beside the raw plan,
+  and the web UI's Pro locks (the Agents page builders, the plan menu
+  rows) read that flag - so an operator's composer and builders read
+  unlocked even on a free subscription.
+- Credit funding stays subscription-based: an operator's runs spend
+  their role's daily credits (developers: unlimited), never a monthly
+  pool, so the funding-source predicate is unchanged.
+
+Files: server/db/credits.ts, server/routers.ts, server/aiGateway.ts,
+server/db/credits.test.ts, server/agents.router.test.ts,
+server/chats.router.test.ts, server/billing.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Workspace.tsx,
+client/src/components/DashboardLayout.tsx,
+client/src/pages/Agents.render.test.tsx,
+client/src/components/DashboardLayout.verify.test.tsx, CHANGELOG.md.
+
+Tests: pnpm check, pnpm test (1686 passed, 11 new), pnpm build; the
+new cases watched RED first (11 failures) then GREEN.
+
+2026-11-11 - creating personal agents is now a Nova Pro feature
+
+The Agents page's "New agent" builder was open to every account: free
+users could create personal agents - identity, wallet, and their own
+chat - while agent teams were already locked behind Nova Pro. Creating
+an agent team *requires* two personal agents, so the Pro gate on
+teams was only half of the story.
+
+Creating a personal agent is now Pro-gated at both ends, mirroring the
+team gate that already existed:
+
+- The server re-checks the subscription before creating anything:
+  `agents.create` refuses with a clear "Personal agents are part of
+  Nova Pro. Upgrade to create one." for any account whose plan is not
+  paid, so the rule holds for every client, not just the web UI.
+- The web UI locks the builder for free accounts: the "New agent"
+  buttons carry the Pro badge and a Pro-aware tooltip, and the dialog
+  swaps its form for a lock note plus the single upgrade CTA that goes
+  to the checkout page - the only checkout entry point, exactly like
+  the team builder.
+- Editing, deleting, and opening chats for agents you already have is
+  never locked: if a Pro plan lapses, the agents you created keep
+  working and keep being tunable.
+
+Files: server/routers.ts, server/agents.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx,
+CHANGELOG.md.
+
+Tests: pnpm check, pnpm test, pnpm build; the new router cases and
+button-badge cases watched RED first (2 failures) then GREEN.
+
+2026-11-11 - the plan menu beside the wordmark now knows the admin tier
+
+The plan dropdown that sits beside the Nova wordmark listed only the two
+subscription tiers, Free and Pro. Both are things an account *pays for*,
+which left the operator role with no tier of its own: an admin or developer
+saw "Free" or "Pro" beside the wordmark with no sign of the role they
+actually hold.
+
+A third tier, Admin, is now part of the ladder. It is held by the
+account's role, not by its subscription, so it shows up only for console
+operators - the same gate that owns the Admin and Notifications entries -
+and is never offered as something to buy. For an operator it is the
+current tier (the label beside the wordmark), while Free and Pro are still
+listed below it, Pro locked when the subscription is not paid: a role does
+not buy premium features, and the server's own model gating is unchanged.
+
+Standard users see exactly the two tiers they always did; the Admin row is
+filtered out rather than shown locked, so there is no upgrade path to tap
+into. The tier's label is i18n-wired (`layout.plan.admin`), and the
+row-derivation stays in the exported `planRows` helper so the menu's
+rendered body - which static markup cannot reach - is still unit-testable.
+
+2026-11-11 - the + button on Chats is a "start a new chat" shortcut, not a create action
+
+The floating + on the Chats archive used to create a conversation and jump
+straight into it at `/app?chatId=...`. That made the button a hidden
+"create conversation record" action: it wrote a row the user never asked for
+and skipped the workspace's own new-chat surface.
+
+Pressing + now only takes the visitor to the workspace, where the
+task-prompt screen starts a new conversation: the record comes into
+existence on first send, so nothing is pre-created and no stray "New
+workspace conversation" row is ever left in the archive. Opening an existing
+conversation remains a click on its row in the list.
+
+2026-11-11 - credits can be bought outright, S$5 to S$50
+
+Nova sold two things: the free daily allowance and the Nova Pro subscription
+that brings 10,000 credits a month. There was no way to simply buy credits. The
+Billing page now offers six one-time bundles - S$5 for 5,000 up to S$50 for
+50,000, a flat 1,000 credits per dollar, matching what Nova Pro effectively
+charges per credit.
+
+Bought credits are kept in their own ledger, one row per purchase, rather than
+folded into the monthly pool. That is deliberate: the monthly balance is derived
+from what the subscription allocates, so merging them would leave a lapsed
+subscription looking like it still held credits. Bundles are spent oldest-first
+and only once the plan's own credits are exhausted - a free account spends its
+daily allowance first, a subscriber spends the monthly pool first - so a top-up
+extends a run rather than being burned ahead of credits that would otherwise
+expire. Nothing expires.
+
+The ladder lives in one place, `shared/creditTopUps.ts`, and everything derives
+from it: checkout builds the Whop variant from it, the billing UI renders its
+cards from it, and the webhook grants from it. Prices are integer cents so no
+floating-point money reaches the database or the payment provider. Adding a rung
+needs no new Whop product, because each bundle is an inline one-time variant
+described by that catalog.
+
+Two properties are enforced in SQL rather than in application checks, because
+both are about money and both can race. A purchase is keyed by the provider's
+payment id through a unique index, so a redelivered webhook - and Whop retries
+until it receives a 2xx, so redelivery is the normal path, not an edge case -
+conflicts instead of granting twice. Spending is a conditional UPDATE on
+`remainingCredits > 0`, so two concurrent requests cannot drive a bundle
+negative; the loser moves on to the next bundle. Verified against live Postgres:
+a replayed payment inserted 0 rows and left the balance at exactly 10,000 rather
+than 20,000, and 20 claims against a 10-credit bundle ended at 0, never negative.
+
+The granted amount is read from the catalog and never from the webhook payload.
+A payload that claims a larger bundle is ignored, a bundle id that is not on the
+ladder is refused, and a payment marked as credits that cannot be fulfilled is
+logged as UNFULFILLED - loudly, because that state means someone paid and
+received nothing.
+
+Settlement follows the funding source. A request's credit cost is reserved up
+front, and when the final usage lands the extra is charged back to the same
+pool that funded the request: a daily account settles into the daily
+allowance, a Pro account into the monthly pool, an account that had to fall
+back to bought bundles settles into those bundles - otherwise a large request
+funded by a S$5 bundle would bill its remainder to a pool the account was not
+spending and the bundle would stretch far past its price. If bundles run out
+mid-request the remainder is left unbilled and a `[Credits]` warning is logged:
+the account was under-charged, and refunding would hand it more credits than
+it spent.
+
+Files: shared/creditTopUps.ts (the ladder), server/db/creditTopUps.ts
+(grant/spend/balance), drizzle/neon/0059_credit_topups.sql (table + indexes),
+server/whop.ts (checkout + webhook), server/aiGateway.ts (spend order),
+server/routers.ts (billing.subscription fields + billing.purchaseCredits),
+client/src/pages/Billing.tsx (bundle cards), client/src/pages/Checkout.tsx
+(`?credits=<id>`), README.md (env note).
+Tests: shared/creditTopUps.test.ts, server/db/creditTopUps.test.ts,
+server/whop.credits.test.ts, server/billing.router.test.ts,
+server/aiGateway.creditSource.test.ts (funding-source settlement). pnpm run check
+clean; pnpm test green; pnpm run build succeeds; the migration applies and
+re-applies cleanly.
+
+2026-11-11 - the boot screen wordmark animates while your workspace loads
+
+The first thing the app paints is the boot screen, drawn by the HTML parser
+before any JavaScript runs so there is never a blank page. It said "Starting
+Nova..." over a plain background. It now opens with the brand wordmark, with a
+band of warm light continuously flowing across the letters.
+
+It is built as two layers on purpose. A solid word sits underneath and a second
+copy, filled with a moving gradient and clipped to the letterforms, is layered
+over it. That way the screen degrades to a plain static wordmark - still legible,
+still on brand - if a browser does not paint background-clip:text or the
+gradient, which matters because the entire point of this screen is that it is
+never blank. A reduced-motion preference stops the sweep and holds the light
+mid-letter.
+
+The light sweeps from the left edge of the word to the right over 2.6s, looping
+seamlessly. Getting that motion right took two corrections worth recording: the
+band is positioned with background-position percentages, and computing where it
+actually lands is not obvious - with background-size 200% the painted image is
+twice the box width, so a sweep between, say, 195% and 140% keeps the band off
+the canvas for the entire cycle and renders a static word that merely looks like
+it should be moving. The sweep now runs 130% to -30%, which carries the band from
+off one edge to off the other, and a test computes each keyframe stop through the
+same formula so an off-canvas range cannot be introduced again. The same test
+pins the clip, the reduced-motion fallback, and the presence of the fallback
+wordmark and error text.
+
+Files: client/index.html (boot wordmark markup + animation styles),
+client/src/bootGuard.test.ts (five cases covering the animation).
+Verified in a browser against the built dist/public/index.html with the app
+bundle held back so the boot screen stayed up: the wordmark animates with a
+distinct frame in all 8 samples of the loop, renders in DM Serif Display, and
+sits correctly on both the light and dark surfaces. Tests: pnpm run check clean;
+pnpm test green; pnpm run build succeeds.
+
+2026-11-10 - a sent message can no longer vanish from the conversation
+
+Sending a message sometimes made it disappear: the message the user typed showed
+up optimistically, then was replaced a moment later by a ledger that did not
+contain it, leaving Nova's reply hanging off nothing. Two things had to line up,
+and both are fixed.
+
+The root cause is a race in `appendChatMessageForUser`. It read the chat to
+check ownership, then inserted the message in a separate statement, and
+`chat_messages.chatId` is a foreign key onto `chats`. A chat deleted between
+those two statements - the delete endpoint, or the Telegram prune that removes
+stale chats - made the insert raise a foreign-key violation (23503), which
+propagated as a raw DB error and dropped the write on the floor.
+
+Worse, the same function returned `undefined` silently whenever it could not
+resolve the chat, and the run loop ignored the result. So when the write was
+skipped the run carried on, streamed a reply, and persisted that reply against
+a message the ledger never stored - the sent message vanished on the next poll
+with no error anywhere, in the server log or the UI.
+
+The fix: `appendChatMessageForUser` now retries once on a foreign-key violation
+(a fresh chat lookup: it either finds a live chat and the write lands, or
+reports a genuine not-found), throws a user-facing error on any other failure
+instead of dropping the write, and the run loop treats a missing persisted user
+row as fatal to the turn - it refuses to answer a message it could not store.
+
+One subtlety worth recording, because the first version of this fix got it
+wrong: under Drizzle the thrown error is a `DrizzleQueryError` whose `.code` is
+`undefined`, with the pg error - including `code: "23503"` - nested on `.cause`.
+A `error.code === "23503"` check therefore never fires in production, so the
+retry was dead code that looked correct and passed a test built on a flat error
+shape. `server/db/core.ts` gains `isForeignKeyViolation`, which walks the cause
+chain the way the existing `isUniqueViolation` does, and the suite now drives
+the retry through a Drizzle-shaped error so the same mistake cannot pass again.
+
+Files: server/db/chats.ts (retry + throw), server/db/core.ts
+(isForeignKeyViolation), server/workspace/workspaceAgent.ts (the user-row write
+is now checked), server/db/chats.append.test.ts (new). Verified against live
+Postgres as well as in the suite: a concurrently-deleted chat raises the 23503,
+the helper retries and saves, and a message that cannot be stored fails loudly
+after exactly one retry. Tests: pnpm run check clean; pnpm test green; pnpm run
+build succeeds.
+
+2026-11-10 - the terminal no longer closes itself a few seconds after opening
+
+Two independent bugs made an open shell vanish almost immediately, both from
+the same blind spot: the workspace sandbox is shared, and the terminal session
+table lives in one server instance's memory.
+
+The sandbox is paused when it goes idle so it is not billed - on every agent
+run's exit path, and when a standalone VM run finishes. The terminal attaches
+its PTY inside that same machine, so an agent run finishing in another tab
+froze the sandbox and dropped the shell out from under the user. Worse, the
+terminal's own close/exit path pauses the machine too, so the teardown of one
+shell could end up as the cause of the next one dying. The pause sites now
+consult a small owner-scoped registry (server/sandboxLiveness.ts) and skip the
+pause while a shell is live; the terminal registers on open and clears on
+close or self-exit, so the machine stays warm exactly as long as a shell needs
+it and the idle savings resume afterwards.
+
+Separately, the client treated a single `active: false` read as proof the shell
+had died and printed "[the terminal session ended]". A poll that lands on a
+cold or rolled-over serverless instance reports no session while the PTY is
+still running, so the tab would tear itself down within seconds of opening.
+The read loop now requires the answer to hold for ~3s of consecutive polls
+before declaring the session over, which a real shell exit always does.
+
+Files: server/sandboxLiveness.ts (new), server/terminal.ts (register/clear +
+reset seam), server/sandboxWorkspace.ts (guard in pauseAgentSandbox),
+server/agentVm.ts (same guard where it pauses directly under the lifecycle
+lock), client/src/pages/Terminal.tsx (missing-read tolerance),
+server/sandboxPause.terminal.test.ts (new, 4 cases).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds. The new
+suite was written red first: it reproduced the pause-with-a-live-shell bug
+before the guard existed, and covers owner isolation plus the
+pause-resumes-after-close path.
+
+2026-11-10 - the header's plan menu lists both tiers, locking what you don't have
+
+The dropdown beside the Nova wordmark now lists every tier instead of just the
+account's own: Free with a Current tag, and Pro either Current (paid) or
+Locked (free). A locked tier is not selectable — tapping it opens billing,
+where the upgrade decision belongs. The trigger itself still shows only the
+account's own tier ("Free" or "Pro"), so nothing changes at a glance.
+
+The lock lives in a `planRows(isPaid)` helper rather than inline in the
+component: the menu body renders in a Radix portal, which a static render
+cannot see, so the row state would otherwise be untestable.
+
+Files: client/src/components/DashboardLayout.tsx (planRows + the menu rows),
+client/src/components/DashboardLayout.verify.test.tsx (planRows cases for both
+tiers plus the trigger cases), client/src/i18n/en.ts + the 16 generated locales
+(layout.plan.menuLabel / .current / .locked).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; both
+menu states rendered in a real browser — Free account reads "Free | Current"
+and "Pro | Locked", a Pro account reads "Pro | Current" with nothing locked.
+
+2026-11-10 - the header shows which plan the account is on
+
+Beside the Nova wordmark in the top bar there is now the account's plan — the
+highest one it holds, so a Pro account reads "Pro" and a free account reads
+"Free". Nothing lists the plans it does not have. It uses the brand display
+serif (`nova-display` — DM Serif Display at weight 400, since the family ships
+no bold and a synthesised one renders as doubled glyphs), sized to sit level
+with the wordmark.
+
+Selecting it opens a small menu: the plan name, then "Manage your plan", which
+routes to /app/billing. The label is empty until `billing.subscription`
+resolves, so a paying account never flashes "Free" on first paint; a lapsed
+subscription reads Free because the server's own active-then-paid verdict is
+what the badge renders.
+
+Files: client/src/components/DashboardLayout.tsx (ACCOUNT_PLANS + the badge),
+client/src/components/DashboardLayout.verify.test.tsx (three cases: Pro, Free,
+and unresolved), client/src/i18n/en.ts + the 16 generated locales.
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; the real
+header was rendered in both themes and checked for the display serif
+(computed family "DM Serif Display", weight 400) and vertical alignment with
+the wordmark.
+
+2026-11-10 - the composer has a personality picker
+
+The inert "My Nova" label under the task prompt (an aria-hidden span with a
+chevron that did nothing) is now a working personality selector. Nova ships one
+built-in personality, Default - its own voice, which changes nothing - and every
+other personality is defined by the user. Picking one changes how Nova writes in
+every reply; the choice is per workspace and rides into the agent's system
+prompt.
+
+A personality is a saved bundle of the structured personalisation controls plus
+free-form instructions: reply length, collaboration style, expertise, and a
+short "how it should behave" note. Settings > Personalisation is the only place
+they are created or edited (the dropdown just selects, and its footer deep-links
+to that tab); Default is listed read-only and cannot be edited or deleted.
+Deleting the personality that is currently selected falls back to Default.
+
+The prompt gained a {{personality}} block next to the existing {{style}} and
+{{personalisation}} ones. It renders empty for Default, so a workspace that
+never picked a personality keeps a byte-identical system prompt.
+
+Data: a workspace_personalities table plus an activePersonalityId column on
+workspace_settings (migration 0058). The settings row is created on demand -
+selecting a personality on a workspace that never opened Settings previously
+updated zero rows and silently lost the selection, which the live-database check
+caught.
+
+Files: shared/personalities.ts (new), drizzle/schema.ts +
+drizzle/neon/0058_workspace_personalities.sql (new) + meta/_journal.json,
+server/db/personalities.ts (new) + server/db.ts, server/routers.ts
+(workspace.personalities / setActivePersonality / createPersonality /
+updatePersonality / deletePersonality), server/workspace/workspacePrompt.ts
+(formatPersonalityForPrompt + the {{personality}} slot),
+server/workspace/workspaceAgent.ts (resolve and inject),
+client/src/components/PersonalitySelector.tsx (new, composer),
+client/src/components/PersonalitiesCard.tsx (new, Settings),
+client/src/pages/Workspace.tsx (dead label replaced),
+client/src/pages/WorkspaceSettings.tsx (?tab= deep links), and client/src/i18n
+(en + 16 generated locales).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds; the
+migration applied and re-applied cleanly against a live Postgres, and the full
+create → select → resolve → update → delete → fallback lifecycle was driven
+through the real data layer.
+
+2026-11-10 - Billing is its own page in the navigation
+
+Billing was a tab buried inside Settings; it is now a first-class destination
+at /app/billing, listed in the sidebar between Deployments and Terminal (and
+therefore on the More page, which renders the same nav list).
+
+The new page (client/src/pages/Billing.tsx) shows everything buyable in one
+place: the current plan with its renewal/cancellation date and a Manage
+subscription button, the paid credit balance with this month's usage and the
+carry-over window, and a card per plan — Free, Nova Pro (S$7.99/month) and
+Priority (S$4.99 one-time). Pro's card reads the live price and currency from
+`billing.subscription`, and every CTA that could charge money is disabled when
+the deployment has no Whop configuration. Buying Pro routes to the shared
+payment-methods page; Priority starts its Whop checkout directly and grants
+only when the webhook confirms payment.
+
+The Settings page no longer has a Billing tab: the tab entry, its panel, the
+BillingCard import and the dead `settings.tabs.billing` key are gone (the key
+was removed from the base locale and all seventeen generated locales). The
+priority countdown card that lived in that panel is now
+client/src/pages/BillingPriorityCard.tsx, renamed from components/BillingCard
+with its render test.
+
+Files: client/src/pages/Billing.tsx (new), client/src/pages/Billing.render.test.tsx
+(new), client/src/pages/BillingPriorityCard.tsx + .render.test.tsx (renamed from
+components/BillingCard), client/src/App.tsx (route), client/src/lib/nav.ts
+(nav entry), client/src/i18n/en.ts + locales + manifest, and
+client/src/pages/WorkspaceSettings.tsx + .render.test.tsx (Billing tab removed).
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds;
+/app/billing renders for a signed-in account and redirects anonymous visits to
+the sign-in gate.
+
+2026-11-10 - removed the PayNow payment option
+
+PayNow is gone from Nova billing, in both places it existed. The HitPay
+integration that backed the custom PayNow QR checkout is deleted wholesale -
+server/hitpay.ts, the /api/hitpay/webhook route, the billing.createHitPayCheckout
+tRPC procedure, its client button on /checkout, the co-deploy allowlist entry,
+the docs page, and the HitPay tests. The `paynow` flag on the Whop variant
+payment-method configuration is dropped too (it was inert - Whop's checkout
+eligibility engine never rendered PayNow for SGD, which is why HitPay existed).
+Card and Apple Pay via Whop are untouched: /checkout now offers a single
+Card (Whop) method, and the variant keeps Apple Pay.
+
+Files: server/hitpay.ts (deleted), server/hitpay.test.ts (deleted),
+docs/hitpay-paynow.md (deleted), server/app.ts (webhook + re-export removed),
+server/routers.ts (procedure + import removed), server/whop.ts (variant config
+now enables only apple_pay), client/src/pages/Checkout.tsx (PayNow button,
+mutation and state removed), client/src/components/BillingCard.tsx (comment),
+api/[...path].ts (co-deploy allowlist), server/billing.router.test.ts and
+server/chats.router.test.ts (HitPay mocks/tests removed),
+server/whop.paynow.test.ts -> server/whop.paymentMethods.test.ts.
+Tests: pnpm run check clean; pnpm test green; pnpm run build succeeds.
+
+2026-11-10 - fixed the crash when starting a task from the /app prompt
+
+Starting a conversation from the task-prompt card threw "Minified React
+error #300 - Rendered fewer hooks than expected". The prompt's model and
+effort selection hooks (the chats.create mutation, the billing.subscription
+query, and the selected-model / selected-effort / starting-session state)
+were declared after the component's early returns - the `if (chatId)` branch
+renders the open chat and returns before them. Submitting the prompt
+navigates to a chat, so that re-render skipped those hooks and dropped the
+hook count, which React rejects. The hooks are now declared at the top of
+the component, before any early return, so the hook order is identical
+whether or not a chat is open; only their derived values stay in the
+overview section.
+
+Files: client/src/pages/Workspace.tsx.
+Tests: the static render suite still renders both the prompt (model + effort
+controls) and the open-chat state without throwing; pnpm run check clean;
+pnpm test green; pnpm run build succeeds.
+
+2026-11-10 - the task prompt's model and effort selectors are live
+
+The two controls on the /app task-prompt card are no longer previews. The
+left one is the real model dropdown - the shared catalogue, with the
+premium entries locked for free accounts and the same upgrade CTA as the
+in-chat picker - and the one to its right is the effort selector for the
+chosen model: the deep-thinking levels that particular model offers
+(auto, low, medium, high, max for the built-in Nova models; auto only on
+external premium models, since the gateway would risk a rejection sending
+reasoning_effort to a strict endpoint). Switching models re-clamps the
+effort to what the new model offers.
+
+The selection rides into the conversation it starts: chats.create now
+takes an optional model and effort, the router re-checks the plan and that
+the effort is one the model actually offers (a deeper level on an
+auto-only model falls back to auto), and the value is stored on the chat
+row. A run reads both in one read and threads the effort into the AI
+gateway, where reasoning-capable models (the GLM-5.2-and-newer families)
+receive it as reasoning_effort - a run-level choice that overrides the
+deployment's POLLINATIONS_REASONING_EFFORT default. Queued web runs and
+BYOK GLM-family models honour it the same way.
+
+Files: shared/models.ts (EffortId, per-model efforts, effortOptionsForModelId,
+normalisation), drizzle/schema.ts + migration 0057 (chats.effort),
+server/db/chats.ts (create stores model + effort), server/routers.ts
+(chats.create model + effort, chats.models reports effort, the shared
+validator), server/aiGateway.ts + byokGateway.ts + workspace/workspaceRetry.ts
+(effort through to reasoningParamsForModel), server/workspace/workspaceAgent.ts
+(read the chat's effort, pass it to the round). Client:
+components/PromptModelControls.tsx (the two dependent menus),
+pages/Workspace.tsx (selection + billing.subscription, wired into
+createChat), pages/Workspace.render.test.tsx.
+Tests: server/chats.router.test.ts (create gating + effort downgrade +
+models.effort), shared/models.test.ts (per-model effort offers +
+normalisation), server/aiGateway.chatStream.test.ts (reasoningParamsForModel
+effort override); pnpm run check clean; pnpm test green; pnpm run build
+succeeds.
+
+2026-11-10 - the /app overview is now the task prompt
+
+The workspace home (no conversation open) is rebuilt as the task
+prompt: a dotted-grid screen with the "What does Nova need done?"
+question and a session composer. Submitting - Enter or the round start
+button - opens a fresh conversation titled after the task and hands the
+task (plus any attached images) straight to Nova. The card previews the
+conversation's controls: "Nova Lite", the free built-in model a new
+thread starts with, and "Auto" for the flow Nova picks. Under the card,
+the paperclip attaches images, the gear opens Workspace settings, and
+"My Nova" previews the workspace control. The "Tools on hand"
+connector grid and the old "What are we working on today?" heading are
+retired; connector setup stays reachable through Settings.
+
+Files: client/src/pages/Workspace.tsx (overview block, connector
+queries retired), client/src/index.css (nova-prompt-shell dot grid),
+client/src/pages/Workspace.render.test.tsx.
+Tests: pnpm vitest run client/src/pages/Workspace.render.test.tsx
+(22 passed); pnpm run check clean; pnpm test green; pnpm run build
+succeeds.
+
+2026-11-10 - the marketing landing is back
+
+The task-prompt landing shipped today was reverted at the owner's
+request: the marketing sections (connectors, deep dives, how it works,
+jobs, channels, pricing, FAQ, developer callout), the site footer, and
+the old page title are restored with their copy, components, and
+locale keys. The rebuilt top menu and task prompt are reverted with it;
+the rest of the app (chats, workspaces, settings, and the Nova Pro
+agent-team gate) is untouched.
+
+2026-11-09 - agent teams are part of Nova Pro
+
+Creating agent teams is now exclusive to the paid plan. The createTeam
+router re-checks the account's subscription before creating anything and
+rejects free accounts with a PRECONDITION_FAILED "Agent teams are part
+of Nova Pro" error, so the rule holds for every client. The Agents page
+locks the builder the same way: for free accounts the New team button
+carries a Pro badge, and the team dialog replaces its form with a lock
+note and a single "Upgrade - S$7.99/month" CTA that opens
+/checkout?product=pro - the only checkout entry point. Teams created
+while a subscription was active keep working after it lapses; only
+creation is gated.
+
+Files: server/routers.ts, server/agents.router.test.ts,
+client/src/pages/Agents.tsx, client/src/pages/Agents.render.test.tsx.
+Tests: pnpm vitest run server/agents.router.test.ts (2 passed),
+client/src/pages/Agents.render.test.tsx (13 passed); pnpm run check,
+pnpm test and pnpm run build all green.
+
+2026-11-06 - the built-in gateway speaks Pollinations
+
+Nova's built-in AI gateway now runs on Pollinations (https://gen.pollinations.ai),
+an OpenAI-compatible gateway serving GPT 6 Luna. The chain tries
+`openai/gpt-6-luna` first, retries transient failures on
+`z-ai/glm-5.3-flash`, and keeps the optional SeekAI `glm-5.3-flash`
+last resort on a separate provider. The environment variables are renamed to
+match - `POLLINATIONS_API_KEY`, `POLLINATIONS_GATEWAY_URL`,
+`POLLINATIONS_FALLBACK_MODEL`, `POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE`,
+`POLLINATIONS_REASONING_EFFORT`. The Pollinations credential is shared with
+the existing transcription, speech and coder integrations, so deployments
+that already set `POLLINATIONS_API_KEY` need no new secret; the NextAPI
+variables are no longer read.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, server/modelFailureDetail.test.ts,
+server/supportBot.integration.test.ts, server/workspaceAgent.test.ts,
+docs/ai-gateway-contract.md, README.md, CLAUDE.md.
+
+2026-11-01 - the built-in gateway speaks NextAPI
+
+Nova's built-in AI gateway now runs on NextAPI (https://nextapi.online), an
+OpenAI-compatible relay serving DeepSeek 4.1 Flash. The chain tries
+`deepseek-4.1-flash` first, retries transient failures on
+`deepseek-4.1-flash-free-01`, and keeps the optional SeekAI `glm-5.3-flash`
+last resort on a separate provider. The environment variables are renamed to
+match - `NEXTAPI_API_KEY`, `NEXTAPI_GATEWAY_URL`, `NEXTAPI_FALLBACK_MODEL`,
+`NEXTAPI_MAX_REQUESTS_PER_WORKSPACE`, `NEXTAPI_REASONING_EFFORT` - with the
+deployment's existing `NEXTROUTER_API_KEY` still accepted as the credential
+until the Vercel project picks up the new name.
+
+Files: server/aiGateway.ts, server/aiGateway.client.test.ts,
+server/aiGateway.chatStream.test.ts, server/modelFailureDetail.test.ts,
+server/supportBot.integration.test.ts, server/workspaceAgent.test.ts,
+docs/ai-gateway-contract.md, README.md, CLAUDE.md.
+Tests: pnpm vitest run server/aiGateway.client.test.ts
+server/aiGateway.chatStream.test.ts server/modelFailureDetail.test.ts
+(53 passed), server/workspaceAgent.test.ts (178 passed),
+server/supportBot.integration.test.ts (4 passed on a clean tree).
+
 2026-10-26 - the interface speaks ten more languages
 
 Nova's interface now ships in Korean, Hindi, Russian, Polish, Dutch, Italian,
@@ -1530,6 +2489,25 @@ The canned inference-failure replies (configuration, allowance_reached, rate_lim
 - The main agent's Mistral gateway already accepts any OpenAI-compatible provider through MISTRAL_GATEWAY_URL, but the default and fallback model ids were hardcoded to Mistral family names (ministral-14b-latest / ministral-8b-latest), so switching providers meant a code change. Two new env overrides - MISTRAL_DEFAULT_MODEL and MISTRAL_FALLBACK_MODEL - let the deployment name the provider's own model ids directly (e.g. MISTRAL_DEFAULT_MODEL=glm-4.7-flash with MISTRAL_GATEWAY_URL pointed at Z.ai's GLM API). The configured default is authoritative only when the gateway actually serves that id: model discovery still runs, and an unserved default still degrades through the same vision-pick / text-fallback ladder as before, so a typo can never strand the agent on a 404 model. Unchanged behavior when neither env var is set.
 
 # Changelog
+
+2026-11-06 - a backup database takes over when the primary drops
+
+`BACKUP_DATABASE_URL` points Nova at a second Postgres database. While the
+primary answers, everything runs against it exactly as before; when it starts
+throwing transient connection errors - Neon suspending a project at its data
+transfer limit looks exactly like that - the pool fails requests over to the
+backup, keeps them there for `NOVA_DB_FAILOVER_COOLDOWN_MS` (default one
+minute), and returns to the primary on the first successful probe. A backup
+stays current through Postgres logical replication;
+`scripts/setup-db-replication.sh` copies the schema across and wires up the
+publication and subscription, and `docs/database-failover.md` is the runbook
+for setup, failback, and the caveats (DDL and sequence values do not
+replicate, and Neon Auth lives on the primary project). `/api/health` reports
+which backend is serving. Nothing changes for deployments without a backup
+URL - the pool behaves exactly as it did before.
+
+Files: `server/db/core.ts`, `server/db/failover.ts`, `server/db/failover.test.ts`, `docs/database-failover.md`, `scripts/setup-db-replication.sh`, `README.md`, `CLAUDE.md`
+Tests: `pnpm vitest run server/db/`
 
 2026-09-21 - autonomous coding specialist: code_task now reads, writes, runs and verifies on its own
 

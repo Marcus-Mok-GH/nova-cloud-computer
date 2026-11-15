@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runAutonomousCoderTask, runCoderTask } from "./coder";
 
 const state = vi.hoisted(() => ({
-  nimModel: "z-ai/glm-5.3-flash",
+  nimModel: "openai/gpt-6-luna",
   nimUrl: "https://gen.pollinations.ai/v1",
   nimKey: "sk-poll",
 }));
@@ -42,7 +42,7 @@ const { NimToolsUnsupportedError, NimContextLengthError } = await import(
 beforeEach(() => {
   runNimChatMock.mockReset();
   runNimAgentChatMock.mockReset();
-  state.nimModel = "z-ai/glm-5.3-flash";
+  state.nimModel = "openai/gpt-6-luna";
   state.nimUrl = "https://gen.pollinations.ai/v1";
   state.nimKey = "sk-poll";
 });
@@ -58,7 +58,7 @@ describe("runCoderTask", () => {
     );
 
     expect(result.code).toBe("```python\nprint('hi')\n```");
-    expect(result.model).toBe("z-ai/glm-5.3-flash");
+    expect(result.model).toBe("openai/gpt-6-luna");
     const [options] = runNimChatMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Nova's coding specialist");
     expect(options.prompt).toBe(
@@ -74,22 +74,17 @@ describe("runCoderTask", () => {
     runNimChatMock.mockResolvedValueOnce("code");
     await runCoderTask("fix it");
     const [options] = runNimChatMock.mock.calls[0];
-    expect(options.model).toBe("z-ai/glm-5.3-flash");
+    expect(options.model).toBe("openai/gpt-6-luna");
     expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
     expect(options.apiKey).toBe("sk-poll");
   });
 
-  it("hands the model request the caller's full deadline", async () => {
-    runNimChatMock.mockResolvedValueOnce("code");
-    const deadline = Date.now() + 200_000;
-    await runCoderTask("fix it", undefined, undefined, deadline);
-    expect(runNimChatMock.mock.calls[0][0].deadlineAtMs).toBe(deadline);
-  });
-
-  it("omits the model deadline when the caller gives none", async () => {
+  it("gives the model request no timeout and no deadline", async () => {
     runNimChatMock.mockResolvedValueOnce("code");
     await runCoderTask("fix it");
-    expect(runNimChatMock.mock.calls[0][0]).not.toHaveProperty("deadlineAtMs");
+    const options = runNimChatMock.mock.calls[0][0];
+    expect(options.timeoutMs).toBe(Number.POSITIVE_INFINITY);
+    expect(options).not.toHaveProperty("deadlineAtMs");
   });
 
   it("omits the optional language and context lines when not provided", async () => {
@@ -152,6 +147,10 @@ const toolCall = (id: string, name: string, args: Record<string, unknown>) => ({
 const textReply = (text: string) => ({ kind: "text" as const, text });
 
 describe("runAutonomousCoderTask", () => {
+  let calls = 0;
+  beforeEach(() => {
+    calls = 0;
+  });
   it("explores, writes and verifies on its own, then reports a summary", async () => {
     const sandbox = fakeSandbox();
     const progress: string[] = [];
@@ -193,7 +192,7 @@ describe("runAutonomousCoderTask", () => {
       writtenPaths: ["index.html"],
       commandsRun: 1,
       rounds: 4,
-      model: "z-ai/glm-5.3-flash",
+      model: "openai/gpt-6-luna",
     });
     // The write landed in the sandbox at the workspace path.
     expect(sandbox.writes).toEqual([
@@ -313,7 +312,7 @@ describe("runAutonomousCoderTask", () => {
       sandbox: fakeSandbox() as never,
     });
     const [options] = runNimAgentChatMock.mock.calls[0];
-    expect(options.model).toBe("z-ai/glm-5.3-flash");
+    expect(options.model).toBe("openai/gpt-6-luna");
     expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
     expect(options.apiKey).toBe("sk-poll");
   });
@@ -334,7 +333,7 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome).toEqual({
       kind: "single",
       code: "def solve(): pass",
-      model: "z-ai/glm-5.3-flash",
+      model: "openai/gpt-6-luna",
     });
   });
 
@@ -358,60 +357,23 @@ describe("runAutonomousCoderTask", () => {
     expect(outcome.rounds).toBe(15);
   });
 
-  it("stops only when the segment budget runs out, reporting exactly what was done", async () => {
-    // Fake wall clock: each model call appears to consume 20s of a 100s
-    // budget, so the loop runs the clock out (deterministically) instead of
-    // spinning forever on instant mocks. The specialist uses the full budget,
-    // so it keeps going until the deadline itself passes.
-    const startedAt = Date.now();
-    const realNow = Date.now;
-    let calls = 0;
-    Date.now = () => startedAt + calls * 20_000;
-    try {
-      runNimAgentChatMock.mockImplementation(async () => {
-        calls += 1;
-        return toolCall(`c${calls}`, "list_files", {});
-      });
-
-      const outcome = await runAutonomousCoderTask({
-        task: "an endless task",
-        sandbox: fakeSandbox() as never,
-        deadlineAtMs: startedAt + 100_000,
-      });
-
-      // No reserve is deducted, so the loop keeps starting rounds until the
-      // clock reaches the deadline: 5 calls, then the honest report.
-      expect(calls).toBe(5);
-      if (outcome.kind !== "autonomous")
-        throw new Error("expected autonomous outcome");
-      expect(outcome.summary).toContain("full time budget");
-      expect(outcome.rounds).toBe(5);
-      expect(outcome.writtenPaths).toEqual([]);
-      expect(outcome.commandsRun).toBe(0);
-      // The caller's deadline is handed to the model call as its hard
-      // deadline, so a retry cannot overrun it and get the result discarded.
-      expect(runNimAgentChatMock.mock.calls[0][0].deadlineAtMs).toBe(
-        startedAt + 100_000
-      );
-    } finally {
-      Date.now = realNow;
-    }
-  });
-
-  it("reports honestly when there is no time left to start instead of claiming failed work", async () => {
-    const outcome = await runAutonomousCoderTask({
-      task: "a task delegated with the segment already over",
-      sandbox: fakeSandbox() as never,
-      deadlineAtMs: Date.now() - 1_000,
+  it("is not on a clock: unbounded model requests with no deadline", async () => {
+    runNimAgentChatMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls > 2) return textReply("Done.");
+      return toolCall(`c${calls}`, "list_files", {});
     });
 
-    expect(runNimAgentChatMock).not.toHaveBeenCalled();
-    if (outcome.kind !== "autonomous")
-      throw new Error("expected autonomous outcome");
-    expect(outcome.summary).toContain("could not start");
-    expect(outcome.summary).toContain("0 file(s)");
-    expect(outcome.rounds).toBe(0);
-    expect(outcome.writtenPaths).toEqual([]);
+    await runAutonomousCoderTask({
+      task: "a task with many steps",
+      sandbox: fakeSandbox() as never,
+    });
+
+    expect(calls).toBe(3);
+    for (const call of runNimAgentChatMock.mock.calls) {
+      expect(call[0].timeoutMs).toBe(Number.POSITIVE_INFINITY);
+      expect(call[0]).not.toHaveProperty("deadlineAtMs");
+    }
   });
 
   it("rejects unsafe write paths without touching the sandbox", async () => {
@@ -587,11 +549,10 @@ describe("runAutonomousCoderTask", () => {
     expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
   });
 
-  it("reports a budget stop when compaction succeeds but the segment has no time left", async () => {
+  it("compacts and retries when the conversation outgrows the context window, with no deadline in the way", async () => {
     const sandbox = fakeSandbox();
     // The first round's long assistant text is compactable, so hard compaction
-    // frees space - but the deadline is already too close to retry, so the
-    // specialist must report the budget, not a compaction failure.
+    // frees space and the same round retries instead of stopping.
     runNimAgentChatMock
       .mockResolvedValueOnce({
         kind: "tool_calls" as const,
@@ -602,53 +563,38 @@ describe("runAutonomousCoderTask", () => {
         new NimContextLengthError(
           "The coding service responded with status 400: maximum context length exceeded."
         )
-      );
+      )
+      .mockResolvedValueOnce(textReply("Done."));
 
     const outcome = await runAutonomousCoderTask({
       task: "a long task",
       sandbox: sandbox as never,
-      deadlineAtMs: Date.now() + 25_000,
     });
 
     if (outcome.kind !== "autonomous")
       throw new Error("expected autonomous outcome");
-    expect(outcome.summary).toContain("ran out of time");
-    expect(outcome.summary).not.toContain("could no longer be compacted");
-    expect(runNimAgentChatMock).toHaveBeenCalledTimes(2);
+    expect(outcome.summary).toBe("Done.");
+    expect(runNimAgentChatMock).toHaveBeenCalledTimes(3);
   });
 
-  it("does not start a tool call once the segment deadline has passed", async () => {
+  it("runs the tool calls its model round returns, whatever the wall clock says", async () => {
     const sandbox = fakeSandbox();
-    const startedAt = Date.now();
-    const realNow = Date.now;
-    let advanced = false;
-    // The model round itself outlasts the deadline, so the tool calls it
-    // returns must be skipped rather than executed after the segment closed.
-    Date.now = () => (advanced ? startedAt + 200 : startedAt);
-    try {
-      runNimAgentChatMock.mockImplementationOnce(async () => {
-        advanced = true;
-        return toolCall("c1", "run_command", {
-          command: "touch should-not-exist",
-        });
-      });
+    runNimAgentChatMock
+      .mockResolvedValueOnce(
+        toolCall("c1", "run_command", { command: "touch ran-anyway" })
+      )
+      .mockResolvedValueOnce(textReply("Done."));
 
-      const outcome = await runAutonomousCoderTask({
-        task: "an impossible task",
-        sandbox: sandbox as never,
-        deadlineAtMs: startedAt + 100,
-      });
+    const outcome = await runAutonomousCoderTask({
+      task: "run one command",
+      sandbox: sandbox as never,
+    });
 
-      const ran = sandbox.commands.run.mock.calls.map(call => String(call[0]));
-      expect(
-        ran.some(command => command.includes("should-not-exist"))
-      ).toBe(false);
-      if (outcome.kind !== "autonomous")
-        throw new Error("expected autonomous outcome");
-      expect(outcome.commandsRun).toBe(0);
-    } finally {
-      Date.now = realNow;
-    }
+    const ran = sandbox.commands.run.mock.calls.map(call => String(call[0]));
+    expect(ran.some(command => command.includes("ran-anyway"))).toBe(true);
+    if (outcome.kind !== "autonomous")
+      throw new Error("expected autonomous outcome");
+    expect(outcome.commandsRun).toBe(1);
   });
 
   it("drops the file payloads of old tool calls so repeated large writes cannot pin the context open", async () => {

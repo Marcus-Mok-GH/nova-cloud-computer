@@ -1,12 +1,51 @@
 import React from "react";
-import { Code, Coins, KeyRound } from "lucide-react";
+import { Check, Code, Coins, KeyRound } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { cn } from "@/lib/utils";
 import { CtaButton, Eyebrow, useEnterNova } from "./shared";
 
-/** An honest pricing story: daily credits, BYOK, and API access. */
+type PricingPlan = {
+  name: string;
+  price: string;
+  period: string;
+  features: string[];
+  highlighted?: boolean;
+};
+
+/** An honest pricing story: real plan prices, daily credits, BYOK, and API access. */
 export default function Pricing() {
   const { t } = useTranslation();
   const { isAuthenticated, enterNova } = useEnterNova();
+  const plans: PricingPlan[] = [
+    {
+      name: t("landing.pricing.plans.free.name"),
+      price: t("landing.pricing.plans.free.price"),
+      period: t("landing.pricing.plans.free.period"),
+      features: [
+        t("landing.pricing.plans.free.feature1"),
+        t("landing.pricing.plans.free.feature2"),
+      ],
+    },
+    {
+      name: t("landing.pricing.plans.plus.name"),
+      price: t("landing.pricing.plans.plus.price"),
+      period: t("landing.pricing.plans.plus.period"),
+      features: [
+        t("landing.pricing.plans.plus.feature1"),
+        t("landing.pricing.plans.plus.feature2"),
+      ],
+    },
+    {
+      name: t("landing.pricing.plans.pro.name"),
+      price: t("landing.pricing.plans.pro.price"),
+      period: t("landing.pricing.plans.pro.period"),
+      features: [
+        t("landing.pricing.plans.pro.feature1"),
+        t("landing.pricing.plans.pro.feature2"),
+      ],
+      highlighted: true,
+    },
+  ];
   const items = [
     {
       icon: Coins,
@@ -40,6 +79,50 @@ export default function Pricing() {
             {t("landing.pricing.body")}
           </p>
         </div>
+
+        <div className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-3">
+          {plans.map(plan => (
+            <section
+              key={plan.name}
+              className={cn(
+                "flex flex-col rounded-2xl border p-5",
+                plan.highlighted
+                  ? "border-primary/40 bg-primary/[0.03]"
+                  : "border-border bg-card"
+              )}
+            >
+              <p className="text-sm font-bold text-card-foreground">
+                {plan.name}
+              </p>
+              <div className="mt-2 flex items-end gap-1.5">
+                <span className="text-3xl font-extrabold tracking-tight text-foreground">
+                  {plan.price}
+                </span>
+                <span className="pb-1 text-xs text-muted-foreground">
+                  {plan.period}
+                </span>
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {plan.features.map(feature => (
+                  <li
+                    key={feature}
+                    className="flex items-start gap-2 text-xs leading-5 text-muted-foreground"
+                  >
+                    <Check
+                      className="mt-0.5 size-3.5 shrink-0 text-primary"
+                      aria-hidden="true"
+                    />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+        <p className="mt-4 max-w-3xl text-xs leading-5 text-muted-foreground">
+          {t("landing.pricing.extra")}
+        </p>
+
         <div className="mt-10 max-w-3xl rounded-3xl border border-border bg-card p-6 sm:mt-12 sm:p-8">
           <ul className="divide-y divide-border">
             {items.map(item => {

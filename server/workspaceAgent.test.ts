@@ -87,6 +87,7 @@ const renameChat = vi.fn(
 
 const getActiveCustomModelForUser = vi.fn(async () => null);
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
     creditDay: "2026-09-24",
@@ -122,6 +123,7 @@ vi.mock("./db", () => ({
     email: "test@example.com",
   }),
   getCommunicationStyleForUser: vi.fn(async () => null),
+  getUserOnboarding: vi.fn(async () => null),
   setCommunicationStyleForUser: vi.fn(async (_owner: number, style: string) =>
     style.trim().slice(0, 500)
   ),
@@ -135,6 +137,18 @@ vi.mock("./db", () => ({
     detail: null,
     proactiveness: null,
     expertise: null,
+  })),
+  // Default (Nova's own voice) contributes nothing to the prompt, so the
+  // personality block stays empty unless a test opts in with a mockResolvedValueOnce.
+  resolveActivePersonalityForUser: vi.fn(async () => ({
+    id: "default",
+    name: "Default",
+    description: "",
+    instructions: null,
+    detail: null,
+    collaboration: null,
+    expertise: null,
+    builtIn: true,
   })),
   setPersonalisationForUser: vi.fn(
     async (
@@ -1129,9 +1143,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write an add function",
       undefined,
-      "Python",
-      // The editor's own deadline is handed to the single-shot call too.
-      expect.any(Number)
+      "Python"
     );
     // Its code was fed back to the model as the tool result.
     const secondCallMessages = chatWithAiGateway.mock.calls[1][1];
@@ -1229,11 +1241,14 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
-  it("skips the automatic specialist retry when the budget cannot cover it", async () => {
+  it("retries the specialist even when the segment budget is nearly spent", async () => {
     runCoderTaskMock.mockReset();
-    runCoderTaskMock.mockRejectedValue(
-      new Error("NVIDIA NIM responded with status 503.")
-    );
+    runCoderTaskMock
+      .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
+      .mockResolvedValueOnce({
+        code: "// specialist version",
+        model: "moonshotai/kimi-k3",
+      });
     chatWithAiGateway
       .mockResolvedValueOnce(
         chatResult({
@@ -1246,18 +1261,19 @@ describe("Nova tool-calling workspace agent", () => {
           ],
         })
       )
-      .mockResolvedValueOnce(
-        chatResult({ text: "The specialist is down; nothing was written." })
-      );
-    // 30s left cannot fit the 1.5s wait plus the reserve the specialist needs
-    // just to start, so the retry is skipped instead of beginning work the run
-    // deadline would discard.
+      .mockResolvedValueOnce(chatResult({ text: "Here is your todo app." }));
+    // The specialist is never on a clock, so the automatic retry runs even
+    // with only seconds left in the segment.
     const result = await runWorkspaceAgent(1, 3, "build me a todo app", {
       deadlineAtMs: Date.now() + 30_000,
     });
-    expect(runCoderTaskMock).toHaveBeenCalledTimes(1);
+    expect(runCoderTaskMock).toHaveBeenCalledTimes(2);
     expect(result.actions).toEqual([
-      { kind: "tool", name: "editor: build a todo app", operation: "failed" },
+      {
+        kind: "tool",
+        name: "editor: build a todo app",
+        operation: "completed",
+      },
     ]);
   });
 
@@ -1612,8 +1628,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "write app.js properly",
       undefined,
-      undefined,
-      expect.any(Number)
+      undefined
     );
     expect(result.message.content).toBe(
       "Rewrote app.js with the coding specialist."
@@ -1742,8 +1757,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(runCoderTaskMock).toHaveBeenCalledWith(
       "review app.js",
       undefined,
-      undefined,
-      expect.any(Number)
+      undefined
     );
     expect(result.message.content).toBe(
       "Written and reviewed with the specialist."
@@ -1926,16 +1940,33 @@ describe("Nova tool-calling workspace agent", () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
       const releaseWake = gateSandboxWake(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Hello - I am here." }));
 
       const run = runWorkspaceAgent(1, 3, "hi");
       try {
         await waitUntil(() => chatWithAiGateway.mock.calls.length > 0);
-        // The model answered while E2B had not even reached the restore step:
-        // the wake is background work, never a gate in front of the reply.
+        // The first model round is already in flight while the wake is still
+        // held short of the restore step: the reply is never gated on E2B.
         expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
       } finally {
         releaseWake();
@@ -1943,13 +1974,13 @@ describe("Nova tool-calling workspace agent", () => {
       const result = await run;
 
       expect(result.message.content).toBe("Hello - I am here.");
-      // The activity row flipped from running to completed once the machine
-      // came up, even though the tool-less run was already done.
+      // The tool that needed the machine started the wake and its row flipped
+      // running -> completed once E2B came up.
       expect(sandboxWakeRows().map(row => row.state)).toEqual([
         "running",
         "completed",
       ]);
-      // The wake that outlived the run was still synced and paused.
+      // The wake was synced and paused at run end.
       expect(persistE2BWorkspace).toHaveBeenCalledWith(1, sandbox);
       expect(sandbox.pause).toHaveBeenCalled();
     });
@@ -2006,9 +2037,26 @@ describe("Nova tool-calling workspace agent", () => {
       vi.mocked(ensurePersistentSandbox).mockRejectedValue(
         new Error("no capacity right now")
       );
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Still here." }));
 
       const result = await runWorkspaceAgent(1, 3, "hi");
@@ -2235,7 +2283,7 @@ describe("Nova tool-calling workspace agent", () => {
       ).toEqual(["call-code:c1:running", "call-code:c1:completed"]);
     });
 
-    it("wakes the sandbox at run start, restores the workspace into it, and syncs back at run end", async () => {
+    it("leaves a text-only run on direct storage without booting a sandbox", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
       chatWithAiGateway
@@ -2243,6 +2291,42 @@ describe("Nova tool-calling workspace agent", () => {
         .mockImplementation(endTurnEchoOnNudge)
         .mockResolvedValueOnce(chatResult({ text: "All set." }));
       await runWorkspaceAgent(1, 3, "hi");
+      // No tool needed the live filesystem, so nothing was woken, restored,
+      // synced, or paused - the run answered straight from durable storage.
+      expect(ensurePersistentSandbox).not.toHaveBeenCalled();
+      expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+      expect(sandbox.pause).not.toHaveBeenCalled();
+      expect(sandboxWakeRows()).toEqual([]);
+    });
+
+    it("wakes the sandbox when a file tool runs, restores into it, and syncs back at run end", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hello world",
+      });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-sbx",
+                name: "create_file",
+                arguments: JSON.stringify({
+                  name: "notes.txt",
+                  content: "hello world",
+                }),
+              },
+            ],
+          })
+        );
+      await runWorkspaceAgent(1, 3, "create notes.txt");
       expect(ensurePersistentSandbox).toHaveBeenCalledWith(
         expect.anything(),
         41,
@@ -2477,23 +2561,57 @@ describe("Nova tool-calling workspace agent", () => {
       expect(persistE2BWorkspace).not.toHaveBeenCalled();
     });
 
-    it("pauses the persistent sandbox when the run finishes", async () => {
+    it("pauses the persistent sandbox when a run that woke it finishes", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "All done." }));
       await runWorkspaceAgent(1, 3, "finish this up");
       expect(sandbox.pause).toHaveBeenCalledWith({ keepMemory: true });
     });
 
-    it("keeps the sandbox warm when the run chains into an automatic continuation", async () => {
+    it("keeps the sandbox warm when a run that woke it chains into an automatic continuation", async () => {
       const sandbox = fakeSandbox();
       enableSandbox(sandbox);
+      createFile.mockReset();
+      createFile.mockResolvedValue({
+        id: 2,
+        name: "notes.txt",
+        content: "hi",
+      });
       chatWithAiGateway
         .mockReset()
         .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-wake",
+                name: "create_file",
+                arguments: JSON.stringify({ name: "notes.txt", content: "hi" }),
+              },
+            ],
+          })
+        )
         .mockResolvedValueOnce(chatResult({ text: "Continuing." }));
       await runWorkspaceAgent(1, 3, "keep going", {
         continuationPlanned: true,
@@ -2501,6 +2619,39 @@ describe("Nova tool-calling workspace agent", () => {
       // The next segment resumes within seconds: pausing would add a cold
       // resume to every continuation, so the machine is left running.
       expect(sandbox.pause).not.toHaveBeenCalled();
+    });
+
+    it("does not wake the sandbox for a run that only researches the web", async () => {
+      const sandbox = fakeSandbox();
+      enableSandbox(sandbox);
+      runResearchMock.mockReset().mockResolvedValueOnce({
+        report: "Findings: nothing notable.",
+        sources: [],
+      });
+      chatWithAiGateway
+        .mockReset()
+        .mockImplementation(endTurnEchoOnNudge)
+        .mockResolvedValueOnce(
+          chatResult({
+            toolCalls: [
+              {
+                id: "call-research",
+                name: "research_web",
+                arguments: JSON.stringify({ topic: "quiet news" }),
+              },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(chatResult({ text: "Nothing notable." }));
+      await runWorkspaceAgent(1, 3, "research the quiet news");
+
+      // The user's rule: a web-research tool is not a sandbox tool, so no
+      // machine is booted, restored, synced, or paused for it.
+      expect(ensurePersistentSandbox).not.toHaveBeenCalled();
+      expect(restoreWorkspaceToE2B).not.toHaveBeenCalled();
+      expect(persistE2BWorkspace).not.toHaveBeenCalled();
+      expect(sandbox.pause).not.toHaveBeenCalled();
+      expect(sandboxWakeRows()).toEqual([]);
     });
   });
 
@@ -3223,6 +3374,79 @@ describe("Nova tool-calling workspace agent", () => {
     expect(system?.content).toContain("A solo founder writing a novel.");
     expect(system?.content).toContain("Preferred tone: playful.");
     expect(system?.content).toContain("thorough, detailed replies");
+  });
+
+  it("injects the selected personality into the system prompt", async () => {
+    const { resolveActivePersonalityForUser } = await import("./db");
+    vi.mocked(resolveActivePersonalityForUser).mockResolvedValueOnce({
+      id: "p_analyst",
+      name: "Analyst",
+      description: "",
+      instructions: "State assumptions and show your reasoning.",
+      detail: "detailed",
+      collaboration: "act_and_tell",
+      expertise: "expert",
+      builtIn: false,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain('"Analyst" personality');
+    expect(system?.content).toContain(
+      "How to behave: State assumptions and show your reasoning."
+    );
+    expect(system?.content).toContain("Collaboration style: Act & tell.");
+  });
+
+  it("pins replies to the account language from the onboarding country", async () => {
+    const { getUserOnboarding } = await import("./db");
+    vi.mocked(getUserOnboarding).mockResolvedValueOnce({
+      source: null,
+      useCase: null,
+      experience: null,
+      country: "MX",
+      completedAt: new Date(),
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).toContain("account language is Spanish");
+    expect(system?.content).toContain("write your replies in Spanish");
+    // The generic rule still stands for the moment the user switches.
+    expect(system?.content).toContain(
+      "Always reply in the language the user is writing in"
+    );
+  });
+
+  it("adds no language block when the account has no mapped country", async () => {
+    const { getUserOnboarding } = await import("./db");
+    vi.mocked(getUserOnboarding).mockResolvedValueOnce({
+      source: null,
+      useCase: null,
+      experience: null,
+      country: null,
+      completedAt: null,
+    });
+    chatWithAiGateway.mockResolvedValueOnce(chatResult({ text: "Done." }));
+
+    await runWorkspaceAgent(1, 3, "do the thing", {});
+    const messages = chatWithAiGateway.mock.calls[0][1] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const system = messages.find(message => message.role === "system");
+    expect(system?.content).not.toContain("account language is");
+    expect(system?.content).not.toContain("{{language}}");
   });
 
   it("announces an enabled personalisation mode even with no saved preferences", async () => {
@@ -4517,14 +4741,14 @@ describe("Nova tool-calling workspace agent", () => {
     // the same reply text is what Telegram delivers.
     chatWithAiGateway.mockRejectedValue(
       new AiGatewayClientError(
-        "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503",
+        "Model openai/gpt-6-luna is overloaded: upstream returned 503",
         "rate_limit"
       )
     );
     const onChunk = vi.fn();
     const result = await runWorkspaceAgent(1, 3, "hello?", { onChunk });
     expect(result.message.content).toContain(
-      "Model deepseek-v4.1-flash:free is overloaded: upstream returned 503"
+      "Model openai/gpt-6-luna is overloaded: upstream returned 503"
     );
     expect(result.message.content).toContain(
       "Error details (nova-pro, rate_limit)"
@@ -4540,11 +4764,11 @@ describe("Nova tool-calling workspace agent", () => {
     // A deployment-internal failure names the workspace's own setup (and can
     // quote the configured credential), so the curated notice stands alone.
     chatWithAiGateway.mockRejectedValue(
-      new AiGatewayClientError("TOKENHARBOR_API_KEY is missing", "configuration")
+      new AiGatewayClientError("POLLINATIONS_API_KEY is missing", "configuration")
     );
     const result = await runWorkspaceAgent(1, 3, "hello?");
     expect(result.message.content).toContain("not connected");
-    expect(result.message.content).not.toContain("TOKENHARBOR_API_KEY");
+    expect(result.message.content).not.toContain("POLLINATIONS_API_KEY");
   });
 
   it("surfaces the provider's full error when the run is BYOK", async () => {
@@ -6117,7 +6341,7 @@ describe("agent identity prompt wallet line", () => {
       { profile: { ...profile } },
       "no pending requests"
     );
-    expect(block).toContain("380 of 500 credits remaining");
+    expect(block).toContain("$0.38 of $0.50 remaining");
   });
 
   it("tells the agent an uncapped wallet has no budget at all", () => {
@@ -6125,7 +6349,7 @@ describe("agent identity prompt wallet line", () => {
       { profile: { ...profile, walletBudgetCredits: null } },
       "no pending requests"
     );
-    expect(block).toContain("wallet: unlimited, no budget cap (120 credits spent)");
+    expect(block).toContain("wallet: unlimited, no budget cap ($0.12 spent)");
     expect(block).not.toContain("credits remaining");
   });
 });

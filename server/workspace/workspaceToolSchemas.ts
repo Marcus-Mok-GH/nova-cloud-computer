@@ -75,7 +75,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "request_purchase",
       description:
-        "Request a purchase from your agent wallet (personal agents only). The credits are NOT spent by this call: it records a request that only the user can confirm, in Nova's Agents page. Use it for anything that costs wallet credits; an amount over the remaining budget is rejected immediately. After calling it, tell the user the purchase is waiting for their approval, then end your turn.",
+        "Request a purchase from your agent wallet (personal agents only). The amount is NOT charged by this call: it records a request that only the user can confirm, in Nova's Agents page. Use it for anything that costs wallet funds; an amount over the remaining budget is rejected immediately. After calling it, tell the user the purchase is waiting for their approval, then end your turn.",
       parameters: {
         type: "object",
         properties: {
@@ -83,16 +83,16 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             description: 'What is being bought, e.g. "domain name for the launch site".',
           },
-          amount_credits: {
-            type: "integer",
-            description: "Cost in wallet credits.",
+          amount_dollars: {
+            type: "number",
+            description: "Cost in dollars, e.g. 2.50.",
           },
           note: {
             type: "string",
             description: "Optional context for the user reviewing the request.",
           },
         },
-        required: ["item", "amount_credits"],
+        required: ["item", "amount_dollars"],
       },
     },
   },

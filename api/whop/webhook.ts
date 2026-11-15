@@ -23,6 +23,22 @@ function getWhopModule(): typeof import("../../server/app") {
   return require("../../dist/server/app.cjs") as typeof import("../../server/app");
 }
 
+/**
+ * Creates any missing tables before the webhook writes subscription state.
+ *
+ * The deploy build already runs the migrations, but that only helps when a
+ * database URL was present at build time and the step succeeded; the runtime
+ * bootstrap (`server/migrate.ts`) is the safety net for a skipped or failed
+ * build-time migration. Without it a cold function instance would insert into
+ * a table that was never created, the write would 500, and Whop would retry a
+ * webhook that can never succeed - silently losing the subscription update.
+ * The bootstrap is idempotent, applies only pending migrations, never rejects,
+ * and caches its result for the life of the process.
+ */
+async function ensureSchemaReady() {
+  await getWhopModule().ensureDatabaseSchema();
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -35,6 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await ensureSchemaReady();
     const rawBody = await buffer(req);
     const outcome = await handleWhopWebhook(rawBody, {
       "webhook-id": headerValue(req.headers["webhook-id"]),

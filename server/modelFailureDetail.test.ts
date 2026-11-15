@@ -25,7 +25,7 @@ describe("modelFailureDetail", () => {
 
   it("keeps deployment-internal failure kinds out of the chat", () => {
     const configuration = new AiGatewayClientError(
-      "TOKENHARBOR_API_KEY is missing",
+      "POLLINATIONS_API_KEY is missing",
       "configuration"
     );
     expect(modelFailureDetail(configuration, "lead", "nova-pro")).toBe("");

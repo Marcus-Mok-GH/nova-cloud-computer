@@ -9,8 +9,10 @@ import {
   reconcileChatMessages,
   chatWorkflowMode,
   AGENT_MODE_MESSAGE_PREFIX,
+  CONTINUATION_PROMPT,
   FOLLOW_UP_MESSAGE_PREFIX,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
+  isContinuationPrompt,
   isInternalChatMessage,
   latestFollowUpSuggestions,
   parseFollowUpMessage,
@@ -166,8 +168,13 @@ describe("reconcileChatMessages", () => {
     // The mode marker is an assistant row, but it is not a reply: the answer
     // still streaming in must keep showing.
     expect(
-      reconcileChatMessages(persisted, 1, "build a site", "Here is the plan", [])
-        .replyCommitted
+      reconcileChatMessages(
+        persisted,
+        1,
+        "build a site",
+        "Here is the plan",
+        []
+      ).replyCommitted
     ).toBe(false);
   });
 
@@ -507,6 +514,7 @@ describe("buildTurnItems", () => {
       messageId: 1,
       content: "Tidy my files",
       pending: false,
+      createdAt: null,
     });
     expect(items[1]).toEqual({
       kind: "reply",
@@ -565,6 +573,7 @@ describe("buildTurnItems", () => {
       messageId: 2,
       content: "Let me check that.",
       live: false,
+      createdAt: null,
     });
     expect(items[2].kind === "toolRun" && items[2].live).toBe(false);
     expect(items[3]).toEqual({
@@ -594,6 +603,7 @@ describe("buildTurnItems", () => {
       messageId: 3,
       content: "Sorted both files.",
       live: false,
+      createdAt: null,
     });
   });
 
@@ -641,7 +651,39 @@ describe("buildTurnItems", () => {
       messageId: 3,
       content: "All sorted.",
       live: false,
+      createdAt: null,
     });
+  });
+
+  it("puts a live narration line above the tool row that already landed", () => {
+    // Mid-round the ledger holds the tool row (it persists on every state
+    // change) while the line that announced it persists only at round end.
+    // The narrated line must still render above the tool it announced, or the
+    // turn reads as if the tool ran before Nova said anything.
+    const live = upsertLiveToolEvent(
+      appendLiveTextDelta([], "Let me check that."),
+      { id: "t-1", name: "read_file", state: "running", args: {} }
+    );
+    const items = buildTurnItems({
+      messages: [userRow, toolRow("t-1", "running", 2)],
+      liveEvents: live,
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+      streaming: true,
+    });
+    expect(items.map(item => item.kind)).toEqual([
+      "user",
+      "reply",
+      "toolRun",
+    ]);
+    expect(items[1]).toEqual({
+      kind: "reply",
+      key: "live-reply-0",
+      messageId: 0,
+      content: "Let me check that.",
+      live: true,
+    });
+    expect(items[2].kind === "toolRun" && items[2].activities[0].id).toBe("t-1");
   });
 
   it("keeps the optimistic user bubble until the row is persisted", () => {
@@ -681,6 +723,7 @@ describe("buildTurnItems", () => {
       messageId: 2,
       content: "[Mira] Found two files.",
       live: false,
+      createdAt: null,
     });
   });
 
@@ -859,7 +902,9 @@ describe("parseFollowUpMessage", () => {
 
   it("returns null for other rows and broken payloads", () => {
     expect(parseFollowUpMessage("hello")).toBeNull();
-    expect(parseFollowUpMessage(`${FOLLOW_UP_MESSAGE_PREFIX}not json`)).toBeNull();
+    expect(
+      parseFollowUpMessage(`${FOLLOW_UP_MESSAGE_PREFIX}not json`)
+    ).toBeNull();
     expect(parseFollowUpMessage(row({ suggestions: ["x"] }))).toBeNull();
     expect(parseFollowUpMessage(row([]))).toBeNull();
     expect(parseFollowUpMessage(row(["   ", ""]))).toBeNull();
@@ -980,5 +1025,14 @@ describe("isInternalChatMessage", () => {
       isInternalChatMessage(`${FOLLOW_UP_MESSAGE_PREFIX}["Deploy it"]`)
     ).toBe(true);
     expect(isInternalChatMessage("Deploy it")).toBe(false);
+  });
+});
+
+describe("isContinuationPrompt", () => {
+  it("matches only the exact automatic-continuation turn", () => {
+    expect(isContinuationPrompt(CONTINUATION_PROMPT)).toBe(true);
+    expect(isContinuationPrompt(`  ${CONTINUATION_PROMPT}\n`)).toBe(true);
+    expect(isContinuationPrompt("continue")).toBe(false);
+    expect(isContinuationPrompt("Build my site")).toBe(false);
   });
 });

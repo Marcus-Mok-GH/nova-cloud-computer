@@ -43,6 +43,12 @@ describe("resolveNeonAuthVerificationConfig", () => {
 describe("resolvePublicBaseUrl", () => {
   const oldBaseUrl = process.env.PUBLIC_BASE_URL;
 
+  // NOVA_PUBLIC_BASE_URL outranks PUBLIC_BASE_URL, so an inherited value (dev
+  // sandboxes set it) would shadow the URL each test configures.
+  beforeEach(() => {
+    delete process.env.NOVA_PUBLIC_BASE_URL;
+  });
+
   afterEach(() => {
     if (oldBaseUrl === undefined) delete process.env.PUBLIC_BASE_URL;
     else process.env.PUBLIC_BASE_URL = oldBaseUrl;
@@ -146,12 +152,12 @@ describe("resolveCoderConfig", () => {
     }
   });
 
-  it("defaults the editor to Pollinations serving glm 5.3 flash", () => {
+  it("defaults the editor to Pollinations serving the gateway's own model", () => {
     process.env.POLLINATIONS_API_KEY = "sk-poll";
     expect(resolveCoderConfig()).toEqual({
       nimCoderApiUrl: "https://gen.pollinations.ai/v1",
       nimCoderApiKey: "sk-poll",
-      nimCoderModel: "z-ai/glm-5.3-flash",
+      nimCoderModel: "openai/gpt-6-luna",
     });
   });
 

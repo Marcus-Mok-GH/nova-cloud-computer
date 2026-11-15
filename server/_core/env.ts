@@ -10,6 +10,24 @@ type NeonAuthVerificationOverrides = {
  * values from the proxy base URL keeps the server and browser on one source of
  * truth and prevents stale optional overrides from invalidating valid tokens.
  */
+export function resolveNeonAuthVerificationConfigList(
+  primaryBaseUrl: string | undefined,
+  backupBaseUrl: string | undefined = undefined,
+  overrides: NeonAuthVerificationOverrides = {},
+): ReturnType<typeof resolveNeonAuthVerificationConfig>[] {
+  const primary = resolveNeonAuthVerificationConfig(primaryBaseUrl, overrides);
+  const normalizedPrimary = primaryBaseUrl?.trim().replace(/\/$/, "") ?? "";
+  const normalizedBackup = backupBaseUrl?.trim().replace(/\/$/, "") ?? "";
+  // A backup origin is only distinct when it has its own endpoint. Keep the
+  // primary first so normal traffic validates with the primary issuer; the
+  // backup remains a separate verification candidate for failover signups.
+  if (!normalizedBackup || normalizedBackup === normalizedPrimary) {
+    return [primary];
+  }
+  const backup = resolveNeonAuthVerificationConfig(backupBaseUrl);
+  return [primary, backup];
+}
+
 export function resolveNeonAuthVerificationConfig(
   baseUrl: string | undefined,
   overrides: NeonAuthVerificationOverrides = {},
@@ -33,11 +51,23 @@ export function resolveNeonAuthVerificationConfig(
   };
 }
 
+export type NeonAuthVerificationConfig = ReturnType<typeof resolveNeonAuthVerificationConfig>;
+
 const neonAuthVerification = resolveNeonAuthVerificationConfig(process.env.NEON_AUTH_BASE_URL, {
   issuer: process.env.NEON_AUTH_ISSUER,
   audience: process.env.NEON_AUTH_AUDIENCE,
   jwksUrl: process.env.NEON_AUTH_JWKS_URL,
 });
+
+const neonAuthVerificationList = resolveNeonAuthVerificationConfigList(
+  process.env.NEON_AUTH_BASE_URL,
+  process.env.NEON_AUTH_BACKUP_BASE_URL,
+  {
+    issuer: process.env.NEON_AUTH_ISSUER,
+    audience: process.env.NEON_AUTH_AUDIENCE,
+    jwksUrl: process.env.NEON_AUTH_JWKS_URL,
+  },
+);
 
 export function resolvePublicBaseUrl() {
   const candidate = (process.env.NOVA_PUBLIC_BASE_URL ?? process.env.PUBLIC_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "").trim();
@@ -99,8 +129,8 @@ const NIM_HOSTED_API_BASE_URL = "https://integrate.api.nvidia.com/v1";
  * The coder sub-agent's (Nova's editor) transport. The editor is the one
  * specialist that does not run on NVIDIA NIM by default: it calls Pollinations'
  * unified API (https://gen.pollinations.ai), whose
- * z-ai/glm-5.3-flash is a coding model with tool calling and a
- * 1M-token context. NVIDIA_NIM_CODER_API_URL points the editor at any other
+ * openai/gpt-6-luna is the same chat model the built-in AI gateway runs on,
+ * with tool calling and a 1M-token context. NVIDIA_NIM_CODER_API_URL points the editor at any other
  * OpenAI-compatible endpoint, NVIDIA_NIM_CODER_MODEL sets its model id, and
  * NVIDIA_NIM_CODER_API_KEY sets its credential - so a self-hosted or NIM
  * endpoint still works without a code change. The key follows the endpoint: a
@@ -116,7 +146,7 @@ export function resolveCoderConfig() {
   const apiUrl = explicitBaseUrl || POLLINATIONS_API_BASE_URL;
   const usePollinations = apiUrl.includes("gen.pollinations.ai");
   const defaultModel = usePollinations
-    ? "z-ai/glm-5.3-flash"
+    ? "openai/gpt-6-luna"
     : apiUrl === NIM_HOSTED_API_BASE_URL
       ? "moonshotai/kimi-k3"
       : "";
@@ -161,7 +191,10 @@ export const ENV = {
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
+  neonAuthVerificationList,
+  neonAuthVerificationConfigs: neonAuthVerificationList,
   neonAuthBaseUrl: neonAuthVerification.baseUrl,
+  neonAuthBackupBaseUrl: process.env.NEON_AUTH_BACKUP_BASE_URL?.trim().replace(/\/$/, "") ?? "",
   neonAuthIssuer: neonAuthVerification.issuer,
   neonAuthAudience: neonAuthVerification.audience,
   neonAuthJwksUrl: neonAuthVerification.jwksUrl,

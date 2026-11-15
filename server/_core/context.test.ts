@@ -8,14 +8,17 @@ const SOLE_DEVELOPER_EMAIL = "mokmarcus068@gmail.com";
 const mocks = vi.hoisted(() => ({
   getUserByOpenId: vi.fn(),
   upsertUser: vi.fn(),
+  adoptUserByEmail: vi.fn(),
   ensureUserWorkspaceProvisioned: vi.fn(),
   verifySession: vi.fn(),
   createSessionToken: vi.fn(),
 }));
 
 vi.mock("../db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getUserByOpenId: mocks.getUserByOpenId,
   upsertUser: mocks.upsertUser,
+  adoptUserByEmail: mocks.adoptUserByEmail,
   ensureUserWorkspaceProvisioned: mocks.ensureUserWorkspaceProvisioned,
 }));
 

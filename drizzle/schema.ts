@@ -24,7 +24,7 @@ export const envVarRequestStatus = pgEnum("env_var_request_status", ["pending", 
 /** Lifecycle of a durable background process: alive and beating, closed normally, or dead-lettered once its resume budget is spent. */
 export const runningProcessStatus = pgEnum("running_process_status", ["running", "completed", "failed"]);
 
-export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique(), onboardingSource: varchar("onboardingSource", { length: 120 }), onboardingUseCase: varchar("onboardingUseCase", { length: 120 }), onboardingExperience: varchar("onboardingExperience", { length: 40 }), onboardingCompletedAt: timestamp("onboardingCompletedAt", { withTimezone: true }) });
+export const users = pgTable("users", { id: serial("id").primaryKey(), openId: varchar("openId", { length: 64 }).notNull().unique(), name: text("name"), email: varchar("email", { length: 320 }), loginMethod: varchar("loginMethod", { length: 64 }), role: userRole("role").default("user").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(), lastSignedIn: timestamp("lastSignedIn", { withTimezone: true }).defaultNow().notNull(), bannedAt: timestamp("bannedAt", { withTimezone: true }), username: varchar("username", { length: 64 }).unique(), onboardingSource: varchar("onboardingSource", { length: 120 }), onboardingUseCase: varchar("onboardingUseCase", { length: 120 }), onboardingExperience: varchar("onboardingExperience", { length: 40 }), onboardingCompletedAt: timestamp("onboardingCompletedAt", { withTimezone: true }), onboardingCountry: varchar("onboardingCountry", { length: 2 }), onboardingCountryPromptedAt: timestamp("onboardingCountryPromptedAt", { withTimezone: true }) });
 export type User = typeof users.$inferSelect; export type InsertUser = typeof users.$inferInsert;
 // `browserSandboxId` records the workspace's desktop-GUI sandbox (the browse
 // tool's Chrome machine); the workspace VM above and it are separate
@@ -36,7 +36,18 @@ export const tasks = pgTable("tasks", { id: serial("id").primaryKey(), workspace
 export const customModels = pgTable("custom_models", { id: serial("id").primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), name: varchar("name", { length: 120 }).notNull(), modelId: varchar("modelId", { length: 240 }).notNull(), baseUrl: varchar("baseUrl", { length: 2048 }).notNull(), compatibility: modelCompatibility("compatibility").notNull(), encryptedApiKey: text("encryptedApiKey").notNull(), supportsImageInput: boolean("supportsImageInput").default(false).notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("custom_models_workspace_name_unique").on(table.workspaceId, table.name)]);
 export const workspaceSettings = pgTable("workspace_settings", { id: serial("id").primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), activeProvider: modelProvider("activeProvider").default("anthropic").notNull(), activeModelId: varchar("activeModelId", { length: 240 }).default("claude-sonnet").notNull(), activeCustomModelId: integer("activeCustomModelId").references(() => customModels.id, { onDelete: "set null" }), workspaceRules: text("workspaceRules"), communicationStyle: text("communicationStyle"), // Personalisation mode: whether Nova learns lasting preferences, the
 // distilled profile built by the guided setup, and the structured knobs.
-personalisationEnabled: boolean("personalisationEnabled").default(false).notNull(), personalisationProfile: text("personalisationProfile"), personalisationTone: varchar("personalisationTone", { length: 60 }), personalisationDetail: varchar("personalisationDetail", { length: 20 }), personalisationProactiveness: varchar("personalisationProactiveness", { length: 20 }), personalisationExpertise: varchar("personalisationExpertise", { length: 20 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)]);
+personalisationEnabled: boolean("personalisationEnabled").default(false).notNull(), personalisationProfile: text("personalisationProfile"), personalisationTone: varchar("personalisationTone", { length: 60 }), personalisationDetail: varchar("personalisationDetail", { length: 20 }), personalisationProactiveness: varchar("personalisationProactiveness", { length: 20 }), personalisationExpertise: varchar("personalisationExpertise", { length: 20 }), // The personality the composer picker last selected. "default" and the
+// built-in voice are implicit (no row); a user-defined id points at
+// workspace_personalities. Kept as a plain string so a deleted row simply
+// falls back to Default rather than breaking the workspace.
+activePersonalityId: varchar("activePersonalityId", { length: 40 }).default("default").notNull(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex("workspace_settings_workspace_unique").on(table.workspaceId)]);
+/**
+ * User-defined personalities: the named presets the composer picker selects
+ * and Settings manages. Default (Nova's own voice) is not a row here - it is
+ * the implicit built-in the workspace falls back to. Each row is a bundle of
+ * the structured personalisation controls plus free-form instructions.
+ */
+export const workspacePersonalities = pgTable("workspace_personalities", { id: varchar("id", { length: 40 }).primaryKey(), workspaceId: integer("workspaceId").notNull().references(() => workspaces.id, { onDelete: "cascade" }), name: varchar("name", { length: 40 }).notNull(), instructions: text("instructions"), detail: varchar("detail", { length: 20 }), collaboration: varchar("collaboration", { length: 20 }), expertise: varchar("expertise", { length: 20 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("workspace_personalities_workspace_idx").on(table.workspaceId)]);
 /**
  * Workspace environment variables the owner sets in Settings. The agent knows
  * their names (a prompt block lists them) but never their values; on a
@@ -74,6 +85,13 @@ export const chats = pgTable("chats", {
   emailThreadId: varchar("emailThreadId", { length: 200 }),
   /** The chat's selected model id from shared/models.ts; null = the default free model (nova-pro). */
   model: varchar("model", { length: 64 }),
+  /**
+   * The chat's selected deep-thinking effort for its model ("auto" | "low" |
+   * "medium" | "high" | "max" from shared/models.ts); null = auto. Stored
+   * alongside the model so a run reads both in one row and the gateway can
+   * apply the effort on reasoning-capable models.
+   */
+  effort: varchar("effort", { length: 16 }),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [
@@ -117,6 +135,38 @@ export const priorityPurchases = pgTable("priority_purchases", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex("priority_purchases_owner_unique").on(table.ownerId)]);
 export type PriorityPurchase = typeof priorityPurchases.$inferSelect;
+
+/**
+ * A one-time purchase of a credit bundle.
+ *
+ * One row per purchase, identified by the provider's payment id so a replayed
+ * or retried webhook can never grant the same bundle twice (the unique index is
+ * the idempotency guard, not a check-then-insert). Purchased credits are kept
+ * out of the monthly ledger on purpose: that ledger's balance is derived from
+ * what the subscription allocates, so folding bought credits into it would make
+ * a lapsed subscription appear to still hold credits.
+ *
+ * `remainingCredits` counts down as the bundle is spent; `credits` records the
+ * original size so the account can be shown what it bought.
+ */
+export const creditPurchases = pgTable("credit_purchases", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Provider payment id - the idempotency key for webhook replays. */
+  providerPaymentId: varchar("providerPaymentId", { length: 120 }).notNull(),
+  /** Bundle slug from shared/creditTopUps.ts (e.g. "topup-10"). */
+  productId: varchar("productId", { length: 40 }).notNull(),
+  priceCents: integer("priceCents").notNull(),
+  currency: varchar("currency", { length: 8 }).notNull(),
+  credits: integer("credits").notNull(),
+  remainingCredits: integer("remainingCredits").notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("credit_purchases_payment_unique").on(table.providerPaymentId),
+  index("credit_purchases_owner_idx").on(table.ownerId, table.createdAt),
+]);
+export type CreditPurchase = typeof creditPurchases.$inferSelect;
 
 /** Webhook update ids Nova has already handled - dedupes Telegram redeliveries. */
 export const telegramUpdateLog = pgTable("telegram_update_log", { updateId: bigint("updateId", { mode: "number" }).primaryKey(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
@@ -429,3 +479,11 @@ export const runningProcesses = pgTable("running_processes", {
   index("running_processes_chat_idx").on(table.chatId),
 ]);
 export type RunningProcess = typeof runningProcesses.$inferSelect;
+/** Two-way reconciliation state: one row per role assignment epoch (active/standby) so failback can pick the newer side as source. */
+export const dbReconciliationState = pgTable("db_reconciliation_state", {
+  databaseRole: varchar("database_role", { length: 16 }).primaryKey(),
+  epoch: integer("epoch").default(0).notNull(),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type DbReconciliationState = typeof dbReconciliationState.$inferSelect;
+export type InsertDbReconciliationState = typeof dbReconciliationState.$inferInsert;

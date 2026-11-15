@@ -1,8 +1,15 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import PromptModelControls from "@/components/PromptModelControls";
 import NovaLogo from "@/components/NovaLogo";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import {
+  effortOptionsForModelId,
+  FREE_CHAT_MODEL_ID,
+  getChatModels,
+  type EffortId,
+} from "@shared/models";
 import { MarkdownText } from "@/lib/markdown";
 import { LiveActivityCard, ToolRunGroup } from "@/lib/toolActivityLine";
 import {
@@ -10,26 +17,27 @@ import {
   chatWorkflowMode,
   dedupeToolActivityMessages,
   groupPersistedChatItems,
+  isContinuationPrompt,
   isInternalChatMessage,
   latestFollowUpSuggestions,
   parsePersistedToolActivity,
   reconcileChatMessages,
   type ChatWorkflowMode,
+  type ToolActivity,
   type TurnRenderItem,
 } from "@/lib/chatMessages";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowUp,
-  CircleDashed,
   CornerDownLeft,
-  Github,
+  Crown,
+  History,
   ImagePlus,
-  Mail,
+  Loader2,
   MessageSquareText,
   Paperclip,
-  Rocket,
-  Send,
+  Settings2,
   Square,
 } from "lucide-react";
 // JSX compiles to React.createElement in this build (classic runtime), so the
@@ -43,13 +51,16 @@ import {
 import { latestGoalState } from "@shared/goal";
 import { SLASH_COMMANDS, type SlashCommand } from "@shared/commands";
 import { SLASH_MENU_ID, SlashCommandMenu } from "@/components/SlashCommandMenu";
-import { GoalBadge } from "@/components/GoalBadge";import { ModelSelector } from "@/components/ModelSelector";
+import { GoalBadge } from "@/components/GoalBadge";
+import { ModelSelector } from "@/components/ModelSelector";
+import { PersonalitySelector } from "@/components/PersonalitySelector";
 import {
   matchSlashCommands,
   slashCommandInsertion,
   slashCommandQuery,
 } from "@/lib/slashCommands";
 import { exchangeNeonVerifierAndGetJwt, neonAuth } from "@/lib/neonAuth";
+import { toast } from "sonner";
 import { useWorkspaceChat } from "@/hooks/useWorkspaceChat";
 import { dragCarriesFiles, isDesktopDragDrop } from "@/lib/fileAttachments";
 import {
@@ -58,11 +69,40 @@ import {
   EnvVarRequestComposer,
   RegenerateMessageButton,
   SpeakMessageButton,
-  TypingIndicator,
+  TurnTimestamp,
   WorkspaceError,
 } from "@/components/workspaceChat";
 
 export { teamPlanKickoff } from "@/hooks/useWorkspaceChat";
+
+/**
+ * The free plan is a 14-day trial: once it closes and the account holds no Pro
+ * entitlement, the composers lock and this notice is the only way forward.
+ * The workspace itself stays readable - nothing the account built is hidden.
+ */
+function TrialEndedNotice() {
+  return (
+    <div className="rise-in w-full max-w-2xl rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-5 text-center dark:border-amber-400/25 dark:bg-amber-400/[0.08]">
+      <p className="font-medium text-foreground">
+        Your 14-day free trial has ended
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Upgrade to Nova Pro to keep using Nova. Your workspace, files, and
+        agents stay exactly where you left them.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          window.location.href = "/checkout?product=pro";
+        }}
+        className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium text-background transition hover:opacity-90 dark:bg-white dark:text-black"
+      >
+        <Crown className="size-4" />
+        Upgrade - $7.99/month
+      </button>
+    </div>
+  );
+}
 
 /**
  * The Nova workspace screen: the Overview home page (headline + connectors)
@@ -116,14 +156,6 @@ export default function Workspace() {
       ? pendingEnvVarRequests[0]
       : undefined;
 
-  const connectorStatus = trpc.composio.status.useQuery(undefined, {
-    retry: false,
-    enabled: !chatId,
-  });
-  const telegramStatus = trpc.telegram.status.useQuery(undefined, {
-    retry: false,
-    enabled: !chatId,
-  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleChatScroll = () => {
@@ -308,6 +340,29 @@ export default function Workspace() {
     })();
   }, []);
 
+  // The overview's task-prompt model + effort selection. Declared before any
+  // early return so the hook count is identical whether or not a chat is open:
+  // submitting the prompt navigates to a chat, and declaring these below the
+  // `if (chatId)` return would drop hooks on that re-render (React error #300).
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: () => {
+      void utils.workspace.chats.invalidate();
+      void utils.workspace.computer.invalidate();
+    },
+  });
+  const subscription = trpc.billing.subscription.useQuery(undefined, {
+    retry: false,
+  });
+  // The free plan is a 14-day trial, not a forever tier: once the window
+  // closes and no Pro entitlement covers the account, the composers lock and
+  // the upgrade CTA is the only way forward. The server enforces the same
+  // rule on every AI path; this is the UI mirror. Unknown while the query is
+  // in flight reads active so a slow network never locks a paying account.
+  const accessActive = subscription.data?.accessActive ?? true;
+  const [selectedModelId, setSelectedModelId] = useState(FREE_CHAT_MODEL_ID);
+  const [selectedEffortId, setSelectedEffortId] = useState<EffortId>("auto");
+  const [startingSession, setStartingSession] = useState(false);
+
   if (computer.isError)
     return <WorkspaceError onRetry={() => computer.refetch()} />;
   if (chatId) {
@@ -368,6 +423,7 @@ export default function Workspace() {
           key: `tools-${item.activities[0].id}`,
           activities: item.activities,
           live: false,
+          createdAt: item.activities[0].createdAt ?? null,
         });
       else if (item.message.role === "user")
         rows.push({
@@ -376,6 +432,7 @@ export default function Workspace() {
           messageId: item.message.id,
           content: item.message.content,
           pending: false,
+          createdAt: item.message.createdAt ?? null,
         });
       else
         rows.push({
@@ -384,6 +441,7 @@ export default function Workspace() {
           messageId: item.message.id,
           content: item.message.content,
           live: false,
+          createdAt: item.message.createdAt ?? null,
         });
     }
     rows.push(
@@ -517,8 +575,7 @@ export default function Workspace() {
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-col gap-6">
                   {savedMessages.isLoading ? (
-                    <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                      <TypingIndicator />
+                    <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
                       <span>Opening the thread…</span>
                     </div>
                   ) : rows.length === 0 && !agentIsWorking ? (
@@ -598,12 +655,35 @@ export default function Workspace() {
                             <ToolRunGroup activities={row.activities} />
                           </div>
                         );
-                      if (row.kind === "user")
+                      if (row.kind === "user") {
+                        // The automatic-continuation turn the server
+                        // persists when a segment ran out of time: the
+                        // user never typed it, so it renders as a quiet
+                        // resume divider - not as their orange bubble
+                        // with copy/speak actions on system instructions.
+                        if (isContinuationPrompt(row.content))
+                          return (
+                            <div
+                              key={row.key}
+                              data-testid="continuation-divider"
+                              role="status"
+                              className="chat-in flex w-full shrink-0 items-center gap-3 px-1"
+                            >
+                              <span className="h-px flex-1 bg-foreground/[0.10] dark:bg-white/[0.12]" />
+                              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+                                <History className="size-3.5 text-primary" />
+                                Resuming automatically
+                              </span>
+                              <span className="h-px flex-1 bg-foreground/[0.10] dark:bg-white/[0.12]" />
+                            </div>
+                          );
                         return (
                           <div
                             key={row.key}
-                            className="chat-in flex w-full shrink-0 flex-col items-end gap-1.5"
+                            className="chat-in flex w-full shrink-0 flex-col gap-1.5"
                           >
+                            <TurnTimestamp createdAt={row.createdAt ?? null} />
+                            <div className="flex flex-col items-end gap-1.5">
                             <div className="max-w-[92%] border border-primary/20 bg-primary px-4 py-3 text-[15px] leading-6 text-primary-foreground shadow-[0_8px_24px_rgba(130,70,35,0.16)] sm:max-w-[78%]">
                               {row.content}
                             </div>
@@ -611,8 +691,10 @@ export default function Workspace() {
                               <SpeakMessageButton text={row.content} />
                               <CopyMessageButton text={row.content} />
                             </div>
+                            </div>
                           </div>
                         );
+                      }
                       const isLast = rows.indexOf(row) === rows.length - 1;
                       const streaming = row.live && agentIsWorking && isLast;
                       const unavailable = isUnavailableReply(row.content);
@@ -728,12 +810,6 @@ export default function Workspace() {
                               Nova
                             </p>
                           )}
-                          {typingLabel && (
-                            <span className="size-1 animate-pulse rounded-full bg-primary" />
-                          )}
-                        </div>
-                        <div className="border-s border-primary/40 bg-card/65 px-4 py-3.5 shadow-sm dark:bg-white/[0.045]">
-                          <TypingIndicator />
                         </div>
                       </div>
                     </div>
@@ -765,8 +841,18 @@ export default function Workspace() {
             </div>
           </div>
 
+          {!accessActive && (
+            <div className="mx-auto w-full max-w-[1240px] px-4 pt-4 sm:px-7">
+              <TrialEndedNotice />
+            </div>
+          )}
+
           <form
-            onSubmit={submit}
+            onSubmit={event => {
+              // The trial lock is also enforced here: Enter-to-send and any
+              // other submit path must not slip past the disabled button.
+              if (accessActive) submit(event);
+            }}
             className="chat-editorial-composer relative z-10 shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-7 sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
           >
             <div className="relative mx-auto w-full max-w-[1240px]">
@@ -798,11 +884,7 @@ export default function Workspace() {
                   </div>
                 )}
                 <div className="flex items-center justify-between gap-2 px-2.5 pb-1.5">
-                  {chatId ? (
-                    <ModelSelector chatId={chatId} />
-                  ) : (
-                    <span />
-                  )}
+                  {chatId ? <ModelSelector chatId={chatId} /> : <span />}
                   <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">
                     Enter to send · / for commands
                   </span>
@@ -903,7 +985,7 @@ export default function Workspace() {
                       ) : (
                         <button
                           type="submit"
-                          disabled={!canSendComposer}
+                          disabled={!canSendComposer || !accessActive}
                           aria-label="Send message"
                           className={
                             canSendComposer
@@ -940,138 +1022,214 @@ export default function Workspace() {
     );
   }
 
-  const githubConnected =
-    connectorStatus.data?.toolkits?.github?.connected ?? false;
-  const gmailConnected =
-    connectorStatus.data?.toolkits?.gmail?.connected ?? false;
-  const vercelConnected =
-    connectorStatus.data?.toolkits?.vercel?.connected ?? false;
-  // The bot token being configured is not "connected": the owner's Telegram
-  // chat only counts as Ready once Telegram has actually linked a chat.
-  const telegramLinked = Boolean(
-    telegramStatus.data?.configured && telegramStatus.data?.chatId
-  );
-  const connectors = [
-    {
-      name: "Telegram",
-      icon: Send,
-      available: telegramLinked,
-      detail:
-        "Delivers messages and routine updates straight to your Telegram chat.",
-    },
-    {
-      name: "GitHub",
-      icon: Github,
-      available: githubConnected,
-      detail:
-        "Star repos, file issues and open pull requests from a task. Connect it in Settings.",
-    },
-    {
-      name: "Gmail",
-      icon: Mail,
-      available: gmailConnected,
-      detail:
-        "Search, send and reply to email from a task. Connect it in Settings.",
-    },
-    {
-      name: "Vercel",
-      icon: Rocket,
-      available: vercelConnected,
-      detail:
-        "List projects, check deployments and read build logs. Connect it in Settings.",
-    },
-    {
-      name: "More connectors",
-      icon: CircleDashed,
-      available: false,
-      detail:
-        "Slack and Notion are on the roadmap - tell Nova what you need next.",
-    },
-  ];
+  /** The overview's task prompt. The model + effort selectors are real: they
+   * choose the conversation the task starts on and ride into `chats.create`
+   * with it (effort offers vary per model - see PromptModelControls). The
+   * personality picker and the gear (settings) are the remaining
+   * inline affordances on the card. */
+
+  // `createChat`, `subscription`, `selectedModelId`, `selectedEffortId` and
+  // `startingSession` are declared at the top of the component (before the
+  // early returns) so the hook count stays stable across the overview -> chat
+  // navigation; only the derived values live here.
+  const chatModels = getChatModels();
+  const handlePromptModelChange = (modelId: string) => {
+    setSelectedModelId(modelId);
+    const offered = effortOptionsForModelId(modelId);
+    setSelectedEffortId(previous => (offered.includes(previous) ? previous : "auto"));
+  };
+  const taskText = draft.trim();
+  const canStartSession =
+    accessActive &&
+    (taskText.length > 0 || composerAttachments.length > 0) &&
+    !preparingAttachments &&
+    !createChat.isPending &&
+    !startingSession;
+
+  /**
+   * "Start a session": open a fresh conversation carrying the task (and any
+   * attached images/files) and hand it to Nova. The chat title starts as the
+   * task itself; the server auto-renames the thread once the first run
+   * settles, exactly like a chat started from the composer.
+   */
+  const startSession = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canStartSession) return;
+    const images = composerAttachments.flatMap(attachment =>
+      attachment.kind === "image" ? [attachment.dataUri] : []
+    );
+    const files = composerAttachments.flatMap(attachment =>
+      attachment.kind === "file"
+        ? [
+            {
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+              dataUri: attachment.dataUri,
+            },
+          ]
+        : []
+    );
+    const content =
+      taskText ||
+      (composerAttachments.length === 1
+        ? `Uploaded ${composerAttachments[0].name}`
+        : `Uploaded ${composerAttachments.length} attachments`);
+    setStartingSession(true);
+    try {
+      const chat = await createChat.mutateAsync({
+        title: content.slice(0, 48),
+        model: selectedModelId,
+        effort: selectedEffortId,
+      });
+      setLocation(`/app?chatId=${chat.id}`);
+      await sendMessage(chat.id, content, images, files);
+      setDraft("");
+      setComposerAttachments([]);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Nova could not start that conversation."
+      );
+    } finally {
+      setStartingSession(false);
+    }
+  };
+
+  /** Concrete prompts a first-time visitor can tap to dive straight into the
+      agent's "aha" moment, rather than staring at a blank box. */
+  const starterSuggestions: readonly string[] = Object.freeze([
+    "Summarize a topic and write it as a report",
+    "Review the files in my workspace and summarize them",
+    "Schedule a daily recap of my tasks at 9 AM",
+    "Research a question and save the answer as a file",
+  ]);
 
   return (
     <DashboardLayout>
-      <div className="chat-editorial-shell relative min-h-full overflow-hidden">
-        <div className="chat-editorial-orbit pointer-events-none absolute -right-48 -top-56 size-[36rem] rounded-full border border-primary/[0.12] dark:border-primary/[0.16]" />
-        <div className="relative mx-auto grid max-w-[1240px] gap-12 px-4 py-12 sm:px-7 sm:py-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.65fr)] lg:items-start lg:gap-20">
-          <div className="rise-in lg:col-span-2">
-            <h1 className="max-w-3xl font-serif text-5xl font-medium leading-[0.94] tracking-[-0.055em] text-foreground sm:text-7xl">
-              What are we working on today?
-            </h1>
-            <p className="mt-6 max-w-lg text-base leading-7 text-muted-foreground">
-              Open a thread for whatever needs doing — a question, a file, or a
-              task you would rather hand off.
-            </p>
-            <div className="mt-10 flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="size-2 rounded-full bg-emerald-500" />
-              Your workspace stays private to your account
-            </div>
-          </div>
+      <div className="nova-prompt-shell chat-editorial-shell relative flex min-h-full flex-col items-center justify-center px-4 py-12 sm:px-7">
+        <h1 className="max-w-2xl text-center font-serif text-[clamp(2rem,4.5vw,3.25rem)] font-medium leading-[1.05] tracking-[-0.03em] text-muted-foreground">
+          What does <span className="text-foreground">Nova</span> need
+          done?
+        </h1>
 
-          <div className="rise-in-delay-2 lg:col-span-2">
-            <div className="mb-4 flex items-end justify-between gap-3 border-b border-foreground/[0.10] pb-3 dark:border-white/[0.10]">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-                  Tools on hand
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Nova can work across the places you already use.
-                </p>
-              </div>
-              <span className="hidden text-[10px] text-muted-foreground sm:block">
-                Connect only what you need
-              </span>
-            </div>
-            <div className="grid gap-px overflow-hidden border border-foreground/[0.10] bg-foreground/[0.10] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 dark:border-white/[0.10] dark:bg-white/[0.10]">
-              {connectors.map(connector => {
-                const ConnectorIcon = connector.icon;
-                const needsSetup =
-                  connector.name !== "More connectors" && !connector.available;
-                const Card = needsSetup ? "button" : "div";
-                return (
-                  <Card
-                    key={connector.name}
-                    onClick={
-                      needsSetup
-                        ? () => setLocation("/app/settings")
-                        : undefined
-                    }
-                    className="bg-card/85 px-4 py-4 text-start transition hover:bg-primary/[0.06] dark:bg-card/85 dark:hover:bg-white/[0.07]"
-                  >
-                    <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                      <span className="grid size-7 shrink-0 place-items-center bg-primary/10 text-primary">
-                        <ConnectorIcon className="size-3.5" />
-                      </span>
-                      <span className="min-w-0 truncate">{connector.name}</span>
-                      <span
-                        className={
-                          connector.available
-                            ? "ms-auto flex shrink-0 items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
-                            : "ms-auto shrink-0 text-[10px] font-bold text-muted-foreground"
-                        }
-                      >
-                        {connector.available && (
-                          <span className="me-1 inline-block size-1.5 rounded-full bg-emerald-500" />
-                        )}
-                        {connector.available
-                          ? "Ready"
-                          : connector.name === "More connectors"
-                            ? "Soon"
-                            : "Connect"}
-                      </span>
-                    </span>
-                    <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
-                      {connector.detail}
-                    </p>
-                  </Card>
-                );
-              })}
-            </div>
+        {!accessActive && <TrialEndedNotice />}
+
+        <form
+          className="rise-in mt-8 w-full max-w-2xl rounded-2xl border border-foreground/[0.14] bg-card p-4 shadow-[0_14px_45px_rgba(36,40,34,0.10)] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 dark:border-white/[0.12] dark:bg-white/[0.06] dark:shadow-[0_14px_45px_rgba(0,0,0,0.25)]"
+          onSubmit={startSession}
+        >
+          <textarea
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void startSession(event);
+              }
+            }}
+            placeholder="Describe a task to start a conversation..."
+            aria-label="Describe a task to start a conversation"
+            autoFocus
+            rows={3}
+            className="w-full resize-none bg-transparent text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+          />
+          <AttachmentTray
+            attachments={composerAttachments}
+            onRemove={id =>
+              setComposerAttachments(previous =>
+                previous.filter(attachment => attachment.id !== id)
+              )
+            }
+          />
+          <div className="mt-3 flex items-center gap-4">
+            <PromptModelControls
+              models={chatModels}
+              // The effective plan drives the model lock: Pro access (a paid
+              // plan or a console-operator role) reads paid; Plus buys credits
+              // only, so it reads free here and never unlocks premium models.
+              plan={subscription.data?.proAccess ? "paid" : "free"}
+              selectedModelId={selectedModelId}
+              selectedEffortId={selectedEffortId}
+              onModelChange={handlePromptModelChange}
+              onEffortChange={setSelectedEffortId}
+              disabled={startingSession || createChat.isPending}
+            />
+            <button
+              type="submit"
+              disabled={!canStartSession}
+              aria-label="Start a session"
+              className="ml-auto grid size-10 shrink-0 place-items-center rounded-full bg-foreground text-background shadow-sm transition enabled:hover:-translate-y-0.5 enabled:hover:shadow-md disabled:bg-foreground/[0.15] disabled:text-muted-foreground dark:bg-white dark:text-black"
+            >
+              {startingSession || createChat.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ArrowUp className="size-4.5" />
+              )}
+            </button>
           </div>
+        </form>
+
+        {/* Starter suggestions: a blank prompt screen is the main reason
+            first-time visitors bounce. A single tap lets them dive straight into
+            the agent's "aha" moment instead of staring at an empty box. */}
+        <div className="rise-in-delay-2 mt-4 flex w-full max-w-2xl flex-wrap gap-2">
+          {starterSuggestions.map(suggestion => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => {
+                setDraft(suggestion);
+                composerRef.current?.focus();
+              }}
+              className="border border-primary/35 bg-primary/[0.06] px-3.5 py-2 text-start text-xs font-semibold text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12]"
+            >
+              {suggestion}
+            </button>
+          ))}
         </div>
+
+        <div className="rise-in-delay-2 mt-4 flex w-full max-w-2xl items-center justify-between gap-3">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => composerImageInputRef.current?.click()}
+              disabled={preparingAttachments}
+              aria-label="Attach images"
+              className="text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+            >
+              <Paperclip className="size-4.5" />
+            </button>
+            <PersonalitySelector />
+          </div>
+          <button
+            type="button"
+            onClick={() => setLocation("/app/settings")}
+            aria-label="Workspace settings"
+            className="text-muted-foreground transition hover:text-foreground"
+          >
+            <Settings2 className="size-4.5" />
+          </button>
+        </div>
+
+        <input
+          ref={composerImageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          hidden
+          onChange={event => {
+            const files = event.target.files;
+            if (files?.length)
+              void addChatAttachments(
+                setComposerAttachments,
+                composerAttachments,
+                files
+              );
+            event.target.value = "";
+          }}
+        />
       </div>
     </DashboardLayout>
   );
 }
-
-export { TypingIndicator };

@@ -1,11 +1,11 @@
 import {
   claimDailyCreditForUser,
   claimInferenceRequestForUser,
-  claimMonthlyCreditForUser,
+  claimPurchasedCreditForUser,
   getInferenceAllowanceForUser,
-  isPaidPlanForUser,
+  hasActiveAccessForUser,
+  hasProAccessForUser,
   settleDailyCreditUsageForUser,
-  settleMonthlyCreditUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
 import { createSseLineFramer, sseDataPayload } from "./sse";
@@ -74,7 +74,12 @@ export type AiGatewayClientErrorKind =
   | "credits_exhausted"
   | "invalid_response"
   | "client_error"
-  | "stopped";
+  | "stopped"
+  /**
+   * The account's free trial has ended (or it never had one) and no Pro
+   * entitlement covers it: the account must upgrade to Nova Pro.
+   */
+  | "upgrade_required";
 
 /**
  * Maps an upstream HTTP status to the gateway error kind. 429 keeps its special
@@ -102,107 +107,56 @@ export class AiGatewayClientError extends Error {
 }
 
 /**
- * Nova's built-in AI gateway targets Token Harbor (https://tokenharbor.ai), a
- * unified OpenAI-compatible gateway, behind the server-only TOKENHARBOR_API_KEY
- * credential. The gateway serves a primary model with a free-tier fallback:
- * when the primary fails with a transient error (overload / rate limit,
- * upstream 5xx or timeout, empty completion), the same request is retried
- * against the fallback before the error surfaces. A last-resort
- * fallback lives on a different endpoint entirely - SeekAI
- * (https://seekai.cc), behind its own server-only SEEKAI_API_KEY credential -
- * so a Token Harbor outage (every free pool congested at once) still has
- * somewhere to send the request.
+ * Nova's built-in AI gateway targets Pollinations
+ * (https://gen.pollinations.ai), an OpenAI-compatible gateway, behind the
+ * server-only POLLINATIONS_API_KEY credential. The gateway serves a primary
+ * model with a fallback: when the primary fails with a transient error
+ * (overload / rate limit, upstream 5xx or timeout, empty completion), the
+ * same request is retried against the fallback before the error surfaces.
  */
-const TOKENHARBOR_API_BASE_URL = "https://tokenharbor.ai/v1";
+const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
+/**
+ * Coarena's OpenAI-compatible endpoint: the upstream for the Gemini and
+ * Claude Sonnet slots (see shared/models.ts). Only models named here leave
+ * the Pollinations gateway; the routing reads each request's own body, so a
+ * Pollinations fallback hop behind a Coarena model crosses back
+ * automatically.
+ */
+const COARENA_API_BASE_URL = "https://coarena.ai/api/v1";
+const COARENA_MODELS = new Set(["gemini-4-carbon", "claude-sonnet-5-5"]);
 
-/** The primary model Nova's built-in gateway serves (free-tier: never billed). */
-export const TOKENHARBOR_CHAT_MODEL = "deepseek-v4.1-flash:free";
+/** The primary model Nova's built-in gateway serves. */
+export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
 
 /**
- * Fallback model when the primary fails transiently. Token Harbor serves this
- * as `mimo-v2.6-flash:free` (free-tier: never billed, same `:free` pattern as
- * the primary, so the deployment is never charged). Provider is Xiaomi (MiMo
- * family), served via Token Harbor's free tier
- * (`https://tokenharbor.ai/models/mimo-v2.6-flash:free`, Xiaomi provider at
- * `https://tokenharbor.ai/providers/xiaomi`): a 1M-context omnimodal reasoning
- * model (text, image, audio, video input) used on Token Harbor's free
- * allowance for high-frequency agent/coding calls, so it can serve the agent
- * loop (tool calling + vision) when the primary is down.
- * Override with TOKENHARBOR_FALLBACK_MODEL; set it to "none"/"disabled" to
- * turn the fallback off.
+ * Fallback model when the primary fails transiently. Pollinations serves
+ * this as `z-ai/glm-5.3-flash`: the cheaper of the catalogues' flash-tier
+ * candidates (0.5 vs 0.6 pollen per million completion tokens against
+ * DeepSeek V4.1 Flash, at the same prompt rate), with the same 1M-token
+ * context, image input, and tool calling, so a congested or drained primary
+ * pool degrades to a working model instead of erroring. It is the hop the
+ * agent loop lands on when the primary is down. As a GLM-5.x model it takes
+ * the deep-thinking fields from reasoningParamsForModel. Override with
+ * POLLINATIONS_FALLBACK_MODEL; set it to "none"/"disabled" to turn the
+ * fallback off.
  */
-export const TOKENHARBOR_FALLBACK_MODEL = "mimo-v2.6-flash:free";
-
-/** SeekAI's OpenAI-compatible base URL (its dashboard runs the New API gateway). */
-const SEEKAI_API_BASE_URL = "https://seekai.cc/v1";
-
-/**
- * Last-resort fallback, served by SeekAI (https://seekai.cc) rather than Token
- * Harbor, so it keeps working even when Token Harbor itself is unreachable.
- * GLM-5.3-Flash is Zhipu's GLM-family reasoning model with tool calling, so it
- * can serve the agent loop when every Token Harbor model has failed
- * transiently. Only used when the SEEKAI_API_KEY credential is configured;
- * without it the chain stops at the Token Harbor fallback, exactly as
- * before. Override with SEEKAI_FALLBACK_MODEL; set it to "none"/"disabled"
- * to turn the last-resort hop off.
- */
-export const SEEKAI_FALLBACK_MODEL = "glm-5.3-flash";
-
-/** True when an env value asks for a chain hop (or the whole chain) to be turned off. */
-function isChainDisabled(raw: string | undefined): boolean {
-  const lowered = raw?.trim().toLowerCase();
-  return lowered === "none" || lowered === "disabled" || lowered === "off";
-}
-
-/** The SeekAI credential. Same placeholder rule as the Token Harbor key. */
-function seekaiToken() {
-  const token = process.env.SEEKAI_API_KEY?.trim();
-  return token && token.length >= 32 ? token : undefined;
-}
-
-/** Optional HTTPS override for SeekAI's base URL (tests, mirrors). */
-function configuredSeekaiUrl() {
-  return httpsBaseUrl(process.env.SEEKAI_GATEWAY_URL?.trim() || SEEKAI_API_BASE_URL);
-}
-
-/** The resolved SeekAI fallback model id (env override, else the built-in default). */
-function seekaiFallbackModel() {
-  return process.env.SEEKAI_FALLBACK_MODEL?.trim() || SEEKAI_FALLBACK_MODEL;
-}
+export const POLLINATIONS_FALLBACK_MODEL = "z-ai/glm-5.3-flash";
 
 /** One hop of the primary-first chain every built-in inference request walks. */
 export type GatewayChainEntry = {
   model: string;
-  /** Base URL for this hop; unset means the primary Token Harbor endpoint. */
-  baseUrl?: string;
-  /** Bearer credential for this hop; unset means TOKENHARBOR_API_KEY. */
-  token?: string;
 };
 
 /** Primary-first chain every built-in inference request walks. */
 export function gatewayModelChain(): GatewayChainEntry[] {
-  const raw = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim().toLowerCase();
+  const raw = process.env.POLLINATIONS_FALLBACK_MODEL?.trim().toLowerCase();
   if (raw === "none" || raw === "disabled" || raw === "off") {
-    return [{ model: TOKENHARBOR_CHAT_MODEL }];
+    return [{ model: POLLINATIONS_CHAT_MODEL }];
   }
-  const override = process.env.TOKENHARBOR_FALLBACK_MODEL?.trim();
-  const fallback = override ? override : TOKENHARBOR_FALLBACK_MODEL;
-  const chain: GatewayChainEntry[] = [{ model: TOKENHARBOR_CHAT_MODEL }];
-  if (fallback !== TOKENHARBOR_CHAT_MODEL) chain.push({ model: fallback });
-  // The last resort is a different provider, so it needs its own credential;
-  // without one the chain simply stops after the Token Harbor fallback.
-  const seekaiTokenValue = seekaiToken();
-  if (!seekaiTokenValue || isChainDisabled(process.env.SEEKAI_FALLBACK_MODEL)) {
-    return chain;
-  }
-  const seekaiUrl = configuredSeekaiUrl();
-  if (!seekaiUrl) return chain;
-  const seekai = seekaiFallbackModel();
-  const alreadyServedHere = chain.some(
-    entry => entry.model === seekai && !entry.baseUrl
-  );
-  if (alreadyServedHere) return chain;
-  chain.push({ model: seekai, baseUrl: seekaiUrl, token: seekaiTokenValue });
+  const override = process.env.POLLINATIONS_FALLBACK_MODEL?.trim();
+  const fallback = override ? override : POLLINATIONS_FALLBACK_MODEL;
+  const chain: GatewayChainEntry[] = [{ model: POLLINATIONS_CHAT_MODEL }];
+  if (fallback !== POLLINATIONS_CHAT_MODEL) chain.push({ model: fallback });
   return chain;
 }
 /**
@@ -217,17 +171,10 @@ export function chatModelChain(explicitModel?: string): GatewayChainEntry[] {
   const base = gatewayModelChain();
   const requested = explicitModel?.trim();
   if (!requested) return base;
-  const alreadyLeading = base[0]?.model === requested && !base[0]?.baseUrl;
+  const alreadyLeading = base[0]?.model === requested;
   if (alreadyLeading) return base;
-  const rest = base.filter(entry => entry.model !== requested || entry.baseUrl);
+  const rest = base.filter(entry => entry.model !== requested);
   return [{ model: requested }, ...rest];
-}
-
-/** The endpoint override for a hop, or undefined for the primary gateway. */
-function endpointFor(entry: GatewayChainEntry) {
-  return entry.baseUrl && entry.token
-    ? { baseUrl: entry.baseUrl, token: entry.token }
-    : undefined;
 }
 
 /**
@@ -241,12 +188,20 @@ export function isFallbackRetryableKind(kind: AiGatewayClientErrorKind): boolean
 }
 
 /**
- * The Token Harbor credential. Mirroring the providers this replaced, a value
+ * The Pollinations credential. Mirroring the providers this replaced, a value
  * shorter than 32 characters is treated as a placeholder rather than a key.
+ * The same key already powers the transcription, speech, and coder paths, so
+ * a deployment running those needs no new credential for chat.
  */
-function tokenHarborToken() {
-  const token = process.env.TOKENHARBOR_API_KEY?.trim();
+function pollinationsToken() {
+  const token = process.env.POLLINATIONS_API_KEY?.trim();
   return token && token.length >= 32 ? token : undefined;
+}
+
+/** The Coarena credential; shorter values are treated as placeholders. */
+function coarenaToken() {
+  const token = process.env.COARENA_API_KEY?.trim();
+  return token && token.length >= 16 ? token : undefined;
 }
 
 /** Validates an https base URL, returning it without a trailing slash (or undefined). */
@@ -260,15 +215,51 @@ function httpsBaseUrl(raw: string) {
   }
 }
 
-/** Optional HTTPS override for the Token Harbor base URL (tests, mirrors). */
+/** Optional HTTPS override for the Pollinations base URL (tests, mirrors). */
 function configuredGatewayUrl() {
   return httpsBaseUrl(
-    process.env.TOKENHARBOR_GATEWAY_URL?.trim() || TOKENHARBOR_API_BASE_URL
+    process.env.POLLINATIONS_GATEWAY_URL?.trim() || POLLINATIONS_API_BASE_URL
   );
 }
 
 function configuredGatewayToken() {
-  return tokenHarborToken();
+  return pollinationsToken();
+}
+
+/** The model a gateway request targets, read from its JSON body; non-chat
+ * calls (GET /models, form uploads) have no body model and stay on
+ * Pollinations. */
+function requestBodyModel(init: RequestInit): string | undefined {
+  if (typeof init.body !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(init.body) as { model?: unknown };
+    return typeof parsed.model === "string" ? parsed.model : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Base URL + bearer credential for the provider the request's model routes
+ * to: Coarena for its two catalogue models, Pollinations for everything
+ * else. Throws a configuration error when the needed credential is absent. */
+function providerEndpointFor(model: string | undefined) {
+  if (model && COARENA_MODELS.has(model)) {
+    const token = coarenaToken();
+    if (!token)
+      throw new AiGatewayClientError(
+        "Nova’s AI service is not connected to this model yet. An administrator must finish setting it up.",
+        "configuration"
+      );
+    return { baseUrl: COARENA_API_BASE_URL, token };
+  }
+  const baseUrl = configuredGatewayUrl();
+  const token = configuredGatewayToken();
+  if (!baseUrl || !token)
+    throw new AiGatewayClientError(
+      "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
+      "configuration"
+    );
+  return { baseUrl, token };
 }
 
 /**
@@ -323,12 +314,12 @@ function describeGatewayError(
 
 /**
  * Daily inference request cap per workspace. Returns null (no cap) unless
- * TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
+ * POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE is set to a positive integer; "0", "none",
  * "unlimited", or an unset/invalid value all mean unlimited.
  */
 function getMaxRequests(): number | null {
   const raw =
-    process.env.TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
+    process.env.POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE?.trim().toLowerCase();
   if (!raw || raw === "0" || raw === "none" || raw === "unlimited") return null;
   const parsed = Number.parseInt(raw, 10);
   return Number.isInteger(parsed) && parsed >= 1
@@ -374,17 +365,9 @@ async function gatewayFetch(
   path: string,
   init: RequestInit = {},
   timeoutMs = REQUEST_TIMEOUT_MS,
-  externalSignal?: AbortSignal,
-  /** Endpoint override for a chain hop served by a different gateway. */
-  endpoint?: { baseUrl: string; token: string }
+  externalSignal?: AbortSignal
 ) {
-  const baseUrl = endpoint?.baseUrl ?? configuredGatewayUrl();
-  const token = endpoint?.token ?? configuredGatewayToken();
-  if (!baseUrl || !token)
-    throw new AiGatewayClientError(
-      "Nova’s AI service is not connected yet. An administrator must finish setting it up.",
-      "configuration"
-    );
+  const { baseUrl, token } = providerEndpointFor(requestBodyModel(init));
   const controller = new AbortController();
   // A user's /stop aborts the in-flight request just like the timeout does.
   const abortWithStop = () => controller.abort();
@@ -473,6 +456,20 @@ async function probeAiGatewayHealth(): Promise<GatewayHealthFlags> {
 }
 
 /**
+ * The free plan is a 14-day trial: once it closes, only a Pro entitlement
+ * (paid plan or console-operator role) keeps an account usable. This runs at
+ * the top of both gateway entry points so every AI path - chat, agents,
+ * BYOK fallback, automation planning - honours the switch to Pro.
+ */
+async function assertActiveAccess(ownerId: number) {
+  if (await hasActiveAccessForUser(ownerId)) return;
+  throw new AiGatewayClientError(
+    "Your 14-day free trial of Nova has ended. Upgrade to Nova Pro to keep using Nova.",
+    "upgrade_required"
+  );
+}
+
+/**
  * The inference hot path's readiness gate. Chat and completion calls re-claim
  * their allowance below on every call, so reading the allowance ledger here
  * would be a wasted database round-trip per model call - the gate is the
@@ -500,11 +497,8 @@ export async function getAiGatewayStatus(ownerId: number) {
     // Legacy identifier: this matches the `model_provider` enum value stored
     // in the database for Nova's built-in gateway, so it stays as-is.
     provider: "mistral" as const,
-    model: TOKENHARBOR_CHAT_MODEL,
-    fallbackModel: TOKENHARBOR_FALLBACK_MODEL,
-    // The last resort lives on a separate credential: without SEEKAI_API_KEY
-    // it is never attempted, so it reports as null rather than a model id.
-    thirdFallbackModel: seekaiToken() ? seekaiFallbackModel() : null,
+    model: POLLINATIONS_CHAT_MODEL,
+    fallbackModel: POLLINATIONS_FALLBACK_MODEL,
     allowance: {
       usedRequests: allowance.usedRequests,
       maxRequests,
@@ -516,18 +510,18 @@ export async function getAiGatewayStatus(ownerId: number) {
     },
   };
   const flags = await probeAiGatewayHealth();
-  return { ...base, model: TOKENHARBOR_CHAT_MODEL, ...flags };
+  return { ...base, model: POLLINATIONS_CHAT_MODEL, ...flags };
 }
 
 /**
  * The reasoning effort requested of GLM-5.2+ models. "max" (the default) is
- * the deepest reasoning the gateway serves; TOKENHARBOR_REASONING_EFFORT
+ * the deepest reasoning the gateway serves; POLLINATIONS_REASONING_EFFORT
  * (low | medium | high | max) trades answer depth for lower latency and
  * provider cost - a lever for deployments where the GLM fallbacks serve
  * high-frequency traffic. Applies to BYOK GLM-family models too.
  */
 function configuredReasoningEffort(): string {
-  const raw = process.env.TOKENHARBOR_REASONING_EFFORT?.trim().toLowerCase();
+  const raw = process.env.POLLINATIONS_REASONING_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "medium" || raw === "high" || raw === "max"
     ? raw
     : "max";
@@ -538,12 +532,15 @@ function configuredReasoningEffort(): string {
  * `thinking: { type: "enabled" }` in the OpenAI-compatible body; GLM-5.2 and
  * newer additionally take `reasoning_effort`, where "max" is the deepest
  * reasoning served. Models without a thinking mode (the built-in gateway's
- * DeepSeek primary and MiMo fallback included) get none, since
+ * GPT primary and fallback included) get none, since
  * sending unknown fields to a strict endpoint risks a rejection. Exported so
  * the BYOK gateway applies the same per-model logic to a workspace's custom
  * GLM-family models.
  */
-export function reasoningParamsForModel(modelId: string): Record<string, unknown> {
+export function reasoningParamsForModel(
+  modelId: string,
+  effort?: string
+): Record<string, unknown> {
   const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
   if (!match) return {};
   const major = Number(match[1]);
@@ -551,34 +548,31 @@ export function reasoningParamsForModel(modelId: string): Record<string, unknown
   const thinks = major > 4 || (major === 4 && minor >= 5);
   if (!thinks) return {};
   const params: Record<string, unknown> = { thinking: { type: "enabled" } };
-  if (major > 5 || (major === 5 && minor >= 2))
-    params.reasoning_effort = configuredReasoningEffort();
+  if (major > 5 || (major === 5 && minor >= 2)) {
+    // A run-level effort (the chat's selected depth, "auto" or deeper)
+    // overrides the deployment default; "auto" / undefined keeps the env value.
+    const selected = (effort ?? "").trim().toLowerCase();
+    params.reasoning_effort =
+      selected && selected !== "auto" ? selected : configuredReasoningEffort();
+  }
   return params;
 }
 
 /**
  * The built-in gateway's model catalogue. Nova serves a primary model
- * (Token Harbor's free DeepSeek V4.1 Flash) with Xiaomi's MiMo V2.6 Flash
- * (free) as the transient-failure fallback, so the picker and settings
- * validation see both entries. SeekAI's GLM-5.3-Flash last resort is listed
- * too, but only while the SEEKAI_API_KEY credential is configured - an
- * unconfigured hop is never attempted, so advertising it would be a lie.
- * Listed as text-only because image support on that endpoint is not assumed.
+ * (Pollinations' GPT-6 Luna) with `z-ai/glm-5.3-flash` as the
+ * transient-failure fallback, so the picker and settings validation see
+ * both entries.
  * `_forceRefresh` is retained for call-site compatibility;
  * there is no discovery round-trip to refresh.
  */
 export async function listGatewayModels(
   _forceRefresh = false
 ): Promise<AvailableGatewayModel[]> {
-  const models: AvailableGatewayModel[] = [
-    { id: TOKENHARBOR_CHAT_MODEL, kind: "vision" },
-    { id: TOKENHARBOR_FALLBACK_MODEL, kind: "vision" },
+  return [
+    { id: POLLINATIONS_CHAT_MODEL, kind: "vision" },
+    { id: POLLINATIONS_FALLBACK_MODEL, kind: "vision" },
   ];
-  const seekai = seekaiToken() ? seekaiFallbackModel() : undefined;
-  if (seekai && !models.some(entry => entry.id === seekai)) {
-    models.push({ id: seekai, kind: "text" });
-  }
-  return models;
 }
 
 /**
@@ -668,33 +662,53 @@ async function readGatewayStreamedCompletion(
   };
 }
 
-async function claimDailyCreditOrThrow(ownerId: number) {
-  if (await isPaidPlanForUser(ownerId)) {
-    const monthlyClaim = await claimMonthlyCreditForUser(ownerId);
-    if (!monthlyClaim) {
-      throw new AiGatewayClientError(
-        "Your monthly Nova credits are used up. Unused credits carry over for up to a year, and your next 10,000 credits arrive at the start of next month.",
-        "credits_exhausted"
-      );
-    }
-    return;
-  }
+/** Which ledger funded a request, so settlement charges back to the same one. */
+export type CreditFundingSource = "daily" | "purchased";
+
+async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSource> {
   const claim = await claimDailyCreditForUser(ownerId);
-  if (!claim) {
-    throw new AiGatewayClientError(
-      "Your daily Nova credits are used up. They reset tomorrow.",
-      "credits_exhausted"
-    );
-  }
+  if (claim) return "daily";
+  // The daily allowance is empty, but bought credits never expire, so spend
+  // one of those before refusing the request.
+  const purchased = await claimPurchasedCreditForUser(ownerId);
+  if (purchased) return "purchased";
+  throw new AiGatewayClientError(
+    "Your daily Nova balance is used up. It resets tomorrow, or you can top up from Billing.",
+    "credits_exhausted"
+  );
 }
 
-async function settleGatewayCredit(ownerId: number, model: string | undefined, usage: GatewayCompletion["usage"] | null) {
+async function settleGatewayCredit(
+  ownerId: number,
+  model: string | undefined,
+  usage: GatewayCompletion["usage"] | null,
+  source: CreditFundingSource
+) {
   const chargedCredits = calculateInferenceCredits(model, usage);
   try {
-    if (await isPaidPlanForUser(ownerId)) {
-      await settleMonthlyCreditUsageForUser(ownerId, chargedCredits, usage);
-    } else {
+    if (source === "daily") {
       await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
+    } else {
+      // A bought bundle was charged one credit up front, so the remainder must
+      // come out of a bundle too. Charging it to the daily ledger would
+      // under-charge the request and inflate an allowance the account is not
+      // using.
+      const extra = Math.max(0, Math.ceil(chargedCredits) - 1);
+      if (extra > 0) {
+        let charged = 0;
+        for (let i = 0; i < extra; i += 1) {
+          const claim = await claimPurchasedCreditForUser(ownerId);
+          if (!claim) break;
+          charged += 1;
+        }
+        // If the bundles ran out mid-request the account was under-charged for
+        // this one turn. There is nothing to refund - the request was already
+        // served - so record it rather than silently pretending it was billed.
+        const shortfall = extra - charged;
+        if (shortfall > 0) {
+          console.warn(`[Credits] account ${ownerId} under-charged by ${shortfall} credit(s): bundles exhausted mid-request`);
+        }
+      }
     }
   } catch (error) {
     console.error("[Credits] Could not settle provider token usage", error instanceof Error ? error.message : error);
@@ -709,8 +723,9 @@ export async function completeWithAiGateway(
   onChunk?: (chunk: string) => void,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ) {
+  await assertActiveAccess(ownerId);
   await assertAiGatewayReady();
-  await claimDailyCreditOrThrow(ownerId);
+  const fundedBy = await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
   const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
@@ -721,8 +736,8 @@ export async function completeWithAiGateway(
   }
   // The built-in gateway walks its primary → fallback chain, so a
   // caller-supplied id (e.g. the tRPC ai.complete input) is intentionally
-  // ignored: the free-tier contract cannot be bypassed, and a non-free Token
-  // Harbor model can never be billed to the deployment.
+  // ignored: the free-tier contract cannot be bypassed, and a non-free
+  // model can never be billed to the deployment.
   const chain = gatewayModelChain();
   // Tracks whether the primary already streamed partial text before failing:
   // the fallback still runs (better than an error), but its text appends
@@ -746,7 +761,7 @@ export async function completeWithAiGateway(
       messages: [{ role: "user", content: prompt }],
       ...(trackingOnChunk ? { stream: true } : {}),
     }),
-  }, hopTimeoutMs, undefined, endpointFor(entry));
+  }, hopTimeoutMs);
   if (trackingOnChunk) {
     const completion = await readGatewayStreamedCompletion(response, trackingOnChunk);
     const text = typeof completion.text === "string" ? completion.text : "";
@@ -832,7 +847,7 @@ export async function completeWithAiGateway(
     }
     throw lastError;
   })();
-  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage);
+  const creditsCharged = await settleGatewayCredit(ownerId, result.model, result.usage, fundedBy);
   return { ...result, creditsCharged };
 }
 
@@ -1184,6 +1199,12 @@ export async function chatWithAiGateway(
      * Omitted = the built-in chain, which is exactly what `nova-pro` means.
      */
     model?: string;
+    /**
+     * The chat's selected deep-thinking effort ("auto" or a deeper level).
+     * Sent to reasoning-capable models as `reasoning_effort`; ignored on
+     * models the gateway does not accept it on. Omitted = deployment default.
+     */
+    effort?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
     onChunk?: (chunk: string) => void;
     /** When set, the model's private reasoning streams as it arrives. */
@@ -1192,21 +1213,23 @@ export async function chatWithAiGateway(
     signal?: AbortSignal;
   } = {}
 ): Promise<GatewayChatResult> {
-  // Premium models are a paid-plan feature, and this check runs on the send
-  // path so a model id can never be smuggled past the composer's own gate.
-  // The free model (or an id the catalogue does not know) falls through to
-  // the built-in chain, which is exactly what `nova-pro` means.
+  await assertActiveAccess(ownerId);
+  // Premium models are a Pro feature, and this check runs on the send path
+  // so a model id can never be smuggled past the composer's own gate. Pro
+  // access means a paid plan or a console-operator role; the free model (or
+  // an id the catalogue does not know) falls through to the built-in chain,
+  // which is exactly what `nova-pro` means.
   const selectedModel = getChatModelById(options.model);
   if (selectedModel && selectedModel.tier === "pro") {
-    if (!(await isPaidPlanForUser(ownerId))) {
+    if (!(await hasProAccessForUser(ownerId))) {
       throw new AiGatewayClientError(
-        "Premium models require an active Nova Pro subscription. Upgrade to switch models, or keep using the free Nova Pro model.",
+        "Premium models require Nova Pro access. Upgrade to switch models, or keep using the free Nova Lite model.",
         "client_error"
       );
     }
   }
   await assertAiGatewayReady();
-  await claimDailyCreditOrThrow(ownerId);
+  const fundedBy = await claimDailyCreditOrThrow(ownerId);
   const maxRequests = getMaxRequests();
   const claim = await claimInferenceRequestForUser(ownerId, maxRequests);
   if (!claim) {
@@ -1251,7 +1274,7 @@ export async function chatWithAiGateway(
         entry,
         requestTimeoutMs
       );
-      await settleGatewayCredit(ownerId, result.model, result.usage);
+      await settleGatewayCredit(ownerId, result.model, result.usage, fundedBy);
       return result;
     } catch (error) {
       lastError = error;
@@ -1304,8 +1327,7 @@ export async function chatWithPublicAiGateway(
           }),
         },
         PUBLIC_CHAT_TIMEOUT_MS,
-        options.signal,
-        endpointFor(entry)
+        options.signal
       );
 
       if (!response.ok) {
@@ -1374,6 +1396,7 @@ async function attemptGatewayChat(
     onChunk?: (chunk: string) => void;
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
+    effort?: string;
   },
   entry: GatewayChainEntry,
   requestTimeoutMs: number
@@ -1392,10 +1415,10 @@ async function attemptGatewayChat(
         body: JSON.stringify({
           model: resolvedModel,
           messages,
-          // Deep thinking at maximum effort for every reasoning-capable
-          // model (per-model: GLM-4.5+ takes thinking.type=enabled,
-          // GLM-5.2+ also reasoning_effort=max).
-          ...reasoningParamsForModel(resolvedModel),
+          // Deep thinking for every reasoning-capable model (per-model: GLM-4.5+
+          // takes thinking.type=enabled, GLM-5.2+ also reasoning_effort - the
+          // chat's selected effort, or the deployment default when it is auto).
+          ...reasoningParamsForModel(resolvedModel, options.effort),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),
@@ -1403,8 +1426,7 @@ async function attemptGatewayChat(
         }),
       },
       requestTimeoutMs,
-      options.signal,
-      endpointFor(entry)
+      options.signal
     );
   const describeEmptyCompletion = (details: string[]) => {
     const suffix = details.length ? ` (${details.join("; ")})` : "";

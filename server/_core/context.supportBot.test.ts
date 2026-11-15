@@ -18,9 +18,11 @@ const { getUserByOpenId, ensureUserWorkspaceProvisioned, upsertUser } = vi.hoist
 );
 
 vi.mock("../db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getUserByOpenId,
   ensureUserWorkspaceProvisioned,
   upsertUser,
+  adoptUserByEmail: vi.fn(async () => null),
 }));
 
 process.env.NOVA_SESSION_SECRET = "test-session-secret";

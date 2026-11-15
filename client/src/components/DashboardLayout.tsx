@@ -1,17 +1,61 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { formatCredits } from "@shared/money";
 import { useLocation, useSearch } from "wouter";
-import { ChevronsLeft, ChevronsRight, Coins, LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Check, ChevronDown, Coins, Lock, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { adminNavItem, navItems as nav, notificationsNavItem, NavItem } from "@/lib/nav";
 import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
+import { CountryPromptModal } from "./CountryPromptModal";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
+import type { TranslationKey } from "@/i18n";
+
+/**
+ * The plans an account can be on, lowest first. The header trigger shows the
+ * highest one the account holds; the menu lists them all so the next tier up is
+ * visible (locked) to an account that does not have it yet. Extend this (and
+ * the i18n keys) when a plan ships.
+ */
+const ACCOUNT_PLANS: ReadonlyArray<{ id: "free" | "plus" | "pro" | "admin"; labelKey: TranslationKey }> = [
+  { id: "free", labelKey: "layout.plan.free" },
+  { id: "plus", labelKey: "layout.plan.plus" },
+  { id: "pro", labelKey: "layout.plan.pro" },
+  { id: "admin", labelKey: "layout.plan.admin" },
+];
+
+export type PlanRow = { id: "free" | "plus" | "pro" | "admin"; labelKey: TranslationKey; current: boolean; locked: boolean };
+
+/**
+ * The rows the plan menu renders. Every account holds Free; Plus is locked to
+ * an account without a Plus subscription, and Pro is locked to an account
+ * without Pro access — selecting either offers the upgrade rather than
+ * switching plan. The admin tier is held by the account's role, not its
+ * subscription, so it only appears for console operators and is never locked.
+ * Pulled out of the component because the menu bodies render in a portal,
+ * which a static render cannot see.
+ * `proAccess` is the server's effective Pro entitlement (a paid plan or a
+ * console-operator role): it - not the raw plan - is what locks the Pro row,
+ * so an operator on a free subscription reads Pro unlocked. `plan` is the
+ * account's raw subscription tier (free / plus / paid).
+ */
+export function planRows(proAccess: boolean, isAdmin: boolean, plan: "free" | "plus" | "paid"): PlanRow[] {
+  // The highest tier the account holds is its current one: the admin tier for
+  // an operator, Pro for an account with Pro access, Plus for a Plus
+  // subscriber, and every account is at least Free.
+  const currentId = isAdmin ? "admin" : proAccess ? "pro" : plan === "plus" ? "plus" : "free";
+  return ACCOUNT_PLANS.map(row => ({
+    id: row.id,
+    labelKey: row.labelKey,
+    current: row.id === currentId,
+    locked: row.id === "admin" ? false : row.id === "pro" ? !proAccess : row.id === "plus" ? plan === "free" : false,
+  })).filter(row => row.id !== "admin" || isAdmin);
+}
 
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -23,9 +67,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Starter questions for brand-new accounts. Shown once until the user
   // completes (or skips) onboarding; a skip leaves it open to ask again later.
   const onboarding = trpc.auth.onboarding.useQuery(undefined, { enabled: Boolean(user), retry: false });
+  // The account's plan, for the badge beside the wordmark. Same query the
+  // billing page reads, so the two never disagree.
+  const subscription = trpc.billing.subscription.useQuery(undefined, { enabled: Boolean(user), retry: false });
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  // Legacy accounts (onboarding done before the country question existed)
+  // get the one-shot country prompt; the server stops offering it the moment
+  // the answer or dismissal lands, this state just quietens the current view.
+  const [countryPromptDismissed, setCountryPromptDismissed] = useState(false);
   const { theme, toggleTheme } = useTheme();
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [location, setLocation] = useLocation();
   const search = useSearch();
   const hasChatId = new URLSearchParams(search).has("chatId");
@@ -53,6 +104,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Error count for the sidebar Notifications entry. The query is admin-gated
   // server-side, and only console operators ever see the entry.
   const notificationsQuery = trpc.admin.apiErrorLogs.useQuery({ limit: 100 }, { enabled: isConsoleOperator, retry: false, refetchInterval: 120_000 });
+  // The plan menu rows, and the highest plan the account holds (the trigger's
+  // label). `plan` is the server's own active-then-paid verdict, so a lapsed
+  // subscription reads Free without any client-side date maths. Both stay
+  // undefined until the query resolves, which keeps the badge empty on first
+  // paint instead of flashing "Free" at a paying account.
+  // Pro access is the server's effective entitlement (paid plan or
+  // console-operator role), reported beside the raw plan.
+  const proAccess = subscription.data?.proAccess ?? false;
+  // The admin tier is role-based, not subscription-based: console operators
+  // (the same gate that owns the Admin and Notifications entries) hold it.
+  const rows = subscription.data ? planRows(proAccess, isConsoleOperator, subscription.data.plan) : undefined;
+  const topPlan = rows?.find(row => row.current);
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user) return <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6"><div className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.12)] sm:p-8"><NovaLogo size={34} className="mx-auto" /><h1 className="mt-5 text-2xl font-extrabold tracking-tight text-foreground">{t("layout.signInTitle")}</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{t("layout.signInBody")}</p><button onClick={() => window.location.assign("/sign-in")} className="pill-btn pill-btn-primary mt-6 w-full">{t("layout.signIn")}</button></div></div>;
@@ -86,8 +149,75 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex min-w-0 items-center gap-1">
           <button onClick={() => setMobileNavOpen(true)} aria-label={t("layout.openMenu")} className="grid size-9 shrink-0 place-items-center rounded-xl text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 md:hidden"><Menu className="size-4.5" /></button>
           <button onClick={() => go("/app")} className="flex min-w-0 items-center gap-2 rounded-xl px-1.5 py-1 outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60"><NovaLogo size={30} /><span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">Nova</span></button>
+          {/* The account's plan, beside the wordmark: only the highest plan
+              the account holds, in the display serif. Selecting it opens
+              billing. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label={t("layout.plan.aria")}
+                className="nova-display flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[15px] text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+              >
+                {topPlan ? t(topPlan.labelKey) : null}
+                {topPlan && <ChevronDown className="size-3.5 font-sans" />}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 rounded-xl">
+              <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                {t("layout.plan.menuLabel")}
+              </DropdownMenuLabel>
+              {(rows ?? []).map(plan => {
+                const { current, locked } = plan;
+                return (
+                  <DropdownMenuItem
+                    key={plan.id}
+                    onSelect={event => {
+                      event.preventDefault();
+                      // A locked tier is not selectable — tapping it offers the
+                      // upgrade instead, which is where the decision belongs.
+                      if (locked) go("/app/billing");
+                    }}
+                    className={`flex items-center gap-2.5 rounded-lg py-2.5 ${
+                      locked ? "cursor-pointer opacity-70" : ""
+                    }`}
+                  >
+                    <span className="grid size-4 shrink-0 place-items-center">
+                      {locked ? (
+                        <Lock className="size-3.5 text-muted-foreground" />
+                      ) : current ? (
+                        <Check className="size-4 text-primary" />
+                      ) : null}
+                    </span>
+                    <span className="nova-display flex-1 text-base">
+                      {t(plan.labelKey)}
+                    </span>
+                    {current && (
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-sans font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                        {t("layout.plan.current")}
+                      </span>
+                    )}
+                    {locked && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-sans font-bold uppercase tracking-wide text-muted-foreground">
+                        {t("layout.plan.locked")}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={event => {
+                  event.preventDefault();
+                  go("/app/billing");
+                }}
+                className="cursor-pointer rounded-lg py-2.5 text-xs font-semibold text-muted-foreground"
+              >
+                {t("layout.plan.manage")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <div className="ms-2 flex shrink-0 items-center gap-2">{isChatWorkspace && <span className="hidden items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-emerald-500" />{t("layout.chatWorkspace")}</span>}{credits.data && <span className="flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5 text-xs font-semibold text-muted-foreground" title={credits.data.unlimited ? t("layout.creditsTitle.unlimited", { cents: credits.data.creditValueCents }) : t("layout.creditsTitle.remaining", { remaining: credits.data.remainingCredits, daily: credits.data.dailyCredits, cents: credits.data.creditValueCents })}><Coins className="size-3.5 text-primary" /><span>{credits.data.unlimited ? t("layout.credits.unlimited") : credits.data.remainingCredits}</span><span className="hidden sm:inline">{t("layout.credits")}</span></span>}<DropdownMenu><DropdownMenuTrigger asChild><button className="rounded-full outline-none transition hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("layout.accountMenu")}><Avatar className="size-8 border border-border"><AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-[min(15rem,calc(100vw-1rem))] rounded-xl"><div className="border-b border-border px-3 py-3 text-xs text-muted-foreground">{user.email}</div><DropdownMenuItem onClick={toggleTheme} className="cursor-pointer rounded-lg py-2.5">{theme === "light" ? <Moon className="me-2 size-4" /> : <Sun className="me-2 size-4" />}{theme === "light" ? t("layout.theme.toDark") : t("layout.theme.toLight")}</DropdownMenuItem><DropdownMenuItem onClick={logout} className="cursor-pointer rounded-lg py-2.5 text-red-500 focus:text-red-500"><LogOut className="me-2 size-4" />{t("layout.signOut")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
+        <div className="ms-2 flex shrink-0 items-center gap-2">{isChatWorkspace && <span className="hidden items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-emerald-500" />{t("layout.chatWorkspace")}</span>}{credits.data && <span className="flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5 text-xs font-semibold text-muted-foreground" title={credits.data.unlimited ? t("layout.creditsTitle.unlimited") : t("layout.creditsTitle.remaining", { remaining: formatCredits(credits.data.remainingCredits ?? 0, locale), daily: formatCredits(credits.data.dailyCredits ?? 0, locale) })}><Coins className="size-3.5 text-primary" /><span>{credits.data.unlimited ? t("layout.credits.unlimited") : formatCredits(credits.data.remainingCredits ?? 0, locale)}</span><span className="hidden sm:inline">{t("layout.credits")}</span></span>}<DropdownMenu><DropdownMenuTrigger asChild><button className="rounded-full outline-none transition hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("layout.accountMenu")}><Avatar className="size-8 border border-border"><AvatarFallback className="bg-primary text-xs font-bold text-primary-foreground">{user.name?.charAt(0).toUpperCase() || "N"}</AvatarFallback></Avatar></button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-[min(15rem,calc(100vw-1rem))] rounded-xl"><div className="border-b border-border px-3 py-3 text-xs text-muted-foreground">{user.email}</div><DropdownMenuItem onClick={toggleTheme} className="cursor-pointer rounded-lg py-2.5">{theme === "light" ? <Moon className="me-2 size-4" /> : <Sun className="me-2 size-4" />}{theme === "light" ? t("layout.theme.toDark") : t("layout.theme.toLight")}</DropdownMenuItem><DropdownMenuItem onClick={logout} className="cursor-pointer rounded-lg py-2.5 text-red-500 focus:text-red-500"><LogOut className="me-2 size-4" />{t("layout.signOut")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
       </header>
 
       {/* Mobile drawer */}
@@ -108,6 +238,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
       {user && onboarding.data && !onboarding.data.completed && !onboardingDismissed && (
         <OnboardingModal onClose={() => setOnboardingDismissed(true)} />
+      )}
+      {user && onboarding.data?.needsCountry && !countryPromptDismissed && (
+        <CountryPromptModal onClose={() => setCountryPromptDismissed(true)} />
       )}
     </div>
   );

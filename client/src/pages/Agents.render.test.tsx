@@ -58,6 +58,10 @@ const state = vi.hoisted(() => ({
     body: string;
     createdAt: Date;
   }>,
+  /** "paid" (default) or "free"; undefined mimics the subscription query still loading. */
+  plan: "paid" as "free" | "paid" | undefined,
+  /** Effective Pro entitlement: a paid plan OR a console-operator role. */
+  proAccess: true,
   isLoading: false,
 }));
 
@@ -84,6 +88,14 @@ vi.mock("@/lib/trpc", () => ({
       createTeam: { useMutation: () => mutation },
       approve: { useMutation: () => mutation },
       deny: { useMutation: () => mutation },
+    },
+    billing: {
+      subscription: {
+        useQuery: () => ({
+          data: state.plan === undefined ? undefined : { plan: state.plan, proAccess: state.proAccess },
+          isLoading: false,
+        }),
+      },
     },
     useUtils: () => ({
       agents: {
@@ -119,6 +131,8 @@ describe("Agents page rendered states", () => {
     state.pending = [];
     state.recent = [];
     state.inbox = [];
+    state.plan = "paid";
+    state.proAccess = true;
     state.isLoading = false;
     mutation.mutate.mockClear();
   });
@@ -150,7 +164,7 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("Researcher");
     expect(markup).toContain("mira-4f2a@nova.local");
     expect(markup).toContain("+1-555-0142");
-    expect(markup).toContain("380 of 500 credits left");
+    expect(markup).toContain("$0.38 of $0.50 left");
     expect(markup).toContain("Open chat");
     // The empty-state prompt disappears once an agent exists.
     expect(markup).not.toContain("No agents yet");
@@ -171,7 +185,7 @@ describe("Agents page rendered states", () => {
     ];
     const markup = renderAgents();
     expect(markup).toContain("Unlimited");
-    expect(markup).toContain("40 spent");
+    expect(markup).toContain("$0.04 spent");
     expect(markup).not.toContain("credits left");
   });
 
@@ -255,6 +269,67 @@ describe("Agents page rendered states", () => {
     expect(markup).toContain("No teams yet");
     // With two agents the New team control is clickable (not disabled).
     expect(teamCreateButtonTag(markup)).not.toContain('disabled=""');
+    // A paid account sees the plain button, no Pro badge.
+    expect(markup).not.toContain("New team<span");
+  });
+
+  it("marks team creation as Nova Pro for a free account", () => {
+    state.plan = "free";
+    state.proAccess = false;
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+      { id: 12, name: "Pip", role: null, instructions: null, emailAlias: "pip-2@nova.local", phoneHandle: "+1-555-0102", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    // The New team control stays openable so the upgrade CTA in the dialog
+    // is reachable, but it carries the Pro badge and a Pro-aware tooltip.
+    expect(markup).toContain('title="Agent teams are part of Nova Pro - open to upgrade"');
+    expect(markup).toContain("New team<span");
+  });
+
+  /** The opening tag of the "New agent" header button - matched by its
+   * label like the team button, so Tailwind's always-present `disabled:`
+   * utilities cannot fake a state. */
+  function agentCreateButtonTag(markup: string): string {
+    const labelAt = markup.indexOf("New agent</button>");
+    if (labelAt < 0) return "";
+    const start = markup.lastIndexOf("<button", labelAt);
+    return start < 0 ? "" : markup.slice(start, labelAt);
+  }
+
+  it("leaves agent creation unbadged for a paid account", () => {
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    expect(agentCreateButtonTag(markup)).not.toContain("Pro</span>");
+    expect(markup).not.toContain("New agent<span");
+  });
+
+  it("marks agent creation as Nova Pro for a free account", () => {
+    state.plan = "free";
+    state.proAccess = false;
+    const markup = renderAgents();
+    // The New agent controls stay openable so the upgrade CTA in the dialog
+    // is reachable, but they carry the Pro badge and a Pro-aware tooltip.
+    expect(markup).toContain('title="Personal agents are part of Nova Pro - open to upgrade"');
+    expect(markup).toContain("New agent<span");
+  });
+
+  it("leaves agent and team creation open for an operator on a free subscription", () => {
+    // Operators hold the Admin tier: Pro entitlement rides on the role,
+    // reported by the subscription query's proAccess flag.
+    state.plan = "free";
+    state.proAccess = true;
+    state.agents = [
+      { id: 11, name: "Mira", role: null, instructions: null, emailAlias: "mira-1@nova.local", phoneHandle: "+1-555-0101", walletBudgetCredits: 500, walletSpentCredits: 0 },
+      { id: 12, name: "Pip", role: null, instructions: null, emailAlias: "pip-2@nova.local", phoneHandle: "+1-555-0102", walletBudgetCredits: 500, walletSpentCredits: 0 },
+    ];
+    const markup = renderAgents();
+    expect(markup).not.toContain("New agent<span");
+    expect(markup).not.toContain("New team<span");
+    expect(markup).not.toContain('title="Personal agents are part of Nova Pro - open to upgrade"');
+    expect(markup).not.toContain('title="Agent teams are part of Nova Pro - open to upgrade"');
   });
 
   it("shows the agent inbox when mail has been delivered", () => {
@@ -303,15 +378,16 @@ describe("agent budget field", () => {
     expect(walletBudgetFromField("   ")).toEqual({ ok: true, credits: null });
   });
 
-  it("keeps a typed budget as a plain credit count", () => {
-    expect(walletBudgetFromField("500")).toEqual({ ok: true, credits: 500 });
-    expect(walletBudgetFromField(" 250 ")).toEqual({ ok: true, credits: 250 });
+  it("converts a typed dollar budget into whole ledger credits", () => {
+    expect(walletBudgetFromField("500")).toEqual({ ok: true, credits: 500_000 });
+    expect(walletBudgetFromField(" 0.5 ")).toEqual({ ok: true, credits: 500 });
     expect(walletBudgetFromField("0")).toEqual({ ok: true, credits: 0 });
+    expect(walletBudgetFromField("12.5")).toEqual({ ok: true, credits: 12_500 });
   });
 
-  it("rejects anything that is not a non-negative count of credits", () => {
+  it("rejects anything that is not a non-negative dollar amount", () => {
     expect(walletBudgetFromField("-5")).toEqual({ ok: false });
     expect(walletBudgetFromField("lots")).toEqual({ ok: false });
-    expect(walletBudgetFromField("500.5")).toEqual({ ok: false });
+    expect(walletBudgetFromField("NaN")).toEqual({ ok: false });
   });
 });

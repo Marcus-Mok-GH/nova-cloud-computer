@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // into "the gateway returned an invalid response" or a hung webhook.
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser: vi.fn(async () => ({ usedCredits: 1, allocatedCredits: 500 })),
   settleDailyCreditUsageForUser: vi.fn(async () => undefined),
   getActiveCustomModelForUser: vi.fn(async () => null),
   getInferenceAllowanceForUser: vi.fn(async () => ({ usedRequests: 0 })),
   claimInferenceRequestForUser: vi.fn(async () => ({ usedRequests: 1 })),
-  isPaidPlanForUser: vi.fn(async () => false),
 }));
 
 import { chatWithAiGateway, completeWithAiGateway, reasoningParamsForModel, resetAiGatewayHealthCache } from "./aiGateway";
@@ -38,14 +38,11 @@ function modelsResponse() {
 }
 
 beforeEach(() => {
-  // Credentials shorter than 32 chars are ignored by tokenHarborToken().
-  process.env.TOKENHARBOR_API_KEY = "thk_live_test-gateway-key-0123456789abcdef012345";
-  process.env.TOKENHARBOR_GATEWAY_URL = "https://gateway.example.com/v1";
-  // The SeekAI last resort is a different endpoint: keep it out of these
-  // Token Harbor-only stubs even if the developer's shell exports a real key.
-  delete process.env.SEEKAI_API_KEY;
+  // Credentials shorter than 32 chars are ignored by pollinationsToken().
+  process.env.POLLINATIONS_API_KEY = "sk-pollinations_test-gateway-key-0123456789abcdef012345";
+  process.env.POLLINATIONS_GATEWAY_URL = "https://gateway.example.com/v1";
   // Same for the reasoning-effort lever: the default "max" is asserted below.
-  delete process.env.TOKENHARBOR_REASONING_EFFORT;
+  delete process.env.POLLINATIONS_REASONING_EFFORT;
   resetAiGatewayHealthCache();
   vi.useFakeTimers();
 });
@@ -53,9 +50,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   global.fetch = ORIGINAL_FETCH;
-  delete process.env.TOKENHARBOR_API_KEY;
-  delete process.env.TOKENHARBOR_GATEWAY_URL;
-  delete process.env.TOKENHARBOR_REASONING_EFFORT;
+  delete process.env.POLLINATIONS_API_KEY;
+  delete process.env.POLLINATIONS_GATEWAY_URL;
+  delete process.env.POLLINATIONS_REASONING_EFFORT;
 });
 
 function gatewayFetchStub(respond: (path: string) => Promise<Response> | Response) {
@@ -319,29 +316,58 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("open-nemo-12b")).toEqual({});
   });
 
-  it("honors TOKENHARBOR_REASONING_EFFORT as the GLM-5.2+ effort lever", () => {
-    process.env.TOKENHARBOR_REASONING_EFFORT = "low";
+  it("honors POLLINATIONS_REASONING_EFFORT as the GLM-5.2+ effort lever", () => {
+    process.env.POLLINATIONS_REASONING_EFFORT = "low";
     expect(reasoningParamsForModel("glm-5.3-flash")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "low",
     });
-    process.env.TOKENHARBOR_REASONING_EFFORT = "HIGH";
+    process.env.POLLINATIONS_REASONING_EFFORT = "HIGH";
     expect(reasoningParamsForModel("glm-5.2")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "high",
     });
     // An unrecognized value keeps the default deepest effort.
-    process.env.TOKENHARBOR_REASONING_EFFORT = "extreme";
+    process.env.POLLINATIONS_REASONING_EFFORT = "extreme";
     expect(reasoningParamsForModel("glm-5.2")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "max",
     });
     // GLM-4.x models take no effort field at all, whatever the override says.
-    process.env.TOKENHARBOR_REASONING_EFFORT = "low";
+    process.env.POLLINATIONS_REASONING_EFFORT = "low";
     expect(reasoningParamsForModel("glm-4.5-flash")).toEqual({ thinking: { type: "enabled" } });
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
   });
 
-  it("falls back to the MiMo model when the primary chat model is rate-limited", async () => {
+  it("lets a run-level effort override the GLM-5.2+ reasoning_effort", () => {
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
+    // A deeper effort chosen on the chat wins over the deployment default.
+    expect(reasoningParamsForModel("glm-5.3-flash", "high")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
+    });
+    // "auto" (or undefined) keeps the deployment default of max.
+    expect(reasoningParamsForModel("glm-5.2", "auto")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    expect(reasoningParamsForModel("glm-5.2")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
+    });
+    // The effort is case-insensitive and trimmed.
+    expect(reasoningParamsForModel("glm-5.2", "  LOW ")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "low",
+    });
+    // Non-thinking models still ignore the effort entirely.
+    expect(reasoningParamsForModel("ministral-14b-latest", "max")).toEqual({});
+    expect(reasoningParamsForModel("glm-4.5-flash", "max")).toEqual({
+      thinking: { type: "enabled" },
+    });
+  });
+
+  it("falls back to the fallback model when the primary chat model is rate-limited", async () => {
     let calls = 0;
     const fetchImpl = gatewayFetchStub(path => {
       if (path !== "/chat/completions") throw new Error(`unexpected path ${path}`);
@@ -353,7 +379,7 @@ describe("AI gateway chat stream handling", () => {
         });
       }
       return sseResponse([
-        `data: ${JSON.stringify({ model: "mimo-v2.6-flash:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+        `data: ${JSON.stringify({ model: "z-ai/glm-5.3-flash", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
         "data: [DONE]\n\n",
       ]);
     });
@@ -362,11 +388,11 @@ describe("AI gateway chat stream handling", () => {
       onChunk: () => {},
     });
     expect(result.text).toBe("Fallback reply.");
-    expect(result.model).toBe("mimo-v2.6-flash:free");
+    expect(result.model).toBe("z-ai/glm-5.3-flash");
     expect(calls).toBe(2);
   });
 
-  it("posts the single Token Harbor model without GLM thinking fields", async () => {
+  it("posts the primary Pollinations model without GLM thinking fields", async () => {
     let requestBody: Record<string, unknown> = {};
     global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -379,8 +405,8 @@ describe("AI gateway chat stream handling", () => {
     }) as unknown as typeof fetch;
     const result = await chatWithAiGateway(1, [{ role: "user", content: "hi" }], {});
     expect(result.text).toBe("Thought it through.");
-    expect(requestBody.model).toBe("deepseek-v4.1-flash:free");
-    // DeepSeek is not in the GLM family, so no thinking fields are added.
+    expect(requestBody.model).toBe("openai/gpt-6-luna");
+    // GPT-6 Luna is not in the GLM family, so no thinking fields are added.
     expect(requestBody.thinking).toBeUndefined();
     expect(requestBody.reasoning_effort).toBeUndefined();
   });
@@ -405,7 +431,7 @@ describe("AI gateway chat stream handling", () => {
       }
       return Promise.resolve(
         sseResponse([
-          `data: ${JSON.stringify({ model: "mimo-v2.6-flash:free", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
+          `data: ${JSON.stringify({ model: "z-ai/glm-5.3-flash", choices: [{ delta: { content: "Fallback reply." } }] })}\n\n`,
           "data: [DONE]\n\n",
         ])
       );
@@ -425,7 +451,7 @@ describe("AI gateway chat stream handling", () => {
     await vi.advanceTimersByTimeAsync(45_000);
     await attempt;
     expect(settled).toMatchObject({
-      ok: { text: "Fallback reply.", model: "mimo-v2.6-flash:free" },
+      ok: { text: "Fallback reply.", model: "z-ai/glm-5.3-flash" },
     });
     expect(calls).toBe(2);
   });

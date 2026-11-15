@@ -19,6 +19,7 @@ import {
   type GatewayToolCall,
 } from "../aiGateway";
 import { getSkillByNameForUser } from "../skills";
+import { dollarsToCredits } from "@shared/money";
 import { type SandboxOp, mirrorWorkspaceOp } from "../sandboxWorkspace";
 import { type E2BSandboxLike } from "../e2b";
 
@@ -51,6 +52,45 @@ import {
 } from "../workspaceTools/types";
 
 export type { OwnCodingGate, ToolExecution };
+
+/**
+ * The tools that need the workspace's live sandbox filesystem.
+ *
+ * Every mutating file/folder/plan op mirrors onto the live machine, `run_bash`
+ * executes there, and the editor sub-agent codes there - so each of them is a
+ * reason to boot the machine. Everything else (web research, memories, skills,
+ * connectors, telegram, plans' reads, the browser's own separate sandbox) runs
+ * without one, so a run that only answers or searches must not wake a sandbox
+ * for them.
+ *
+ * `read_file` / `list_workspace` are deliberately absent: they read the
+ * durable Neon/S3 store, never the machine, so waking one for them would be
+ * pure cost. A mutation that follows them still wakes, and the wake syncs the
+ * durable store into the fresh machine, so nothing reads stale.
+ */
+const SANDBOX_TOOL_NAMES: ReadonlySet<string> = new Set([
+  // Workspace filesystem - each mirrors onto the live machine.
+  "create_file",
+  "edit_file",
+  "rename_file",
+  "move_file",
+  "delete_file",
+  "create_folder",
+  "rename_folder",
+  "move_folder",
+  "delete_folder",
+  "create_plan",
+  "edit_plan",
+  // Direct consumers of the live machine.
+  "run_bash",
+  "editor",
+  "code_task",
+]);
+
+/** Whether a tool call needs the run's live sandbox woken. */
+export function toolNeedsSandbox(name: string): boolean {
+  return SANDBOX_TOOL_NAMES.has(name);
+}
 
 /** Executes a single model-requested tool call against the workspace. */
 export async function executeWorkspaceTool(
@@ -172,7 +212,7 @@ export async function executeWorkspaceTool(
         agentId: agentChat.profile.id,
         chatId: chatId ?? null,
         item: str(args.item),
-        amountCredits: Number(args.amount_credits),
+        amountCredits: dollarsToCredits(Number(args.amount_dollars)),
         note: str(args.note) || null,
       });
       if (!outcome.ok)

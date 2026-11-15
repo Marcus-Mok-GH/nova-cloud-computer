@@ -127,20 +127,20 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 | `NOVA_DB_CONNECT_TIMEOUT_MS`  | Optional connection timeout (defaults to `10000`)                               |
 | `NOVA_DB_IDLE_TIMEOUT_MS`     | Optional idle connection timeout (defaults to `30000`)                          |
 | `NOVA_DB_STATEMENT_TIMEOUT_MS` | Optional query timeout (defaults to `30000`)                                  |
+| `BACKUP_DATABASE_URL`        | Optional backup Postgres connection string; on transient primary failures the app fails over to it until the primary recovers (see `docs/database-failover.md`) |
+| `NOVA_DB_FAILOVER_COOLDOWN_MS` | Optional time traffic stays on the backup before the primary is retried (defaults to `60000`) |
 | `E2B_API_KEY`                | Server-only E2B Sandbox API key; never expose it to the browser                 |
 | `E2B_MAX_SANDBOX_CREATIONS`  | Optional server-only no-card safety cap for sandbox creations; defaults to `50` |
-| `TOKENHARBOR_API_KEY`         | Server-only Token Harbor key (`thk_live_...`) powering the built-in AI gateway    |
-| `TOKENHARBOR_GATEWAY_URL`     | Optional HTTPS override for the Token Harbor base URL (defaults to `https://tokenharbor.ai/v1`) |
-| `TOKENHARBOR_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
-| `TOKENHARBOR_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `mimo-v2.6-flash:free`); set to `none`/`disabled` to disable |
-| `SEEKAI_API_KEY`             | Optional server-only SeekAI key; when present it enables a last-resort `glm-5.3-flash` fallback on `https://seekai.cc` after the Token Harbor fallback fails |
-| `SEEKAI_GATEWAY_URL`         | Optional HTTPS override for the SeekAI base URL (defaults to `https://seekai.cc/v1`) |
-| `SEEKAI_FALLBACK_MODEL`      | Optional override for the SeekAI last-resort model (defaults to `glm-5.3-flash`); set to `none`/`disabled` to disable |
+| `POLLINATIONS_API_KEY`       | Server-only Pollinations key powering the built-in AI gateway (also used by transcription, speech, and the free-usage coder) |
+| `POLLINATIONS_GATEWAY_URL`   | Optional HTTPS override for the Pollinations base URL (defaults to `https://gen.pollinations.ai/v1`) |
+| `POLLINATIONS_MAX_REQUESTS_PER_WORKSPACE` | Optional per-workspace gateway request cap; unset means no cap        |
+| `POLLINATIONS_FALLBACK_MODEL` | Optional override for the built-in gateway fallback model (defaults to `z-ai/glm-5.3-flash`); set to `none`/`disabled` to disable |
 | `NOVA_SUPPORT_BOT_DAILY_LIMIT` | Optional per-instance daily cap for the public Q&A assistant on the landing and docs pages; defaults to `500` |
 | `OAUTH_SERVER_URL`           | Neon auth / OAuth server URL                                                    |
 | `WHOP_API_KEY`               | Server-only Whop company API key (`whop_...`); enables Pro subscription and priority checkout |
 | `WHOP_PLAN_ID`               | Whop plan/variant id Pro checkout is pinned to; unset disables self-serve upgrades |
 | `WHOP_PRIORITY_PLAN_ID`      | Whop one-time plan/variant id for S$4.99 priority checkout (`plan_…`); unset disables priority purchases |
+| _(credit top-ups)_           | No extra env var. Credit bundles use inline one-time variants built from `shared/creditTopUps.ts`, so they need only `WHOP_API_KEY`/`WHOP_ACCOUNT_ID`. The webhook receives `payment.succeeded` with `metadata.nova_product=credits`. |
 | `WHOP_WEBHOOK_SECRET`        | Whop webhook signing secret (`ws_...`); required to verify payment and membership webhooks |
 | `WHOP_PORTAL_URL`            | Optional Whop customer portal URL surfaced in billing settings                  |
 | `NOVA_WEB_APP_URL`           | Public app URL used as checkout success/cancel target; defaults to `https://novacloud.computer` |
@@ -151,11 +151,17 @@ Key configuration (see `server/_core/env.ts`). Set these as Vercel Production va
 Remote database TLS certificates are verified, including when a connection URL
 uses `sslmode=require`; only `sslmode=disable` turns TLS off.
 
-The built-in gateway serves Token Harbor's free
-`deepseek-v4.1-flash:free` with `mimo-v2.6-flash:free` (Xiaomi MiMo) as the
-fallback for transient failures. See
+The built-in gateway serves Pollinations' `openai/gpt-6-luna` with
+`z-ai/glm-5.3-flash` as the fallback for transient failures. See
 [`docs/ai-gateway-contract.md`](docs/ai-gateway-contract.md) for the transport
 details.
+
+The database layer can fail over to a backup Postgres when the primary becomes
+unreachable - for example when Neon suspends a project at its plan's data
+transfer limit. Set `BACKUP_DATABASE_URL` and run
+`scripts/setup-db-replication.sh` to keep the backup in sync via logical
+replication; the failover and failback runbook lives in
+[`docs/database-failover.md`](docs/database-failover.md).
 
 ---
 
@@ -203,3 +209,4 @@ vercel --prod
 ```
 
 > **Important:** Keep Vercel as the only production host. Do not create a Zo service or other deployment for this repo.
+fix

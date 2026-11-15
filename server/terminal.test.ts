@@ -97,6 +97,7 @@ vi.mock("./e2b", async importOriginal => {
 });
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   getWorkspaceComputer: vi.fn(async () => ({ workspace: { id: 3, persistentSandboxId: "sbx-live" } })),
 }));
 

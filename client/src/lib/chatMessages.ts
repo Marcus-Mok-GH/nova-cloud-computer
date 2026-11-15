@@ -1,6 +1,7 @@
 // The internal-row markers are a byte-for-byte contract with the server's
 // writers; both sides import the single definition in `@shared/const`.
 import {
+  CONTINUATION_PROMPT,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -12,6 +13,7 @@ import { normalizeFollowUps } from "@shared/followUps";
 import { latestAgentModeMarker } from "@shared/agentMode";
 
 export {
+  CONTINUATION_PROMPT,
   TOOL_ACTIVITY_MESSAGE_PREFIX,
   SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX,
   AGENT_MODE_MESSAGE_PREFIX,
@@ -23,12 +25,72 @@ export {
 export const isInternalChatMessage = (content: string): boolean =>
   INTERNAL_MESSAGE_PREFIXES.some(prefix => content.startsWith(prefix));
 
+/**
+ * True for the automatic-continuation user turn the server persists when a
+ * previous segment ran out of time. The user never typed it, so the chat
+ * renders it as a resume divider - never as their bubble with copy/speak
+ * actions, which read as if Nova was quoting its own instructions back.
+ */
+export const isContinuationPrompt = (content: string): boolean =>
+  content.trim() === CONTINUATION_PROMPT;
+
 type ChatRole = "user" | "assistant";
 export type PersistedChatMessage = {
   id: number;
   role: ChatRole;
   content: string;
+  /**
+   * When the row was written. The server ledger already carries it
+   * (`chatMessages.createdAt`), so the thread can show a clock per message
+   * with no schema change; older clients and test fixtures omit it.
+   */
+  createdAt?: string | Date | null;
 };
+
+/** Coerces a ledger timestamp (tRPC sends ISO strings) to a Date, or null. */
+export function toMessageDate(value: unknown): Date | null {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Short clock for a message header: "2:45 PM" today, "Mon 2:45 PM" within
+ * the last week, "Mar 4, 2:45 PM" older. Null when the row has no usable
+ * timestamp, so callers show no clock at all rather than a wrong one.
+ */
+export function formatMessageTime(
+  value: unknown,
+  now: Date = new Date()
+): string | null {
+  const date = toMessageDate(value);
+  if (!date) return null;
+  const sameDay = date.toDateString() === now.toDateString();
+  if (sameDay) return formatClock(date);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const ageMs = startOfToday.getTime() - date.getTime();
+  if (ageMs >= 0 && ageMs < 7 * dayMs) {
+    const weekday = date.toLocaleDateString(undefined, { weekday: "short" });
+    return `${weekday} ${formatClock(date)}`;
+  }
+  const label = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+  return `${label}, ${formatClock(date)}`;
+}
+
+const formatClock = (date: Date): string =>
+  date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 export type ChatWorkflowMode = "chat" | "plan" | "build";
 
@@ -93,12 +155,28 @@ export function latestFollowUpSuggestions(
   return [];
 }
 
+/** Who made a tool call: Nova itself, or the sub-agent it delegated to. */
+export type ToolActivityOwner =
+  | "nova"
+  | "coding-specialist"
+  | "research-agent"
+  | "thinker-agent"
+  | "vm-agent";
+
 export type ToolActivity = {
   id: string;
   name: string;
   state: "running" | "completed" | "failed";
   args: Record<string, string>;
   summary?: string;
+  /**
+   * Who made the call. Persisted on every row the server writes now; rows
+   * written before the field existed carry none and read as Nova's own
+   * calls (which is how they were emitted).
+   */
+  owner?: ToolActivityOwner;
+  /** When this row was written; read from the ledger row's createdAt. */
+  createdAt?: string | Date | null;
   /** Live progress note while running, or the full tool response once done. */
   detail?: string;
   /**
@@ -155,7 +233,8 @@ export function mergeToolActivity(
  * then more text - instead of lumping all text into one bubble after the tools.
  */
 export type LiveChatEvent =
-  { kind: "text"; content: string } | { kind: "tool"; activity: ToolActivity };
+  | { kind: "text"; content: string }
+  | { kind: "tool"; activity: ToolActivity };
 
 /**
  * Appends a streamed text delta to the live transcript. Consecutive deltas
@@ -273,8 +352,27 @@ export function groupLiveChatItems(events: LiveChatEvent[]): LiveChatItem[] {
   );
 }
 
+/**
+ * The id of the first tool that follows the text segment at `index` in the
+ * live transcript, or null when no tool follows it. A live line of narration
+ * is anchored above that tool so the turn keeps the order the user watched:
+ * what Nova said, then the tools it announced.
+ */
+function nextToolActivityId(
+  items: LiveChatItem[],
+  index: number
+): string | null {
+  for (let next = index + 1; next < items.length; next += 1) {
+    const item = items[next];
+    if (item.kind === "toolRun" && item.activities[0])
+      return item.activities[0].id;
+  }
+  return null;
+}
+
 export function parsePersistedToolActivity(
-  content: string
+  content: string,
+  createdAt?: string | Date | null
 ): ToolActivity | null {
   if (!content.startsWith(TOOL_ACTIVITY_MESSAGE_PREFIX)) return null;
   try {
@@ -298,12 +396,114 @@ export function parsePersistedToolActivity(
       name: parsed.name,
       state: parsed.state,
       args: parseStringRecord(parsed.args),
+      owner: isToolActivityOwner(parsed.owner) ? parsed.owner : undefined,
+      createdAt: createdAt ?? undefined,
       summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
       detail: typeof parsed.detail === "string" ? parsed.detail : undefined,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a persisted row's `owner` field names a known actor. Anything else
+ * (a row written before the field existed, or an unrecognised token) leaves
+ * the activity ownerless, which the UI reads as Nova's own call - matching
+ * how those rows were emitted.
+ */
+function isToolActivityOwner(value: unknown): value is ToolActivityOwner {
+  return (
+    value === "nova" ||
+    value === "coding-specialist" ||
+    value === "research-agent" ||
+    value === "thinker-agent" ||
+    value === "vm-agent"
+  );
+}
+
+/**
+ * The actor a tool activity belongs to, as a short label and a one-sentence
+ * plain-English explanation of who ran it. `nova` is both what new rows
+ * carry and the default for ownerless rows written before the field existed.
+ */
+export type ToolActivityActor = {
+  owner: ToolActivityOwner;
+  /** Short name shown on the badge, e.g. "Coding specialist". */
+  label: string;
+  /**
+   * Plain-English explanation of who made the call and how it got there, for
+   * the badge's tooltip text.
+   */
+  description: string;
+};
+
+export function toolActivityActor(
+  activity: ToolActivity
+): ToolActivityActor {
+  const owner = activity.owner ?? ownerOfCall(activity.name);
+  switch (owner) {
+    case "coding-specialist":
+      return {
+        owner,
+        label: "Coding specialist",
+        description: "A specialist Nova delegated the coding to - not Nova itself. It reads, writes and runs files in your workspace on its own.",
+      };
+    case "research-agent":
+      return {
+        owner,
+        label: "Research agent",
+        description: "A specialist Nova delegated the research to - not Nova itself.",
+      };
+    case "thinker-agent":
+      return {
+        owner,
+        label: "Thinker",
+        description: "A specialist Nova delegated this analysis to - not Nova itself.",
+      };
+    case "vm-agent":
+      return {
+        owner,
+        label: "VM agent",
+        description: "A specialist Nova delegated this task to - not Nova itself. It runs in the workspace sandbox.",
+      };
+    default:
+      return {
+        owner: "nova",
+        label: "Nova",
+        description: "Called directly by Nova, on your behalf.",
+      };
+  }
+}
+
+/**
+ * The actor for rows that carry no `owner` field (written before the field
+ * existed): delegation tools were always sub-agent calls even then, so their
+ * rows still get the specialist's badge - never Nova's. Everything the main
+ * agent called itself stays Nova.
+ */
+function ownerOfCall(name: string): ToolActivityOwner {
+  switch (name) {
+    case "editor":
+    case "code_task":
+      return "coding-specialist";
+    case "research_web":
+      return "research-agent";
+    case "thinker":
+      return "thinker-agent";
+    case "run_vm_task":
+      return "vm-agent";
+    default:
+      return "nova";
+  }
+}
+
+/**
+ * Whether a tool activity ran on a sub-agent rather than on Nova itself.
+ * Drives the indented "inside the delegation" styling.
+ */
+export function isDelegatedToolActivity(activity: ToolActivity): boolean {
+  return toolActivityActor(activity).owner !== "nova";
 }
 
 function parseStringRecord(value: unknown): Record<string, string> {
@@ -351,11 +551,11 @@ export function reconcileChatMessages(
   // streaming in.
   const replyCommitted = Boolean(
     streamingContent &&
-    submitted.some(
-      message =>
-        message.role === "assistant" &&
-        !isInternalChatMessage(message.content)
-    )
+      submitted.some(
+        message =>
+          message.role === "assistant" &&
+          !isInternalChatMessage(message.content)
+      )
   );
   const persistedToolIds = new Set<string>();
   for (const message of submitted) {
@@ -396,7 +596,7 @@ export function groupPersistedChatItems(
 ): ChatListItem[] {
   return groupActivityRuns(
     messages,
-    message => parsePersistedToolActivity(message.content),
+    message => parsePersistedToolActivity(message.content, message.createdAt),
     message => ({ kind: "message" as const, message })
   );
 }
@@ -410,9 +610,29 @@ export function groupPersistedChatItems(
  * replaying the entry animation or flashing stale content.
  */
 export type TurnRenderItem =
-  | { kind: "user"; key: string; messageId: number; content: string; pending: boolean }
-  | { kind: "reply"; key: string; messageId: number; content: string; live: boolean }
-  | { kind: "toolRun"; key: string; activities: ToolActivity[]; live: boolean };
+  | {
+      kind: "user";
+      key: string;
+      messageId: number;
+      content: string;
+      pending: boolean;
+      createdAt?: string | Date | null;
+    }
+  | {
+      kind: "reply";
+      key: string;
+      messageId: number;
+      content: string;
+      live: boolean;
+      createdAt?: string | Date | null;
+    }
+  | {
+      kind: "toolRun";
+      key: string;
+      activities: ToolActivity[];
+      live: boolean;
+      createdAt?: string | Date | null;
+    };
 
 /**
  * Lays the current turn out in the order it actually happened: what the user
@@ -459,7 +679,10 @@ export function buildTurnItems({
   const ledgerActivities = new Map<string, ToolActivity>();
   const ledgerReplies: string[] = [];
   for (const message of messages) {
-    const activity = parsePersistedToolActivity(message.content);
+    const activity = parsePersistedToolActivity(
+      message.content,
+      message.createdAt
+    );
     if (activity) ledgerActivities.set(activity.id, activity);
     else if (message.role === "assistant") ledgerReplies.push(message.content);
   }
@@ -507,8 +730,8 @@ export function buildTurnItems({
   const lastMessage = messages[messages.length - 1];
   const closingReplyPersisted = Boolean(
     lastMessage &&
-    lastMessage.role === "assistant" &&
-    !parsePersistedToolActivity(lastMessage.content)
+      lastMessage.role === "assistant" &&
+      !parsePersistedToolActivity(lastMessage.content)
   );
 
   // The ledger skeleton, in the order those rows were written.
@@ -518,6 +741,7 @@ export function buildTurnItems({
         kind: "toolRun",
         key: `tools-${item.activities[0].id}`,
         live: false,
+        createdAt: item.activities[0].createdAt ?? null,
         activities: item.activities.map(
           activity => ledgerActivities.get(activity.id) ?? activity
         ),
@@ -529,6 +753,7 @@ export function buildTurnItems({
         messageId: item.message.id,
         content: item.message.content,
         pending: false,
+        createdAt: item.message.createdAt ?? null,
       });
     else
       items.push({
@@ -537,33 +762,55 @@ export function buildTurnItems({
         messageId: item.message.id,
         content: item.message.content,
         live: false,
+        createdAt: item.message.createdAt ?? null,
       });
   }
 
   // The live tail: the segment still streaming and any tool whose row has not
   // been polled in yet. Everything already in the ledger stays where the
-  // ledger put it.
+  // ledger put it - except a live text segment that arrived BEFORE a tool
+  // whose row already landed. That line is anchored above the tool run it
+  // announced instead of trailing the whole turn; appending it to the tail
+  // made the announcing line render below its own tool, which read as if the
+  // tool had run before Nova said anything (the ledger only records narration
+  // at round end, so mid-round the text was live while its tool was already
+  // saved).
+  const anchored: Array<{ before: string; item: TurnRenderItem }> = [];
+  const tail: TurnRenderItem[] = [];
   for (let index = 0; index < liveItems.length; index += 1) {
     const item = liveItems[index];
     if (item.kind === "text") {
       // While the run is live, an unmatched segment is the reply still
       // arriving: show it. Only a settled turn treats unmatched text as a
       // superseded draft the persisted ledger has already replaced.
-      if (!liveTextCommitted[index] && (streaming || !closingReplyPersisted))
-        items.push({
+      if (!liveTextCommitted[index] && (streaming || !closingReplyPersisted)) {
+        const replyItem: TurnRenderItem = {
           kind: "reply",
           key: `live-reply-${index}`,
           messageId: 0,
           content: item.content,
           live: true,
-        });
+        };
+        // The first tool that followed this segment in the live transcript:
+        // if its ledger row is already in the skeleton, sit above that run.
+        const nextToolId = nextToolActivityId(liveItems, index);
+        const anchor = nextToolId
+          ? items.find(
+              entry =>
+                entry.kind === "toolRun" &&
+                entry.activities.some(activity => activity.id === nextToolId)
+            )
+          : undefined;
+        if (anchor) anchored.push({ before: anchor.key, item: replyItem });
+        else tail.push(replyItem);
+      }
       continue;
     }
     const activities = item.activities.filter(
       activity => !ledgerActivities.has(activity.id)
     );
     if (activities.length > 0)
-      items.push({
+      tail.push({
         kind: "toolRun",
         key: `live-tools-${item.activities[0].id}`,
         activities,
@@ -571,7 +818,16 @@ export function buildTurnItems({
       });
   }
 
-  return items;
+  // Splice the anchored lines in ahead of their tool runs, keeping the
+  // anchored order within one anchor.
+  const positioned: TurnRenderItem[] = [];
+  for (const entry of items) {
+    for (const pending of anchored)
+      if (pending.before === entry.key) positioned.push(pending.item);
+    positioned.push(entry);
+  }
+
+  return positioned.concat(tail);
 }
 
 /**

@@ -211,6 +211,8 @@ export async function chatWithCustomModel(
     onChunk?: (chunk: string) => void;
     onReasoning?: (chunk: string) => void;
     signal?: AbortSignal;
+    /** The chat's selected deep-thinking effort; sent on GLM-family models. */
+    effort?: string;
   } = {}
 ): Promise<GatewayChatResult> {
   const apiKey = decryptCustomModelKey(model);
@@ -224,9 +226,10 @@ export async function chatWithCustomModel(
           model: model.modelId,
           messages,
           // Same per-model deep-thinking logic as the built-in gateway: a
-          // GLM-family custom model thinks at maximum effort; anything else
-          // sends no unknown fields to the user's own endpoint.
-          ...reasoningParamsForModel(model.modelId),
+          // GLM-family custom model thinks at the chat's selected effort (or
+          // the deployment default on auto); anything else sends no unknown
+          // fields to the user's own endpoint.
+          ...reasoningParamsForModel(model.modelId, options.effort),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),

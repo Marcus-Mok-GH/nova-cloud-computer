@@ -293,6 +293,12 @@ class SDKServer {
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
+        // Same rule as the Neon-token path: a re-issued subject for an
+        // address that already has a row adopts that row instead of
+        // inserting a duplicate account beside it.
+        if (userInfo.email) {
+          await db.adoptUserByEmail(userInfo.email, userInfo.openId);
+        }
         await db.upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,

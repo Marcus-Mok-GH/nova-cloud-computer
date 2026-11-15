@@ -1,9 +1,10 @@
 /** Nova's coding specialist delegate.
  *
- * The heavy lifting is done by a frontier coding model served by the editor's
- * own provider - Pollinations' unified API (https://gen.pollinations.ai),
- * whose z-ai/glm-5.3-flash is the default: a coding model with tool
- * calling and a 1M-token context (see ENV.nimCoderApiUrl / nimCoderModel). The
+ * The heavy lifting is done by the same model Nova's built-in gateway runs
+ * on, served to the editor through Pollinations' unified API
+ * (https://gen.pollinations.ai): the editor's default model id is
+ * openai/gpt-6-luna, with tool calling and a 1M-token context (see
+ * ENV.nimCoderApiUrl / nimCoderModel). The
  * calling agent describes the coding task and supplies any existing code or
  * errors as context; the specialist either returns complete, working code the agent
  * then places into the workspace with its file tools (single-shot), or -
@@ -77,25 +78,6 @@ const CODER_TOOLS: NimAgentTool[] = subagentSandboxTools({
     "Run one bash command in the workspace directory - install, build, run, test. Output is truncated to the first 4000 characters.",
 });
 
-/**
- * No fixed step or time cap: the specialist loops until it replies with a
- * final summary, bounded only by the caller's segment deadline (which the
- * run chains past automatically via continuations). The step cap used to
- * stop mid-task autonomous specialists with a misleading "ran out of
- * steps" message even when the run had budget left to continue.
- */
-/**
- * The least time a delegated specialist call needs before the deadline to be
- * worth starting. It no longer bounds the specialist's own budget - the
- * specialist runs on the caller's full remaining segment budget - but the
- * caller still uses it to decide whether a failed specialist call is worth
- * retrying.
- */
-export const MIN_CALL_RESERVE_MS = 30_000;
-/** The honest outcome when a segment has no time left to start the specialist. */
-const NO_START_SUMMARY =
-  "The editor sub-agent could not start: this execution segment's time budget is already exhausted (it wrote 0 file(s) and ran 0 command(s)). Do not call editor again in this segment. Reply briefly that the work is continuing automatically, and end your turn - the next segment arrives with a fresh time budget and the task resumes there.";
-
 export type CoderResult = {
   /** The specialist's complete reply: the working code plus its brief explanation. */
   code: string;
@@ -127,8 +109,6 @@ export type AutonomousCoderOptions = {
   sandbox: E2BSandboxLike;
   /** Live progress notes for the user-facing activity panel. */
   onProgress?: (note: string) => void;
-  /** When the overall agent run must be over. */
-  deadlineAtMs?: number;
   /**
    * Streams every specialist tool call as a structured activity
    * (running → completed/failed), so the parent agent's chat shows the
@@ -163,26 +143,6 @@ export async function runAutonomousCoderTask(
   const trimmedTask = options.task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
 
-  // The specialist runs on the caller's full remaining segment budget: it
-  // stops only when the run deadline itself passes, so a long task keeps
-  // working instead of handing back early with time still on the clock. The
-  // caller's deadline race is the hard boundary - work still in flight when
-  // it fires is not lost (the writes are already in the sandbox) and the
-  // continuation resumes from there. Only an already-expired budget makes the
-  // task not worth starting (listing the workspace would overrun the
-  // deadline), so return the honest "could not start" outcome straight away.
-  const budgetEndMs = options.deadlineAtMs ?? Number.POSITIVE_INFINITY;
-  if (budgetEndMs - Date.now() <= 0) {
-    return {
-      kind: "autonomous",
-      summary: NO_START_SUMMARY,
-      writtenPaths: [],
-      commandsRun: 0,
-      rounds: 0,
-      model: ENV.nimCoderModel,
-    };
-  }
-
   const workspaceListing = await listWorkspaceFiles(options.sandbox);
   const intro: string[] = [];
   if (options.language?.trim())
@@ -202,14 +162,11 @@ export async function runAutonomousCoderTask(
   ];
   const writtenPaths = new Set<string>();
   let commandsRun = 0;
-  // No time cap of its own: with a deadline the specialist uses the full
-  // remaining segment budget; without one it runs until the final summary,
+  // No time cap of any kind: the specialist runs until the final summary,
   // however long that takes.
   let roundsRun = 0;
 
   while (true) {
-    const remainingMs = budgetEndMs - Date.now();
-    if (remainingMs <= 0) break;
     const round = roundsRun;
     roundsRun += 1;
     // Keep the request inside the model's window before it is refused: once
@@ -227,13 +184,9 @@ export async function runAutonomousCoderTask(
         apiUrl: ENV.nimCoderApiUrl,
         apiKey: ENV.nimCoderApiKey,
         maxTokens: SUBAGENT_MAX_TOKENS,
-        // The call may use whatever budget is left; the loop above stops it
-        // once the segment deadline passes.
-        timeoutMs: Math.min(240_000, remainingMs),
-        // Hard-stop attempts and retries at the deadline: a timed-out
-        // request's second chance (or a backoff retry) must not run past the
-        // run deadline, where the caller's race would interrupt it.
-        deadlineAtMs: budgetEndMs,
+        // Unbounded: the specialist is never on a clock - a request runs
+        // until the model answers, however long that takes.
+        timeoutMs: Number.POSITIVE_INFINITY,
       });
     } catch (error) {
       // The history outgrew the model's context window. Compact it hard and
@@ -243,18 +196,14 @@ export async function runAutonomousCoderTask(
       // honest, actionable summary below returned.
       if (error instanceof NimContextLengthError) {
         const freed = compactContext(messages, { aggressive: true });
-        if (freed && budgetEndMs - Date.now() >= MIN_CALL_RESERVE_MS) {
+        if (freed) {
           options.onProgress?.(
             "The task outgrew the model's context window - compacting earlier steps and continuing…"
           );
           continue;
         }
-        // Compaction worked but the segment has no time left to retry: that is
-        // a budget stop, not a compaction failure. Only a compaction that freed
-        // nothing is the unrecoverable case, so report each honestly.
-        const summary = freed
-          ? `The specialist's conversation outgrew the model's context window; it compacted the earlier steps but this segment ran out of time before it could retry. It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`
-          : `The specialist's conversation grew past the model's context window and could no longer be compacted. It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s) before stopping. Verify the changed files it wrote, then delegate the remaining work as a fresh, smaller task so the specialist can start with a clean context.`;
+        // Only a compaction that freed nothing is the unrecoverable case.
+        const summary = `The specialist's conversation grew past the model's context window and could no longer be compacted. It wrote ${writtenPaths.size} file(s) and ran ${commandsRun} command(s) before stopping. Verify the changed files it wrote, then delegate the remaining work as a fresh, smaller task so the specialist can start with a clean context.`;
         return {
           kind: "autonomous",
           summary,
@@ -268,13 +217,10 @@ export async function runAutonomousCoderTask(
       // first request is rejected, and the task degrades to the classic
       // single-shot reply instead of failing the whole run.
       if (error instanceof NimToolsUnsupportedError && round === 0) {
-        // Pass the run deadline straight through: the single-shot path uses
-        // the same full remaining budget.
         const single = await runCoderTask(
           trimmedTask,
           options.context,
-          options.language,
-          options.deadlineAtMs
+          options.language
         );
         return { kind: "single", ...single };
       }
@@ -326,7 +272,6 @@ export async function runAutonomousCoderTask(
       })),
     });
     for (const call of reply.toolCalls) {
-      const remainingForTool = budgetEndMs - Date.now();
       // Stream the call as a first-class activity: running now, settled with
       // its real outcome below. Failed calls (non-zero exit, unsafe path,
       // rejected command) show up failed, exactly like the parent agent's
@@ -347,32 +292,17 @@ export async function runAutonomousCoderTask(
           });
         } catch {}
       };
-      // The segment deadline can pass between the model round and the tool
-      // calls it returned. Do not start a call then: a command or file write
-      // would keep running after the caller has closed the segment, and its
-      // side effects would land outside the budget that produced them.
-      if (remainingForTool <= 0) {
-        await emitActivity(
-          "failed",
-          "Skipped - the segment ran out of time before this call could start."
-        );
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content:
-            "The segment ran out of time before this call could start, so it was not executed. Do not assume its result.",
-        });
-        continue;
-      }
       await emitActivity("running");
       let execution: { ok: boolean; result: string };
       try {
+        // The per-command default in executeSubagentToolCall (not a budget)
+        // bounds one command, so a hung install or build cannot wedge the
+        // specialist forever.
         execution = await executeSubagentToolCall(
           options.sandbox,
           call.name,
           call.arguments,
-          writtenPaths,
-          remainingForTool
+          writtenPaths
         );
       } catch (error) {
         execution = {
@@ -393,34 +323,10 @@ export async function runAutonomousCoderTask(
     }
   }
 
-  // The segment budget ran out before a final summary: report exactly what
-  // was done so the calling agent can verify and finish the story. There is
-  // no step cap any more, so this branch is purely about time - and when the
-  // specialist never even started (the main agent delegated with the segment
-  // already nearly over), say that plainly instead of implying it tried and
-  // failed: the automatic continuation will retry with a fresh budget.
-  if (roundsRun === 0) {
-    return {
-      kind: "autonomous",
-      summary: NO_START_SUMMARY,
-      writtenPaths: [],
-      commandsRun: 0,
-      rounds: 0,
-      model: ENV.nimCoderModel,
-    };
-  }
-  return {
-    kind: "autonomous",
-    summary: `The specialist used this segment's full time budget before writing a final summary (${
-      roundsRun
-    } round(s)). It wrote ${
-      writtenPaths.size
-    } file(s) and ran ${commandsRun} command(s). The run continues automatically in the next segment with a fresh time budget; verify the changed files it wrote and decide whether to delegate the remaining work again there.`,
-    writtenPaths: Array.from(writtenPaths).sort(),
-    commandsRun,
-    rounds: roundsRun,
-    model: ENV.nimCoderModel,
-  };
+  // Unreachable: the loop above only exits by returning its outcome (a
+  // final summary, a degraded single-shot reply, or an honest failure
+  // report). TypeScript still wants a path out.
+  throw new Error("unreachable");
 }
 
 /**
@@ -435,9 +341,7 @@ export async function runAutonomousCoderTask(
 export async function runCoderTask(
   task: string,
   context?: string,
-  language?: string,
-  /** Absolute epoch-ms deadline the model request must return before. */
-  deadlineAtMs?: number
+  language?: string
 ): Promise<CoderResult> {
   const trimmedTask = task.trim();
   if (!trimmedTask) throw new Error("A coding task is required.");
@@ -450,9 +354,6 @@ export async function runCoderTask(
     parts.push(
       `Existing code, errors, and other context:\n\n${context.trim()}`
     );
-  // The caller's deadline is passed straight through: the specialist uses the
-  // full remaining segment budget, and the caller's own deadline race bounds
-  // the call.
   const code = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: CODER_SYSTEM_PROMPT,
@@ -460,7 +361,8 @@ export async function runCoderTask(
     apiUrl: ENV.nimCoderApiUrl,
     apiKey: ENV.nimCoderApiKey,
     maxTokens: SUBAGENT_MAX_TOKENS,
-    ...(deadlineAtMs !== undefined ? { deadlineAtMs } : {}),
+    // Unbounded: the specialist is never on a clock.
+    timeoutMs: Number.POSITIVE_INFINITY,
   });
   return { code: code.trim(), model: ENV.nimCoderModel };
 }

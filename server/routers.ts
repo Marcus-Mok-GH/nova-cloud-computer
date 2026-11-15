@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
+import { COUNTRY_CODES } from "@shared/countries";
 import { SKILL_BODY_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH, SKILL_DESCRIPTION_MESSAGE, SKILL_NAME_MAX_LENGTH, SKILL_NAME_MESSAGE, SKILL_NAME_PATTERN } from "@shared/skills";
 import { z } from "zod";
 import {
@@ -15,6 +16,7 @@ import {
   setUsernameForUser,
   getUserOnboarding,
   saveUserOnboarding,
+  saveUserCountryPrompt,
   deleteCustomModelForUser,
   deleteProjectForUser,
   deleteTaskForUser,
@@ -25,6 +27,7 @@ import {
   getOrCreateWorkspace,
   getAutomationRecordForUser,
   getActiveAgentRunInChat,
+  hasLiveRunningProcessForChat,
   getDailyCreditStatusForUser,
   getWorkspaceComputer,
   getWorkspaceModelSettingsForUser,
@@ -59,27 +62,46 @@ import {
   getInferenceQueuePosition,
   cancelWaitingInferenceQueueItemsForUser,
   getPriorityStatusForUser,
-  getMonthlyCreditStatusForUser,
   getSubscriptionForUser,
+  getFreeTrialEndsAtForUser,
+  hasProAccessForUser,
+  hasActiveAccessForUser,
+  getCreditTopUpBalanceForUser,
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
-import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { FREE_CHAT_MODEL_ID, getChatModelById, getChatModels } from "@shared/models";
-import { PAID_PLAN_CURRENCY, PAID_PLAN_MONTHLY_CREDITS, PAID_PLAN_PRICE_CENTS } from "./credits";
+import { PROCESS_STALE_AFTER_MS } from "./runningProcesses";
+import { priorityActiveMessage, queuePositionMessage, shouldQueue } from "./peakQueue";import { CHAT_EFFORT_OPTIONS, EffortId, FREE_CHAT_MODEL_ID, getChatModelById, getChatModels, effortOptionsForModelId } from "@shared/models";
+import { PAID_PLAN_CURRENCY, PAID_PLAN_PRICE_CENTS } from "./credits";
+import {
+  CREDIT_TOPUP_CURRENCY,
+  CREDIT_TOPUP_PRODUCTS,
+  formatCreditTopUpPrice,
+  getCreditTopUpProduct,
+} from "@shared/creditTopUps";
 import {
   createWhopCheckout,
+  createWhopCreditTopUpCheckout,
   createWhopPriorityCheckout,
   getWhopPlanId,
+  getWhopPlusPlanId,
   getWhopPriorityPlanId,
   isWhopConfigured,
+  isWhopCheckoutDebug,
+  WhopNotConfiguredError,
   whopConfigurationMessage,
+  whopCreditTopUpConfigurationMessage,
   whopPriorityConfigurationMessage,
 } from "./whop";
 import { kickPeakQueue } from "./peakQueueScheduler";
+import {
+  PERSONALITY_INSTRUCTIONS_MAX,
+  PERSONALITY_NAME_MAX,
+} from "@shared/personalities";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
 import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, renameApiKeyForUser, revokeApiKeyForUser } from "./apiKeys";
-import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser } from "./db";
+import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser, listPersonalitiesForUser, getActivePersonalityIdForUser, setActivePersonalityForUser, createPersonalityForUser, updatePersonalityForUser, deletePersonalityForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
 import { FILE_SEARCH_MAX_QUERY_LENGTH } from "./fileSearch";
@@ -117,6 +139,41 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 function throwIfNotFound<T>(result: T, entity: string): asserts result is NonNullable<T> {
   if (!result) throw new TRPCError({ code: "NOT_FOUND", message: `That ${entity} is not available in your Nova space.` });
 }
+
+/**
+ * Validates the model + effort a new conversation starts with, returning the
+ * values to persist. Mirrors `chats.setModel`'s gating so a premium model or
+ * an effort the chosen model does not offer can never be smuggled in at
+ * create time. The free model and the `auto` effort both store as `null`.
+ */
+async function resolveChatModelAndEffort(
+  ownerId: number,
+  modelRaw: string | undefined,
+  effortRaw: string | undefined
+): Promise<{ model: string | null; effort: string | null }> {
+  const modelId = modelRaw?.trim() || FREE_CHAT_MODEL_ID;
+  const catalogueEntry = getChatModelById(modelId);
+  if (!catalogueEntry) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
+  }
+  if (catalogueEntry.tier === "pro") {
+    // Pro models need Pro access: a paid plan or a console-operator role.
+    if (!(await hasProAccessForUser(ownerId))) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
+    }
+  }
+  // The effort must be a gateway-known level the chosen model actually offers;
+  // anything else (or a deeper level on an auto-only model) falls back to auto.
+  const requested = effortRaw?.trim().toLowerCase();
+  const effort: EffortId =
+    requested && (CHAT_EFFORT_OPTIONS as string[]).includes(requested)
+      ? (requested as EffortId)
+      : "auto";
+  const offered = effortOptionsForModelId(catalogueEntry.id);
+  const effortToStore = effort !== "auto" && offered.includes(effort) ? effort : null;
+  const modelToStore = modelId === FREE_CHAT_MODEL_ID ? null : modelId;
+  return { model: modelToStore, effort: effortToStore };
+}
 /**
  * Refinement for an update payload that has to change something: at least one
  * of `keys` must be present (an explicit null counts), so an empty body cannot
@@ -140,6 +197,14 @@ const testModelEndpointInput = customModelInput.pick({ baseUrl: true, apiKey: tr
 const personalisationDetail = z.enum(["brief", "balanced", "detailed"]);
 const personalisationProactiveness = z.enum(["ask_first", "act_and_tell", "autonomous"]);
 const personalisationExpertise = z.enum(["new", "some", "expert"]);
+/** A personality as Settings submits it (Settings > Personalisation). */
+const personalityInput = z.object({
+  name: z.string().trim().min(1, "Give the personality a name.").max(PERSONALITY_NAME_MAX),
+  instructions: z.string().trim().max(PERSONALITY_INSTRUCTIONS_MAX).nullable().optional(),
+  detail: personalisationDetail.nullable().optional(),
+  collaboration: personalisationProactiveness.nullable().optional(),
+  expertise: personalisationExpertise.nullable().optional(),
+});
 const workspaceSettingsInput = z.object({ activeProvider: modelProvider.optional(), activeModelId: z.string().trim().min(1).max(240).optional(), activeCustomModelId: z.number().int().positive().nullable().optional(), workspaceRules: z.string().trim().max(8000).nullable().optional(), personalisationEnabled: z.boolean().optional(), personalisationProfile: z.string().trim().max(2000).nullable().optional(), personalisationTone: z.string().trim().max(60).nullable().optional(), personalisationDetail: personalisationDetail.nullable().optional(), personalisationProactiveness: personalisationProactiveness.nullable().optional(), personalisationExpertise: personalisationExpertise.nullable().optional() }).refine(atLeastOneOf(["activeProvider", "activeModelId", "activeCustomModelId", "workspaceRules", "personalisationEnabled", "personalisationProfile", "personalisationTone", "personalisationDetail", "personalisationProactiveness", "personalisationExpertise"]), { message: "Provide at least one setting change." });
 const folderInput = z.object({ name: z.string().trim().min(1, "A folder needs a name.").max(160), parentId: z.number().int().positive().nullable().optional() });
 const folderUpdateInput = z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(160).optional(), parentId: z.number().int().positive().nullable().optional() }).refine(atLeastOneOf(["name", "parentId"]), { message: "Provide a folder change." });
@@ -201,20 +266,29 @@ export const appRouter = router({
      * while `completed` is false. */
     onboarding: protectedProcedure.query(async ({ ctx }) => {
       const saved = await getUserOnboarding(ctx.user.id);
+      // Legacy accounts finished onboarding before the country question
+      // existed: completed, no country, never prompted. They get the
+      // one-shot country prompt on their next sign-in.
+      const needsCountry = Boolean(saved?.completedAt) && !saved?.country && !saved?.countryPromptedAt;
       return {
         completed: Boolean(saved?.completedAt),
         source: saved?.source ?? null,
         useCase: saved?.useCase ?? null,
         experience: saved?.experience ?? null,
+        country: saved?.country ?? null,
+        needsCountry,
       };
     }),
     /** Records the starter-question answers. `completed` is false when the user
-     * skipped, which leaves onboarding open to be asked again later. */
+     * skipped, which leaves onboarding open to be asked again later. `country`
+     * is an ISO 3166-1 alpha-2 code; the client switches the interface
+     * language to the country's language once the answers are saved. */
     saveOnboarding: protectedProcedure
       .input(z.object({
         source: z.string().trim().max(120).nullable().optional(),
         useCase: z.string().trim().max(120).nullable().optional(),
         experience: z.string().trim().max(40).nullable().optional(),
+        country: z.string().trim().regex(/^[A-Za-z]{2}$/).refine(value => COUNTRY_CODES.includes(value.toUpperCase()), { message: "That country is not recognised." }).nullable().optional(),
         completed: z.boolean().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -224,9 +298,22 @@ export const appRouter = router({
             source: input.source ?? null,
             useCase: input.useCase ?? null,
             experience: input.experience ?? null,
+            country: input.country ? input.country.toUpperCase() : null,
           },
           input.completed
         );
+        return { success: true } as const;
+      }),
+    /** One-shot country prompt for accounts that predate the question:
+     * records the prompt as answered (country given) or merely as seen
+     * (dismissed), so legacy accounts are asked exactly once. The client
+     * switches the interface language itself when an answer arrives. */
+    saveCountryPrompt: protectedProcedure
+      .input(z.object({
+        country: z.string().trim().regex(/^[A-Za-z]{2}$/).refine(value => COUNTRY_CODES.includes(value.toUpperCase()), { message: "That country is not recognised." }).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await saveUserCountryPrompt(ctx.user.id, input.country ? input.country.toUpperCase() : null);
         return { success: true } as const;
       }),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req)); return { success: true }; }),
@@ -318,55 +405,92 @@ export const appRouter = router({
           });
           return { url: checkout.purchaseUrl };
         } catch (error) {
-          if (error instanceof TRPCError) throw error;
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("[Billing] Whop priority checkout creation failed", message);
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop priority checkout creation failed", detail);
           throw new TRPCError({
             code: "SERVICE_UNAVAILABLE",
-            message: "Nova could not open priority checkout just now - try again in a moment.",
+            message: isWhopCheckoutDebug()
+              ? `Nova could not open priority checkout just now - try again in a moment. [debug: ${detail}]`
+              : "Nova could not open priority checkout just now - try again in a moment.",
           });
         }
       }),
     /**
      * The Nova Pro subscription as the account sees it: plan, Whop checkout
-     * availability, and the paid credit balance. `monthlyCredits.balance`
-     * includes every unspent monthly allocation still inside the carry-over
-     * window, so nothing vanishes at the month boundary.
+     * availability, and the bought-credit balance. Every tier draws from the
+     * same daily ledger, so the allowance itself comes from `credits.status`.
      */
     subscription: protectedProcedure.query(async ({ ctx }) => {
-      const [subscription, monthlyCredits] = await Promise.all([
+      const [subscription, creditTopUps, proAccess, trialEndsAt, accessActive] = await Promise.all([
         getSubscriptionForUser(ctx.user.id),
-        getMonthlyCreditStatusForUser(ctx.user.id),
+        getCreditTopUpBalanceForUser(ctx.user.id),
+        hasProAccessForUser(ctx.user.id),
+        getFreeTrialEndsAtForUser(ctx.user.id),
+        hasActiveAccessForUser(ctx.user.id),
       ]);
       return {
         plan: subscription.plan,
+        /**
+         * Effective Pro entitlement: true for a paid plan or a
+         * console-operator role. The client's Pro locks read this, while
+         * `plan` keeps reporting the raw subscription state.
+         */
+        proAccess,
+        /**
+         * The free plan is a 14-day trial: `accessActive` is the server's
+         * effective usage entitlement (Pro access or a trial still inside
+         * its window), and `trialEndsAt` lets the billing UI show the
+         * countdown - or the "trial ended" state that forces the switch.
+         */
+        accessActive,
+        trialEndsAt,
         status: subscription.status,
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
         configured: isWhopConfigured(),
         priceCents: PAID_PLAN_PRICE_CENTS,
         currency: PAID_PLAN_CURRENCY,
-        monthlyCredits,
+        creditTopUps,
+        /** The purchasable bundles, priced from the shared catalog. */
+        topUpProducts: CREDIT_TOPUP_PRODUCTS.map(product => ({
+          id: product.id,
+          priceCents: product.priceCents,
+          credits: product.credits,
+          price: formatCreditTopUpPrice(product.priceCents),
+        })),
+        topUpCurrency: CREDIT_TOPUP_CURRENCY,
       };
     }),
     /**
-     * Starts Whop checkout for the monthly Nova Pro subscription. The account
-     * flips to paid when the membership webhook arrives - never here.
+     * Starts Whop checkout for a monthly subscription - Nova Pro (default) or
+     * Nova Plus. The account flips tier when the membership webhook arrives -
+     * never here.
      */
     createCheckout: protectedProcedure
-      .input(z.object({ redirectUrl: z.string().url().max(2000).optional() }).optional())
+      .input(z.object({
+        redirectUrl: z.string().url().max(2000).optional(),
+        plan: z.enum(["pro", "plus"]).default("pro"),
+      }).optional())
       .mutation(async ({ ctx, input }) => {
         if (!isWhopConfigured()) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopConfigurationMessage() });
         }
+        const target = input?.plan ?? "pro";
         const existing = await getSubscriptionForUser(ctx.user.id);
-        if (existing.plan === "paid" && !existing.cancelAtPeriodEnd) {
-          throw new TRPCError({ code: "CONFLICT", message: "Nova Pro is already active on this account." });
+        const heldTier = target === "plus" ? "plus" : "paid";
+        if (existing.plan === heldTier && !existing.cancelAtPeriodEnd) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: target === "plus"
+              ? "Nova Plus is already active on this account."
+              : "Nova Pro is already active on this account.",
+          });
         }
         try {
           const checkout = await createWhopCheckout({
             ownerId: ctx.user.id,
-            planId: getWhopPlanId(),
+            plan: target,
+            planId: target === "plus" ? getWhopPlusPlanId() : getWhopPlanId(),
             redirectUrl: input?.redirectUrl,
           });
           // Remembering the checkout id lets a webhook that arrives without
@@ -374,10 +498,45 @@ export const appRouter = router({
           await setWhopCheckoutConfigIdForUser(ctx.user.id, checkout.id).catch(() => undefined);
           return { url: checkout.purchaseUrl };
         } catch (error) {
-          if (error instanceof TRPCError) throw error;
-          const message = error instanceof Error ? error.message : String(error);
-          console.error("[Billing] Whop checkout creation failed", message);
-          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Nova could not open checkout just now - try again in a moment." });
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop checkout creation failed", detail);
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: isWhopCheckoutDebug() ? `Nova could not open checkout just now - try again in a moment. [debug: ${detail}]` : "Nova could not open checkout just now - try again in a moment." });
+        }
+      }),
+    /**
+     * Starts Whop checkout for a one-time credit bundle. Credits are granted
+     * only when the payment webhook arrives - never here - and the amount comes
+     * from the shared catalog, not from anything the client sends.
+     */
+    purchaseCredits: protectedProcedure
+      .input(z.object({
+        productId: z.string().min(1).max(40),
+        redirectUrl: z.string().url().max(2000).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const product = getCreditTopUpProduct(input.productId);
+        if (!product) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That top-up bundle does not exist." });
+        }
+        if (!isWhopConfigured()) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: whopCreditTopUpConfigurationMessage() });
+        }
+        try {
+          const checkout = await createWhopCreditTopUpCheckout({
+            ownerId: ctx.user.id,
+            product,
+            redirectUrl: input.redirectUrl,
+          });
+          return { url: checkout.purchaseUrl };
+        } catch (error) {
+          const detail = error instanceof WhopNotConfiguredError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+          console.error("[Billing] Whop credit top-up checkout failed", detail);
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: isWhopCheckoutDebug()
+              ? `Nova could not open credit checkout just now - try again in a moment. [debug: ${detail}]`
+              : "Nova could not open credit checkout just now - try again in a moment.",
+          });
         }
       }),
     /** Whop's hosted page for managing (cancelling) the subscription. */
@@ -426,6 +585,46 @@ export const appRouter = router({
      * renders. */
     chats: protectedProcedure.query(({ ctx }) => listChatsForUser(ctx.user.id)),
     current: protectedProcedure.query(({ ctx }) => getOrCreateWorkspace(ctx.user.id)),
+    /**
+     * The workspace's personality list for the composer picker: Default first,
+     * then the user's own. `activePersonalityId` is the current selection.
+     */
+    personalities: protectedProcedure.query(async ({ ctx }) => {
+      const [personalities, activeId] = await Promise.all([
+        listPersonalitiesForUser(ctx.user.id),
+        getActivePersonalityIdForUser(ctx.user.id),
+      ]);
+      return { personalities, activePersonalityId: activeId };
+    }),
+    /** Select the active personality (the composer picker's write). */
+    setActivePersonality: protectedProcedure
+      .input(z.object({ personalityId: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await setActivePersonalityForUser(ctx.user.id, input.personalityId);
+        if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return result;
+      }),
+    /** Create a personality (Settings > Personalisation). */
+    createPersonality: protectedProcedure
+      .input(personalityInput)
+      .mutation(({ ctx, input }) => createPersonalityForUser(ctx.user.id, input)),
+    /** Update a personality the workspace owns. */
+    updatePersonality: protectedProcedure
+      .input(personalityInput.extend({ id: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...rest } = input;
+        const updated = await updatePersonalityForUser(ctx.user.id, id, rest);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return updated;
+      }),
+    /** Delete a personality; the active selection falls back to Default. */
+    deletePersonality: protectedProcedure
+      .input(z.object({ id: z.string().trim().min(1).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const deleted = await deletePersonalityForUser(ctx.user.id, input.id);
+        if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "That personality does not exist." });
+        return { success: true } as const;
+      }),
     modelSettings: protectedProcedure.query(({ ctx }) => getWorkspaceModelSettingsForUser(ctx.user.id)),
     updateSettings: protectedProcedure.input(workspaceSettingsInput).mutation(async ({ ctx, input }) => {
       if (input.activeModelId !== undefined) {
@@ -607,7 +806,7 @@ export const appRouter = router({
     sendTest: protectedProcedure.input(z.object({ text: z.string().trim().min(1).max(4096).default("Nova is connected to your Telegram bot.") })).mutation(async ({ ctx, input }) => { const credentials = await getTelegramCredentialsForUser(ctx.user.id); if (!credentials?.chatId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Send /start to your bot in Telegram, then discover its chat before sending a message." }); const sent = await sendTelegramMessage(credentials.token, credentials.chatId, input.text); return { success: true as const, messageId: sent.message_id }; }),
     remove: protectedProcedure.mutation(async ({ ctx }) => { const deleted = await deleteTelegramSettingsForUser(ctx.user.id); return { success: deleted } as const; }),
   }),
-  ai: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listGatewayModels(input?.forceRefresh); } catch (error) { if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getAiGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(gatewayCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithAiGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached", "credits_exhausted"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova's AI service is temporarily unavailable. Please retry shortly." }); } }) }),
+  ai: router({ models: protectedProcedure.input(z.object({ forceRefresh: z.boolean().optional() }).optional()).query(async ({ input }) => { try { return await listGatewayModels(input?.forceRefresh); } catch (error) { if (error instanceof AiGatewayClientError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error.message }); throw error; } }), status: protectedProcedure.query(({ ctx }) => getAiGatewayStatus(ctx.user.id)), complete: protectedProcedure.input(gatewayCompletionInput).mutation(async ({ ctx, input }) => { try { return await completeWithAiGateway(ctx.user.id, input.prompt, input.modelId); } catch (error) { if (error instanceof AiGatewayClientError) { const code = error.kind === "configuration" || error.kind === "upgrade_required" ? "PRECONDITION_FAILED" : ["rate_limit", "allowance_reached", "credits_exhausted"].includes(error.kind) ? "TOO_MANY_REQUESTS" : error.kind === "client_error" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR"; throw new TRPCError({ code, message: error.message }); } throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova's AI service is temporarily unavailable. Please retry shortly." }); } }) }),
   /**
    * Public Q&A for the landing page and API docs. No session is required:
    * `server/supportBot.ts` validates the conversation and owns the anonymous
@@ -684,7 +883,18 @@ export const appRouter = router({
     delete: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => { try { const deleted = await deleteSkillForUser(ctx.user.id, input.id); throwIfNotFound(deleted, "skill"); return { success: true as const }; } catch (error) { if (error instanceof TRPCError) throw error; throw skillRouteError(error, "Nova could not delete that skill."); } }),
   }),
   chats: router({
-    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160) })).mutation(async ({ ctx, input }) => { const chat = await createChatForUser(ctx.user.id, input.title); if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." }); return chat; }),
+    create: protectedProcedure.input(z.object({
+      title: z.string().trim().min(1).max(160),
+      /** The model the conversation starts on; omitted = the free model. */
+      model: z.string().trim().min(1).max(64).optional(),
+      /** The deep-thinking effort the conversation starts on; omitted = auto. */
+      effort: z.string().trim().min(1).max(16).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const { model, effort } = await resolveChatModelAndEffort(ctx.user.id, input.model, input.effort);
+      const chat = await createChatForUser(ctx.user.id, input.title, model, effort);
+      if (!chat) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that conversation." });
+      return chat;
+    }),
     messages: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => { const messages = await listChatMessagesForUser(ctx.user.id, input.chatId); if (!messages) throwIfNotFound(messages, "conversation"); return messages; }),
     /** Reverts a conversation to an earlier message for the regenerate flow: deletes that message and everything after it. */
     revert: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), messageId: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await revertChatToMessageForUser(ctx.user.id, input.chatId, input.messageId); if (!result) throwIfNotFound(result, "conversation message"); return { success: true as const, deleted: result.deletedCount }; }),    /**
@@ -696,12 +906,16 @@ export const appRouter = router({
     models: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).query(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
       if (!chat) throwIfNotFound(chat, "conversation");
-      const subscription = await getSubscriptionForUser(ctx.user.id);
-      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, plan: subscription.plan };
+      // The effective plan, not the raw subscription: a console operator
+      // reads "paid" through the Admin tier, so the composer's lock always
+      // matches what the server will allow.
+      const proAccess = await hasProAccessForUser(ctx.user.id);
+      return { models: getChatModels(), current: chat.model ?? FREE_CHAT_MODEL_ID, effort: chat.effort ?? "auto", plan: proAccess ? "paid" : "free" };
     }),
     /**
-     * Sets the chat's model. Premium ids are gated on an active paid plan
-     * here as well as in the composer, so the rule holds for every client.
+     * Sets the chat's model. Premium ids are gated on Pro access here as
+     * well as in the composer (a paid plan or a console-operator role), so
+     * the rule holds for every client.
      */
     setModel: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24), model: z.string().trim().min(1).max(64).nullable() })).mutation(async ({ ctx, input }) => {
       const chat = await getChatForUser(ctx.user.id, input.chatId);
@@ -711,11 +925,8 @@ export const appRouter = router({
       if (!catalogueEntry) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "That model is not available." });
       }
-      if (catalogueEntry.tier === "pro") {
-        const subscription = await getSubscriptionForUser(ctx.user.id);
-        if (subscription.plan !== "paid") {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
-        }
+      if (catalogueEntry.tier === "pro" && !(await hasProAccessForUser(ctx.user.id))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upgrade to Nova Pro to use this model." });
       }
       const stored = modelId === FREE_CHAT_MODEL_ID ? null : modelId;
       const updated = await setChatModelForUser(ctx.user.id, input.chatId, stored);
@@ -728,7 +939,20 @@ export const appRouter = router({
       // The chat is already resolved (and ownership proven) above, so the run is
       // looked up by that id instead of repeating the ownership lookup.
       const run = await getActiveAgentRunInChat(chat.id);
-      return run ? { active: true as const, ...run } : { active: false as const };
+      if (!run) return { active: false as const };
+      // A run row alone does not prove Nova is working: when the platform
+      // kills a serverless invocation the row is left
+      // running/awaiting_continue with no live worker, and
+      // agent_runs.updatedAt stops moving (it bumps only on state
+      // transitions). Gate on the process heartbeat, not on updatedAt -
+      // otherwise an orphaned row pins the composer to "Stop" and every
+      // new message is swallowed until the row reaps itself.
+      const live = await hasLiveRunningProcessForChat(
+        chat.id,
+        0,
+        new Date(Date.now() - PROCESS_STALE_AFTER_MS),
+      );
+      return live ? { active: true as const, ...run } : { active: false as const };
     }),
     /** Stops the chat's in-flight agent run and its queued/running VM workflows. */
     stop: protectedProcedure.input(z.object({ chatId: z.string().trim().min(1).max(24) })).mutation(async ({ ctx, input }) => {
@@ -745,6 +969,12 @@ export const appRouter = router({
     /** The workspace's personal agents with their Nova-native identity and wallets. */
     list: protectedProcedure.query(({ ctx }) => listAgentsForUser(ctx.user.id)),
     create: protectedProcedure.input(agentCreateInput).mutation(async ({ ctx, input }) => {
+      // Creating a personal agent is a Nova Pro feature; the client locks
+      // the builder, but the rule holds for every client here too. Pro
+      // access means a paid plan or a console-operator role.
+      if (!(await hasProAccessForUser(ctx.user.id))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Personal agents are part of Nova Pro. Upgrade to create one." });
+      }
       try {
         const agent = await createAgentForUser(ctx.user.id, input);
         if (!agent) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nova could not create that agent." });
@@ -779,6 +1009,12 @@ export const appRouter = router({
     /** Agent-owned conversations: 1:1 chats and team chats with their rosters. */
     chats: protectedProcedure.query(({ ctx }) => listAgentChatsForUser(ctx.user.id)),
     createTeam: protectedProcedure.input(teamCreateInput).mutation(async ({ ctx, input }) => {
+      // Team creation is a Nova Pro feature; the client locks the builder,
+      // but the rule holds for every client here too. Pro access means a
+      // paid plan or a console-operator role.
+      if (!(await hasProAccessForUser(ctx.user.id))) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Agent teams are part of Nova Pro. Upgrade to create one." });
+      }
       const result = await createTeamChatForUser(ctx.user.id, input);
       if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
       return result;

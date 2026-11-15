@@ -2,16 +2,19 @@ export const COOKIE_NAME = "app_session_id";
 export const SEVEN_DAYS_MS = 1000 * 60 * 60 * 24 * 7;
 export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 export const AXIOS_TIMEOUT_MS = 30_000;
-export const UNAUTHED_ERR_MSG = 'Please login (10001)';
-export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
+export const UNAUTHED_ERR_MSG = "Please login (10001)";
+export const NOT_ADMIN_ERR_MSG = "You do not have required permission (10002)";
 /**
  * The account that holds the top-level `developer` rank. The developer rank
  * supersedes admin and grants unlimited Nova credits, so it is pinned to this
  * one address rather than assignable from the admin console.
  */
-export const SOLE_DEVELOPER_EMAIL = 'mokmarcus068@gmail.com';
+export const SOLE_DEVELOPER_EMAIL = "mokmarcus068@gmail.com";
 export function isDeveloperEmail(email: string | null | undefined): boolean {
-  return typeof email === 'string' && email.trim().toLowerCase() === SOLE_DEVELOPER_EMAIL;
+  return (
+    typeof email === "string" &&
+    email.trim().toLowerCase() === SOLE_DEVELOPER_EMAIL
+  );
 }
 /**
  * Marker prefixed to the assistant reply persisted when the AI service itself
@@ -64,6 +67,17 @@ export const INTERNAL_MESSAGE_PREFIXES: readonly string[] = [
   AGENT_MODE_MESSAGE_PREFIX,
   FOLLOW_UP_MESSAGE_PREFIX,
 ];
+
+/**
+ * The user turn a continuation segment runs with when a previous segment
+ * ended before the work was finished. The server persists it like any user
+ * message (the next segment needs it in the model's history), and the
+ * client recognizes the exact text to render it as an automatic-resume
+ * divider instead of a bubble the user supposedly typed. Lives here so
+ * both sides share the byte-for-byte contract.
+ */
+export const CONTINUATION_PROMPT =
+  "Continue the task in this conversation from where the previous segment left off. That segment ended before the work was finished (its execution time ran out or it hit a temporary service error); finish the remaining work and deliver the result.";
 
 /**
  * The public name of Nova's built-in model. The inference API never exposes

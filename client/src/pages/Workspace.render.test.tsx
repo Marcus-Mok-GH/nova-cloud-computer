@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Workspace, { TypingIndicator } from "./Workspace";
+import Workspace from "./Workspace";
 import { AI_UNAVAILABLE_PREFIX } from "@shared/const";
 
 const state = vi.hoisted(() => ({
@@ -54,6 +54,15 @@ const state = vi.hoisted(() => ({
     content: string;
   }>,
   agentRunStatus: { active: false as boolean },
+  subscription: {
+    data: {
+      plan: "free" as "free" | "paid",
+      proAccess: true,
+      accessActive: true,
+    },
+    isLoading: false,
+    isError: false,
+  },
   envVarRequests: [] as Array<{
     id: number;
     chatId: string | null;
@@ -116,6 +125,27 @@ vi.mock("@/lib/trpc", () => ({
         }),
       },
       modelSettings: { useQuery: () => ({ data: null }) },
+      personalities: {
+        useQuery: () => ({
+          data: {
+            personalities: [
+              {
+                id: "default",
+                name: "Default",
+                description: "Nova's own voice — balanced length, asks when unsure.",
+                instructions: null,
+                detail: null,
+                collaboration: null,
+                expertise: null,
+                builtIn: true,
+              },
+            ],
+            activePersonalityId: "default",
+          },
+          isLoading: false,
+        }),
+      },
+      setActivePersonality: { useMutation: () => mutation },
       updateSettings: { useMutation: () => mutation },
     },
     agentVm: {
@@ -156,7 +186,14 @@ vi.mock("@/lib/trpc", () => ({
       models: {
         useQuery: () => ({
           data: {
-            models: [{ id: "nova-pro", label: "Nova Pro", description: "", tier: "free" }],
+            models: [
+              {
+                id: "nova-pro",
+                label: "Nova Lite",
+                description: "",
+                tier: "free",
+              },
+            ],
             current: "nova-pro",
             plan: "free" as const,
           },
@@ -167,6 +204,7 @@ vi.mock("@/lib/trpc", () => ({
     },
     billing: {
       createCheckout: { useMutation: () => mutation },
+      subscription: { useQuery: () => state.subscription },
     },
     automations: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({
@@ -201,6 +239,11 @@ describe("Workspace rendered browser states", () => {
       isError: false,
       isLoading: false,
       refetch: vi.fn(),
+    };
+    state.subscription = {
+      data: { plan: "free", proAccess: true, accessActive: true },
+      isLoading: false,
+      isError: false,
     };
     state.agentVmStatus = {
       data: {
@@ -273,7 +316,7 @@ describe("Workspace rendered browser states", () => {
     };
   });
 
-  it("renders the home without the starter composer or the workbench greeting", () => {
+  it("renders the home as the task prompt, not the workbench greeting", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
@@ -281,128 +324,73 @@ describe("Workspace rendered browser states", () => {
       refetch: vi.fn(),
     };
     const markup = renderWorkspace();
-    expect(markup).toContain("What are we working on today?");
-    expect(markup).not.toContain("<textarea");
+    // The prompt screen: question, composer, previews, and the row controls.
+    expect(markup).toContain("What does");
+    expect(markup).toContain("need done?");
+    expect(markup).toContain("Describe a task to start a conversation...");
+    expect(markup).toContain("Nova Lite");
+    expect(markup).toContain(">Auto");
+    // The dead "My Nova" label is now a working personality picker (Default).
+    expect(markup).toContain('aria-label="Choose personality"');
+    expect(markup).toContain("Default");
+    expect(markup).not.toContain("My Nova");
+    expect(markup).toContain('aria-label="Start a session"');
+    expect(markup).toContain('aria-label="Attach images"');
+    expect(markup).toContain('aria-label="Workspace settings"');
+    expect(markup).toContain('class="nova-prompt-shell');
+    // The retired overview copy is gone.
+    expect(markup).not.toContain("What are we working on today?");
+    expect(markup).not.toContain("Tools on hand");
     expect(markup).not.toContain("What do you want Nova to help with?");
     expect(markup).not.toContain("Create thread");
     expect(markup).not.toContain("Private workbench /");
   });
 
-  it("renders workspace asset counts without folder browsing controls", () => {
-    state.computer = {
-      data: {
-        folders: [{ id: 1, name: "Plans", parentId: null }],
-        files: [
-          {
-            id: 2,
-            name: "launch-brief.md",
-            folderId: null,
-            updatedAt: new Date(),
-          },
-        ],
-      },
-      isError: false,
-      isLoading: false,
-      refetch: vi.fn(),
-    };
-
-    const markup = renderWorkspace();
-    expect(markup).toContain("What are we working on today?");
-    expect(markup).toContain("Tools on hand");
-    expect(markup).not.toContain("Private workbench /");
-    expect(markup).toContain("GitHub");
-    expect(markup).toContain("Gmail");
-    expect(markup).not.toContain("Cloud VM");
-    expect(markup).toContain("Connect");
-    expect(markup).not.toContain("Pick up where you left off");
-    expect(markup).not.toContain("Plans");
-    expect(markup).not.toContain("Workspace folders");
-    expect(markup).not.toContain("Ask Mistral");
-    expect(markup).not.toContain("Run in agent VM");
-    expect(markup).not.toContain("Codebuff");
-  });
-
-  it("shows the Telegram connector as Ready only when a chat is linked, not when only the bot token is set", () => {
+  it("keeps the session start button disabled until there is something to send", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
       isLoading: false,
       refetch: vi.fn(),
     };
-    state.composioStatus = {
-      data: {
-        keyLength: 64,
-        toolkits: {
-          github: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as const,
-            connectedAccountId: null,
-          },
-          gmail: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as const,
-            connectedAccountId: null,
-          },
-        },
-      },
-      isLoading: false,
-      isError: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    };
-    state.telegramStatus = {
-      data: { configured: true, chatId: null },
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    };
-    let markup = renderWorkspace();
-    expect(markup).not.toContain("Ready");
-    state.telegramStatus = {
-      data: { configured: true, chatId: "424242" },
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    };
-    markup = renderWorkspace();
-    expect(markup).toContain("Ready");
+    const markup = renderWorkspace();
+    // The initial draft is empty and nothing is attached.
+    expect(markup).toMatch(/type="submit" disabled/);
+    expect(markup).not.toContain("Tools on hand");
+    expect(markup).not.toContain("GitHub");
+    expect(markup).not.toContain("Gmail");
+    expect(markup).not.toContain("Connect");
   });
 
-  it("shows a connected connector as Ready and an unconnected one as Connect", () => {
+  it("locks the composer and points to Pro once the 14-day free trial has ended", () => {
     state.computer = {
       data: { folders: [], files: [] },
       isError: false,
       isLoading: false,
       refetch: vi.fn(),
     };
-    state.composioStatus = {
-      data: {
-        keyLength: 64,
-        toolkits: {
-          github: {
-            configured: true,
-            connected: true,
-            status: "active" as const,
-            connectedAccountId: "acc_1",
-          },
-          gmail: {
-            configured: true,
-            connected: false,
-            status: "disconnected" as "active" | "disconnected",
-            connectedAccountId: null,
-          },
-        },
-      },
+    state.subscription = {
+      data: { plan: "free", proAccess: false, accessActive: false },
       isLoading: false,
       isError: false,
-      isFetching: false,
-      refetch: vi.fn(),
     };
     const markup = renderWorkspace();
-    expect(markup).toContain("Ready");
-    expect(markup).toContain("Connect");
+    expect(markup).toContain("Your 14-day free trial has ended");
+    expect(markup).toContain("Upgrade - $7.99/month");
+    expect(markup).toMatch(/type="submit" disabled/);
+  });
+
+  it("shows the same trial lock above the chat composer, not just the task prompt", () => {
+    state.subscription = {
+      data: { plan: "free", proAccess: false, accessActive: false },
+      isLoading: false,
+      isError: false,
+    };
+    const markup = renderChat();
+    // Restore the location so later tests render the task prompt again.
+    globalThis.window = { location: { search: "" } } as unknown as Window & typeof globalThis;
+    expect(markup).toContain("Your 14-day free trial has ended");
+    expect(markup).toContain("Upgrade - $7.99/month");
   });
 
   it("renders loading, empty, and error states for the workspace summary", () => {
@@ -412,7 +400,7 @@ describe("Workspace rendered browser states", () => {
       isLoading: true,
       refetch: vi.fn(),
     };
-    expect(renderWorkspace()).toContain("What are we working on today?");
+    expect(renderWorkspace()).toContain("need done?");
 
     state.computer = {
       data: { folders: [], files: [] },
@@ -420,7 +408,7 @@ describe("Workspace rendered browser states", () => {
       isLoading: false,
       refetch: vi.fn(),
     };
-    expect(renderWorkspace()).toContain("Tools on hand");
+    expect(renderWorkspace()).toContain("Describe a task to start a conversation...");
 
     state.computer = {
       data: undefined,
@@ -477,8 +465,10 @@ describe("Workspace rendered browser states", () => {
     };
 
     const markup = renderWorkspace();
-    expect(markup).toContain("Tools on hand");
+    expect(markup).toContain("need done?");
+    expect(markup).toContain("Describe a task to start a conversation...");
     expect(markup).not.toContain("Workspace folders");
+    expect(markup).not.toContain("Tools on hand");
     expect(markup).not.toContain("Describe a safe workspace task");
     expect(markup).not.toContain("Ask Mistral");
     expect(markup).not.toContain("Run in agent VM");
@@ -555,7 +545,9 @@ describe("Workspace rendered browser states", () => {
       { id: 2, role: "assistant", content: "Hello there" },
     ];
     const markup = renderChat();
-    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(1);
+    expect(
+      markup.match(/aria-label="Regenerate from here"/g) || []
+    ).toHaveLength(1);
   });
 
   it("does not offer a regenerate button for the sanitized unavailable-AI error", () => {
@@ -568,7 +560,9 @@ describe("Workspace rendered browser states", () => {
     ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="assistant-error"');
-    expect(markup.match(/aria-label="Regenerate from here"/g) || []).toHaveLength(0);
+    expect(
+      markup.match(/aria-label="Regenerate from here"/g) || []
+    ).toHaveLength(0);
   });
 
   it("does not offer a copy button for the sanitized unavailable-AI error", () => {
@@ -600,7 +594,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
-  it("collapses consecutive persisted tool runs into one Used N tools group instead of a wall of chip rows", () => {
+  it("collapses consecutive persisted tool runs into one outcome group instead of a wall of chip rows", () => {
     const toolRow = (
       id: string,
       name: string,
@@ -619,9 +613,31 @@ describe("Workspace rendered browser states", () => {
     ];
     const markup = renderChat();
     expect(markup).toContain('data-testid="tool-run-group"');
-    expect(markup).toContain("Used 2 tools");
+    expect(markup).toContain("Finished · 2 steps");
+    expect(markup).not.toContain("Used 2 tools");
     expect(markup).not.toContain('data-testid="tool-run-group-detail"');
     expect(markup).toContain("Sorted both files.");
+  });
+
+  it("renders the automatic-continuation turn as a resume divider, never as the user's bubble", () => {
+    state.chatMessages = [
+      { id: 1, role: "user", content: "Build my site" },
+      {
+        id: 2,
+        role: "user",
+        content:
+          "Continue the task in this conversation from where the previous segment left off. That segment ended before the work was finished (its execution time ran out or it hit a temporary service error); finish the remaining work and deliver the result.",
+      },
+      { id: 3, role: "assistant", content: "Continuing now." },
+    ];
+    const markup = renderChat();
+    expect(markup).toContain('data-testid="continuation-divider"');
+    expect(markup).toContain("Resuming automatically");
+    // The system instruction itself never reaches the reader.
+    expect(markup).not.toContain(
+      "Continue the task in this conversation from where"
+    );
+    expect(markup).toContain("Continuing now.");
   });
 
   it("renders the newest reply's follow-up suggestions as tappable chips", () => {
@@ -734,15 +750,7 @@ describe("Workspace rendered browser states", () => {
     const markup = renderChat();
     expect(markup).not.toContain('data-testid="agent-working-status"');
     expect(markup).not.toContain("Nova is actively working");
-    expect(markup).toContain('data-testid="typing-indicator"');
-  });
-
-  it("renders an explicit animated status for the working state", () => {
-    const markup = renderToStaticMarkup(<TypingIndicator />);
-    expect(markup).toContain('data-testid="typing-indicator"');
-    expect(markup).toContain('role="status"');
-    expect(markup).not.toContain("Nova is actively working");
-    expect(markup).toContain("animate-spin");
+    expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
   it("replaces the composer with a secure value request while the agent waits on one", () => {

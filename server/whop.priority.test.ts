@@ -9,15 +9,14 @@ const purchasePriorityForUser = vi.fn(async () => ({
 }));
 const recordWhopWebhookEvent = vi.fn(async () => true);
 const upsertSubscriptionForUser = vi.fn(async () => ({ plan: "paid" as const, status: "active" }));
-const ensureMonthlyAllocationForUser = vi.fn(async () => undefined);
 const getOwnerIdForWhopMembership = vi.fn(async () => null);
 const setWhopCheckoutConfigIdForUser = vi.fn(async () => undefined);
 
 vi.mock("./db", () => ({
+  hasActiveAccessForUser: vi.fn(async () => true),
   purchasePriorityForUser,
   recordWhopWebhookEvent,
   upsertSubscriptionForUser,
-  ensureMonthlyAllocationForUser,
   getOwnerIdForWhopMembership,
   setWhopCheckoutConfigIdForUser,
 }));
@@ -27,7 +26,6 @@ describe("Whop priority webhooks", () => {
     purchasePriorityForUser.mockClear();
     recordWhopWebhookEvent.mockClear();
     upsertSubscriptionForUser.mockClear();
-    ensureMonthlyAllocationForUser.mockClear();
     process.env.WHOP_WEBHOOK_SECRET = "ws_dGVzdC1zZWNyZXQ";
     process.env.WHOP_PRIORITY_PLAN_ID = "plan_BFyuf6PmE5wwz";
     process.env.WHOP_PLAN_ID = "plan_qndYktNv5y8lg";

@@ -1,6 +1,10 @@
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { FailoverPool, failoverCooldownMsFromEnv, isTransientDatabaseError, type FailoverBackend } from "./failover";
+import { ensureReconciliationState, reconcileDatabases, verifyReconciliation } from "./reconciliation";
+
+export { isTransientDatabaseError };
 
 /**
  * The workspace database connection layer.
@@ -26,36 +30,10 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 
-/**
- * Postgres SQLSTATEs and Node socket errors worth retrying: the connection or
- * its backend went away, the server is starting up / shutting down, or the
- * pooler refused a slot. Anything else (constraint violation, syntax error,
- * permission denied) is a real answer and must not be retried.
- */
-const TRANSIENT_DATABASE_CODES = new Set([
-  "08000", // connection_exception
-  "08001", // sqlclient_unable_to_establish_sqlconnection
-  "08003", // connection_does_not_exist
-  "08004", // sqlserver_rejected_establishment_of_sqlconnection
-  "08006", // connection_failure
-  "08007", // transaction_resolution_unknown
-  "57P01", // admin_shutdown
-  "57P02", // crash_shutdown
-  "57P03", // cannot_connect_now
-  "53300", // too_many_connections
-  "40001", // serialization_failure
-  "40P01", // deadlock_detected
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "ETIMEDOUT",
-  "EPIPE",
-  "EHOSTUNREACH",
-  "ENETUNREACH",
-  "ENOTFOUND",
-]);
-
 let _db: Database | null = null;
 let _pool: pg.Pool | null = null;
+let _reconciliationRun: Promise<void> | null = null;
+let _reconciliationReady = false;
 
 /**
  * Neon (and most managed Postgres) require TLS for remote hosts but accept
@@ -139,6 +117,56 @@ function createPool(connectionString: string): pg.Pool {
   return pool;
 }
 
+export function resolveDirectUrls(): { primary: string | null; backup: string | null } {
+  return {
+    primary: process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.DATABASE_URL?.trim() || null,
+    backup: process.env.BACKUP_DATABASE_URL_UNPOOLED?.trim() || process.env.BACKUP_DATABASE_URL?.trim() || null,
+  };
+}
+
+function reconciliationEnabled(): boolean {
+  return (process.env.NOVA_DB_RECONCILE ?? "").trim().toLowerCase() === "on";
+}
+
+function scheduleReconciliation(reason: "failover" | "failback"): void {
+  if (!reconciliationEnabled()) return;
+  if (_reconciliationRun) return;
+  const urls = resolveDirectUrls();
+  if (!urls.primary || !urls.backup) return;
+  const primaryUrl = urls.primary;
+  const backupUrl = urls.backup;
+  _reconciliationRun = (async () => {
+    const primaryClient = new pg.Client({ connectionString: primaryUrl, ssl: resolveSsl(primaryUrl), ...getDatabaseTimeoutSettings() });
+    const backupClient = new pg.Client({ connectionString: backupUrl, ssl: resolveSsl(backupUrl), ...getDatabaseTimeoutSettings() });
+    try {
+      await Promise.all([primaryClient.connect(), backupClient.connect()]);
+      await ensureReconciliationState(primaryClient as unknown as import("./reconciliation").ReconcilerPool);
+      await ensureReconciliationState(backupClient as unknown as import("./reconciliation").ReconcilerPool);
+      const primary: import("./reconciliation").ReconcilerPool = {
+        query: (text: string, params?: unknown[]) => primaryClient.query(text, params as never[]).then(r => ({ rows: r.rows as Record<string, unknown>[] })),
+        end: () => primaryClient.end(),
+        on: () => undefined,
+      };
+      const backup: import("./reconciliation").ReconcilerPool = {
+        query: (text: string, params?: unknown[]) => backupClient.query(text, params as never[]).then(r => ({ rows: r.rows as Record<string, unknown>[] })),
+        end: () => backupClient.end(),
+        on: () => undefined,
+      };
+      const src: FailoverBackend = reason === "failover" ? "primary" : "backup";
+      const result = await reconcileDatabases(primary, backup, { source: src });
+      const verify = await verifyReconciliation(primary, backup);
+      if (verify.ok) _reconciliationReady = true;
+      console.log(`[Database] Reconciliation (${reason}) source=${result.source} verified=${verify.ok}`);
+    } catch (error) {
+      console.warn("[Database] Reconciliation failed:", error instanceof Error ? error.message : error);
+    } finally {
+      await Promise.allSettled([primaryClient.end(), backupClient.end()]);
+      _reconciliationRun = null;
+    }
+  })();
+  void _reconciliationRun;
+}
+
 /**
  * Returns the shared Drizzle client, creating the pool on first use. Returns
  * `null` when no database is configured so callers can degrade instead of
@@ -146,11 +174,21 @@ function createPool(connectionString: string): pg.Pool {
  */
 export async function getDb(): Promise<Database | null> {
   if (!_db) {
-    const connectionString =
-      process.env.DATABASE_URL?.trim() || process.env.DATABASE_URL_UNPOOLED?.trim();
+    const connectionString = process.env.DATABASE_URL?.trim() || process.env.DATABASE_URL_UNPOOLED?.trim();
     if (!connectionString) return null;
     try {
-      _pool = createPool(connectionString);
+      const primaryPool = createPool(connectionString);
+      const backupConnectionString = process.env.BACKUP_DATABASE_URL?.trim();
+      const useReconcile = Boolean(backupConnectionString && reconciliationEnabled());
+      _pool = backupConnectionString
+        ? (new FailoverPool({
+            primary: primaryPool,
+            backup: () => createPool(backupConnectionString),
+            cooldownMs: failoverCooldownMsFromEnv(),
+            onFailover: useReconcile ? () => scheduleReconciliation("failover") : undefined,
+            onPrimaryRecovered: useReconcile ? () => scheduleReconciliation("failback") : undefined,
+          }) as unknown as pg.Pool)
+        : primaryPool;
       _db = drizzle(_pool);
     } catch (error) {
       console.warn(
@@ -166,40 +204,15 @@ export async function getDb(): Promise<Database | null> {
 
 export async function requireDb(): Promise<Database> {
   const db = await getDb();
-  if (!db)
-    throw new Error(
-      "Nova can't reach your workspace data right now. Please try again shortly."
-    );
+  if (!db) throw new Error("Nova can't reach your workspace data right now. Please try again shortly.");
   return db;
 }
 
-/** The live pool, or `null` before first use. Exposed for health checks and graceful shutdown. */
 export function getDatabasePool(): pg.Pool | null {
   return _pool;
 }
 
-/** True when the error (or anything in its cause chain) is worth retrying. */
-export function isTransientDatabaseError(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
-    const code = (current as Error & { code?: unknown }).code;
-    if (typeof code === "string" && TRANSIENT_DATABASE_CODES.has(code)) {
-      return true;
-    }
-    current = (current as Error & { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-/**
- * Retries an idempotent, read-only operation on transient connection errors
- * with exponential backoff and jitter. Do not use this for writes: a lost
- * connection can leave a write's commit outcome unknown.
- */
-export async function withDatabaseReadRetry<T>(
-  operation: () => Promise<T>,
-  options: { attempts?: number; baseDelayMs?: number } = {}
-): Promise<T> {
+export async function withDatabaseReadRetry<T>(operation: () => Promise<T>, options: { attempts?: number; baseDelayMs?: number } = {}): Promise<T> {
   const attempts = Math.max(1, options.attempts ?? 3);
   const baseDelayMs = Math.max(1, options.baseDelayMs ?? 100);
   let lastError: unknown;
@@ -221,21 +234,13 @@ export type DatabaseHealth = {
   ok: boolean;
   latencyMs: number;
   error?: string;
+  backend?: "primary" | "backup";
 };
 
-/**
- * Cheap liveness probe: checks out one connection and asks the server for its
- * clock. The timeout destroys a stalled checked-out connection so a probe
- * cannot leave it occupying a pool slot after the health request returns.
- */
-export async function pingDatabase(
-  timeoutMs: number = DEFAULT_CONNECTION_TIMEOUT_MS
-): Promise<DatabaseHealth> {
+export async function pingDatabase(timeoutMs: number = DEFAULT_CONNECTION_TIMEOUT_MS): Promise<DatabaseHealth> {
   const startedAt = Date.now();
   const pool = _pool ?? (await getDb(), _pool);
-  if (!pool) {
-    return { ok: false, latencyMs: 0, error: "No database configured" };
-  }
+  if (!pool) return { ok: false, latencyMs: 0, error: "No database configured" };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let client: pg.PoolClient | undefined;
   let timedOut = false;
@@ -260,27 +265,21 @@ export async function pingDatabase(
         }, timeoutMs);
       }),
     ]);
-    return { ok: true, latencyMs: Date.now() - startedAt };
+    return { ok: true, latencyMs: Date.now() - startedAt, ...(pool instanceof FailoverPool ? { backend: pool.activeBackend } : {}) };
   } catch (error) {
-    return {
-      ok: false,
-      latencyMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return { ok: false, latencyMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) };
   } finally {
     if (timer) clearTimeout(timer);
     if (client && !timedOut) client.release();
   }
 }
 
-/**
- * Drains the pool. Called on shutdown so in-flight queries finish and no
- * sockets are left half-open; safe to call when the pool was never created.
- */
 export async function closeDatabase(): Promise<void> {
   const pool = _pool;
   _pool = null;
   _db = null;
+  _reconciliationRun = null;
+  _reconciliationReady = false;
   if (!pool) return;
   await pool.end().catch(error => {
     console.warn(
@@ -301,6 +300,17 @@ export function isUniqueViolation(error: unknown): boolean {
   for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
     const code = (current as Error & { code?: unknown }).code;
     if (code === "23505") return true;
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** Postgres `foreign_key_violation`. Raised when a referenced row is missing. */
+export function isForeignKeyViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const code = (current as Error & { code?: unknown }).code;
+    if (code === "23503") return true;
     current = (current as Error & { cause?: unknown }).cause;
   }
   return false;

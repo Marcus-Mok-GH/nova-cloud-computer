@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { InsertUser, users } from "../../drizzle/schema";
 import { isDeveloperEmail } from "@shared/const";
 import type { CreditRole } from "../credits";
@@ -43,6 +43,36 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 export async function getUserByOpenId(openId: string) {
   const db = await requireDb();
   return (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
+}
+
+/**
+ * One human, one row. Neon Auth can issue a second `sub` for an address it
+ * already knows (e.g. a recreated account), and inserting a row for that new
+ * subject would fork the user: workspace, credit ledger and role pin all
+ * split across two accounts. Called only on the openId-miss sign-in path:
+ * when the address already owns a row, rebind that row to the incoming
+ * subject so the sign-in lands on it. Returns the adopted row's id, or null
+ * when the address is unknown.
+ */
+export async function adoptUserByEmail(
+  email: string,
+  openId: string
+): Promise<number | null> {
+  const db = await requireDb();
+  const [existing] = await db
+    .select({ id: users.id, openId: users.openId })
+    .from(users)
+    .where(eq(users.email, email))
+    .orderBy(desc(users.lastSignedIn))
+    .limit(1);
+  if (!existing) return null;
+  if (existing.openId !== openId) {
+    await db
+      .update(users)
+      .set({ openId, updatedAt: new Date() })
+      .where(eq(users.id, existing.id));
+  }
+  return existing.id;
 }
 
 export async function deleteUserAccount(userId: number): Promise<boolean> {
@@ -95,11 +125,16 @@ export async function getUserRole(ownerId: number): Promise<CreditRole> {
 }
 
 /** The starter-question answers a new user gave on first sign-in, or null when
- * they have not completed onboarding yet. */
+ * they have not completed onboarding yet. `country` is the ISO 3166-1 alpha-2
+ * code from the country question, or null when it was skipped;
+ * `countryPromptedAt` marks that the account has been shown the country
+ * question (any onboarding submit, or the one-shot follow-up prompt). */
 export async function getUserOnboarding(userId: number): Promise<{
   source: string | null;
   useCase: string | null;
   experience: string | null;
+  country: string | null;
+  countryPromptedAt: Date | null;
   completedAt: Date | null;
 } | null> {
   const db = await requireDb();
@@ -108,21 +143,32 @@ export async function getUserOnboarding(userId: number): Promise<{
       source: users.onboardingSource,
       useCase: users.onboardingUseCase,
       experience: users.onboardingExperience,
+      country: users.onboardingCountry,
+      countryPromptedAt: users.onboardingCountryPromptedAt,
       completedAt: users.onboardingCompletedAt,
     })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
   if (!row) return null;
-  return { source: row.source, useCase: row.useCase, experience: row.experience, completedAt: row.completedAt };
+  return {
+    source: row.source,
+    useCase: row.useCase,
+    experience: row.experience,
+    country: row.country,
+    countryPromptedAt: row.countryPromptedAt,
+    completedAt: row.completedAt,
+  };
 }
 
 /** Records the starter-question answers for a user. `completedAt` is set only
  * when the user actually finished (not skipped), so a skip leaves the row
- * open to be asked again later. */
+ * open to be asked again later. Every submit also stamps the country-prompt
+ * marker: the onboarding modal shows the country question, so the account
+ * must not be prompted for it again later. */
 export async function saveUserOnboarding(
   userId: number,
-  answers: { source: string | null; useCase: string | null; experience: string | null },
+  answers: { source: string | null; useCase: string | null; experience: string | null; country: string | null },
   completed: boolean
 ): Promise<void> {
   const db = await requireDb();
@@ -132,7 +178,25 @@ export async function saveUserOnboarding(
       onboardingSource: answers.source,
       onboardingUseCase: answers.useCase,
       onboardingExperience: answers.experience,
+      onboardingCountry: answers.country,
+      onboardingCountryPromptedAt: new Date(),
       ...(completed ? { onboardingCompletedAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
+
+/** One-shot country prompt for accounts that finished onboarding before the
+ * country question existed. Records the prompt as answered when a country is
+ * given, or merely as seen when it is null (a dismissal) - so the account is
+ * prompted exactly once and a dismissal can never wipe an answer. */
+export async function saveUserCountryPrompt(userId: number, country: string | null): Promise<void> {
+  const db = await requireDb();
+  await db
+    .update(users)
+    .set({
+      onboardingCountryPromptedAt: new Date(),
+      ...(country ? { onboardingCountry: country } : {}),
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));

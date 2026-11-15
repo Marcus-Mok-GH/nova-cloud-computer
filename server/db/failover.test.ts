@@ -159,6 +159,145 @@ describe("FailoverPool", () => {
   });
 });
 
+describe("FailoverPool second standby (BACKUP2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fails over to the second backup when the backup is also down", async () => {
+    const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup2 = makePool();
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: () => backup2,
+      cooldownMs: 60_000,
+    });
+
+    const result = await pool.query("select 1");
+
+    expect(result).toEqual({ rows: [{ ok: 1 }] });
+    expect(backup2.query).toHaveBeenCalledTimes(1);
+    expect(pool.activeBackend).toBe("backup2");
+  });
+
+  it("skips the backup during its cooldown and re-probes it after it expires", async () => {
+    const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup2 = makePool();
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: () => backup2,
+      cooldownMs: 60_000,
+    });
+
+    await pool.query("select 1");
+    await pool.query("select 2");
+    // the backup was tried once, failed, and is cooling: straight to backup2
+    expect(backup.query).toHaveBeenCalledTimes(1);
+    expect(backup2.query).toHaveBeenCalledTimes(2);
+    expect(pool.activeBackend).toBe("backup2");
+
+    backup.query.mockResolvedValue({ rows: [{ ok: 1 }] });
+    vi.advanceTimersByTime(60_001);
+    const result = await pool.query("select 3");
+    expect(result).toEqual({ rows: [{ ok: 1 }] });
+    expect(backup.query).toHaveBeenCalledTimes(2);
+    expect(pool.activeBackend).toBe("backup");
+  });
+
+  it("surfaces an error when every configured hop is down", async () => {
+    const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup2 = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: () => backup2,
+      cooldownMs: 60_000,
+    });
+
+    await expect(pool.query("select 1")).rejects.toThrow("connection reset");
+    expect(backup2.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("still surfaces the backup error when no second backup is configured", async () => {
+    const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const pool = new FailoverPool({ primary, backup: () => backup, cooldownMs: 60_000 });
+
+    await expect(pool.query("select 1")).rejects.toThrow("connection reset");
+    expect(pool.activeBackend).toBe("backup");
+  });
+
+  it("connect() walks the same chain as query()", async () => {
+    const primary = makePool({ connect: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool({ connect: vi.fn().mockRejectedValue(transientError()) });
+    const backup2 = makePool();
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: () => backup2,
+      cooldownMs: 60_000,
+    });
+
+    const client = await pool.connect();
+
+    expect(client).toBeDefined();
+    expect(backup2.connect).toHaveBeenCalledTimes(1);
+    expect(pool.activeBackend).toBe("backup2");
+  });
+
+  it("creates the second backup pool only once the backup has actually failed", async () => {
+    const primary = makePool({ query: vi.fn().mockRejectedValue(transientError()) });
+    const backup = makePool();
+    const backup2 = makePool();
+    const factory = vi.fn(() => backup2);
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: factory,
+      cooldownMs: 60_000,
+    });
+
+    await pool.query("select 1"); // primary fails, backup serves
+    await pool.query("select 2"); // still on the backup
+    expect(factory).not.toHaveBeenCalled();
+
+    backup.query.mockRejectedValueOnce(transientError());
+    await pool.query("select 3"); // backup fails now -> second backup spins up
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(backup2.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("drains all three pools on end()", async () => {
+    // Both standbys are lazy: walk the whole chain once so all three pools exist.
+    const primary = makePool({ query: vi.fn().mockRejectedValueOnce(transientError()) });
+    const backup = makePool({ query: vi.fn().mockRejectedValueOnce(transientError()) });
+    const backup2 = makePool();
+    const pool = new FailoverPool({
+      primary,
+      backup: () => backup,
+      backup2: () => backup2,
+      cooldownMs: 60_000,
+    });
+    await pool.query("select 1");
+    await pool.end();
+
+    expect(primary.end).toHaveBeenCalledTimes(1);
+    expect(backup.end).toHaveBeenCalledTimes(1);
+    expect(backup2.end).toHaveBeenCalledTimes(1);
+  });
+
+});
+
 describe("failoverCooldownMsFromEnv", () => {
   afterEach(() => {
     delete process.env.NOVA_DB_FAILOVER_COOLDOWN_MS;

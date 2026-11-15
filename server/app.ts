@@ -343,7 +343,11 @@ app.get("/api/health", async (_req: express.Request, res: express.Response) => {
   return res.status(200).json({
     ok: true,
     service: "nova",
-    database: { ok: database.ok, latencyMs: database.latencyMs },
+    database: {
+      ok: database.ok,
+      latencyMs: database.latencyMs,
+      ...(database.backend ? { backend: database.backend } : {}),
+    },
   });
 });
 app.get("/api/status", async (req: express.Request, res: express.Response) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await collectServiceStatus(user.id)); } catch (error) { if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message }); console.error("Status endpoint error", error); return res.status(500).json({ error: "Could not collect service status." }); } });

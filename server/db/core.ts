@@ -179,11 +179,15 @@ export async function getDb(): Promise<Database | null> {
     try {
       const primaryPool = createPool(connectionString);
       const backupConnectionString = process.env.BACKUP_DATABASE_URL?.trim();
+      const backup2ConnectionString = process.env.BACKUP2_DATABASE_URL?.trim();
       const useReconcile = Boolean(backupConnectionString && reconciliationEnabled());
       _pool = backupConnectionString
         ? (new FailoverPool({
             primary: primaryPool,
             backup: () => createPool(backupConnectionString),
+            ...(backup2ConnectionString
+              ? { backup2: () => createPool(backup2ConnectionString) }
+              : {}),
             cooldownMs: failoverCooldownMsFromEnv(),
             onFailover: useReconcile ? () => scheduleReconciliation("failover") : undefined,
             onPrimaryRecovered: useReconcile ? () => scheduleReconciliation("failback") : undefined,
@@ -234,7 +238,7 @@ export type DatabaseHealth = {
   ok: boolean;
   latencyMs: number;
   error?: string;
-  backend?: "primary" | "backup";
+  backend?: "primary" | "backup" | "backup2";
 };
 
 export async function pingDatabase(timeoutMs: number = DEFAULT_CONNECTION_TIMEOUT_MS): Promise<DatabaseHealth> {

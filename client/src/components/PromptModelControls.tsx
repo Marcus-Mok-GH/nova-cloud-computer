@@ -34,7 +34,7 @@ const EFFORT_LABELS: Record<EffortId, string> = {
 
 /** Compact trigger styling that matches the prompt card's inline controls. */
 const TRIGGER_CLASS =
-  "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-foreground transition hover:bg-foreground/[0.06] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-foreground transition hover:bg-foreground/[0.06] disabled:cursor-not-allowed disabled:opacity-60";
 
 type PromptModelControlsProps = {
   models: ChatModel[];
@@ -65,7 +65,7 @@ export function PromptModelControls({
   const effortOptions = effortOptionsForModelId(selectedModelId);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       {/* Model selector */}
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -76,7 +76,7 @@ export function PromptModelControls({
           {isPaid && selectedModel?.id !== FREE_CHAT_MODEL_ID && (
             <Crown className="size-3.5 text-amber-500" />
           )}
-          <span className="max-w-[8rem] truncate">
+          <span className="max-w-[8rem] min-w-0 truncate">
             {selectedModel?.label ?? "Nova Lite"}
           </span>
           <ChevronDown className="size-3.5 opacity-60" />

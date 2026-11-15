@@ -1,3 +1,15 @@
+2026-11-15 - fix(workspace): keep the prompt-screen model control inside the composer
+
+A long model label (e.g. "DeepSeek V4.1 Flash 1017") pushed the task-prompt
+control row past the composer card on narrow viewports: the label span was
+width-capped, but the trigger, its span and the control group all sat at
+their flex min-width floors, so the row (model + effort + send) overflowed
+and the send button spilled over the card edge. The trigger class, the
+label span and the control group now carry min-w-0 so they shrink and
+ellipsize instead of stretching. Measured in a real browser at 390/360/320px
+with the long label: the row stays inside the card with the ellipsis
+active; pinned by PromptModelControls.render.test.tsx.
+
 2026-11-14 - fix(auth): adopt an existing account when Neon re-issues a subject
 
 Sign-in resolves users by the Neon Auth subject alone, so a re-issued `sub`

@@ -11,6 +11,7 @@ import { toolActivityActor } from "@/lib/chatMessages";
 import { OwnerBlock } from "@/lib/ownerBlock";
 import { ToolOwnerBadge } from "@/components/workspaceChat";
 import { MarkdownText } from "@/lib/markdown";
+import { WorkingAnimation } from "@/components/WorkingAnimation";
 import { pluralize } from "@shared/text";
 
 /* ------------------------------------------------------------------ *
@@ -731,7 +732,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         >
           {running ? (
-            <CircleDashed className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+            <WorkingAnimation size={12} />
           ) : (
             <CheckCircle2 className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
@@ -1396,7 +1397,7 @@ export function LiveActivityCard({
     >
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
-          <CircleDashed className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <WorkingAnimation size={14} />
         ) : failed > 0 ? (
           <TriangleAlert className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         ) : (

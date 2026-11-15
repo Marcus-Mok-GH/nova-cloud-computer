@@ -1,3 +1,20 @@
+2026-11-15 - feat(chat): a Nova-branded working animation replaces the dashed spinner
+
+The amber CircleDashed spinner on the thinking line and the live
+activity card is now the approved "Nova Breath" animation: the organic
+ember blob with the white-gold core, drawn live on a canvas - no video
+assets - so it stays crisp at 12-14px and sits on any theme, because
+the brand tokens it paints live in :root and are identical across
+daylight and midnight. The geometry mirrors the rendered preview
+exactly (sine-harmonic outline, breath + squash + drift, sunrise halo,
+core swelling twice per 3.0s loop); tiny canvases get 1.8x motion
+amplitude so the breath stays visible at icon size, and
+prefers-reduced-motion draws a single still frame. Completed and
+failed states keep their check/warning icons. New component
+client/src/components/WorkingAnimation.tsx with a pure drawWorkingBlob
+unit-tested against a recording context, wired at both working-spinner
+sites.
+
 2026-11-15 - feat(chat): the thinking panel follows its live reasoning text
 
 The Thinking panel caps at max-h-72 and scrolls internally, but as the

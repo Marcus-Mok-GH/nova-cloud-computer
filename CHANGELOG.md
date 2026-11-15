@@ -1,3 +1,24 @@
+2026-11-15 - feat(db): a second standby (BACKUP2) takes over when both Neon databases are down
+
+Today the primary (nova-neon) and its standby (nova-backup) hit their
+Neon quota together and refused every connection, which walks past the
+single backup straight to an outage: /api/health served
+database.ok:false. Failover now walks primary -> backup -> second
+backup: each hop gets its own cooldown (the backup is re-probed after
+it expires; with only two hops the backup keeps answering rather than
+black-holing), the second pool stays lazy until the backup has actually
+failed, activeBackend and the health response report "backup2", and
+non-transient errors still surface instead of failing over.
+Provisioned nova-backup-2 as a separate free Neon project (separate
+quota - the Neon API refuses creation on a Vercel-managed organization,
+so it went through `vercel integration add neon`), applied the full
+schema with the new scripts/apply-schema.ts (which also fixes the
+documented `tsx server/migrate.ts` invocation that had no CLI entry),
+and set BACKUP2_DATABASE_URL / BACKUP2_DATABASE_URL_UNPOOLED in
+Production. The second standby is cold - replication needs the primary
+reachable, so it starts schema-only; documented in
+docs/database-failover.md along with the provisioning steps.
+
 2026-11-15 - feat(chat): a Nova-branded working animation replaces the dashed spinner
 
 The amber CircleDashed spinner on the thinking line and the live

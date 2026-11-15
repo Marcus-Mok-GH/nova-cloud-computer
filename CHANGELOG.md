@@ -1,3 +1,16 @@
+2026-11-15 - feat(models): replace the Claude Sonnet 5.5 slot with GPT-6.1 Sol
+
+The Sonnet slot was dead on Coarena - Anthropic's models stopped being
+listed (the last probes returned model_off, and the catalogue now carries
+no Claude entries at all). The slot now serves OpenAI's GPT-6.1 Sol
+(catalogue id gpt-6.1-sol, upstream gpt-6-1-sol, label "GPT-6.1 Sol"),
+keeping its position, pro tier and auto-only effort. Coarena routing
+follows: COARENA_MODELS swaps claude-sonnet-5-5 for gpt-6-1-sol, so the
+slot still leaves Pollinations, still falls back across providers on a
+failed Coarena hop, and still fails with a clean configuration error when
+the credential is absent. Migration 0064 remaps stored chats from
+claude-sonnet-5.5 to gpt-6.1-sol.
+
 2026-11-15 - fix(workspace): keep the prompt-screen model control inside the composer
 
 A long model label (e.g. "DeepSeek V4.1 Flash 1017") pushed the task-prompt

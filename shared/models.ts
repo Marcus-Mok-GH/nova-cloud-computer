@@ -88,11 +88,11 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     efforts: AUTO_ONLY_EFFORTS,
   },
   {
-    id: "claude-sonnet-5.5",
-    label: "Claude Sonnet 5.5",
-    description: "Anthropic's Sonnet 5.5 - fast, strong coding and reasoning.",
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    description: "OpenAI's GPT-6.1 Sol - fast, strong coding and reasoning.",
     tier: "pro",
-    upstreamModel: "claude-sonnet-5-5",
+    upstreamModel: "gpt-6-1-sol",
     efforts: AUTO_ONLY_EFFORTS,
   },
 ];

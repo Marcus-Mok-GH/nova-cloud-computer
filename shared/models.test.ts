@@ -26,7 +26,7 @@ describe("shared model catalogue - effort options", () => {
 
   it("offers only auto on external premium models", () => {
     const models = getChatModels();
-    for (const id of ["deepseek-v4.1-flash", "gemini-4-carbon", "claude-sonnet-5.5"]) {
+    for (const id of ["deepseek-v4.1-flash", "gemini-4-carbon", "gpt-6.1-sol"]) {
       expect(effortOptionsForModelId(id, models)).toEqual(["auto"]);
     }
   });

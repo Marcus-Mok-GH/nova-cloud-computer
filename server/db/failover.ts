@@ -75,6 +75,9 @@ export function isTransientDatabaseError(error: unknown): boolean {
  *    recovered primary resumes traffic without any manual switch;
  *  - non-transient errors (constraint violations, bad SQL) are real answers
  *    from Postgres - they never trigger a failover, on either side;
+ *  - an optional second standby (`BACKUP2_DATABASE_URL`) takes the retry when
+ *    the backup itself is down (the backup gets the same cooldown), so a
+ *    quota that hits every database in one Neon account cannot go dark;
  *  - with no backup configured the facade wraps only the primary and behaves
  *    exactly like the raw pool.
  *
@@ -84,7 +87,7 @@ export function isTransientDatabaseError(error: unknown): boolean {
  * caller - the commit outcome is unknowable, so the facade never replays it.
  */
 
-export type FailoverBackend = "primary" | "backup";
+export type FailoverBackend = "primary" | "backup" | "backup2";
 
 /** The sliver of a pooled client the app uses (`query` + `release`). */
 type PoolClientLike = {
@@ -104,6 +107,13 @@ export type FailoverPoolOptions = {
   primary: pg.Pool | PoolLike;
   /** Lazy factory - the backup pool is not created until the first failover. */
   backup: () => pg.Pool | PoolLike;
+  /**
+   * Optional second standby (`BACKUP2_DATABASE_URL`): a separately
+   * provisioned, cold copy tried when the primary AND the backup are both
+   * unreachable - e.g. a quota that takes every database in one account down.
+   * Lazy like `backup`.
+   */
+  backup2?: () => pg.Pool | PoolLike;
   /** How long the primary stays marked down after a transient failure. */
   cooldownMs: number;
   /** Fired once per failover transition (after the failed request has been retried on the backup). */
@@ -120,8 +130,11 @@ export class FailoverPool {
   private readonly cooldownMs: number;
   private readonly onFailover?: () => void;
   private readonly onPrimaryRecovered?: () => void;
+  private readonly backup2Factory?: () => PoolLike;
   private backupPool: PoolLike | null = null;
+  private backup2Pool: PoolLike | null = null;
   private primaryDownUntil = 0;
+  private backupDownUntil = 0;
   private backupActive = false;
 
   constructor(options: FailoverPoolOptions) {
@@ -130,6 +143,10 @@ export class FailoverPool {
     // sliver of the API declared in PoolLike.
     this.primary = options.primary as unknown as PoolLike;
     this.backupFactory = () => options.backup() as unknown as PoolLike;
+    if (options.backup2) {
+      const factory = options.backup2;
+      this.backup2Factory = () => factory() as unknown as PoolLike;
+    }
     this.cooldownMs = Math.max(1, options.cooldownMs);
     this.onFailover = options.onFailover;
     this.onPrimaryRecovered = options.onPrimaryRecovered;
@@ -142,6 +159,30 @@ export class FailoverPool {
   private get backup(): PoolLike {
     if (!this.backupPool) this.backupPool = this.backupFactory();
     return this.backupPool;
+  }
+
+  private get backup2(): PoolLike | null {
+    if (!this.backup2Factory) return null;
+    if (!this.backup2Pool) this.backup2Pool = this.backup2Factory();
+    return this.backup2Pool;
+  }
+
+  private backupIsDown(): boolean {
+    return Date.now() < this.backupDownUntil;
+  }
+
+  private markBackupDown(error: unknown) {
+    this.backupDownUntil = Date.now() + this.cooldownMs;
+    console.warn(
+      `[Database] Backup unreachable, failing over to the second backup for ~${Math.round(
+        this.cooldownMs / 1000
+      )}s:`,
+      error instanceof Error ? error.message : error
+    );
+  }
+
+  private markBackupRecovered() {
+    this.backupDownUntil = 0;
   }
 
   private primaryIsDown(): boolean {
@@ -172,12 +213,40 @@ export class FailoverPool {
 
   /** Which backend a query would use right now - reported by /api/health. */
   get activeBackend(): FailoverBackend {
-    return this.primaryIsDown() ? "backup" : "primary";
+    if (!this.primaryIsDown()) return "primary";
+    if (!this.backupIsDown() || !this.backup2Factory) return "backup";
+    return "backup2";
+  }
+
+  /**
+   * Runs one operation against the standby chain while the primary is known
+   * down: the backup first (unless its own cooldown is still running), then
+   * the second backup. Without a second backup the backup answers even while
+   * its cooldown runs - two hops must never black-hole availability.
+   */
+  private async onStandby<T>(operation: (pool: PoolLike) => Promise<T>): Promise<T> {
+    if (!this.backupIsDown()) {
+      try {
+        const result = await operation(this.backup);
+        this.markBackupRecovered();
+        return result;
+      } catch (error) {
+        if (!isTransientDatabaseError(error)) throw error;
+        this.markBackupDown(error);
+        const standby = this.backup2;
+        if (standby) return operation(standby);
+        throw error;
+      }
+    }
+    const standby = this.backup2;
+    // Two hops only: the backup answers even while its own cooldown runs.
+    if (!standby) return operation(this.backup);
+    return operation(standby);
   }
 
   async query(text: string, params?: unknown[]): Promise<unknown> {
     if (this.primaryIsDown()) {
-      return this.backup.query(text, params);
+      return this.onStandby(pool => pool.query(text, params));
     }
     try {
       const result = await this.primary.query(text, params);
@@ -186,13 +255,13 @@ export class FailoverPool {
     } catch (error) {
       if (!isTransientDatabaseError(error)) throw error;
       this.markPrimaryDown(error);
-      return this.backup.query(text, params);
+      return this.onStandby(pool => pool.query(text, params));
     }
   }
 
   async connect(): Promise<PoolClientLike> {
     if (this.primaryIsDown()) {
-      return this.backup.connect();
+      return this.onStandby(pool => pool.connect());
     }
     try {
       const client = await this.primary.connect();
@@ -201,17 +270,22 @@ export class FailoverPool {
     } catch (error) {
       if (!isTransientDatabaseError(error)) throw error;
       this.markPrimaryDown(error);
-      return this.backup.connect();
+      return this.onStandby(pool => pool.connect());
     }
   }
 
   async end(): Promise<void> {
-    await Promise.all([this.primary.end(), this.backupPool?.end()]);
+    await Promise.all([
+      this.primary.end(),
+      this.backupPool?.end(),
+      this.backup2Pool?.end(),
+    ]);
   }
 
   on(event: string, listener: (...args: unknown[]) => void): this {
     this.primary.on(event, listener);
     this.backupPool?.on(event, listener);
+    this.backup2Pool?.on(event, listener);
     return this;
   }
 }

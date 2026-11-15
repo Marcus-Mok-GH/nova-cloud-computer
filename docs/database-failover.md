@@ -22,7 +22,7 @@ automatically.
   transaction fails — retrying it is the caller's job (same semantics as a
   single-pool outage), so a failover can surface as one failed request.
 - `/api/health` reports which backend answered via `database.backend`
-  (`"primary" | "backup"`). Watch for `backup` — it means the primary is down.
+  (`"primary" | "backup" | "backup2"`). Watch for `backup` — it means the primary is down.
 
 ## Why the standby does not double the egress usage
 
@@ -64,7 +64,7 @@ Then set `BACKUP_DATABASE_URL` in the Vercel project (Production) and redeploy.
 ## Caveats
 
 - **DDL does not replicate.** After any schema migration, apply it to the
-  standby too: `DATABASE_URL=$BACKUP_DATABASE_URL pnpm exec tsx server/migrate.ts`.
+  standby too: `DATABASE_URL=$BACKUP_DATABASE_URL pnpm exec tsx scripts/apply-schema.ts`.
   Drifted schema makes the standby fail in confusing ways mid-outage.
 - **Sequences do not replicate.** Logical replication carries row data, not
   sequence positions. After a failback, re-sync sequences on the primary (see
@@ -94,6 +94,37 @@ When the primary is healthy again (new billing cycle / upgraded plan):
 4. Re-run the setup script's subscription step if the standby fell far behind
    or the slot was dropped.
 
+## Second standby (`BACKUP2_DATABASE_URL`)
+
+An optional third hop for the outage that takes **both** Neon databases
+down at once - the quota refusal is per project, but nova-neon and
+nova-backup have been known to exhaust theirs together. With
+`BACKUP_DATABASE_URL` set, the pool walks `primary -> backup -> second
+backup`, giving each hop its own cooldown (the backup is re-probed
+after it expires; without a configured second hop the backup keeps
+answering, so two hops never black-hole availability).
+
+Provisioning: the Neon API refuses `POST /projects` when the
+organization is managed by Vercel, so create it through Vercel instead:
+
+```bash
+npx vercel integration add neon --name nova-backup-2 --prefix BACKUP2 \
+  --no-env-pull
+DATABASE_URL=$BACKUP2_DATABASE_URL_UNPOOLED pnpm exec tsx scripts/apply-schema.ts
+npx vercel env add BACKUP2_DATABASE_URL production          # pooled URL
+npx vercel env add BACKUP2_DATABASE_URL_UNPOOLED production # direct URL
+```
+
+Caveats for the second standby:
+
+- **It is cold.** The replication subscription needs the primary
+  reachable, so it starts schema-only and only picks up writes made
+  while it is actively serving. Those writes do not flow back
+  automatically (same failback discipline as the first standby).
+- **Reconciliation stays primary <-> backup.** The reconciler compares
+  the primary pair; bring the second standby back in line with the
+  failback dump/reload procedure if it served traffic.
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -101,6 +132,8 @@ When the primary is healthy again (new billing cycle / upgraded plan):
 | `DATABASE_URL` | Primary connection string (pooled). Required. |
 | `DATABASE_URL_UNPOOLED` | Primary direct URL (migrations). Optional. |
 | `BACKUP_DATABASE_URL` | Standby connection string. When set, failover is enabled. |
+| `BACKUP2_DATABASE_URL` | Second standby (pooled). Optional third hop. |
+| `BACKUP2_DATABASE_URL_UNPOOLED` | Second standby direct URL (schema/DDL). Optional. |
 | `NOVA_DB_FAILOVER_COOLDOWN_MS` | How long to stay on the standby before re-probing the primary (default 60000). |
 See `docs/database-role-flip.md` for the deliberate, permanent role swap
 (promote the standby to primary, re-point replication) and for recovering

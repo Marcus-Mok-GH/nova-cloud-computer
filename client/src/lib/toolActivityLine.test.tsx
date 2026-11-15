@@ -1046,6 +1046,8 @@ describe("panel detail fallbacks", () => {
       React.createElement(ThinkingToolActivity, { activity: thinking })
     );
     expect(html).toContain("The model is thinking…");
+    // While running, the working animation replaces the old dashed spinner.
+    expect(html).toContain('data-testid="working-animation"');
     // No <p> directly inside another <p>; the lookahead keeps the svg's
     // <path> elements from counting as one.
     expect(html).not.toMatch(/<p(?![a-zA-Z])[^>]*>\s*<p(?![a-zA-Z])/);

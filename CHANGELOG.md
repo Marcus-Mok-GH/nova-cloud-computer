@@ -1,3 +1,22 @@
+2026-11-15 - feat(models): offer every reasoning effort mode on every model
+
+The external premium slots (DeepSeek, Gemini, GPT-6.1 Sol) only offered
+"Auto" in the picker, and the gateway stripped any explicit level for
+everything outside GLM and Coarena - so the modes never reached the
+wire. Every route Nova uses now honours reasoning_effort: each
+Pollinations id lists it in supported_parameters (checked against their
+live model metadata) and both Coarena entries were probed accepting it,
+so all five catalogue models offer the full auto/low/medium/high/max
+range and a picked level is actually sent. Auto still classifies the
+request text, an explicit choice still pins the turn, and text-less
+calls keep the provider default. Value wrinkle: Pollinations' request
+schema tops out at "xhigh" and answers anything else with a 400 (which
+does not fall back), so "max" maps per route - xhigh for OpenAI-compat
+routes (including the built-in fallback and sol), "max" kept for
+Coarena's Gemini and bare GLM ids (BYOK against Zhipu). Create-time
+validation follows the catalogue: unknown effort strings still downgrade
+to auto; real levels are kept on every model.
+
 2026-11-15 - feat(ai): resolve auto effort from the user's request
 
 "Auto" effort was a fixed depth: GLM-5.2+ sent the deployment's

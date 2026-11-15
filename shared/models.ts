@@ -15,9 +15,10 @@ export type ChatModelTier = "free" | "pro";
 
 /**
  * The deep-thinking effort levels a model can expose. `auto` is always
- * present: it defers to the model's own default. The deeper levels are only
- * meaningful on reasoning-capable models - the gateway sends `reasoning_effort`
- * for the GLM-5.2-and-newer families and ignores it everywhere else.
+ * present: it resolves from the request text at send time. Every route Nova
+ * sends to honours `reasoning_effort` (each Pollinations id lists it in
+ * supported_parameters; both Coarena entries probed live 2026-11-15), so a
+ * picked level is sent rather than stripped.
  */
 export type EffortId = "auto" | "low" | "medium" | "high" | "max";
 
@@ -40,20 +41,17 @@ export type ChatModel = {
   upstreamModel?: string;
   /**
    * The effort levels this model's selector offers, dynamically per model.
-   * Always includes `"auto"`. The built-in Nova models expose the full depth
-   * range; external premium models only offer `"auto"` because the gateway
-   * would risk a rejection sending `reasoning_effort` to a strict endpoint
-   * that does not accept it.
+   * Always includes `"auto"`. Every model carries the full depth range - the
+   * gateway sends an explicit level to the route serving the model, mapped
+   * to that route's own value name, so no mode is stripped on the way out.
    */
   efforts: EffortId[];
 };
 
 export const FREE_CHAT_MODEL_ID = "nova-pro";
 
-/** The full depth range the built-in Nova models expose. */
+/** The full depth range every model exposes. */
 const NOVA_EFFORTS: EffortId[] = ["auto", "low", "medium", "high", "max"];
-/** Effort options for models the gateway only serves in its default depth. */
-const AUTO_ONLY_EFFORTS: EffortId[] = ["auto"];
 
 export const DEFAULT_CHAT_MODELS: ChatModel[] = [
   {
@@ -77,7 +75,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "DeepSeek's V4.1 Flash - fast, strong coding and reasoning.",
     tier: "pro",
     upstreamModel: "deepseek/deepseek-v4.1-flash",
-    efforts: AUTO_ONLY_EFFORTS,
+    efforts: NOVA_EFFORTS,
   },
   {
     id: "gemini-4-carbon",
@@ -85,7 +83,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "Google's Gemini 4 Carbon - newest flagship, long context and multimodal.",
     tier: "pro",
     upstreamModel: "gemini-4-carbon",
-    efforts: AUTO_ONLY_EFFORTS,
+    efforts: NOVA_EFFORTS,
   },
   {
     id: "gpt-6.1-sol",
@@ -93,7 +91,7 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     description: "OpenAI's GPT-6.1 Sol - fast, strong coding and reasoning.",
     tier: "pro",
     upstreamModel: "gpt-6-1-sol",
-    efforts: AUTO_ONLY_EFFORTS,
+    efforts: NOVA_EFFORTS,
   },
 ];
 
@@ -166,7 +164,7 @@ function withEfforts(models: ChatModel[]): ChatModel[] {
   return models.map(model => ({
     ...model,
     efforts: normalizeEfforts(
-      model.efforts ?? (model.id === FREE_CHAT_MODEL_ID ? NOVA_EFFORTS : AUTO_ONLY_EFFORTS)
+      model.efforts ?? NOVA_EFFORTS
     ),
   }));
 }

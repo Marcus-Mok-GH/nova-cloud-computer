@@ -18,6 +18,14 @@ and set BACKUP2_DATABASE_URL / BACKUP2_DATABASE_URL_UNPOOLED in
 Production. The second standby is cold - replication needs the primary
 reachable, so it starts schema-only; documented in
 docs/database-failover.md along with the provisioning steps.
+Login verification is covered too: the session cookie is HMAC-checked
+locally, and a verified cookie now re-provisions its missing identity
+row on a cold standby (openId + name; the next real sign-in refills
+the email - same openId, so failback cannot fork an account), while
+the standby sync plan explicitly includes the users table. New sign-ins
+and JWKS still need the Neon Auth service, which the auth proxy fails
+over to NEON_AUTH_BACKUP_BASE_URL (both endpoints are over quota right
+now).
 
 2026-11-15 - feat(chat): a Nova-branded working animation replaces the dashed spinner
 

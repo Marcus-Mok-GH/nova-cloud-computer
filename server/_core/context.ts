@@ -140,8 +140,23 @@ async function authenticateFirstPartySession(cookieHeader: string | undefined): 
   if (!sessionToken) return null;
   const session = await sdk.verifySession(sessionToken);
   if (!session) return null;
-  const user = await getUserByOpenId(session.openId);
-  if (!user) return null;
+  let user = await getUserByOpenId(session.openId);
+  if (!user) {
+    // Cold standby: the identity rows have not reached this database yet (a
+    // double outage serving from the second standby). The cookie is
+    // HMAC-signed by this app and inside its 7-day window, so re-provision
+    // the row - openId and name only; the next real sign-in refills the
+    // email - instead of signing the user out mid-outage. Same openId as the
+    // primary's row, so failback updates one row instead of forking a second
+    // account.
+    await upsertUser({
+      openId: session.openId,
+      name: session.name,
+      lastSignedIn: new Date(),
+    });
+    user = await getUserByOpenId(session.openId);
+    if (!user) return null;
+  }
   if (user.bannedAt) return { banned: true }; // Banned accounts are treated as signed out, but the sign-in flow can tell them apart.
   // The developer rank is pinned to one address, but the row can still hold a
   // stale rank (e.g. `admin`) if no sign-in path reasserted it. Repair it here,

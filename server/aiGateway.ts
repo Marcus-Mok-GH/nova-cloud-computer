@@ -9,6 +9,7 @@ import {
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
 import { createSseLineFramer, sseDataPayload } from "./sse";
+import { classifyRequestEffort, lastUserText } from "./requestEffort";
 import { getChatModelById } from "@shared/models";
 
 const MAX_CONFIGURED_REQUESTS = 1000;
@@ -521,10 +522,15 @@ export async function getAiGatewayStatus(ownerId: number) {
  * high-frequency traffic. Applies to BYOK GLM-family models too.
  */
 function configuredReasoningEffort(): string {
+  return pinnedReasoningEffort() ?? "max";
+}
+
+/** The operator's pinned GLM effort, or null when the lever is unset/invalid. */
+function pinnedReasoningEffort(): string | null {
   const raw = process.env.POLLINATIONS_REASONING_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "medium" || raw === "high" || raw === "max"
     ? raw
-    : "max";
+    : null;
 }
 
 /**
@@ -539,10 +545,34 @@ function configuredReasoningEffort(): string {
  */
 export function reasoningParamsForModel(
   modelId: string,
-  effort?: string
+  effort?: string,
+  userText = ""
 ): Record<string, unknown> {
-  const match = /^glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
-  if (!match) return {};
+  const selected = (effort ?? "").trim().toLowerCase();
+  const isAuto = !selected || selected === "auto";
+  // The id may carry a provider prefix on the wire (the built-in fallback
+  // is sent as "z-ai/glm-5.3-flash"), so match the family after it.
+  const match = /^(?:[a-z0-9._-]+\/)?glm-(\d+)(?:\.(\d+))?/i.exec(modelId.trim());
+  if (!match) {
+    // Coarena's OpenAI-compatible models were probed accepting
+    // `reasoning_effort` (low/medium/high, 200 OK) on 2026-11-15; an id
+    // outside that set must never see the field - strict endpoints may
+    // reject parameters they do not implement.
+    if (COARENA_MODELS.has(modelId)) {
+      if (!isAuto) {
+        // sol tops out at "xhigh"; every other level maps by name.
+        const level =
+          selected === "max" && modelId === "gpt-6-1-sol" ? "xhigh" : selected;
+        return { reasoning_effort: level };
+      }
+      // Auto resolves from the request; with no text to classify the
+      // provider's own default stands (no field at all).
+      return userText
+        ? { reasoning_effort: classifyRequestEffort(userText) }
+        : {};
+    }
+    return {};
+  }
   const major = Number(match[1]);
   const minor = Number(match[2] ?? 0);
   const thinks = major > 4 || (major === 4 && minor >= 5);
@@ -550,10 +580,12 @@ export function reasoningParamsForModel(
   const params: Record<string, unknown> = { thinking: { type: "enabled" } };
   if (major > 5 || (major === 5 && minor >= 2)) {
     // A run-level effort (the chat's selected depth, "auto" or deeper)
-    // overrides the deployment default; "auto" / undefined keeps the env value.
-    const selected = (effort ?? "").trim().toLowerCase();
-    params.reasoning_effort =
-      selected && selected !== "auto" ? selected : configuredReasoningEffort();
+    // overrides everything; auto classifies the request text, falling back
+    // to the deployment lever (or its "max" default) when pinned/absent.
+    params.reasoning_effort = isAuto
+      ? (pinnedReasoningEffort() ??
+        (userText ? classifyRequestEffort(userText) : configuredReasoningEffort()))
+      : selected;
   }
   return params;
 }
@@ -1202,7 +1234,9 @@ export async function chatWithAiGateway(
     /**
      * The chat's selected deep-thinking effort ("auto" or a deeper level).
      * Sent to reasoning-capable models as `reasoning_effort`; ignored on
-     * models the gateway does not accept it on. Omitted = deployment default.
+     * models the gateway does not accept it on. "auto" classifies the
+     * request's own text into low/medium/high; with no text to classify
+     * the model keeps its deployment/provider default.
      */
     effort?: string;
     /** When set, the final text streams chunk-by-chunk as it arrives. */
@@ -1415,10 +1449,15 @@ async function attemptGatewayChat(
         body: JSON.stringify({
           model: resolvedModel,
           messages,
-          // Deep thinking for every reasoning-capable model (per-model: GLM-4.5+
-          // takes thinking.type=enabled, GLM-5.2+ also reasoning_effort - the
-          // chat's selected effort, or the deployment default when it is auto).
-          ...reasoningParamsForModel(resolvedModel, options.effort),
+          // Deep thinking for every reasoning-capable model: GLM-4.5+ takes
+          // thinking.type=enabled, and GLM-5.2+/Coarena models take
+          // reasoning_effort - the chat's selected effort, or auto resolved
+          // from this request's text (requestEffort.ts).
+          ...reasoningParamsForModel(
+            resolvedModel,
+            options.effort,
+            lastUserText(messages)
+          ),
           ...(options.tools?.length
             ? { tools: options.tools, tool_choice: "auto" }
             : {}),

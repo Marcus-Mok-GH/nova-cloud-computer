@@ -367,6 +367,64 @@ describe("AI gateway chat stream handling", () => {
     });
   });
 
+  it("resolves auto effort from the request text on effort-capable models", () => {
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
+    // A shallow ask stays shallow, a reasoning-heavy ask goes deep.
+    expect(reasoningParamsForModel("glm-5.3-flash", "auto", "hi")).toEqual({
+      thinking: { type: "enabled" },
+      reasoning_effort: "low",
+    });
+    expect(
+      reasoningParamsForModel(
+        "glm-5.3-flash",
+        "auto",
+        "Design a system with trade-offs, step by step."
+      )
+    ).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "high" });
+    // Coarena models carry the classified level on the wire...
+    expect(reasoningParamsForModel("gpt-6-1-sol", "auto", "hi")).toEqual({
+      reasoning_effort: "low",
+    });
+    expect(
+      reasoningParamsForModel(
+        "gemini-4-carbon",
+        "auto",
+        "```ts\nconst x = 1;\n```"
+      )
+    ).toEqual({ reasoning_effort: "high" });
+    // ...but with no request text they keep the provider default.
+    expect(reasoningParamsForModel("gpt-6-1-sol", "auto")).toEqual({});
+    // Explicit effort wins, including sol's xhigh alias for max.
+    expect(reasoningParamsForModel("gpt-6-1-sol", "max")).toEqual({
+      reasoning_effort: "xhigh",
+    });
+    expect(reasoningParamsForModel("gpt-6-1-sol", "low")).toEqual({
+      reasoning_effort: "low",
+    });
+    // A pinned deployment lever beats classification.
+    process.env.POLLINATIONS_REASONING_EFFORT = "low";
+    expect(
+      reasoningParamsForModel(
+        "glm-5.3-flash",
+        "auto",
+        "Design a system with trade-offs, step by step."
+      )
+    ).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "low" });
+    delete process.env.POLLINATIONS_REASONING_EFFORT;
+    // Provider-prefixed GLM ids (the built-in fallback) match too.
+    expect(
+      reasoningParamsForModel("z-ai/glm-5.3-flash", "auto", "hi")
+    ).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "low" });
+    // Models outside the effort set ignore request text entirely.
+    expect(
+      reasoningParamsForModel(
+        "ministral-14b-latest",
+        "auto",
+        "Design a system with trade-offs, step by step."
+      )
+    ).toEqual({});
+  });
+
   it("falls back to the fallback model when the primary chat model is rate-limited", async () => {
     let calls = 0;
     const fetchImpl = gatewayFetchStub(path => {
@@ -409,6 +467,39 @@ describe("AI gateway chat stream handling", () => {
     // GPT-6 Luna is not in the GLM family, so no thinking fields are added.
     expect(requestBody.thinking).toBeUndefined();
     expect(requestBody.reasoning_effort).toBeUndefined();
+  });
+
+  it("posts the request-classified effort for an auto-effort GLM chat", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/models")) return modelsResponse();
+      bodies.push(JSON.parse(String(init?.body)));
+      if (bodies.length === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: "busy" } }),
+          { status: 429, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: "On it." } }] }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }) as unknown as typeof fetch;
+    const result = await chatWithAiGateway(
+      1,
+      [{ role: "user", content: "hi" }],
+      { effort: "auto" }
+    );
+    expect(result.text).toBe("On it.");
+    // The primary GPT hop carries no thinking fields...
+    expect(bodies[0].reasoning_effort).toBeUndefined();
+    // ...while the GLM fallback hop carries the request-classified effort:
+    // a shallow ask resolves low instead of the old fixed deployment max.
+    const fallbackBody = bodies[1];
+    expect(fallbackBody.model).toBe("z-ai/glm-5.3-flash");
+    expect(fallbackBody.reasoning_effort).toBe("low");
+    expect(fallbackBody.thinking).toEqual({ type: "enabled" });
   });
 
   it("abandons a wedged streamed primary after the header timeout and falls back", async () => {

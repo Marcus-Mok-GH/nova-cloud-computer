@@ -24,10 +24,16 @@ describe("shared model catalogue - effort options", () => {
     expect(ultra.upstreamModel).toBe("minimax/minimax-m3.1-flash");
   });
 
-  it("offers only auto on external premium models", () => {
+  it("offers every effort mode on every model", () => {
     const models = getChatModels();
-    for (const id of ["deepseek-v4.1-flash", "gemini-4-carbon", "gpt-6.1-sol"]) {
-      expect(effortOptionsForModelId(id, models)).toEqual(["auto"]);
+    for (const model of models) {
+      expect(effortOptionsForModelId(model.id, models)).toEqual([
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "max",
+      ]);
     }
   });
 

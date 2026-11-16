@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveCoderConfig, resolveNeonAuthVerificationConfig, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
+import { resolveCoderConfig, resolveNeonAuthVerificationConfig, resolveNeonAuthVerificationConfigList, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
 
 describe("resolveNeonAuthVerificationConfig", () => {
   const baseUrl = "https://ep-wispy-salad-au8m5tie.neonauth.c-10.us-east-1.aws.neon.tech/neondb/auth";
@@ -336,5 +336,40 @@ describe("resolveNimApiKey", () => {
         NOVA_NVIDIA_GATEWAY_TOKEN: "explicit-gateway-token",
       })).toBe("explicit-gateway-token");
     });
+  });
+});
+
+describe("resolveNeonAuthVerificationConfigList", () => {
+  const PRIMARY = "https://primary.example";
+  const BACKUP = "https://backup.example";
+  const SECOND = "https://second.example";
+
+  it("returns only the primary when no backup is configured", () => {
+    expect(resolveNeonAuthVerificationConfigList(PRIMARY).map(c => c.baseUrl)).toEqual([
+      PRIMARY,
+    ]);
+  });
+
+  it("keeps a second backup as a third, distinct candidate", () => {
+    const list = resolveNeonAuthVerificationConfigList(PRIMARY, BACKUP, SECOND);
+    expect(list.map(c => c.baseUrl)).toEqual([PRIMARY, BACKUP, SECOND]);
+    expect(list.map(c => c.issuer)).toEqual([PRIMARY, BACKUP, SECOND]);
+  });
+
+  it("drops empty and duplicate backup origins, never the primary", () => {
+    expect(
+      resolveNeonAuthVerificationConfigList(PRIMARY, PRIMARY, SECOND).map(c => c.baseUrl)
+    ).toEqual([PRIMARY, SECOND]);
+    expect(
+      resolveNeonAuthVerificationConfigList(PRIMARY, "", undefined).map(c => c.baseUrl)
+    ).toEqual([PRIMARY]);
+    expect(
+      resolveNeonAuthVerificationConfigList(PRIMARY, BACKUP, BACKUP).map(c => c.baseUrl)
+    ).toEqual([PRIMARY, BACKUP]);
+    expect(
+      resolveNeonAuthVerificationConfigList(PRIMARY, BACKUP, SECOND + "/").map(
+        c => c.baseUrl
+      )
+    ).toEqual([PRIMARY, BACKUP, SECOND]);
   });
 });

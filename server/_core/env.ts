@@ -13,19 +13,20 @@ type NeonAuthVerificationOverrides = {
 export function resolveNeonAuthVerificationConfigList(
   primaryBaseUrl: string | undefined,
   backupBaseUrl: string | undefined = undefined,
+  secondBackupBaseUrl: string | undefined = undefined,
   overrides: NeonAuthVerificationOverrides = {},
 ): ReturnType<typeof resolveNeonAuthVerificationConfig>[] {
   const primary = resolveNeonAuthVerificationConfig(primaryBaseUrl, overrides);
   const normalizedPrimary = primaryBaseUrl?.trim().replace(/\/$/, "") ?? "";
-  const normalizedBackup = backupBaseUrl?.trim().replace(/\/$/, "") ?? "";
-  // A backup origin is only distinct when it has its own endpoint. Keep the
-  // primary first so normal traffic validates with the primary issuer; the
-  // backup remains a separate verification candidate for failover signups.
-  if (!normalizedBackup || normalizedBackup === normalizedPrimary) {
-    return [primary];
-  }
-  const backup = resolveNeonAuthVerificationConfig(backupBaseUrl);
-  return [primary, backup];
+  // Backup origins are only distinct when they have their own endpoint.
+  // Keep the primary first so normal traffic validates with the primary
+  // issuer; each backup remains a separate verification candidate for
+  // failover signups (deduplicated, primary excluded).
+  const extras = [backupBaseUrl, secondBackupBaseUrl]
+    .map(url => url?.trim().replace(/\/$/, "") ?? "")
+    .filter((url, index, all) => Boolean(url) && url !== normalizedPrimary && all.indexOf(url) === index);
+  if (!extras.length) return [primary];
+  return [primary, ...extras.map(url => resolveNeonAuthVerificationConfig(url))];
 }
 
 export function resolveNeonAuthVerificationConfig(
@@ -62,6 +63,7 @@ const neonAuthVerification = resolveNeonAuthVerificationConfig(process.env.NEON_
 const neonAuthVerificationList = resolveNeonAuthVerificationConfigList(
   process.env.NEON_AUTH_BASE_URL,
   process.env.NEON_AUTH_BACKUP_BASE_URL,
+  process.env.NEON_AUTH_BACKUP2_BASE_URL,
   {
     issuer: process.env.NEON_AUTH_ISSUER,
     audience: process.env.NEON_AUTH_AUDIENCE,
@@ -195,6 +197,7 @@ export const ENV = {
   neonAuthVerificationConfigs: neonAuthVerificationList,
   neonAuthBaseUrl: neonAuthVerification.baseUrl,
   neonAuthBackupBaseUrl: process.env.NEON_AUTH_BACKUP_BASE_URL?.trim().replace(/\/$/, "") ?? "",
+  neonAuthBackup2BaseUrl: process.env.NEON_AUTH_BACKUP2_BASE_URL?.trim().replace(/\/$/, "") ?? "",
   neonAuthIssuer: neonAuthVerification.issuer,
   neonAuthAudience: neonAuthVerification.audience,
   neonAuthJwksUrl: neonAuthVerification.jwksUrl,

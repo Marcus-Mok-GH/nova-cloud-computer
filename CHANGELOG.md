@@ -24,8 +24,13 @@ row on a cold standby (openId + name; the next real sign-in refills
 the email - same openId, so failback cannot fork an account), while
 the standby sync plan explicitly includes the users table. New sign-ins
 and JWKS still need the Neon Auth service, which the auth proxy fails
-over to NEON_AUTH_BACKUP_BASE_URL (both endpoints are over quota right
-now).
+over to NEON_AUTH_BACKUP_BASE_URL (both original endpoints are over quota right
+now). The auth chain now has a third hop - NEON_AUTH_BACKUP2_BASE_URL,
+the Neon Auth instance on nova-backup-2, whose JWKS answered 200 while
+both originals returned quota-402 - so login verification's network
+side redirects to the backup backup database as well; its identity
+directory starts empty and a new subject is adopted by email on the
+next real sign-in.
 
 2026-11-15 - feat(chat): a Nova-branded working animation replaces the dashed spinner
 

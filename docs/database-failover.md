@@ -129,10 +129,17 @@ Caveats for the second standby:
   cold standby (openId + name only; the next real sign-in refills the
   email, same openId so failback cannot fork an account), so existing
   sessions keep working. New sign-ins, OTP, and bearer/JWKS checks
-  need the Neon Auth service - on the primary project, failing over
-  to `NEON_AUTH_BACKUP_BASE_URL` at the proxy - and stay down while
-  both are over quota. The standby sync must therefore include the
-  `users` table (login identity), not just workspace data.
+  need the Neon Auth service - on the primary project - and the proxy
+  and JWKS config now walk `NEON_AUTH_BASE_URL` ->
+  `NEON_AUTH_BACKUP_BASE_URL` -> `NEON_AUTH_BACKUP2_BASE_URL`: the
+  second backup's own Neon Auth instance (provisioned on
+  `nova-backup-2`), which answered JWKS 200 while both original
+  instances returned quota-402, so the network side of login
+  verification redirects to the backup backup database too. Its
+  identity directory starts empty; a subject minted there is adopted
+  into the existing row by email on the next real sign-in (#372), and
+  the standby sync must still include the `users` table (login
+  identity), not just workspace data.
 
 ## Environment variables
 

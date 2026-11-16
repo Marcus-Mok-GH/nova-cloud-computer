@@ -184,13 +184,18 @@ const AUTH_FAILOVER_CODES = new Set(["GENERIC_QUOTA_EXCEEDED", "QUOTA_EXCEEDED"]
 // the proxy when a backup Neon Auth endpoint exists.
 const AUTH_QUOTA_MESSAGE = /has exceeded the [a-z ]{0,32}quota\.?\s*Upgrade your plan/i;
 
-function getNeonAuthBaseUrls() {
+export function getNeonAuthBaseUrls() {
   const primary = process.env.NEON_AUTH_BASE_URL?.trim().replace(/\/$/, "");
-  const backup = process.env.NEON_AUTH_BACKUP_BASE_URL?.trim().replace(/\/$/, "");
   if (!primary) return [];
   // Primary first: an expired/402 primary must not leak to the caller when a
-  // backup endpoint is configured. Duplicate or empty backup is ignored.
-  return backup && backup !== primary ? [primary, backup] : [primary];
+  // backup endpoint is configured. Empty or duplicate entries are ignored, so
+  // the chain stays [primary, backup, second backup] with unique origins.
+  const extras = [
+    process.env.NEON_AUTH_BACKUP_BASE_URL?.trim().replace(/\/$/, ""),
+    process.env.NEON_AUTH_BACKUP2_BASE_URL?.trim().replace(/\/$/, ""),
+  ].filter((url): url is string => Boolean(url) && url !== primary);
+  const distinct = [...new Set(extras)];
+  return distinct.length ? [primary, ...distinct] : [primary];
 }
 
 export function isNeonAuthFailoverResponse(status: number, body: string) {

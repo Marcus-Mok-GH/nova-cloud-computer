@@ -203,6 +203,78 @@ export function isNeonAuthFailoverResponse(status: number, body: string) {
   return AUTH_QUOTA_MESSAGE.test(body) || body.includes("GENERIC_QUOTA_EXCEEDED") || body.includes("QUOTA_EXCEEDED");
 }
 
+/**
+ * The origin this proxy is being reached at. Vercel supplies `host` and
+ * `x-forwarded-proto` on every request; the browser's own Origin header is
+ * compared against this, so every domain the deployment is served on (canonical,
+ * aliases, previews) is matched without a configured allowlist of its own.
+ */
+export function getProxiedRequestOrigin(req: VercelRequest): string | null {
+  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  if (!host) return null;
+  const forwardedProto = Array.isArray(req.headers["x-forwarded-proto"])
+    ? req.headers["x-forwarded-proto"][0]
+    : req.headers["x-forwarded-proto"];
+  const proto = forwardedProto?.split(",")[0]?.trim() || "https";
+  return `${proto}://${host}`;
+}
+
+function safeOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when the request's claimed origin - Origin, falling back to Referer the
+ * way better-auth does - names this deployment itself, i.e. the request came
+ * from Nova's own pages rather than another site. The proxy must establish this
+ * before it may re-present a refused request under an origin the upstream
+ * trusts, because that substitution must never turn a cross-site POST into an
+ * accepted one.
+ */
+export function isSameOriginProxiedRequest(req: VercelRequest): boolean {
+  const expected = getProxiedRequestOrigin(req);
+  if (!expected) return false;
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  const referer = Array.isArray(req.headers.referer) ? req.headers.referer[0] : req.headers.referer;
+  const claimed = origin || safeOrigin(referer);
+  if (!claimed) return false;
+  try {
+    return new URL(claimed).origin === new URL(expected).origin;
+  } catch {
+    // Covers the literal `Origin: null` from sandboxed contexts, which better-auth
+    // also refuses.
+    return false;
+  }
+}
+
+/**
+ * Neon Auth refuses any request whose Origin is missing from that auth project's
+ * own trusted-origin allowlist. Projects are provisioned one at a time, so a
+ * failover project created for standby duty still carries only its default
+ * loopback entries - and once the primary runs over quota, every production
+ * sign-in walks into that refusal and dies as "Invalid origin".
+ *
+ * The proxy is the CSRF boundary for this path: it can see the browser's real
+ * origin, so it verifies the caller is this deployment and only then re-presents
+ * the request under the loopback origin every Neon Auth project trusts by
+ * default. A cross-site request never matches and keeps the upstream's refusal.
+ */
+export const TRUSTED_PROXIED_ORIGIN = "http://localhost:3000";
+
+function isInvalidOriginRefusal(status: number, body: string) {
+  if (status !== 403) return false;
+  try {
+    return JSON.parse(body)?.code === "INVALID_ORIGIN";
+  } catch {
+    return false;
+  }
+}
+
 export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, path: string) {
   const baseUrls = getNeonAuthBaseUrls();
   if (!baseUrls.length) return res.status(500).json({ error: "Neon Auth proxy is not configured." });
@@ -217,13 +289,27 @@ export async function proxyNeonAuth(req: VercelRequest, res: VercelResponse, pat
     let responseBody: ArrayBuffer;
     let upstream: Response;
     try {
+      const headers = getRequestHeaders(req.headers);
       upstream = await fetch(targetUrl, {
         method: req.method,
-        headers: getRequestHeaders(req.headers),
+        headers,
         body: getRequestBody(req.method, req.body),
         redirect: "manual",
       });
       responseBody = await upstream.arrayBuffer();
+      if (isInvalidOriginRefusal(upstream.status, Buffer.from(responseBody).toString("utf8")) && isSameOriginProxiedRequest(req)) {
+        // The refusal came from this auth project's own allowlist, not from a
+        // cross-site caller (that check just passed). better-auth rejects the
+        // origin in middleware before the endpoint runs, so nothing has happened
+        // yet and re-presenting the request cannot repeat a side effect.
+        upstream = await fetch(targetUrl, {
+          method: req.method,
+          headers: { ...headers, origin: TRUSTED_PROXIED_ORIGIN },
+          body: getRequestBody(req.method, req.body),
+          redirect: "manual",
+        });
+        responseBody = await upstream.arrayBuffer();
+      }
     } catch (error) {
       lastError = error;
       if (index < baseUrls.length - 1) {

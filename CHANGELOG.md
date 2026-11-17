@@ -1,3 +1,29 @@
+2026-11-17 - fix(auth): the auth proxy re-presents a same-origin sign-in when an auth project's allowlist refuses it
+
+A visitor could not create an account at all: submitting an email on
+/sign-in returned "Invalid origin". The primary Neon Auth project is over
+quota (402), so every OTP request fails over to the third-hop project
+provisioned for standby duty, and that project still carries only its
+default loopback entries in its trusted-origin allowlist - Nova's
+production domain was never added there, so better-auth rejects the POST
+with 403 INVALID_ORIGIN before the endpoint runs. Existing sessions kept
+working because GETs skip the origin check, which is why it went unseen.
+
+The proxy is the real CSRF boundary for this path: it can see the
+browser's own Origin (or Referer) against the host and protocol Vercel
+forwards, so it now verifies the caller is the deployment itself and only
+then re-presents a refused request under the loopback origin every Neon
+Auth project trusts by default. A cross-site caller never matches and
+keeps the upstream's refusal, and when the primary recovers its own
+allowlist still gets the first attempt. The retry cannot repeat a side
+effect: better-auth rejects the origin in middleware before the endpoint
+executes.
+
+api/[...path].ts gains getProxiedRequestOrigin, isSameOriginProxiedRequest
+and the single-retry branch in proxyNeonAuth, with coverage for the
+same-origin recovery, the cross-site refusal and untouched non-origin
+responses.
+
 2026-11-15 - feat(db): a second standby (BACKUP2) takes over when both Neon databases are down
 
 Today the primary (nova-neon) and its standby (nova-backup) hit their

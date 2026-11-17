@@ -344,4 +344,95 @@ describe("Proxy response forwarding", () => {
     expect(res.getHeader("set-auth-jwt")).toBe("opaque");
     expect(res.getHeader("set-cookie")).toBe("session=abc; Path=/; Secure");
   });
+
+  it("re-presents a same-origin request under the trusted origin when the allowlist refuses it", async () => {
+    const REFUSED = '{"message":"Invalid origin","code":"INVALID_ORIGIN"}';
+    const sentHeaders: Array<Record<string, string> | undefined> = [];
+    globalThis.fetch = async (_input, init) => {
+      sentHeaders.push(init?.headers as Record<string, string>);
+      if (sentHeaders.length === 1) return new Response(REFUSED, { status: 403 });
+      return new Response('{"success":true}', { status: 200, headers: { "content-type": "application/json" } });
+    };
+    process.env.NEON_AUTH_BASE_URL = "https://auth.example/neondb/auth";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res = createRes();
+    await proxyNeonAuth(
+      {
+        method: "POST",
+        url: "/api/neon-auth/email-otp/send-verification-otp",
+        headers: {
+          "content-type": "application/json",
+          host: "nova-cloud-computer.vercel.app",
+          "x-forwarded-proto": "https",
+          origin: "https://nova-cloud-computer.vercel.app",
+        },
+        body: { email: "member@example.com", type: "sign-in" },
+      } as any,
+      res,
+      "email-otp/send-verification-otp",
+    );
+
+    expect(sentHeaders).toHaveLength(2);
+    expect(sentHeaders[0]!.origin).toBe("https://nova-cloud-computer.vercel.app");
+    expect(sentHeaders[1]!.origin).toBe("http://localhost:3000");
+    expect(res.statusCode).toBe(200);
+    expect(Buffer.from(res.getSentBody() as Uint8Array).toString("utf8")).toBe('{"success":true}');
+  });
+
+  it("never re-presents a cross-site request, so the upstream refusal stands", async () => {
+    const REFUSED = '{"message":"Invalid origin","code":"INVALID_ORIGIN"}';
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response(REFUSED, { status: 403 });
+    };
+    process.env.NEON_AUTH_BASE_URL = "https://auth.example/neondb/auth";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res = createRes();
+    await proxyNeonAuth(
+      {
+        method: "POST",
+        url: "/api/neon-auth/email-otp/send-verification-otp",
+        headers: {
+          "content-type": "application/json",
+          host: "nova-cloud-computer.vercel.app",
+          "x-forwarded-proto": "https",
+          origin: "https://evil.example",
+        },
+        body: { email: "member@example.com", type: "sign-in" },
+      } as any,
+      res,
+      "email-otp/send-verification-otp",
+    );
+
+    expect(fetchCalls).toBe(1);
+    expect(res.statusCode).toBe(403);
+    expect(Buffer.from(res.getSentBody() as Uint8Array).toString("utf8")).toBe(REFUSED);
+  });
+
+  it("leaves every other upstream response untouched", async () => {
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response('{"message":"Email provider unavailable.","code":"INTERNAL_SERVER_ERROR"}', { status: 500 });
+    };
+    process.env.NEON_AUTH_BASE_URL = "https://auth.example/neondb/auth";
+
+    const res = createRes();
+    await proxyNeonAuth(
+      {
+        method: "POST",
+        url: "/api/neon-auth/email-otp/send-verification-otp",
+        headers: { "content-type": "application/json", host: "nova.example", origin: "https://nova.example" },
+        body: { email: "member@example.com", type: "sign-in" },
+      } as any,
+      res,
+      "email-otp/send-verification-otp",
+    );
+
+    expect(fetchCalls).toBe(1);
+    expect(res.statusCode).toBe(500);
+  });
 });

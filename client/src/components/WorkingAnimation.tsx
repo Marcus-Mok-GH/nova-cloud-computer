@@ -152,6 +152,10 @@ export function WorkingAnimation({
       data-testid="working-animation"
       aria-hidden="true"
       className={`shrink-0 align-middle ${className ?? ""}`}
+      // The effect scales the backing store by devicePixelRatio; without an
+      // explicit CSS size the element would lay out at size*dpr CSS px and the
+      // blob would render a dpr-times smaller dot (invisible on retina).
+      style={{ width: size, height: size }}
       width={size}
       height={size}
     />

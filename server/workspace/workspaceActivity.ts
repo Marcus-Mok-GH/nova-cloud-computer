@@ -114,5 +114,9 @@ export function toolSummary(call: GatewayToolCall, execution: ToolExecution) {
     return action.operation === "listed"
       ? `Listed ${action.name}.`
       : `${action.operation === "failed" ? "Failed running" : "Ran"} connector operation: ${action.name}.`;
+  if (action.kind === "image")
+    return action.operation === "failed"
+      ? "Failed generating the image."
+      : `Generated image: ${action.name}.`;
   return `${action.operation === "deleted" ? "Delet" : action.operation === "updated" ? "Updat" : "Creat"}ed ${action.kind}: ${action.name}.`;
 }

@@ -1,3 +1,20 @@
+2026-11-18 - feat(chat): Nova can generate images with its built-in Flux 2 Dev model
+
+Ask Nova for a picture and the agent now generates one itself: a new
+generate_image tool calls Pollinations' free community model
+(community/scriptsnsenses-sys/flux-2-dev-free), saves the result as a
+workspace file, and shows it inline in the chat. Free accounts get 3
+generations per UTC day, Plus gets 10, and Pro is unlimited - a separate
+allowance from the credit ledger, so an image never spends chat credits.
+The slot is claimed atomically before the provider call (concurrent calls
+cannot overshoot the cap) and refunded when the provider fails, so an
+outage cannot consume a generation the user never received.
+
+server/imageGeneration.ts holds the provider adapter, server/db/imageQuotas.ts
+the daily allowance (new image_generation_quotas table, migration 0065), and
+server/workspaceTools/image.ts the tool itself; the web chat renders the
+picture in a generate_image panel.
+
 2026-11-17 - fix(auth): the auth proxy re-presents a same-origin sign-in when an auth project's allowlist refuses it
 
 A visitor could not create an account at all: submitting an email on

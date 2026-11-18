@@ -270,6 +270,42 @@ describe("reconcileChatMessages", () => {
     ).toBeUndefined();
   });
 
+  it("carries an embedded generated image, and drops one that is not a bounded image data URI", () => {
+    const image = "data:image/png;base64,iVBORw0KGgo=";
+    const withImage = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "g1",
+        name: "generate_image",
+        state: "completed",
+        args: { arguments: "{}" },
+        image,
+      })}`
+    );
+    expect(withImage?.image).toBe(image);
+
+    const script = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "g2",
+        name: "generate_image",
+        state: "completed",
+        args: {},
+        image: "data:text/html,<script>alert(1)</script>",
+      })}`
+    );
+    expect(script?.image).toBeUndefined();
+
+    const oversized = parsePersistedToolActivity(
+      `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "g3",
+        name: "generate_image",
+        state: "completed",
+        args: {},
+        image: `data:image/png;base64,${"A".repeat(6_000_001)}`,
+      })}`
+    );
+    expect(oversized?.image).toBeUndefined();
+  });
+
   it("rejects non-string or nested args", () => {
     const nested = parsePersistedToolActivity(
       `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({

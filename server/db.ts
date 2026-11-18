@@ -15,6 +15,7 @@ export * from "./db/chats";
 export * from "./db/agentRuns";
 export * from "./db/telegram";
 export * from "./db/credits";
+export * from "./db/imageQuotas";
 export * from "./db/automations";
 export * from "./db/deployments";
 export * from "./db/envVars";

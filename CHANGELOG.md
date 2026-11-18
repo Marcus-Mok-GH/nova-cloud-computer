@@ -15,6 +15,12 @@ the daily allowance (new image_generation_quotas table, migration 0065), and
 server/workspaceTools/image.ts the tool itself; the web chat renders the
 picture in a generate_image panel.
 
+A brand-new conversation starts in chat mode, which is otherwise
+research-only, but asking for a picture is the whole request rather than a
+step in a bigger piece of work - so generate_image is the one tool chat mode
+runs directly instead of handing the user over to plan approval, and the
+[CHAT MODE] prompt says so.
+
 2026-11-17 - fix(auth): the auth proxy re-presents a same-origin sign-in when an auth project's allowlist refuses it
 
 A visitor could not create an account at all: submitting an email on

@@ -38,12 +38,17 @@ export { latestAgentModeMarker as readAgentModeMarker } from "@shared/agentMode"
 export const START_PLANNING_TOOL = "start_planning";
 
 /**
- * The tools a chat-mode turn may use: read-only research plus the transition
- * tool. Every tool that changes anything - files and folders, the editor,
- * run_bash / run_vm_task, deploys, Telegram sends, project scaffolding,
- * memory writes, connectors, the wallet and agent email - is withheld by
- * name. New tools are excluded by default, exactly like the ultraplan and
- * inbound-email allowlists.
+ * The tools a chat-mode turn may use: read-only research, the transition
+ * tool, and generate_image. Every other tool that changes anything - files and
+ * folders, the editor, run_bash / run_vm_task, deploys, Telegram sends, project
+ * scaffolding, memory writes, connectors, the wallet and agent email - is
+ * withheld by name. New tools are excluded by default, exactly like the
+ * ultraplan and inbound-email allowlists.
+ *
+ * generate_image is the one deliberate exception: asking for a picture is the
+ * whole request, not a step in a larger piece of work, and making the user go
+ * through plan approval to get one would be pure friction. It stays bounded by
+ * its own daily allowance and touches nothing but a new workspace file.
  */
 const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   "end_turn",
@@ -62,6 +67,7 @@ const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   "research_web",
   "thinker",
   START_PLANNING_TOOL,
+  "generate_image",
 ]);
 
 /** True when a tool may run inside a chat-mode turn. */
@@ -110,7 +116,8 @@ export async function recordAgentMode(
 export function buildChatModePromptBlock(): string {
   return (
     `\n\n[CHAT MODE] This conversation is in CHAT mode: answer questions, explain, research, and discuss - but do NOT perform any action on the user's workspace. File and folder tools, the editor, run_bash / run_vm_task, deploys, sends, project scaffolding, memory writes, and connectors are NOT available in this mode, so never attempt a change and never claim one was made. ` +
-    `When the user asks you to DO something - create, edit, move, rename, or delete files or folders, build or scaffold a project or site, run code or commands, deploy or delete a website, send a message, or any other change to their workspace or outside services - do not attempt it and do not refuse it: call ${START_PLANNING_TOOL} with the concrete task to carry out. That switches this conversation into planning mode, where the task is researched and a plan is drafted for the user's approval before anything changes. ` +
+    `The one exception is generate_image: when the user asks you for a picture, call it directly instead of planning - generating an image is the request itself. ` +
+    `When the user asks you to DO anything else - create, edit, move, rename, or delete files or folders, build or scaffold a project or site, run code or commands, deploy or delete a website, send a message, or any other change to their workspace or outside services - do not attempt it and do not refuse it: call ${START_PLANNING_TOOL} with the concrete task to carry out. That switches this conversation into planning mode, where the task is researched and a plan is drafted for the user's approval before anything changes. ` +
     `Answer a pure question, greeting, explanation, or research request directly with end_turn as usual.`
   );
 }

@@ -87,7 +87,7 @@ describe("resolveAgentMode", () => {
 });
 
 describe("chatModeAllowsTool", () => {
-  it("allows research and the transition tool only", () => {
+  it("allows research, the transition tool, and direct image generation", () => {
     for (const name of [
       "end_turn",
       "list_workspace",
@@ -99,6 +99,9 @@ describe("chatModeAllowsTool", () => {
       "research_web",
       "thinker",
       START_PLANNING_TOOL,
+      // A first-turn request for a picture is the whole ask, so chat mode may
+      // generate one directly instead of routing through plan approval.
+      "generate_image",
     ])
       expect(chatModeAllowsTool(name)).toBe(true);
     for (const name of [
@@ -126,6 +129,9 @@ describe("mode instructions", () => {
     expect(block).toContain("[CHAT MODE]");
     expect(block).toContain("do NOT perform any action");
     expect(block).toContain(START_PLANNING_TOOL);
+    // The image exception is stated in the prompt too, or the model would be
+    // told to plan something the tool list says it may do.
+    expect(block).toContain("generate_image");
   });
 
   it("names the conversation's plan document in the build instruction", () => {

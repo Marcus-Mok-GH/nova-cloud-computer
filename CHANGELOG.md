@@ -1,3 +1,13 @@
+2026-11-18 - feat(onboarding): a first-run tour of the workspace
+
+A new account met a blank prompt screen with no map of what Nova could do.
+The workspace now opens a six-step tour once per browser - welcome, the
+prompt screen, files, automations, and settings - each with a schematic of
+the surface it describes, a progress indicator, and Skip/Back/Next. It runs
+only after the profile questions and the legacy country prompt are out of
+the way, so it never stacks on them, and it is not shown again once it is
+finished or dismissed.
+
 2026-11-18 - Improve the landing-page hero's product clarity
 
 Replace the abstract "Work that has somewhere to go" headline with a direct

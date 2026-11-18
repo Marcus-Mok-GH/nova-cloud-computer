@@ -12,6 +12,7 @@ import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
 import { CountryPromptModal } from "./CountryPromptModal";
+import { OnboardingTour, ONBOARDING_TOUR_SEEN_KEY } from "./OnboardingTour";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/i18n";
@@ -75,6 +76,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // get the one-shot country prompt; the server stops offering it the moment
   // the answer or dismissal lands, this state just quietens the current view.
   const [countryPromptDismissed, setCountryPromptDismissed] = useState(false);
+  // The first-run tour runs once per browser, after the profile questions are
+  // out of the way. The seen-flag is written by the tour itself on close.
+  const [tourOpen, setTourOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t, locale } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -98,6 +102,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try { window.sessionStorage.setItem("nova.username.prompt.skipped", "1"); } catch {}
   };
   useEffect(() => { setMobileNavOpen(false); }, [location]);
+
+  // The profile questionnaire and the legacy country prompt as booleans, so
+  // the JSX and the tour's auto-open effect read the same condition.
+  const onboardingModalOpen = Boolean(
+    user && onboarding.data && !onboarding.data.completed && !onboardingDismissed
+  );
+  const countryPromptOpen = Boolean(
+    user && onboarding.data?.needsCountry && !countryPromptDismissed
+  );
+  // The tour must not stack on either dialog, and must not reappear once this
+  // browser has seen it.
+  useEffect(() => {
+    if (!user || !onboarding.data || tourOpen) return;
+    if (onboardingModalOpen || countryPromptOpen) return;
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem(ONBOARDING_TOUR_SEEN_KEY) === "1";
+    } catch {
+      seen = false;
+    }
+    if (!seen) setTourOpen(true);
+  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, tourOpen]);
 
   // All hooks must run before any early return (React error #310).
   const isConsoleOperator = user?.role === "admin" || user?.role === "developer";
@@ -236,12 +262,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:ps-[68px]" : "md:ps-[204px] lg:ps-[228px]"}` : `overflow-visible overscroll-contain md:overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+2rem)] ${sidebarCollapsed ? "md:ps-[68px]" : "md:ps-[204px] lg:ps-[228px]"}`}`}>{children}</main>
 
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
-      {user && onboarding.data && !onboarding.data.completed && !onboardingDismissed && (
+      {onboardingModalOpen && (
         <OnboardingModal onClose={() => setOnboardingDismissed(true)} />
       )}
-      {user && onboarding.data?.needsCountry && !countryPromptDismissed && (
+      {countryPromptOpen && (
         <CountryPromptModal onClose={() => setCountryPromptDismissed(true)} />
       )}
+      <OnboardingTour open={tourOpen} onOpenChange={setTourOpen} />
     </div>
   );
 }

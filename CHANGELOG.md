@@ -1,3 +1,9 @@
+2026-11-18 - Improve the landing-page hero's product clarity
+
+Replace the abstract "Work that has somewhere to go" headline with a direct
+explanation: Nova is an AI agent that works with visitors' files and tasks.
+The message is clearer at first glance, with no design or product changes.
+
 2026-11-18 - feat(chat): Nova can generate images with its built-in Flux 2 Dev model
 
 Ask Nova for a picture and the agent now generates one itself: a new

@@ -35,7 +35,7 @@ describe("landing and sign-in render", () => {
   it("renders the hero and every landing section", () => {
     const markup = renderToStaticMarkup(<Home />);
     // Hero
-    expect(markup).toContain("Work that has somewhere to go.");
+    expect(markup).toContain("An AI agent that works with your files and tasks.");
     expect(markup).toContain("Get started");
     expect(markup).toContain("Files and chats in one workspace");
     // Deep-dive rows

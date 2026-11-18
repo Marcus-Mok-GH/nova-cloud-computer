@@ -64,6 +64,33 @@ export function OnboardingFlow({
     if (step === "job") jobInputRef.current?.focus();
   }, [step]);
 
+  // On a phone the sheet sits at the bottom of the viewport, and the on-screen
+  // keyboard covers that. Lift it by the height the visual viewport loses so
+  // the field being typed into stays visible.
+  const [keyboardInset, setKeyboardInset] = useState<number | null>(null);
+  useEffect(() => {
+    const mobile = window.matchMedia?.("(max-width: 639px)");
+    const visual = window.visualViewport;
+    if (!mobile || !visual) return;
+    const update = () => {
+      if (!mobile.matches) {
+        setKeyboardInset(null);
+        return;
+      }
+      const hidden = window.innerHeight - visual.height - visual.offsetTop;
+      setKeyboardInset(hidden > 0 ? hidden : null);
+    };
+    update();
+    mobile.addEventListener("change", update);
+    visual.addEventListener("resize", update);
+    visual.addEventListener("scroll", update);
+    return () => {
+      mobile.removeEventListener("change", update);
+      visual.removeEventListener("resize", update);
+      visual.removeEventListener("scroll", update);
+    };
+  }, []);
+
   const markSeen = () => {
     try {
       window.localStorage.setItem(ONBOARDING_FLOW_SEEN_KEY, "1");
@@ -156,13 +183,14 @@ export function OnboardingFlow({
     >
       <DialogContent
         showCloseButton={false}
-        className="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border-border bg-card p-6 sm:max-w-md sm:p-8"
+        style={keyboardInset != null ? { bottom: keyboardInset } : undefined}
+        className="rounded-3xl border-border bg-card p-6 sm:max-w-md sm:p-8 sm:max-h-[calc(100dvh-2rem)] sm:overflow-y-auto max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:left-0 max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:p-5 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:overflow-hidden"
       >
         <div className="flex justify-center">
           <NovaLogo size={30} />
         </div>
 
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-4 flex items-center gap-3 sm:mt-5">
           <div
             className="h-1 flex-1 overflow-hidden rounded-full bg-foreground/10"
             role="progressbar"
@@ -185,24 +213,27 @@ export function OnboardingFlow({
             type="button"
             onClick={close}
             aria-label="Close onboarding"
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground outline-none transition hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <X className="size-4" />
           </button>
         </div>
 
-        <div key={step} className="chat-in mt-7">
+        <div
+          key={step}
+          className="chat-in mt-6 max-sm:max-h-[52dvh] max-sm:overflow-y-auto max-sm:pe-2 sm:mt-7"
+        >
           <DialogHeader className="max-w-[22rem]">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
               {header.kicker}
             </p>
-            <DialogTitle className="nova-display mt-3 text-[2rem] leading-[1.1] text-foreground">
+            <DialogTitle className="nova-display mt-3 text-[1.7rem] leading-[1.12] text-foreground sm:text-[2rem] sm:leading-[1.1]">
               {header.title}
             </DialogTitle>
             <DialogDescription className="mt-3 text-sm leading-6 text-muted-foreground">
               {header.body}
             </DialogDescription>
-            <p className="mt-5 flex items-start gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+            <p className="mt-4 flex items-start gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-xs leading-5 text-muted-foreground sm:mt-5">
               <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" />
               <span>
                 <span className="font-semibold text-foreground">
@@ -228,7 +259,7 @@ export function OnboardingFlow({
                 placeholder="e.g. Draft a launch plan for my app"
                 rows={3}
                 aria-label="The first thing you want Nova to do"
-                className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/60"
+                className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/80 focus:outline-none focus:ring-2 focus:ring-ring/60"
               />
               {/* Nova's own starting points: one tap fills the job. */}
               <div className="mt-4 flex flex-wrap gap-2">
@@ -240,7 +271,7 @@ export function OnboardingFlow({
                       setJob(suggestion);
                       jobInputRef.current?.focus();
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.06] px-3 py-1.5 text-start text-xs font-medium text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.06] px-3 py-2 text-start text-xs font-medium text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:py-1.5"
                   >
                     <Sparkles className="size-3 shrink-0 text-primary" />
                     {suggestion}
@@ -263,12 +294,12 @@ export function OnboardingFlow({
               placeholder="e.g. It’s a daily planner for freelancers, launching next month"
               rows={3}
               aria-label="Background for Nova"
-              className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/60"
+              className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/80 focus:outline-none focus:ring-2 focus:ring-ring/60"
             />
           )}
         </div>
 
-        <div className="mt-8 space-y-3">
+        <div className="mt-6 space-y-3 sm:mt-8">
           <div className="flex items-center gap-2">
             {step !== "why" && (
               <button
@@ -297,7 +328,7 @@ export function OnboardingFlow({
             type="button"
             onClick={primaryAction}
             disabled={primaryDisabled}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:bg-foreground/[0.15] disabled:text-muted-foreground"
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
             {primaryLabel}

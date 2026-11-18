@@ -35,6 +35,7 @@ import {
 } from "./OnboardingFlow";
 
 const props = { onOpenChange: () => {}, onFinish: () => {} };
+const STEP_ORDER_LENGTH = 3;
 
 describe("OnboardingFlow screens", () => {
   it("opens on what makes Nova different, with the workspace on show", () => {
@@ -51,9 +52,19 @@ describe("OnboardingFlow screens", () => {
     expect(html).toContain("the next two steps build on this.");
     // A real product visual, not a schematic.
     expect(html).toContain('src="/landing/workspace-home.png"');
-    // The progress rail names every step.
-    expect(html).toContain("Its first job");
-    expect(html).toContain("The background");
+    // Every step names itself.
+    expect(html).toContain("Why Nova");
+    // The page control carries one dot per step.
+    expect(html.split("rounded-full transition-all duration-300").length - 1).toBe(
+      STEP_ORDER_LENGTH
+    );
+    // Dressed in the iOS system language, not the editorial brand.
+    expect(html).toContain("ios-font");
+    expect(html).toContain("ios-grouped");
+    expect(html).toContain("ios-glass");
+    expect(html).toContain("ios-card");
+    expect(html).toContain("Step 1 of 3");
+    expect(html).toContain('aria-current="step"');
     // No borrowed planner language.
     expect(html).not.toContain("putting off");
     expect(html).not.toContain("Brain dump");

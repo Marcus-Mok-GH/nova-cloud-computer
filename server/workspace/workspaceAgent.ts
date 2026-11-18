@@ -1664,6 +1664,12 @@ ${
             ? { detail: execution.detail.slice(0, 16000) }
             : {}),
           ...(execution.diff ? { diff: execution.diff } : {}),
+          // The generated picture rides along on the settled row only: the
+          // running state has no image yet, and repeating megabytes of base64
+          // on every progress update would flood both stream and ledger.
+          ...(execution.generatedImage
+            ? { image: execution.generatedImage }
+            : {}),
         });
         messages.push({
           role: "tool",

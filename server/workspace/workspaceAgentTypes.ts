@@ -23,6 +23,7 @@ export type AgentAction = {
     | "research"
     | "deployment"
     | "project"
+    | "image"
     | "tool";
   name: string;
   operation?:
@@ -54,6 +55,12 @@ export type WorkspaceToolActivity = {
    * the file name. Absent for tools that do not rewrite whole files.
    */
   diff?: string;
+  /**
+   * A generated image's data URI (generate_image), persisted with the row so
+   * the web chat can render the picture inline after a reload, not only while
+   * the run streams. Absent for every other tool.
+   */
+  image?: string;
 };
 export type WorkspaceAgentOptions = {
   onEvent?: (event: {

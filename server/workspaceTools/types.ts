@@ -45,8 +45,12 @@ export type ToolExecution = {
    * when the capture was too large to attach.
    */
   screenshot?: DesktopCapture;
+  /**
+   * Generated image payload returned by generate_image, so the web chat can
+   * render the result inline alongside its workspace file action.
+   */
+  generatedImage?: string;
 };
-
 /**
  * The specialist-down self-coding gate, threaded through a run. `blocked`
  * forbids non-trivial create_file/edit_file writes; the accept tool lifts it

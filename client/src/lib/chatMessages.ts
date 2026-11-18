@@ -186,6 +186,11 @@ export type ToolActivity = {
    */
   diff?: string;
   /**
+   * A generated image's data URI (generate_image only), persisted with the row
+   * so the picture stays visible after a reload. Absent for other tools.
+   */
+  image?: string;
+  /**
    * Live-only accumulation of every progress note a running tool streamed,
    * oldest first, so long-running sub-agents (research_web, editor) can
    * show their process as an append-only log. Never persisted: completed
@@ -370,6 +375,13 @@ function nextToolActivityId(
   return null;
 }
 
+/**
+ * Largest embedded tool image the reader will render, in data-URI characters.
+ * Matches the server's per-image byte cap (4 MB of bytes, ~5.4 MB of base64)
+ * with headroom; a longer value is treated as absent rather than rendered.
+ */
+const MAX_EMBEDDED_TOOL_IMAGE_CHARS = 6_000_000;
+
 export function parsePersistedToolActivity(
   content: string,
   createdAt?: string | Date | null
@@ -400,6 +412,14 @@ export function parsePersistedToolActivity(
       createdAt: createdAt ?? undefined,
       summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
       detail: typeof parsed.detail === "string" ? parsed.detail : undefined,
+      // Guard the embedded picture: it must be an image data URI of bounded
+      // size, so a corrupt or hostile ledger row cannot smuggle markup into
+      // the chat's <img src>.
+      image: typeof parsed.image === "string" &&
+        parsed.image.startsWith("data:image/") &&
+        parsed.image.length <= MAX_EMBEDDED_TOOL_IMAGE_CHARS
+        ? parsed.image
+        : undefined,
     };
   } catch {
     return null;

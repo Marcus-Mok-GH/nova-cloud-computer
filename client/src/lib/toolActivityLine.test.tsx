@@ -6,6 +6,8 @@ import {
   DiffText,
   EditFileDetail,
   EditFileToolActivity,
+  GeneratedImageDetail,
+  GeneratedImageToolActivity,
   LiveActivityCard,
   ResearchToolActivity,
   SolveEquationDetail,
@@ -1066,5 +1068,73 @@ describe("panel detail fallbacks", () => {
     );
     expect(html).toContain("The analysis expired.");
     expect(html).toContain("text-xs text-muted-foreground");
+  });
+});
+
+describe("generate_image activity", () => {
+  const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
+  const generation = (
+    state: ToolActivity["state"],
+    extra: Partial<ToolActivity> = {}
+  ): ToolActivity => ({
+    id: "g1",
+    name: "generate_image",
+    state,
+    args: {
+      arguments: '{"prompt":"a red fox in snow","aspect_ratio":"landscape"}',
+    },
+    ...extra,
+  });
+
+  it("labels the one-liner and counts it in run summaries", () => {
+    expect(
+      toolLineText(generation("completed", { image: IMAGE }))
+    ).toBe("Generate Image");
+    expect(isPanelToolActivity("generate_image")).toBe(true);
+  });
+
+  it("shows the prompt header and the generated picture, staying open once settled", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GeneratedImageToolActivity, {
+        activity: generation("completed", { image: IMAGE }),
+      })
+    );
+    expect(html).toContain("a red fox in snow");
+    expect(html).toContain('data-testid="generated-image"');
+    expect(html).toContain(IMAGE);
+    // The image IS the result, so the panel does not hide behind a tap.
+    expect(html).toContain('aria-expanded="true"');
+  });
+
+  it("streams a live note while the model is working", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GeneratedImageToolActivity, {
+        activity: generation("running"),
+      })
+    );
+    expect(html).toContain("Generating the image…");
+    expect(html).not.toContain('data-testid="generated-image"');
+  });
+
+  it("shows the failure reason when the generation failed", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GeneratedImageDetail, {
+        activity: generation("failed", {
+          detail: "You have used all 3 of today's image generations.",
+        }),
+      })
+    );
+    expect(html).toContain("You have used all 3 of today");
+    expect(html).toContain("image generations.");
+    expect(html).not.toContain('data-testid="generated-image"');
+  });
+
+  it("says the picture is gone rather than opening an empty frame", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GeneratedImageDetail, {
+        activity: generation("completed"),
+      })
+    );
+    expect(html).toContain("no longer available");
   });
 });

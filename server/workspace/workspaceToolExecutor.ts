@@ -39,6 +39,7 @@ import { toolSearchMemories, toolReadMemory, toolSaveMemory, toolDeleteMemory } 
 import { toolSetEnvVar } from "../workspaceTools/envvars";
 import { toolSolveEquation } from "../workspaceTools/equation";
 import { toolBase44 } from "../workspaceTools/codec";
+import { toolGenerateImage } from "../workspaceTools/image";
 import { toolResearchWeb } from "../workspaceTools/research";
 import { toolThinker } from "../workspaceTools/thinker";
 import { toolAcceptOwnCoding, toolEditor } from "../workspaceTools/editor";
@@ -307,6 +308,8 @@ export async function executeWorkspaceTool(
       return toolSolveEquation(ctx);
     case "base44":
       return toolBase44(ctx);
+    case "generate_image":
+      return toolGenerateImage(ctx);
     case "research_web":
       return toolResearchWeb(ctx);
     case "thinker":

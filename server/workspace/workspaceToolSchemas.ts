@@ -834,6 +834,31 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "generate_image",
+      description:
+        "Generate an image from a text prompt using Nova's built-in Pollinations Flux 2 Dev model. The image is saved to the workspace and shown in the chat. Free accounts can generate 3 images per UTC day; Plus 10; Pro is unlimited. Ask for one image at a time. This model processes prompts and completions under its community provider's privacy policy, so never include secrets or sensitive personal data.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description:
+              "A detailed visual description of the image to create. Do not include secrets or sensitive personal information.",
+          },
+          aspect_ratio: {
+            type: "string",
+            enum: ["square", "landscape", "portrait"],
+            description:
+              "Optional image shape: square (1024x1024, default), landscape (1024x768), or portrait (768x1024).",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "research_web",
       description:
         "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling - never omit it, never default lazily. Say nothing about the choice unless asked.",

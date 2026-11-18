@@ -1,3 +1,13 @@
+2026-11-18 - fix(chat): the working animation rendered as a near-invisible dot on retina screens
+
+The working blob scaled its canvas backing store by devicePixelRatio but never
+pinned the element's CSS size, so on a retina display the canvas laid out at
+size*dpr CSS px while the dpr-scaled drawing filled only `size` of them - a
+14px indicator showed up as a roughly 3px dot, which is why it read as absent
+while the agent was working. The canvas now pins its CSS size, and the typing
+row carries the same blob, so the branded animation runs for the whole turn
+rather than only while a tool is active.
+
 2026-11-18 - feat(onboarding): a first-run flow that ends on your own work
 
 A new account met a blank prompt screen with no map of what Nova could do.

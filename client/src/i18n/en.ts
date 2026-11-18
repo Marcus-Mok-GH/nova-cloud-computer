@@ -565,7 +565,7 @@ export const en = {
 
   // Landing: hero
   "landing.hero.eyebrow": "Your cloud workspace, with an AI agent",
-  "landing.hero.title": "Work that has somewhere to go.",
+  "landing.hero.title": "An AI agent that works with your files and tasks.",
   "landing.hero.body":
     "Nova brings your files, conversations, and recurring tasks into one private cloud workspace. Ask its agent to make something, leave a routine running, then come back to the work in progress.",
   "landing.hero.secondary": "See how it works",

@@ -109,17 +109,23 @@ export function OnboardingFlow({
     why: {
       kicker: "Why Nova",
       title: "An agent with a computer, not a chat box.",
-      body: "Nova’s agent works in a real workspace — it can read and write your files, run a terminal, and keep routines going after you close the tab. So the thing you ask for gets made, not just discussed.",
+      body: "Nova’s agent works in a real workspace — it can read and write your files, run a terminal, and keep routines going after you close the tab.",
+      intentLabel: "Why it matters:",
+      intent: "the next two steps build on this idea.",
     },
     job: {
       kicker: "Its first job",
       title: "What’s the first thing you want Nova to do?",
-      body: "Say it in your own words. Nova opens a conversation and starts there — you can watch it work.",
+      body: "Say it in your own words — you can watch it work.",
+      intentLabel: "What happens:",
+      intent: "your answer becomes the first conversation in your workspace.",
     },
     context: {
       kicker: "The background",
       title: "What should Nova know about it?",
-      body: "A sentence or two about the project helps it start in the right place. Skip it to dive straight in.",
+      body: "A sentence or two is plenty.",
+      intentLabel: "What happens:",
+      intent: "Nova reads it before it starts, so it begins in the right place.",
     },
   }[step];
 
@@ -196,6 +202,15 @@ export function OnboardingFlow({
             <DialogDescription className="mt-3 text-sm leading-6 text-muted-foreground">
               {header.body}
             </DialogDescription>
+            <p className="mt-5 flex items-start gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+              <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold text-foreground">
+                  {header.intentLabel}
+                </span>{" "}
+                {header.intent}
+              </span>
+            </p>
           </DialogHeader>
 
           {step === "job" && (

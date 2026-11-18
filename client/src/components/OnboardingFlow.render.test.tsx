@@ -50,6 +50,9 @@ describe("OnboardingFlow screens", () => {
     expect(html).toContain("run a terminal");
     expect(html).toContain("1 / 3");
     expect(html).toContain("Give it a job");
+    // Each step states its intent.
+    expect(html).toContain("Why it matters:");
+    expect(html).toContain("the next two steps build on this idea");
     // No borrowed planner language.
     expect(html).not.toContain("putting off");
     expect(html).not.toContain("Brain dump");
@@ -63,6 +66,8 @@ describe("OnboardingFlow screens", () => {
     expect(html).toContain("What’s the first thing you want Nova to do?");
     expect(html).toContain("2 / 3");
     expect(html).toContain("Continue");
+    expect(html).toContain("What happens:");
+    expect(html).toContain("your answer becomes the first conversation in your workspace");
     // The same starters the workspace prompt screen offers.
     expect(html).toContain("Research a question and save the answer as a file");
     expect(html).toContain("Schedule a daily recap of my tasks at 9 AM");
@@ -77,6 +82,7 @@ describe("OnboardingFlow screens", () => {
     expect(html).toContain("3 / 3");
     expect(html).toContain("Skip");
     expect(html).toContain("Start the job");
+    expect(html).toContain("Nova reads it before it starts");
   });
 
   it("exposes the seen-flag key the layout reads", () => {

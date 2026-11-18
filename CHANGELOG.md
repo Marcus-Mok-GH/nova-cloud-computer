@@ -7,7 +7,9 @@ for the first real job, offering Nova's own starting points, and hands the
 result to the workspace - the visitor lands on a conversation already titled
 with their job and a composer already holding it, instead of a blank box. It
 runs once per browser, after the profile questions, and is not shown again
-once finished or dismissed.
+once finished or dismissed. Each step also states its intent - why it is there
+and what happens to the answer - so the visitor is never guessing what a
+screen is for.
 
 2026-11-18 - Improve the landing-page hero's product clarity
 

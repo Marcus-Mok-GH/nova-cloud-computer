@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2, Sparkles, X } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import NovaLogo from "./NovaLogo";
 
 /**
  * localStorage flag that keeps the flow to a single run per browser. Written
@@ -209,7 +208,7 @@ export function OnboardingFlow({
         <div className="ios-font ios-grouped relative flex h-full flex-col">
           {/* Frosted nav bar carrying the large title, as an iOS modal sheet. */}
           <header className="ios-glass ios-hairline relative z-20 shrink-0 border-b">
-            <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-5">
+            <div className="mx-auto flex h-14 w-full max-w-4xl items-center justify-between px-5">
               <button
                 type="button"
                 onClick={close}
@@ -218,12 +217,11 @@ export function OnboardingFlow({
               >
                 <X className="size-4" />
               </button>
-              <NovaLogo size={22} />
               <span className="ios-label-tertiary text-[13px] font-semibold tracking-wide tabular-nums">
                 Step {stepIndex + 1} of {STEP_ORDER.length}
               </span>
             </div>
-            <div className="mx-auto w-full max-w-3xl px-5 pb-3">
+            <div className="mx-auto w-full max-w-4xl px-5 pb-3">
               <h1
                 key={step}
                 className="ios-in text-[32px] font-bold leading-[1.12] tracking-[-0.02em] sm:text-[34px]"
@@ -234,10 +232,10 @@ export function OnboardingFlow({
           </header>
 
           <main className="relative flex-1 overflow-x-clip overflow-y-auto">
-            <div className="mx-auto grid w-full max-w-3xl gap-8 px-5 pb-44 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12 lg:pt-6">
-              <div className="flex flex-col gap-3.5">
+            <div className="mx-auto grid min-h-full w-full max-w-4xl gap-8 px-5 pb-32 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:content-center lg:gap-12 lg:pt-6">
+              <div className="flex flex-col gap-3.5 lg:self-stretch lg:justify-center">
                 <p
-                  className="ios-in text-[13px] font-semibold uppercase tracking-[0.08em] text-primary"
+                  className="ios-in text-[13px] font-semibold uppercase tracking-[0.08em] ios-accent"
                   style={{ animationDelay: "60ms" }}
                 >
                   {meta.kicker}
@@ -278,7 +276,7 @@ export function OnboardingFlow({
                       />
                     </div>
                     <div
-                      className="ios-in mt-1 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+                      className="ios-in mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2"
                       style={{ animationDelay: "280ms" }}
                     >
                       {STARTER_JOBS.filter(
@@ -291,9 +289,9 @@ export function OnboardingFlow({
                             setJob(suggestion);
                             jobInputRef.current?.focus();
                           }}
-                          className="ios-press inline-flex items-center gap-1.5 rounded-full bg-black/[0.04] px-3.5 py-2.5 text-left text-[14px] font-medium text-current hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white/[0.07] dark:hover:bg-white/[0.11]"
+                          className="ios-press inline-flex items-center gap-1.5 rounded-full bg-black/[0.04] px-3.5 py-2.5 text-left text-[13px] font-medium text-current hover:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:bg-white/[0.07] dark:hover:bg-white/[0.11] sm:text-[14px]"
                         >
-                          <Sparkles className="size-4 shrink-0 text-primary" />
+                          <Sparkles className="size-4 shrink-0 ios-accent" />
                           <span className="min-w-0 break-words">{suggestion}</span>
                         </button>
                       ))}
@@ -346,7 +344,7 @@ export function OnboardingFlow({
           {/* Pinned action bar: page control, then the primary action. */}
           <footer className="ios-glass ios-hairline absolute inset-x-0 bottom-0 z-20 border-t">
             <div
-              className="mx-auto w-full max-w-3xl px-5 pt-3"
+              className="mx-auto w-full max-w-4xl px-5 pt-3"
               style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}
             >
               <div className="flex items-center justify-center gap-2">
@@ -372,7 +370,7 @@ export function OnboardingFlow({
                   Skip for now
                 </button>
               )}
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-3 flex items-center gap-3">
                 {step !== "why" && (
                   <button
                     type="button"
@@ -389,7 +387,7 @@ export function OnboardingFlow({
                   type="button"
                   onClick={primaryAction}
                   disabled={primaryDisabled}
-                  className="ios-press inline-flex h-[50px] flex-1 items-center justify-center gap-2 rounded-[14px] bg-primary text-[17px] font-semibold text-primary-foreground shadow-sm disabled:opacity-40"
+                  className="ios-press inline-flex h-[50px] flex-1 items-center justify-center gap-2 rounded-[14px] bg-primary text-[17px] font-semibold text-primary-foreground shadow-sm disabled:cursor-not-allowed disabled:bg-black/[0.06] disabled:text-black/[0.30] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-white/[0.35]"
                 >
                   {busy && <Loader2 className="size-5 animate-spin" />}
                   {primaryLabel}

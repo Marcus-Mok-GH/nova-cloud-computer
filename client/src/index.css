@@ -361,19 +361,24 @@ button, a, [role="button"] { touch-action: manipulation; }
   backdrop-filter: blur(20px) saturate(180%);
 }
 .dark .ios-glass,
-[data-theme="midnight"] .ios-glass { background: rgb(0 0 0 / 78%); }
+[data-theme="midnight"] .ios-glass { background: rgb(28 28 30 / 82%); }
 .ios-label-secondary { color: #3c3c43; }
 .dark .ios-label-secondary,
 [data-theme="midnight"] .ios-label-secondary { color: rgb(235 235 245 / 60%); }
-.ios-label-tertiary { color: #8e8e93; }
+.ios-label-tertiary { color: #6a6a6f; }
 .dark .ios-label-tertiary,
 [data-theme="midnight"] .ios-label-tertiary { color: #98989f; }
+/* The brand ember is too light for 13px text on the grouped background, so the
+   accent steps down a shade in light mode and back up to sunrise in dark. */
+.ios-accent { color: #b04a10; }
+.dark .ios-accent,
+[data-theme="midnight"] .ios-accent { color: var(--nova-sunrise); }
 .ios-fill { background: #e9e9eb; }
 .dark .ios-fill,
 [data-theme="midnight"] .ios-fill { background: #2c2c2e; }
 .ios-hairline { border-color: rgb(0 0 0 / 6%); }
 .dark .ios-hairline,
-[data-theme="midnight"] .ios-hairline { border-color: rgb(255 255 255 / 8%); }
+[data-theme="midnight"] .ios-hairline { border-color: rgb(255 255 255 / 12%); }
 
 /* iOS motion: a fast ease-out for travel, a slight overshoot for taps and
    entrances. Nothing here snaps. */

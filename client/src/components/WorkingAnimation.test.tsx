@@ -154,4 +154,17 @@ describe("WorkingAnimation", () => {
     expect(drawn?.clearRect).toBe(1);
     expect(queue.length).toBe(0);
   });
+
+  it("pins the CSS size so a devicePixelRatio-scaled backing store cannot resize it", async () => {
+    await act(async () => {
+      root?.render(<WorkingAnimation size={16} />);
+    });
+    const canvas = container?.querySelector(
+      '[data-testid="working-animation"]'
+    ) as HTMLCanvasElement | null;
+    // The backing store is dpr-scaled (here 1x in jsdom); the element must
+    // still lay out at exactly `size` CSS px, or the blob shrinks on retina.
+    expect(canvas?.style.width).toBe("16px");
+    expect(canvas?.style.height).toBe("16px");
+  });
 });

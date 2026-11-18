@@ -1,12 +1,13 @@
 2026-11-18 - feat(onboarding): a first-run flow that ends on your own work
 
 A new account met a blank prompt screen with no map of what Nova could do.
-The first-run flow now opens with why Nova works, then asks for one real
-task and offers a brain dump - and hands both to the workspace, so the
-visitor lands on a conversation already titled with their task and a
-composer already holding it, instead of a blank box. It runs once per
-browser, after the profile questions, and is not shown again once finished
-or dismissed.
+The first-run flow is written for Nova: it opens with what makes the product
+different (an agent with a computer - files, a terminal, routines), then asks
+for the first real job, offering Nova's own starting points, and hands the
+result to the workspace - the visitor lands on a conversation already titled
+with their job and a composer already holding it, instead of a blank box. It
+runs once per browser, after the profile questions, and is not shown again
+once finished or dismissed.
 
 2026-11-18 - Improve the landing-page hero's product clarity
 

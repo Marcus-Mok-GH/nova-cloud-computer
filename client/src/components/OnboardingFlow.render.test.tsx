@@ -43,39 +43,40 @@ import {
 const props = { onOpenChange: () => {}, onFinish: () => {} };
 
 describe("OnboardingFlow screens", () => {
-  it("opens on the why screen, not a feature tour", () => {
+  it("opens on what makes Nova different, not a feature tour", () => {
     const html = renderToStaticMarkup(<OnboardingFlow {...props} />);
-    expect(html).toContain("Why Nova works");
-    expect(html).toContain("Your AI shouldn’t just talk. It should work.");
-    expect(html).toContain("It should work.");
+    expect(html).toContain("Why Nova");
+    expect(html).toContain("An agent with a computer, not a chat box.");
+    expect(html).toContain("run a terminal");
     expect(html).toContain("1 / 3");
-    expect(html).toContain("Let’s put it to work");
-    // The reference's lesson: a good onboarding is not a list of features.
-    expect(html).not.toContain("Connect GitHub");
+    expect(html).toContain("Give it a job");
+    // No borrowed planner language.
+    expect(html).not.toContain("putting off");
+    expect(html).not.toContain("Brain dump");
   });
 
-  it("asks for one real task before anything else", () => {
+  it("asks for a Nova job and offers Nova's own starting points", () => {
     const html = renderToStaticMarkup(
-      <OnboardingFlow {...props} initialStep="first" />
+      <OnboardingFlow {...props} initialStep="job" />
     );
-    expect(html).toContain("Your first task");
-    expect(html).toContain("What’s one thing you’ve been putting off?");
-    expect(html).toContain("One thing is enough.");
+    expect(html).toContain("Its first job");
+    expect(html).toContain("What’s the first thing you want Nova to do?");
     expect(html).toContain("2 / 3");
-    expect(html).toContain("Add it");
-    expect(html).not.toContain("Connect GitHub");
+    expect(html).toContain("Continue");
+    // The same starters the workspace prompt screen offers.
+    expect(html).toContain("Research a question and save the answer as a file");
+    expect(html).toContain("Schedule a daily recap of my tasks at 9 AM");
   });
 
-  it("offers a brain dump as the last step", () => {
+  it("asks for background as the last step", () => {
     const html = renderToStaticMarkup(
-      <OnboardingFlow {...props} initialStep="more" />
+      <OnboardingFlow {...props} initialStep="context" />
     );
-    expect(html).toContain("Brain dump");
-    expect(html).toContain("Anything else on your mind?");
-    expect(html).toContain("Dump it all");
+    expect(html).toContain("The background");
+    expect(html).toContain("What should Nova know about it?");
     expect(html).toContain("3 / 3");
     expect(html).toContain("Skip");
-    expect(html).toContain("Add and open Nova");
+    expect(html).toContain("Start the job");
   });
 
   it("exposes the seen-flag key the layout reads", () => {

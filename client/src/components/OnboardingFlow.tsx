@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Loader2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, Sparkles, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,16 +17,28 @@ import NovaLogo from "./NovaLogo";
  */
 export const ONBOARDING_FLOW_SEEN_KEY = "nova.onboardingFlow.v1";
 
-type Step = "why" | "first" | "more";
-const STEP_ORDER: readonly Step[] = ["why", "first", "more"];
+/**
+ * Nova's own starting points - the same prompts the workspace prompt screen
+ * offers. Onboarding reuses them so the first job is a real Nova job, not a
+ * generic "what's on your mind".
+ */
+const STARTER_JOBS = [
+  "Summarize a topic and write it as a report",
+  "Review the files in my workspace and summarize them",
+  "Schedule a daily recap of my tasks at 9 AM",
+  "Research a question and save the answer as a file",
+];
+
+type Step = "why" | "job" | "context";
+const STEP_ORDER: readonly Step[] = ["why", "job", "context"];
 
 export type OnboardingStep = Step;
 
 /**
- * The first-run flow, modelled on the reference onboarding: it does NOT walk
- * the visitor through a feature tour. It opens with why Nova works, then gets
- * them to state one real task, then offers a brain dump - so the workspace
- * they land on already belongs to them instead of being a blank box.
+ * The first-run flow, written for Nova rather than borrowed from another
+ * product: it opens with what makes Nova different (an agent with a computer),
+ * then gets the visitor's first real job - offered as Nova's own starting
+ * points - and lands them in a conversation already holding that job.
  *
  * Copy is intentionally hardcoded English, matching the sibling
  * OnboardingModal - the in-app onboarding surfaces predate the locale sweep.
@@ -42,14 +54,14 @@ export function OnboardingFlow({
   initialStep?: OnboardingStep;
 }) {
   const [step, setStep] = useState<Step>(initialStep);
-  const [first, setFirst] = useState("");
-  const [more, setMore] = useState("");
+  const [job, setJob] = useState("");
+  const [context, setContext] = useState("");
   const [busy, setBusy] = useState(false);
   const createChat = trpc.chats.create.useMutation();
-  const firstInputRef = useRef<HTMLTextAreaElement>(null);
+  const jobInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (step === "first") firstInputRef.current?.focus();
+    if (step === "job") jobInputRef.current?.focus();
   }, [step]);
 
   const markSeen = () => {
@@ -66,21 +78,21 @@ export function OnboardingFlow({
   };
 
   /**
-   * Hand the captured work to the workspace: the first task titles a real
-   * conversation, and everything the visitor wrote rides along as the draft
-   * so the first screen is already theirs.
+   * Hand the captured work to the workspace: the job titles a real
+   * conversation, and the background rides along in the draft so the first
+   * screen is already theirs.
    */
   const finish = async () => {
     if (busy) return;
     setBusy(true);
-    const tasks = [first, ...more.split("\n")]
-      .map(line => line.trim())
-      .filter(Boolean);
-    const content = tasks.join("\n");
+    const content = [job, context]
+      .map(value => value.trim())
+      .filter(Boolean)
+      .join("\n\n");
     let chatId: string | undefined;
     try {
       const chat = await createChat.mutateAsync({
-        title: (tasks[0] || "First task").slice(0, 48),
+        title: (job.trim() || "First job").slice(0, 48),
       });
       chatId = chat.id;
     } catch {
@@ -95,36 +107,39 @@ export function OnboardingFlow({
 
   const header = {
     why: {
-      kicker: "Why Nova works",
-      title: "Your AI shouldn’t just talk. It should work.",
-      body: "Most AI tools are a blank box that forgets everything. Nova gives its agent a computer — your files, your terminal, your routines — so a task actually gets finished, not just discussed.",
+      kicker: "Why Nova",
+      title: "An agent with a computer, not a chat box.",
+      body: "Nova’s agent works in a real workspace — it can read and write your files, run a terminal, and keep routines going after you close the tab. So the thing you ask for gets made, not just discussed.",
     },
-    first: {
-      kicker: "Your first task",
-      title: "What’s one thing you’ve been putting off?",
-      body: "One thing is enough. Nova will start there.",
+    job: {
+      kicker: "Its first job",
+      title: "What’s the first thing you want Nova to do?",
+      body: "Say it in your own words. Nova opens a conversation and starts there — you can watch it work.",
     },
-    more: {
-      kicker: "Brain dump",
-      title: "Anything else on your mind?",
-      body: "Dump it all — sort it out later. Skip it if there’s nothing.",
+    context: {
+      kicker: "The background",
+      title: "What should Nova know about it?",
+      body: "A sentence or two about the project helps it start in the right place. Skip it to dive straight in.",
     },
   }[step];
 
   const primaryLabel =
-    step === "why" ? "Let’s put it to work" : step === "first" ? "Add it" : "Add and open Nova";
+    step === "why"
+      ? "Give it a job"
+      : step === "job"
+        ? "Continue"
+        : "Start the job";
 
   const primaryAction = () => {
-    if (step === "why") return setStep("first");
-    if (step === "first") {
-      if (!first.trim()) return;
-      return setStep("more");
+    if (step === "why") return setStep("job");
+    if (step === "job") {
+      if (!job.trim()) return;
+      return setStep("context");
     }
     return void finish();
   };
 
-  const primaryDisabled =
-    busy || (step === "first" && !first.trim());
+  const primaryDisabled = busy || (step === "job" && !job.trim());
 
   return (
     <Dialog
@@ -183,37 +198,56 @@ export function OnboardingFlow({
             </DialogDescription>
           </DialogHeader>
 
-          {step === "first" && (
-            <textarea
-              ref={firstInputRef}
-              value={first}
-              onChange={event => setFirst(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  if (first.trim()) setStep("more");
-                }
-              }}
-              placeholder="e.g. Plan launch week, tidy the inbox, write the launch post"
-              rows={3}
-              aria-label="Your first task"
-              className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/60"
-            />
+          {step === "job" && (
+            <>
+              <textarea
+                ref={jobInputRef}
+                value={job}
+                onChange={event => setJob(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (job.trim()) setStep("context");
+                  }
+                }}
+                placeholder="e.g. Draft a launch plan for my app"
+                rows={3}
+                aria-label="The first thing you want Nova to do"
+                className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/60"
+              />
+              {/* Nova's own starting points: one tap fills the job. */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {STARTER_JOBS.map(suggestion => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => {
+                      setJob(suggestion);
+                      jobInputRef.current?.focus();
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.06] px-3 py-1.5 text-start text-xs font-medium text-foreground transition hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    <Sparkles className="size-3 shrink-0 text-primary" />
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
-          {step === "more" && (
+          {step === "context" && (
             <textarea
-              value={more}
-              onChange={event => setMore(event.target.value)}
+              value={context}
+              onChange={event => setContext(event.target.value)}
               onKeyDown={event => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   void finish();
                 }
               }}
-              placeholder="A few more things Nova should know about…"
+              placeholder="e.g. It’s a daily planner for freelancers, launching next month"
               rows={3}
-              aria-label="Anything else on your mind"
+              aria-label="Background for Nova"
               className="mt-6 w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-base leading-6 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/60"
             />
           )}
@@ -225,7 +259,7 @@ export function OnboardingFlow({
               <button
                 type="button"
                 onClick={() =>
-                  setStep(step === "more" ? "first" : "why")
+                  setStep(step === "context" ? "job" : "why")
                 }
                 aria-label="Previous step"
                 className="grid size-11 place-items-center rounded-xl border border-border text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
@@ -233,7 +267,7 @@ export function OnboardingFlow({
                 <ArrowLeft className="size-4 rtl:-scale-x-100" />
               </button>
             )}
-            {step === "more" && (
+            {step === "context" && (
               <button
                 type="button"
                 onClick={() => void finish()}
@@ -252,7 +286,7 @@ export function OnboardingFlow({
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
             {primaryLabel}
-            {!busy && step !== "more" && (
+            {!busy && step !== "context" && (
               <ArrowRight className="size-4 rtl:-scale-x-100" />
             )}
           </button>

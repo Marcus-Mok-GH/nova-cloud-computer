@@ -330,3 +330,72 @@ button, a, [role="button"] { touch-action: manipulation; }
 .chat-blank-state {
   background-image: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent), transparent 34%);
 }
+
+/* ---------------- iOS-style surface (first-run onboarding) ----------------
+   Deliberately NOT brand utilities: this surface borrows Apple's system
+   language (grouped background, hairline-separated cards, large title,
+   frosted bars, page dots) rather than the warm editorial brand, so the
+   values are local to it and must not leak into the rest of the app. */
+.ios-font {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.ios-grouped { background: #f2f2f7; color: #1c1c1e; }
+.dark .ios-grouped,
+[data-theme="midnight"] .ios-grouped { background: #000; color: #f2f2f7; }
+.ios-card {
+  background: #fff;
+  border: 1px solid rgb(0 0 0 / 6%);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 16px 40px rgb(0 0 0 / 5%);
+}
+.dark .ios-card,
+[data-theme="midnight"] .ios-card {
+  background: #1c1c1e;
+  border-color: rgb(255 255 255 / 10%);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 16px 40px rgb(0 0 0 / 30%);
+}
+.ios-glass {
+  background: rgb(242 242 247 / 82%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+.dark .ios-glass,
+[data-theme="midnight"] .ios-glass { background: rgb(0 0 0 / 78%); }
+.ios-label-secondary { color: #3c3c43; }
+.dark .ios-label-secondary,
+[data-theme="midnight"] .ios-label-secondary { color: rgb(235 235 245 / 60%); }
+.ios-label-tertiary { color: #8e8e93; }
+.dark .ios-label-tertiary,
+[data-theme="midnight"] .ios-label-tertiary { color: #98989f; }
+.ios-fill { background: #e9e9eb; }
+.dark .ios-fill,
+[data-theme="midnight"] .ios-fill { background: #2c2c2e; }
+.ios-hairline { border-color: rgb(0 0 0 / 6%); }
+.dark .ios-hairline,
+[data-theme="midnight"] .ios-hairline { border-color: rgb(255 255 255 / 8%); }
+
+/* iOS motion: a fast ease-out for travel, a slight overshoot for taps and
+   entrances. Nothing here snaps. */
+@keyframes ios-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+.ios-in { animation: ios-in 360ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+@keyframes ios-pop {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+.ios-pop { animation: ios-pop 320ms cubic-bezier(0.34, 1.25, 0.64, 1) both; }
+.ios-press {
+  transition:
+    transform 180ms cubic-bezier(0.34, 1.3, 0.64, 1),
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+}
+.ios-press:active { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  .ios-in, .ios-pop { animation: none; }
+  .ios-press, .ios-press:active { transition: none; transform: none; }
+}

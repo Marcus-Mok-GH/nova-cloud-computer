@@ -218,7 +218,7 @@ vi.mock("@/lib/trpc", () => ({
     }),
   },
 }));
-vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()] }));
+vi.mock("wouter", () => ({ useLocation: () => ["/app", vi.fn()], useSearch: () => "" }));
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
 }));

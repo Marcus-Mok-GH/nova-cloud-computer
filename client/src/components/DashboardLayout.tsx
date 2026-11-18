@@ -12,6 +12,7 @@ import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
 import { CountryPromptModal } from "./CountryPromptModal";
+import { OnboardingFlow, ONBOARDING_FLOW_SEEN_KEY } from "./OnboardingFlow";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/i18n";
@@ -75,6 +76,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // get the one-shot country prompt; the server stops offering it the moment
   // the answer or dismissal lands, this state just quietens the current view.
   const [countryPromptDismissed, setCountryPromptDismissed] = useState(false);
+  // The first-run flow runs once per browser, after the profile questions are
+  // out of the way. The seen-flag is written by the flow itself on close.
+  const [flowOpen, setFlowOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t, locale } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -98,6 +102,46 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try { window.sessionStorage.setItem("nova.username.prompt.skipped", "1"); } catch {}
   };
   useEffect(() => { setMobileNavOpen(false); }, [location]);
+
+  // The profile questionnaire and the legacy country prompt as booleans, so
+  // the JSX and the tour's auto-open effect read the same condition.
+  const onboardingModalOpen = Boolean(
+    user && onboarding.data && !onboarding.data.completed && !onboardingDismissed
+  );
+  const countryPromptOpen = Boolean(
+    user && onboarding.data?.needsCountry && !countryPromptDismissed
+  );
+  // The tour must not stack on either dialog, and must not reappear once this
+  // browser has seen it.
+  useEffect(() => {
+    if (!user || !onboarding.data || flowOpen) return;
+    if (onboardingModalOpen || countryPromptOpen) return;
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem(ONBOARDING_FLOW_SEEN_KEY) === "1";
+    } catch {
+      seen = false;
+    }
+    if (!seen) setFlowOpen(true);
+  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, flowOpen]);
+
+  // The first-run flow hands over what the visitor wrote: open the workspace
+  // on a conversation titled with their first task, with everything they
+  // captured riding along as the composer draft. The workspace reads the
+  // `draft` param and clears it, so the first screen is already theirs.
+  const handleOnboardingFinish = ({
+    content,
+    chatId,
+  }: {
+    content: string;
+    chatId?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (chatId) params.set("chatId", chatId);
+    params.set("draft", content);
+    setFlowOpen(false);
+    setLocation(`/app?${params.toString()}`);
+  };
 
   // All hooks must run before any early return (React error #310).
   const isConsoleOperator = user?.role === "admin" || user?.role === "developer";
@@ -236,11 +280,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className={`min-h-0 min-w-0 flex-1 ${hasChatId ? `overflow-hidden ${sidebarCollapsed ? "md:ps-[68px]" : "md:ps-[204px] lg:ps-[228px]"}` : `overflow-visible overscroll-contain md:overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+2rem)] ${sidebarCollapsed ? "md:ps-[68px]" : "md:ps-[204px] lg:ps-[228px]"}`}`}>{children}</main>
 
       {showUsernamePrompt && <UsernamePrompt user={user} onClose={dismissUsernamePrompt} />}
-      {user && onboarding.data && !onboarding.data.completed && !onboardingDismissed && (
+      {onboardingModalOpen && (
         <OnboardingModal onClose={() => setOnboardingDismissed(true)} />
       )}
-      {user && onboarding.data?.needsCountry && !countryPromptDismissed && (
+      {countryPromptOpen && (
         <CountryPromptModal onClose={() => setCountryPromptDismissed(true)} />
+      )}
+      {flowOpen && (
+        <OnboardingFlow
+          onOpenChange={setFlowOpen}
+          onFinish={handleOnboardingFinish}
+        />
       )}
     </div>
   );

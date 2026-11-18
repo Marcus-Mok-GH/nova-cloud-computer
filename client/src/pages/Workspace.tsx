@@ -43,7 +43,7 @@ import {
 // JSX compiles to React.createElement in this build (classic runtime), so the
 // default React binding must stay imported even without explicit React.* calls.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
   AI_UNAVAILABLE_PREFIX,
@@ -115,6 +115,7 @@ export default function Workspace() {
   });
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const chatId =
     typeof window === "undefined"
       ? undefined
@@ -148,6 +149,23 @@ export default function Workspace() {
     dismissEnvVarRequest,
     fulfillingEnvVarRequest,
   } = useWorkspaceChat({ chatId, utils, computer });
+
+  // A draft handed over by the first-run onboarding: seed the composer, then
+  // clear it from the URL so a refresh does not re-seed it. This is what makes
+  // the first screen read as the visitor's, not a blank box.
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const seeded = params.get("draft");
+    if (!seeded) return;
+    setDraft(seeded);
+    params.delete("draft");
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${rest ? `?${rest}` : ""}`
+    );
+  }, [search, setDraft]);
   // While the agent waits on a value only the user can supply (a set_env_var
   // request), the composer becomes a secure value input instead of the
   // message box - hidden while a run is working, so Stop stays reachable.

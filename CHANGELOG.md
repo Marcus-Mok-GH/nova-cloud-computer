@@ -1,12 +1,12 @@
-2026-11-18 - feat(onboarding): a first-run tour of the workspace
+2026-11-18 - feat(onboarding): a first-run flow that ends on your own work
 
 A new account met a blank prompt screen with no map of what Nova could do.
-The workspace now opens a six-step tour once per browser - welcome, the
-prompt screen, files, automations, and settings - each with a schematic of
-the surface it describes, a progress indicator, and Skip/Back/Next. It runs
-only after the profile questions and the legacy country prompt are out of
-the way, so it never stacks on them, and it is not shown again once it is
-finished or dismissed.
+The first-run flow now opens with why Nova works, then asks for one real
+task and offers a brain dump - and hands both to the workspace, so the
+visitor lands on a conversation already titled with their task and a
+composer already holding it, instead of a blank box. It runs once per
+browser, after the profile questions, and is not shown again once finished
+or dismissed.
 
 2026-11-18 - Improve the landing-page hero's product clarity
 

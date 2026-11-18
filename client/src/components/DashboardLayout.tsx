@@ -12,7 +12,7 @@ import NovaLogo from "./NovaLogo";
 import { UsernamePrompt } from "./UsernamePrompt";
 import { OnboardingModal } from "./OnboardingModal";
 import { CountryPromptModal } from "./CountryPromptModal";
-import { OnboardingTour, ONBOARDING_TOUR_SEEN_KEY } from "./OnboardingTour";
+import { OnboardingFlow, ONBOARDING_FLOW_SEEN_KEY } from "./OnboardingFlow";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 import type { TranslationKey } from "@/i18n";
@@ -76,9 +76,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // get the one-shot country prompt; the server stops offering it the moment
   // the answer or dismissal lands, this state just quietens the current view.
   const [countryPromptDismissed, setCountryPromptDismissed] = useState(false);
-  // The first-run tour runs once per browser, after the profile questions are
-  // out of the way. The seen-flag is written by the tour itself on close.
-  const [tourOpen, setTourOpen] = useState(false);
+  // The first-run flow runs once per browser, after the profile questions are
+  // out of the way. The seen-flag is written by the flow itself on close.
+  const [flowOpen, setFlowOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { t, locale } = useTranslation();
   const [location, setLocation] = useLocation();
@@ -114,16 +114,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // The tour must not stack on either dialog, and must not reappear once this
   // browser has seen it.
   useEffect(() => {
-    if (!user || !onboarding.data || tourOpen) return;
+    if (!user || !onboarding.data || flowOpen) return;
     if (onboardingModalOpen || countryPromptOpen) return;
     let seen = false;
     try {
-      seen = window.localStorage.getItem(ONBOARDING_TOUR_SEEN_KEY) === "1";
+      seen = window.localStorage.getItem(ONBOARDING_FLOW_SEEN_KEY) === "1";
     } catch {
       seen = false;
     }
-    if (!seen) setTourOpen(true);
-  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, tourOpen]);
+    if (!seen) setFlowOpen(true);
+  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, flowOpen]);
+
+  // The first-run flow hands over what the visitor wrote: open the workspace
+  // on a conversation titled with their first task, with everything they
+  // captured riding along as the composer draft. The workspace reads the
+  // `draft` param and clears it, so the first screen is already theirs.
+  const handleOnboardingFinish = ({
+    content,
+    chatId,
+  }: {
+    content: string;
+    chatId?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (chatId) params.set("chatId", chatId);
+    params.set("draft", content);
+    setFlowOpen(false);
+    setLocation(`/app?${params.toString()}`);
+  };
 
   // All hooks must run before any early return (React error #310).
   const isConsoleOperator = user?.role === "admin" || user?.role === "developer";
@@ -268,7 +286,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {countryPromptOpen && (
         <CountryPromptModal onClose={() => setCountryPromptDismissed(true)} />
       )}
-      <OnboardingTour open={tourOpen} onOpenChange={setTourOpen} />
+      {flowOpen && (
+        <OnboardingFlow
+          onOpenChange={setFlowOpen}
+          onFinish={handleOnboardingFinish}
+        />
+      )}
     </div>
   );
 }

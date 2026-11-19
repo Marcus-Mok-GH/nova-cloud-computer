@@ -22,6 +22,11 @@ const STARTER_JOBS = [
   "Research a question and save the answer as a file",
 ];
 
+/** Page-travel timing, matched to the keyframes in index.css. */
+const ENTER_MS = 420;
+const OUT_MS = 160;
+const IN_MS = 380;
+
 type Step = "why" | "job" | "context";
 const STEP_ORDER: readonly Step[] = ["why", "job", "context"];
 
@@ -98,8 +103,27 @@ export function OnboardingFlow({
   const [job, setJob] = useState("");
   const [context, setContext] = useState("");
   const [busy, setBusy] = useState(false);
+  // Page travel: anim runs enter -> out -> in -> idle, and dir says which way
+  // the push went. The page node is never remounted, so the outgoing
+  // animation is seen before the content swaps and the incoming one after.
+  const [anim, setAnim] = useState<"enter" | "out" | "in" | "idle">("enter");
+  const [dir, setDir] = useState<1 | -1>(1);
+  const timers = useRef<number[]>([]);
   const createChat = trpc.chats.create.useMutation();
   const jobInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setAnim("idle"), ENTER_MS + 60);
+    timers.current.push(id);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  useEffect(
+    () => () => {
+      timers.current.forEach(id => window.clearTimeout(id));
+    },
+    []
+  );
 
   useEffect(() => {
     if (step === "job") jobInputRef.current?.focus();
@@ -175,6 +199,42 @@ export function OnboardingFlow({
   const stepIndex = STEP_ORDER.indexOf(step);
   const isLast = step === "context";
 
+  /**
+   * Move one page in the flow: the current page leaves first, then the next
+   * one lands on the same node. Ignored while a travel is already running so
+   * a double tap cannot queue two swaps.
+   */
+  const goTo = (next: Step) => {
+    if (next === step || anim === "out") return;
+    setDir(STEP_ORDER.indexOf(next) > stepIndex ? 1 : -1);
+    setAnim("out");
+    timers.current.push(
+      window.setTimeout(() => {
+        setStep(next);
+        setAnim("in");
+        timers.current.push(
+          window.setTimeout(() => setAnim("idle"), IN_MS + 60)
+        );
+      }, OUT_MS)
+    );
+  };
+
+  const pageAnim = [
+    anim === "enter" ? "ios-enter" : "",
+    anim === "out"
+      ? dir === 1
+        ? "ios-page-out-left"
+        : "ios-page-out-right"
+      : "",
+    anim === "in"
+      ? dir === 1
+        ? "ios-page-in-right"
+        : "ios-page-in-left"
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const primaryLabel =
     step === "why"
       ? "Give it a job"
@@ -183,10 +243,10 @@ export function OnboardingFlow({
         : "Start the job";
 
   const primaryAction = () => {
-    if (step === "why") return setStep("job");
+    if (step === "why") return goTo("job");
     if (step === "job") {
       if (!job.trim()) return;
-      return setStep("context");
+      return goTo("context");
     }
     return void finish();
   };
@@ -223,8 +283,7 @@ export function OnboardingFlow({
             </div>
             <div className="mx-auto w-full max-w-4xl px-5 pb-3">
               <h1
-                key={step}
-                className="ios-in text-[32px] font-bold leading-[1.12] tracking-[-0.02em] sm:text-[34px]"
+                className={`${pageAnim} text-[32px] font-bold leading-[1.12] tracking-[-0.02em] sm:text-[34px]`}
               >
                 {meta.title}
               </h1>
@@ -232,33 +291,21 @@ export function OnboardingFlow({
           </header>
 
           <main className="relative flex-1 overflow-x-clip overflow-y-auto">
-            <div className="mx-auto grid min-h-full w-full max-w-4xl gap-8 px-5 pb-32 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:content-center lg:gap-12 lg:pt-6">
+            <div className={`${pageAnim} mx-auto grid min-h-full w-full max-w-4xl gap-8 px-5 pb-32 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:content-center lg:gap-12 lg:pt-6`}>
               <div className="flex flex-col gap-3.5 lg:self-stretch lg:justify-center">
-                <p
-                  className="ios-in text-[13px] font-semibold uppercase tracking-[0.08em] ios-accent"
-                  style={{ animationDelay: "60ms" }}
-                >
+                <p className="text-[13px] font-semibold uppercase tracking-[0.08em] ios-accent">
                   {meta.kicker}
                 </p>
-                <p
-                  className="ios-in ios-label-secondary text-[17px] leading-6"
-                  style={{ animationDelay: "120ms" }}
-                >
+                <p className="ios-label-secondary text-[17px] leading-6">
                   {meta.body}
                 </p>
-                <p
-                  className="ios-in ios-label-tertiary text-[13px] leading-5"
-                  style={{ animationDelay: "180ms" }}
-                >
+                <p className="ios-label-tertiary text-[13px] leading-5">
                   {meta.intent}
                 </p>
 
                 {step === "job" && (
                   <>
-                    <div
-                      className="ios-card ios-in mt-2 px-4 py-3 focus-within:ring-2 focus-within:ring-primary/40"
-                      style={{ animationDelay: "220ms" }}
-                    >
+                    <div className="ios-card mt-2 px-4 py-3 focus-within:ring-2 focus-within:ring-primary/40">
                       <textarea
                         ref={jobInputRef}
                         value={job}
@@ -266,7 +313,7 @@ export function OnboardingFlow({
                         onKeyDown={event => {
                           if (event.key === "Enter" && !event.shiftKey) {
                             event.preventDefault();
-                            if (job.trim()) setStep("context");
+                            if (job.trim()) goTo("context");
                           }
                         }}
                         placeholder="e.g. Draft a launch plan for my app"
@@ -275,10 +322,7 @@ export function OnboardingFlow({
                         className="w-full resize-none bg-transparent text-[17px] leading-6 text-current placeholder:text-[#C7C7CC] focus:outline-none dark:placeholder:text-[#636366]"
                       />
                     </div>
-                    <div
-                      className="ios-in mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2"
-                      style={{ animationDelay: "280ms" }}
-                    >
+                    <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {STARTER_JOBS.filter(
                         suggestion => suggestion !== job.trim()
                       ).map(suggestion => (
@@ -300,10 +344,7 @@ export function OnboardingFlow({
                 )}
 
                 {step === "context" && (
-                  <div
-                    className="ios-card ios-in mt-2 px-4 py-3 focus-within:ring-2 focus-within:ring-primary/40"
-                    style={{ animationDelay: "220ms" }}
-                  >
+                  <div className="ios-card mt-2 px-4 py-3 focus-within:ring-2 focus-within:ring-primary/40">
                     <textarea
                       value={context}
                       onChange={event => setContext(event.target.value)}
@@ -323,10 +364,7 @@ export function OnboardingFlow({
               </div>
 
               <div className="flex flex-col justify-center lg:self-stretch">
-                <div
-                  key={`visual-${step}`}
-                  className="ios-pop ios-card overflow-hidden"
-                >
+                <div className="ios-card overflow-hidden">
                   <img
                     src={meta.visual.src}
                     alt={meta.visual.alt}
@@ -374,9 +412,7 @@ export function OnboardingFlow({
                 {step !== "why" && (
                   <button
                     type="button"
-                    onClick={() =>
-                      setStep(step === "context" ? "job" : "why")
-                    }
+                    onClick={() => goTo(step === "context" ? "job" : "why")}
                     aria-label="Previous step"
                     className="ios-fill ios-press grid size-[50px] shrink-0 place-items-center rounded-full text-black/70 dark:text-white/80"
                   >

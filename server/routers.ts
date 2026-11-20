@@ -33,7 +33,7 @@ import {
   getWorkspaceModelSettingsForUser,
   getWorkspaceComputerOverview,
   getWorkspaceFileForUser,
-  listWorkspaceEnvVarsForUser,
+  listWorkspaceEnvVarSummariesForUser,
   saveWorkspaceEnvVarsForUser,
   listPendingEnvVarRequestsForUser,
   fulfillEnvVarRequestForUser,
@@ -658,17 +658,20 @@ export const appRouter = router({
       if (!settings) throwIfNotFound(settings, "custom model");
       return settings;
     }),
-    /** The workspace's environment variables (Settings > Environment). The
-     *  agent only ever sees their names; values come back here so the owner
-     *  can edit what they saved. */
-    environmentVars: protectedProcedure.query(({ ctx }) => listWorkspaceEnvVarsForUser(ctx.user.id)),
+    /** The workspace's environment variables (Settings > Environment) as NAMES
+     *  only, with a configured flag: values stay encrypted on the server and
+     *  are resolved privately at deploy time, so no credential is ever sent
+     *  to the browser. */
+    environmentVars: protectedProcedure.query(({ ctx }) => listWorkspaceEnvVarSummariesForUser(ctx.user.id)),
     /** Replaces the workspace's full environment-variable set with the
-     *  submitted list (save semantics: anything omitted is removed). */
+     *  submitted list (save semantics: anything omitted is removed). A blank
+     *  value keeps an already-stored secret; a blank value for a new name is
+     *  dropped. The result echoes names only. */
     setEnvironmentVars: protectedProcedure
       .input(z.object({
         vars: z.array(z.object({
           name: z.string().trim().min(1, "A name is required.").max(128),
-          value: z.string().trim().min(1, "A value is required.").max(4096),
+          value: z.string().trim().max(4096),
         })).max(100),
       }))
       .mutation(async ({ ctx, input }) => {

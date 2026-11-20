@@ -93,7 +93,7 @@ The SPA talks to the backend over **both** tRPC and plain Express routes, and it
 
 `server/_core/context.ts` builds the per-request `TrpcContext` (`user`, `banned`). Two credentials are accepted: the `app_session_id` cookie, and a Neon-issued JWT verified against the remote JWKS with `NEON_AUTH_ISSUER`/`NEON_AUTH_AUDIENCE`. A successful Bearer auth `upsertUser`s on every request, and a banned account is refused even with a valid token. `server/_core/trpc.ts` derives `publicProcedure` / `protectedProcedure` / `adminProcedure`; the `developer` role supersedes `admin`.
 
-Client side: `lib/neonAuth.ts` prefers a cached JWT in `localStorage["nova_neon_access_token"]`, then `getSession()`, then `GET /api/neon-auth/token`. The cookie session remains the source of truth; the JWT is only forwarded. Sessions expire after 7 days of inactivity (`SEVEN_DAYS_MS`), tracked client-side with a throttled activity listener.
+Client side: `lib/neonAuth.ts` prefers a JWT cached **in memory** (never `localStorage` - any script on the origin can read storage, and the HttpOnly session cookie is the source of truth), then `getSession()`, then `GET /api/neon-auth/token`. The cache dies with the page load, so a reload refetches the short-lived JWT from Neon Auth. Sessions expire after 7 days of inactivity (`SEVEN_DAYS_MS`), tracked client-side with a throttled activity listener.
 
 ### A chat turn
 

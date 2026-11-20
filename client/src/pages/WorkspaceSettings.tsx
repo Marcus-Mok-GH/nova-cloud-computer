@@ -209,19 +209,23 @@ function ModelProviderCard() {
 /**
  * Workspace environment variables the owner defines once and the agent then
  * attaches to deployments BY NAME (deploy_website's environment_variables
- * argument). Values are stored encrypted and are never shown to the agent -
- * the server resolves them privately at deploy time.
+ * argument). Values are stored encrypted, resolved privately by the server at
+ * deploy time, and never shown to the agent or sent to the browser - the list
+ * query returns names only, and a blank value keeps the stored secret.
  */
 function EnvironmentVarsCard() {
   const utils = trpc.useUtils();
   const { t } = useTranslation();
   const vars = trpc.workspace.environmentVars.useQuery(undefined, { retry: false });
-  const [rows, setRows] = useState<Array<{ name: string; value: string }>>(
-    () => (vars.data ?? []).map(entry => ({ name: entry.name, value: entry.value }))
+  // Saved variables come back as NAMES only, with `savedName` recording which
+  // stored variable each row came from so a blank value can mean "keep what
+  // is saved" without the stored value ever being downloaded.
+  const [rows, setRows] = useState<Array<{ name: string; value: string; savedName: string | null }>>(
+    () => (vars.data ?? []).map(entry => ({ name: entry.name, value: "", savedName: entry.name }))
   );
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
-    if (vars.data && !dirty) setRows(vars.data.map(entry => ({ name: entry.name, value: entry.value })));
+    if (vars.data && !dirty) setRows(vars.data.map(entry => ({ name: entry.name, value: "", savedName: entry.name })));
   }, [vars.data, dirty]);
   const updateRow = (index: number, patch: Partial<{ name: string; value: string }>) => {
     setDirty(true);
@@ -230,28 +234,35 @@ function EnvironmentVarsCard() {
   const save = trpc.workspace.setEnvironmentVars.useMutation({
     onSuccess: async saved => {
       setDirty(false);
-      setRows(saved.map(entry => ({ name: entry.name, value: entry.value })));
+      setRows(saved.map(entry => ({ name: entry.name, value: "", savedName: entry.name })));
       await Promise.all([utils.workspace.environmentVars.invalidate(), utils.workspace.dashboard.invalidate()]);
       toast.success(t("settings.env.saved"));
     },
     onError: error => toast.error(error.message),
   });
   const submit = () => {
-    const cleaned = rows.map(row => ({ name: row.name.trim(), value: row.value })).filter(row => row.name || row.value);
-    const invalid = cleaned.find(row => !row.name || !row.value);
+    const cleaned = rows.map(row => ({ ...row, name: row.name.trim() })).filter(row => row.name || row.value);
+    // A blank value is only meaningful for a variable that is already stored:
+    // it keeps the saved secret. A new name - or a renamed one - needs a value,
+    // otherwise saving would silently drop it.
+    const invalid = cleaned.find(row => {
+      if (!row.name) return true;
+      if (row.value.trim()) return false;
+      return row.savedName === null || row.savedName.toUpperCase() !== row.name.toUpperCase();
+    });
     if (invalid) { toast.error(t("settings.env.needBoth")); return; }
     const names = cleaned.map(row => row.name.toUpperCase());
     const duplicate = names.find((name, index) => names.indexOf(name) !== index);
     if (duplicate) { toast.error(t("settings.env.duplicate", { name: duplicate })); return; }
-    save.mutate({ vars: cleaned.map(row => ({ ...row, name: row.name.trim().toUpperCase() })) });
+    save.mutate({ vars: cleaned.map(row => ({ name: row.name.toUpperCase(), value: row.value })) });
   };
   return <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{t("settings.env.eyebrow")}</p><h2 className="mt-1 text-xl font-bold tracking-tight">{t("settings.env.title")}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{t("settings.env.body")}</p></div><div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/15"><Variable size={24} /></div></div>
     {vars.isLoading ? <div className="mt-6 flex justify-center py-8"><Loader2 className="animate-spin text-muted-foreground" /></div> : <>
       <div className="mt-6 space-y-3">
-        {rows.map((row, index) => <div key={index} className="flex flex-wrap items-end gap-3 rounded-2xl border bg-muted/20 p-4 sm:flex-nowrap"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-name-${index}`}>{t("settings.env.name.label")}</Label><Input id={`env-name-${index}`} value={row.name} onChange={event => updateRow(index, { name: event.target.value.replace(/[^A-Za-z0-9_]/g, "") })} placeholder="STRIPE_API_KEY" maxLength={128} autoComplete="off" spellCheck={false} /></div><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-value-${index}`}>{t("settings.env.value.label")}</Label><Input id={`env-value-${index}`} value={row.value} onChange={event => updateRow(index, { value: event.target.value })} placeholder="sk_live_..." maxLength={4096} autoComplete="off" /></div><Button variant="ghost" size="icon" aria-label={row.name ? t("settings.env.remove.aria", { name: row.name }) : t("settings.env.remove.ariaDefault")} onClick={() => { setDirty(true); setRows(previous => previous.filter((_, rowIndex) => rowIndex !== index)); }} disabled={save.isPending} className="shrink-0 text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div>)}
+        {rows.map((row, index) => <div key={index} className="flex flex-wrap items-end gap-3 rounded-2xl border bg-muted/20 p-4 sm:flex-nowrap"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-name-${index}`}>{t("settings.env.name.label")}</Label><Input id={`env-name-${index}`} value={row.name} onChange={event => updateRow(index, { name: event.target.value.replace(/[^A-Za-z0-9_]/g, "") })} placeholder="STRIPE_API_KEY" maxLength={128} autoComplete="off" spellCheck={false} /></div><div className="min-w-0 flex-1 space-y-2"><Label htmlFor={`env-value-${index}`}>{t("settings.env.value.label")}</Label><Input id={`env-value-${index}`} type="password" value={row.value} onChange={event => updateRow(index, { value: event.target.value })} placeholder={row.savedName ? t("settings.env.value.keepSaved") : "sk_live_..."} maxLength={4096} autoComplete="off" /></div><Button variant="ghost" size="icon" aria-label={row.name ? t("settings.env.remove.aria", { name: row.name }) : t("settings.env.remove.ariaDefault")} onClick={() => { setDirty(true); setRows(previous => previous.filter((_, rowIndex) => rowIndex !== index)); }} disabled={save.isPending} className="shrink-0 text-muted-foreground hover:text-destructive"><Trash2 size={16} /></Button></div>)}
         {rows.length === 0 && <p className="rounded-2xl border border-dashed bg-muted/10 p-4 text-xs text-muted-foreground">{t("settings.env.empty")}</p>}
       </div>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={() => { setDirty(true); setRows(previous => [...previous, { name: "", value: "" }]); }}><span className="me-1.5">+</span> {t("settings.env.add")}</Button><Button onClick={submit} disabled={save.isPending || (!dirty && rows.length > 0)}>{save.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.env.save")}</Button></div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={() => { setDirty(true); setRows(previous => [...previous, { name: "", value: "", savedName: null }]); }}><span className="me-1.5">+</span> {t("settings.env.add")}</Button><Button onClick={submit} disabled={save.isPending || (!dirty && rows.length > 0)}>{save.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.env.save")}</Button></div>
     </>}
   </section>;
 }

@@ -6,7 +6,16 @@ import { getOrCreateWorkspace } from "./workspace";
 
 export type WorkspaceEnvVarEntry = { name: string; value: string };
 
-/** Every env var of the workspace as plain name/value pairs, name-sorted. */
+/**
+ * A stored env var as the settings page sees it: the NAME and whether a value
+ * is configured. Values are encrypted at rest and never leave the server - the
+ * owner replaces or deletes a secret, but never downloads the stored one.
+ */
+export type WorkspaceEnvVarSummary = { name: string; configured: boolean };
+
+/** Every env var of the workspace as plain name/value pairs, name-sorted.
+ *  Server-internal: this decrypts values for deploy-time resolution and must
+ *  never back an API response. */
 export async function listWorkspaceEnvVarsForUser(ownerId: number): Promise<WorkspaceEnvVarEntry[]> {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
@@ -16,22 +25,37 @@ export async function listWorkspaceEnvVarsForUser(ownerId: number): Promise<Work
   return rows.map(row => ({ name: row.name, value: decryptPrivateCredential(row.encryptedValue) }));
 }
 
+/** The workspace's env var NAMES (never values), name-sorted. Nothing here
+ *  decrypts, so no credential can leak through this path. */
+export async function listWorkspaceEnvVarSummariesForUser(ownerId: number): Promise<WorkspaceEnvVarSummary[]> {
+  const db = await requireDb();
+  const workspace = await getOrCreateWorkspace(ownerId);
+  const rows = await db.select({ name: workspaceEnvVars.name, encryptedValue: workspaceEnvVars.encryptedValue }).from(workspaceEnvVars)
+    .where(eq(workspaceEnvVars.workspaceId, workspace.id))
+    .orderBy(asc(workspaceEnvVars.name));
+  return rows.map(row => ({ name: row.name, configured: Boolean(row.encryptedValue) }));
+}
+
 /**
  * Replaces the workspace's full env-var set with `vars` (settings-page save
  * semantics: the submitted list is the new truth - anything omitted is
- * removed). Duplicate names collapse to the last entry, empty names/values
- * are dropped, and every name is normalized to upper case so the agent's
- * name-based deploy argument matches case-insensitively.
+ * removed). A blank value keeps an already-stored secret untouched, so the
+ * settings page can list names without downloading existing values; a blank
+ * value for a name that is not stored yet is dropped. Duplicate names collapse
+ * to the last entry, empty names are dropped, and every name is normalized to
+ * upper case so the agent's name-based deploy argument matches
+ * case-insensitively. The result carries NAMES only - saved values are never
+ * echoed back to the caller.
  */
-export async function saveWorkspaceEnvVarsForUser(ownerId: number, vars: WorkspaceEnvVarEntry[]): Promise<WorkspaceEnvVarEntry[]> {
+export async function saveWorkspaceEnvVarsForUser(ownerId: number, vars: WorkspaceEnvVarEntry[]): Promise<WorkspaceEnvVarSummary[]> {
   const db = await requireDb();
   const workspace = await getOrCreateWorkspace(ownerId);
-  const byName = new Map<string, string>();
+  const byName = new Map<string, string | null>();
   for (const entry of vars) {
     const name = entry.name.trim().toUpperCase();
+    if (!name) continue;
     const value = entry.value.trim();
-    if (!name || !value) continue;
-    byName.set(name, value);
+    byName.set(name, value === "" ? null : value);
   }
   const existing = await db.select().from(workspaceEnvVars).where(eq(workspaceEnvVars.workspaceId, workspace.id));
   const existingNames = new Set(existing.map(row => row.name));
@@ -40,6 +64,7 @@ export async function saveWorkspaceEnvVarsForUser(ownerId: number, vars: Workspa
   if (staleIds.length > 0)
     await db.delete(workspaceEnvVars).where(and(eq(workspaceEnvVars.workspaceId, workspace.id), inArray(workspaceEnvVars.id, staleIds)));
   for (const [name, value] of Array.from(byName.entries())) {
+    if (value === null) continue; // Blank value: keep the stored secret as-is.
     const encryptedValue = encryptPrivateCredential(value);
     if (existingNames.has(name)) {
       await db.update(workspaceEnvVars)
@@ -49,7 +74,12 @@ export async function saveWorkspaceEnvVarsForUser(ownerId: number, vars: Workspa
       await db.insert(workspaceEnvVars).values({ workspaceId: workspace.id, name, encryptedValue });
     }
   }
-  return Array.from(byName.entries()).map(([name, value]) => ({ name, value }));
+  // Names only, and only names that are actually stored: a blank value keeps
+  // an existing secret, while a blank value for an unknown name is dropped and
+  // must not be reported back as configured.
+  return Array.from(byName.entries())
+    .filter(([name, value]) => value !== null || existingNames.has(name))
+    .map(([name]) => ({ name, configured: true }));
 }
 
 /**
@@ -218,7 +248,7 @@ export async function cancelPendingEnvVarRequestsForName(ownerId: number, rawNam
 
 /** The workspace's env var names (never values), for the agent's system prompt. */
 export async function describeWorkspaceEnvVarsForUser(ownerId: number): Promise<string> {
-  const vars = await listWorkspaceEnvVarsForUser(ownerId);
+  const vars = await listWorkspaceEnvVarSummariesForUser(ownerId);
   if (vars.length === 0) return "none yet - the user can add environment variables in Settings";
   return vars.map(entry => entry.name).join(", ");
 }

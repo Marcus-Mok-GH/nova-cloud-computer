@@ -36,9 +36,47 @@ export const neonAuth = authUrl
     })
   : null;
 
-export const NEON_JWT_STORAGE_KEY = "nova_neon_access_token";
-
+/**
+ * The remembered JWT is kept in memory only - never in localStorage. Any
+ * script running on the origin (an XSS payload, a compromised dependency) can
+ * read localStorage, so a bearer token persisted there is stealable across
+ * sessions and reboots. The HttpOnly first-party session cookie remains the
+ * source of truth; this cache only spares a round trip until the JWT expires,
+ * and is rebuilt from Neon Auth (or the same-origin token endpoint) after a
+ * reload.
+ */
 type StoredNeonJwt = { token: string; expiresAt: number };
+let rememberedJwt: StoredNeonJwt | null = null;
+
+/** The Neon Auth client lives in the browser bundle; tests import this module
+ *  under Node, where there is no window and nothing must be cached. */
+const canCacheJwt = typeof window !== "undefined";
+
+export function rememberNeonJwt(token: string | null | undefined, now = Date.now()) {
+  if (!isSignedJwt(token)) return null;
+  const parsedExpiry = getJwtExpirationMs(token!);
+  // A token whose expiry cannot be read is still worth caching for a short
+  // fallback window: skipping the cache means every request starts from a
+  // bare cookie, and a stale cached token is recovered by the signed-out
+  // retry in useAuth rather than bouncing the user to sign in.
+  const expiresAt = parsedExpiry ?? now + REMEMBERED_JWT_FALLBACK_TTL_MS;
+  if (canCacheJwt) rememberedJwt = { token: token!, expiresAt };
+  return token!;
+}
+
+export function getRememberedNeonJwt(now = Date.now()) {
+  if (!canCacheJwt || !rememberedJwt) return null;
+  if (!isSignedJwt(rememberedJwt.token) || rememberedJwt.expiresAt <= now) {
+    clearRememberedNeonJwt();
+    return null;
+  }
+  return rememberedJwt.token;
+}
+
+export function clearRememberedNeonJwt() {
+  rememberedJwt = null;
+}
+
 type NeonTokenResult = {
   data?: {
     token?: string | null;
@@ -70,53 +108,6 @@ function getJwtExpirationMs(token: string) {
     return typeof decodedPayload.exp === "number" ? decodedPayload.exp * 1000 : null;
   } catch {
     return null;
-  }
-}
-
-function getStorage(): Storage | null {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberNeonJwt(token: string | null | undefined, now = Date.now()) {
-  if (!isSignedJwt(token)) return null;
-  const parsedExpiry = getJwtExpirationMs(token!);
-  // A token whose expiry cannot be read is still worth caching for a short
-  // fallback window: skipping the cache means every page load starts from a
-  // bare cookie, and a stale cached token is recovered by the signed-out
-  // retry in useAuth rather than bouncing the user to sign in.
-  const expiresAt = parsedExpiry ?? now + REMEMBERED_JWT_FALLBACK_TTL_MS;
-  try {
-    getStorage()?.setItem(NEON_JWT_STORAGE_KEY, JSON.stringify({ token: token!, expiresAt } satisfies StoredNeonJwt));
-  } catch {
-    // Ignore storage failures; the cookie-backed session remains the source of truth.
-  }
-  return token!;
-}
-
-export function getRememberedNeonJwt(now = Date.now()) {
-  try {
-    const raw = getStorage()?.getItem(NEON_JWT_STORAGE_KEY);
-    if (!raw) return null;
-    const stored = JSON.parse(raw) as Partial<StoredNeonJwt>;
-    if (!isSignedJwt(stored.token) || typeof stored.expiresAt !== "number" || stored.expiresAt <= now) {
-      clearRememberedNeonJwt();
-      return null;
-    }
-    return stored.token!;
-  } catch {
-    return null;
-  }
-}
-
-export function clearRememberedNeonJwt() {
-  try {
-    getStorage()?.removeItem(NEON_JWT_STORAGE_KEY);
-  } catch {
-    // ignore storage errors
   }
 }
 

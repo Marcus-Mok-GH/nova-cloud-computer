@@ -77,10 +77,10 @@ export function useAuth(options?: UseAuthOptions) {
     isAuthenticated: Boolean(meQuery.data),
   }), [meQuery.data, meQuery.error, meQuery.isLoading]);
 
-  // A previously cached Neon JWT that the server now rejects must never
-  // masquerade as "signed out": the first `auth.me` miss (null data) drops the
-  // remembered token and retries once, so the cookie-backed first-party
-  // session gets to answer before the user is sent to sign in.
+  // An in-memory Neon JWT that the server now rejects must never masquerade as
+  // "signed out": the first `auth.me` miss (null data) drops the remembered
+  // token and retries once, so the cookie-backed first-party session gets to
+  // answer before the user is sent to sign in.
   useEffect(() => {
     if (!meQuery.isSuccess || meQuery.data !== null || typeof window === "undefined") return;
     if (!getRememberedNeonJwt()) return;

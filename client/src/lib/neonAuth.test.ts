@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  NEON_JWT_STORAGE_KEY,
   clearRememberedNeonJwt,
   exchangeNeonVerifierAndGetJwt,
   extractNeonJwt,
@@ -17,6 +17,10 @@ function createJwt(payload: Record<string, unknown>) {
 }
 
 describe("extractNeonJwt", () => {
+  // The remembered JWT is module-level state shared by every test in this file.
+  beforeEach(() => {
+    clearRememberedNeonJwt();
+  });
   it("returns the JWT from Neon Auth's token API response", () => {
     expect(extractNeonJwt({ data: { token: "header.payload.signature" } })).toBe("header.payload.signature");
   });
@@ -66,13 +70,7 @@ describe("extractNeonJwt", () => {
     expect(extractNeonJwt({ data: { session: null } })).toBeNull();
   });
 
-  it("persists a signed JWT in localStorage until its expiration", () => {
-    const storage = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-      removeItem: (key: string) => storage.delete(key),
-    });
+  it("remembers a signed JWT in memory until its expiration, never in localStorage", () => {
     const now = 1_700_000_000_000;
     const token = createJwt({ exp: Math.floor((now + 60_000) / 1000) });
 
@@ -80,41 +78,39 @@ describe("extractNeonJwt", () => {
     expect(getRememberedNeonJwt(now + 1_000)).toBe(token);
 
     expect(getRememberedNeonJwt(now + 61_000)).toBeNull();
-    expect(storage.has(NEON_JWT_STORAGE_KEY)).toBe(false);
-
-    vi.unstubAllGlobals();
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("keeps a JWT with no parseable expiration for a fallback window instead of dropping it", () => {
-    const storage = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-      removeItem: (key: string) => storage.delete(key),
-    });
     const now = 1_700_000_000_000;
     const token = createJwt({ sub: "user-1" });
 
     expect(rememberNeonJwt(token, now)).toBe(token);
     expect(getRememberedNeonJwt(now + 30 * 60_000)).toBe(token);
     expect(getRememberedNeonJwt(now + 90 * 60_000)).toBeNull();
-    expect(storage.has(NEON_JWT_STORAGE_KEY)).toBe(false);
-
-    vi.unstubAllGlobals();
+    expect(window.localStorage.length).toBe(0);
   });
 
-  it("clears the remembered JWT from localStorage", () => {
-    const removeItem = vi.fn();
-    vi.stubGlobal("localStorage", {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem,
+  it("works even when localStorage is unavailable, so no token can be persisted", () => {
+    const original = window.localStorage;
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() { throw new Error("localStorage must not be read or written"); },
     });
+    try {
+      const now = 1_700_000_000_000;
+      const token = createJwt({ exp: Math.floor((now + 60_000) / 1000) });
+      expect(rememberNeonJwt(token, now)).toBe(token);
+      expect(getRememberedNeonJwt(now + 1_000)).toBe(token);
+    } finally {
+      Object.defineProperty(window, "localStorage", { configurable: true, value: original });
+    }
+  });
 
+  it("drops the remembered JWT when cleared", () => {
+    rememberNeonJwt(createJwt({ exp: Math.floor((Date.now() + 60_000) / 1000) }));
     clearRememberedNeonJwt();
-
-    expect(removeItem).toHaveBeenCalledWith(NEON_JWT_STORAGE_KEY);
-    vi.unstubAllGlobals();
+    expect(getRememberedNeonJwt()).toBeNull();
   });
 
   it("includes session cookies for the cross-origin Neon Auth client", () => {

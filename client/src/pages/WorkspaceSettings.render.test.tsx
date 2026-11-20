@@ -8,7 +8,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 1, email
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, personalities: { useQuery: () => ({ data: { personalities: [{ id: "default", name: "Default", description: "Nova's own voice — balanced length, asks when unsure.", instructions: null, detail: null, collaboration: null, expertise: null, builtIn: true }], activePersonalityId: "default" }, isLoading: false, isError: false, refetch: vi.fn() }) }, setActivePersonality: { useMutation: () => mutation }, createPersonality: { useMutation: () => mutation }, updatePersonality: { useMutation: () => mutation }, deletePersonality: { useMutation: () => mutation }, environmentVars: { useQuery: () => ({ data: [{ name: "STRIPE_API_KEY", value: "sk_live_123" }], isLoading: false, isError: false, refetch: vi.fn() }) }, setEnvironmentVars: { useMutation: () => mutation }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
+    workspace: { modelSettings: { useQuery: () => ({ data: { workspaceRules: null, customModels: [], activeProvider: "anthropic", activeCustomModelId: null, personalisationEnabled: false, personalisationProfile: null, personalisationTone: null, personalisationDetail: null, personalisationProactiveness: null, personalisationExpertise: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, personalities: { useQuery: () => ({ data: { personalities: [{ id: "default", name: "Default", description: "Nova's own voice — balanced length, asks when unsure.", instructions: null, detail: null, collaboration: null, expertise: null, builtIn: true }], activePersonalityId: "default" }, isLoading: false, isError: false, refetch: vi.fn() }) }, setActivePersonality: { useMutation: () => mutation }, createPersonality: { useMutation: () => mutation }, updatePersonality: { useMutation: () => mutation }, deletePersonality: { useMutation: () => mutation }, environmentVars: { useQuery: () => ({ data: [{ name: "STRIPE_API_KEY", configured: true }], isLoading: false, isError: false, refetch: vi.fn() }) }, setEnvironmentVars: { useMutation: () => mutation }, listMemories: { useQuery: () => ({ data: [], isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) }, updateSettings: { useMutation: () => mutation }, factoryReset: { useMutation: () => mutation }, clearMemories: { useMutation: () => mutation }, deleteMemory: { useMutation: () => mutation }, dashboard: { invalidate: vi.fn() }, computer: { invalidate: vi.fn() } },
     chats: { create: { useMutation: () => mutation } },
     models: { createCustom: { useMutation: () => mutation }, deleteCustom: { useMutation: () => mutation }, testCustom: { useMutation: () => mutation } },
     ai: { status: { useQuery: () => ({ data: { model: "chat-large-latest" }, isLoading: false, isError: false, refetch: vi.fn() } ) } },
@@ -84,11 +84,12 @@ describe("Workspace settings page", () => {
     expect(markup).toContain("Add your own provider");
     expect(markup).toContain("Test connection");
     expect(markup).toContain("Tell Nova what to automate");
-    // The environment tab renders its saved variables (values shown to the
-    // owner for editing; the agent only ever sees the names).
+    // The environment tab renders its saved variable NAMES only; the stored
+    // value never reaches the browser (the agent sees names too).
     expect(markup).toContain("Environment</button>");
     expect(markup).toContain("Variables for your deployments");
     expect(markup).toContain("STRIPE_API_KEY");
+    expect(markup).not.toContain("sk_live_123");
     expect(markup).toContain("Save environment variables");
     expect(markup).toContain("Disconnect GitHub");
     expect(markup).toContain("Connect Gmail");

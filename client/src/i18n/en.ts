@@ -297,6 +297,7 @@ export const en = {
   "settings.env.body": "Save the keys and config your sites and apps need. Nova attaches them to a deployment by NAME - when you ask to deploy, the agent passes the variable names and the server fills in the values privately. The agent never sees the values.",
   "settings.env.name.label": "Name",
   "settings.env.value.label": "Value",
+  "settings.env.value.keepSaved": "Leave blank to keep the saved value",
   "settings.env.remove.aria": "Remove {{name}}",
   "settings.env.remove.ariaDefault": "Remove environment variable",
   "settings.env.empty": "No environment variables yet. Add one below - it will be available for Nova to attach to your deployments by name.",

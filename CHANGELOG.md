@@ -1,3 +1,14 @@
+2026-11-20 - fix(security): keep saved workspace environment variable values out of the browser
+
+`workspace.environmentVars` decrypted every stored variable and the settings
+card rendered those values in plain text inputs, so credentials were exposed in
+network responses, React state, the DOM and devtools. The query now returns
+variable names with a configured flag only. The card edits values as password
+fields where a blank value keeps the already-saved secret (a new or renamed
+variable still needs one), and the save mutation echoes names only. Values are
+still resolved privately on the server when the agent attaches them to a
+deployment, and the agent continues to see names only.
+
 2026-11-18 - fix(chat): the working animation rendered as a near-invisible dot on retina screens
 
 The working blob scaled its canvas backing store by devicePixelRatio but never

@@ -85,6 +85,9 @@ const updateSettingsSpy = vi.fn(async (ownerId: number, input: Partial<SettingsR
   modelSettings.set(ownerId, next);
   return getSettingsSpy(ownerId);
 });
+const listEnvVarSummariesSpy = vi.fn(async (ownerId: number) => [{ name: "STRIPE_API_KEY", configured: true }]);
+const saveEnvVarsSpy = vi.fn(async (ownerId: number, vars: Array<{ name: string; value: string }>) =>
+  vars.map(entry => ({ name: entry.name.trim().toUpperCase(), configured: true })));
 
 vi.mock("./db", () => ({
   hasActiveAccessForUser: vi.fn(async () => true),
@@ -106,6 +109,8 @@ vi.mock("./db", () => ({
   updateTaskStatusForUser: updateTaskSpy,
   updateWorkspaceModelSettingsForUser: updateSettingsSpy,
   factoryResetWorkspaceForUser: factoryResetSpy,
+  listWorkspaceEnvVarSummariesForUser: listEnvVarSummariesSpy,
+  saveWorkspaceEnvVarsForUser: saveEnvVarsSpy,
 }));
 
 vi.mock("./memories", () => ({ clearMemoriesForUser: clearMemoriesSpy, listMemoriesForUser: listMemoriesSpy, deleteOwnedMemoryForUser: deleteOwnedMemorySpy }));
@@ -141,7 +146,7 @@ function contextFor(id: number): TrpcContext {
 }
 
 describe("Nova workspace authenticated API", () => {
-  beforeEach(() => { projects.clear(); tasks.clear(); customModels.clear(); modelSettings.clear(); nextProjectId = 100; nextTaskId = 700; nextCustomModelId = 900; vi.clearAllMocks(); listGatewayModelsSpy.mockReset().mockImplementation(async () => GATEWAY_MODELS); });
+  beforeEach(() => { projects.clear(); tasks.clear(); customModels.clear(); modelSettings.clear(); nextProjectId = 100; nextTaskId = 700; nextCustomModelId = 900; vi.clearAllMocks(); listGatewayModelsSpy.mockReset().mockImplementation(async () => GATEWAY_MODELS); listEnvVarSummariesSpy.mockReset().mockImplementation(async () => [{ name: "STRIPE_API_KEY", configured: true }]); saveEnvVarsSpy.mockReset().mockImplementation(async (_ownerId: number, vars: Array<{ name: string; value: string }>) => vars.map(entry => ({ name: entry.name.trim().toUpperCase(), configured: true }))); });
 
   it("creates, reads, updates, and deletes a project through the authenticated router", async () => {
     const caller = appRouter.createCaller(contextFor(41));
@@ -252,5 +257,29 @@ describe("Nova workspace authenticated API", () => {
     await expect(owner.workspace.updateSettings({ activeProvider: "mistral", activeModelId: "not-a-gateway-model" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(listGatewayModelsSpy).toHaveBeenCalledTimes(1);
     await expect(owner.workspace.updateSettings({ activeProvider: "mistral", activeModelId: "chat-small-latest" })).resolves.toMatchObject({ activeProvider: "mistral", activeModelId: "chat-small-latest" });
+  });
+
+  it("lists workspace environment variables as names only, never stored values", async () => {
+    const result = await appRouter.createCaller(contextFor(41)).workspace.environmentVars();
+    expect(result).toEqual([{ name: "STRIPE_API_KEY", configured: true }]);
+    expect(listEnvVarSummariesSpy).toHaveBeenCalledWith(41);
+    expect(JSON.stringify(result)).not.toContain("sk_live");
+  });
+
+  it("saves workspace environment variables and echoes names only, accepting a blank value", async () => {
+    const caller = appRouter.createCaller(contextFor(41));
+    const result = await caller.workspace.setEnvironmentVars({
+      vars: [{ name: "stripe_api_key", value: "" }],
+    });
+    expect(saveEnvVarsSpy).toHaveBeenCalledWith(41, [{ name: "stripe_api_key", value: "" }]);
+    expect(result).toEqual([{ name: "STRIPE_API_KEY", configured: true }]);
+    expect(JSON.stringify(result)).not.toContain("sk_live");
+  });
+
+  it("rejects an invalid environment variable name before touching storage", async () => {
+    await expect(
+      appRouter.createCaller(contextFor(41)).workspace.setEnvironmentVars({ vars: [{ name: "not a name", value: "x" }] })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(saveEnvVarsSpy).not.toHaveBeenCalled();
   });
 });

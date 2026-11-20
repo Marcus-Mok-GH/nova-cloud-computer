@@ -130,8 +130,9 @@ export function OnboardingFlow({
   }, [step]);
 
   // On a phone the on-screen keyboard covers the bottom of the viewport; lift
-  // the surface by the height the visual viewport loses while a field is
-  // focused so the field being typed into stays visible.
+  // the pinned action bar by the height the visual viewport loses while a
+  // field is focused so the primary action stays reachable. The surface itself
+  // stays full-screen and opaque - shrinking it would expose the page behind.
   const [keyboardInset, setKeyboardInset] = useState<number | null>(null);
   useEffect(() => {
     const mobile = window.matchMedia?.("(max-width: 639px)");
@@ -262,7 +263,6 @@ export function OnboardingFlow({
     >
       <DialogContent
         showCloseButton={false}
-        style={keyboardInset != null ? { bottom: keyboardInset } : undefined}
         className="fixed inset-0 z-50 block w-full max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 p-0 sm:max-w-none"
       >
         <div className="ios-font ios-grouped relative flex h-full flex-col">
@@ -291,7 +291,14 @@ export function OnboardingFlow({
           </header>
 
           <main className="relative flex-1 overflow-x-clip overflow-y-auto">
-            <div className={`${pageAnim} mx-auto grid min-h-full w-full max-w-4xl gap-8 px-5 pb-32 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:content-center lg:gap-12 lg:pt-6`}>
+            <div
+              className={`${pageAnim} mx-auto grid min-h-full w-full max-w-4xl gap-8 px-5 pb-32 pt-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:content-center lg:gap-12 lg:pt-6`}
+              style={
+                keyboardInset != null
+                  ? { paddingBottom: `calc(${keyboardInset}px + 8rem)` }
+                  : undefined
+              }
+            >
               <div className="flex flex-col gap-3.5 lg:self-stretch lg:justify-center">
                 <p className="text-[13px] font-semibold uppercase tracking-[0.08em] ios-accent">
                   {meta.kicker}
@@ -380,7 +387,10 @@ export function OnboardingFlow({
           </main>
 
           {/* Pinned action bar: page control, then the primary action. */}
-          <footer className="ios-glass ios-hairline absolute inset-x-0 bottom-0 z-20 border-t">
+          <footer
+            className="ios-glass ios-hairline absolute inset-x-0 bottom-0 z-20 border-t"
+            style={keyboardInset != null ? { bottom: keyboardInset } : undefined}
+          >
             <div
               className="mx-auto w-full max-w-4xl px-5 pt-3"
               style={{ paddingBottom: "calc(14px + env(safe-area-inset-bottom))" }}

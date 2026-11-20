@@ -9,6 +9,15 @@ variable still needs one), and the save mutation echoes names only. Values are
 still resolved privately on the server when the agent attaches them to a
 deployment, and the agent continues to see names only.
 
+2026-11-20 - fix(auth): keep the remembered Neon JWT in memory instead of localStorage
+
+`lib/neonAuth.ts` cached the forwarded bearer JWT under
+`localStorage["nova_neon_access_token"]`, where any script running on the
+origin could read it across sessions. The cache is module-level now: nothing is
+written to storage, the token dies with the page load, and the HttpOnly
+first-party session cookie remains the source of truth, with the short-lived
+JWT refetched from Neon Auth after a reload.
+
 2026-11-18 - fix(chat): the working animation rendered as a near-invisible dot on retina screens
 
 The working blob scaled its canvas backing store by devicePixelRatio but never

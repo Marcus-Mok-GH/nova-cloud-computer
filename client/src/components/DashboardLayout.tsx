@@ -111,11 +111,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const countryPromptOpen = Boolean(
     user && onboarding.data?.needsCountry && !countryPromptDismissed
   );
-  // The tour must not stack on either dialog, and must not reappear once this
-  // browser has seen it.
+  // The username claim is a third dialog a fresh account can have open. It is
+  // defined here, next to the other two gates, so the flow's auto-open below
+  // can wait for it as well.
+  const showUsernamePrompt = Boolean(
+    user && !user.username && !usernamePromptSkipped
+  );
+  // The tour must not stack on any of those dialogs, and must not reappear
+  // once this browser has seen it.
   useEffect(() => {
     if (!user || !onboarding.data || flowOpen) return;
-    if (onboardingModalOpen || countryPromptOpen) return;
+    if (onboardingModalOpen || countryPromptOpen || showUsernamePrompt) return;
     let seen = false;
     try {
       seen = window.localStorage.getItem(ONBOARDING_FLOW_SEEN_KEY) === "1";
@@ -123,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       seen = false;
     }
     if (!seen) setFlowOpen(true);
-  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, flowOpen]);
+  }, [user, onboarding.data, onboardingModalOpen, countryPromptOpen, showUsernamePrompt, flowOpen]);
 
   // The first-run flow hands over what the visitor wrote: open the workspace
   // on a conversation titled with their first task, with everything they
@@ -184,8 +190,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </button>
       );
     });
-
-  const showUsernamePrompt = user && !user.username && !usernamePromptSkipped;
 
   return (
     <div className={`dashboard-shell flex min-w-0 flex-col bg-background text-foreground pt-[env(safe-area-inset-top)] ${hasChatId ? "h-svh min-h-0 overflow-hidden" : "min-h-svh overflow-visible md:h-svh md:min-h-0 md:overflow-hidden"}`}>

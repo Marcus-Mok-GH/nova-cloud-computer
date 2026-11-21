@@ -653,7 +653,7 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {activity.state === "running" ? (
-          <WorkingAnimation size={30} />
+          <WorkingAnimation size={60} />
         ) : (
           <StatusIcon
             className={`size-3.5 shrink-0 ${stateClass}`}
@@ -740,7 +740,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         >
           {running ? (
-            <WorkingAnimation size={30} />
+            <WorkingAnimation size={60} />
           ) : (
             <CheckCircle2 className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
@@ -1412,7 +1412,7 @@ export function ToolRunGroup({
         className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.08] bg-card/40 px-3 py-2 text-start transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.03]"
       >
         {running ? (
-          <WorkingAnimation size={30} />
+          <WorkingAnimation size={60} />
         ) : (
           <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
         )}
@@ -1482,7 +1482,7 @@ export function LiveActivityCard({
     >
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
-          <WorkingAnimation size={30} />
+          <WorkingAnimation size={60} />
         ) : failed > 0 ? (
           <TriangleAlert className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         ) : (

@@ -10,6 +10,7 @@
  */
 import React, { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import SupportCard from "@/components/SupportCard";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
@@ -259,6 +260,13 @@ export default function Billing() {
             </p>
           </div>
         </section>
+
+        <SupportCard
+          className="mt-6"
+          title={t("billing.support.title")}
+          body={t("billing.support.body")}
+          cta={t("billing.support.cta")}
+        />
 
         {/* Current plan + credits */}
         <div className="relative grid gap-4 sm:grid-cols-2">

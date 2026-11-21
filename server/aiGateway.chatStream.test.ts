@@ -390,7 +390,7 @@ describe("AI gateway chat stream handling", () => {
     });
     expect(
       reasoningParamsForModel(
-        "gemini-4-carbon",
+        "gemini-3-8-flash",
         "auto",
         "```ts\nconst x = 1;\n```"
       )
@@ -527,7 +527,7 @@ describe("AI gateway chat stream handling", () => {
       thinking: { type: "enabled" },
       reasoning_effort: "max",
     });
-    expect(reasoningParamsForModel("gemini-4-carbon", "max")).toEqual({
+    expect(reasoningParamsForModel("gemini-3-8-flash", "max")).toEqual({
       reasoning_effort: "max",
     });
     expect(reasoningParamsForModel("gpt-6-1-sol", "max")).toEqual({

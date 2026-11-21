@@ -226,10 +226,10 @@ describe("AI gateway client", () => {
   it("routes the Gemini slot to Coarena with its own credential", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "carbon reply" } }], model: "gemini-4-carbon" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "flash reply" } }], model: "gemini-3-8-flash" }), { status: 200 }));
 
-    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-4-carbon" });
-    expect(result).toMatchObject({ text: "carbon reply" });
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-3-8-flash" });
+    expect(result).toMatchObject({ text: "flash reply" });
     // The health probe stays on Pollinations; the chat hop goes to Coarena.
     expect(globalThis.fetch).toHaveBeenNthCalledWith(1, `${MIRROR_URL}/models`, expect.anything());
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${COARENA_KEY}` }) }));
@@ -253,7 +253,7 @@ describe("AI gateway client", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "busy" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "fallback reply" } }], model: POLLINATIONS_CHAT_MODEL }), { status: 200 }));
 
-    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-4-carbon" });
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gemini-3-8-flash" });
     expect(result).toMatchObject({ text: "fallback reply" });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.anything());
     expect(globalThis.fetch).toHaveBeenNthCalledWith(3, `${MIRROR_URL}/chat/completions`, expect.anything());

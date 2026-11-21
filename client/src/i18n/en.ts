@@ -294,7 +294,8 @@ export const en = {
   // Settings: environment variables
   "settings.env.eyebrow": "Environment variables",
   "settings.env.title": "Variables for your deployments",
-  "settings.env.body": "Save the keys and config your sites and apps need. Nova attaches them to a deployment by NAME - when you ask to deploy, the agent passes the variable names and the server fills in the values privately. The agent never sees the values.",
+  "settings.env.body": "Save the keys and config your sites and apps need. They are stored against your account only - encrypted at rest, never sent to this browser, and nobody else can read or change them. Nova attaches them to a deployment by NAME - when you ask to deploy, the agent passes the variable names and the server fills in the values privately. The agent never sees the values.",
+  "settings.env.privacy": "Only this account can see or change these. Values stay encrypted on our servers and are never downloaded to the browser.",
   "settings.env.name.label": "Name",
   "settings.env.value.label": "Value",
   "settings.env.value.keepSaved": "Leave blank to keep the saved value",

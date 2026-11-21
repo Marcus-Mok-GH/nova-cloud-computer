@@ -263,6 +263,7 @@ function EnvironmentVarsCard() {
         {rows.length === 0 && <p className="rounded-2xl border border-dashed bg-muted/10 p-4 text-xs text-muted-foreground">{t("settings.env.empty")}</p>}
       </div>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3"><Button variant="outline" onClick={() => { setDirty(true); setRows(previous => [...previous, { name: "", value: "", savedName: null }]); }}><span className="me-1.5">+</span> {t("settings.env.add")}</Button><Button onClick={submit} disabled={save.isPending || (!dirty && rows.length > 0)}>{save.isPending && <Loader2 size={15} className="animate-spin" />} {t("settings.env.save")}</Button></div>
+      <p className="mt-4 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" /> {t("settings.env.privacy")}</p>
     </>}
   </section>;
 }

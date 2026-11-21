@@ -734,7 +734,15 @@ describe("ToolActivityLine", () => {
       })
     );
     expect(running).not.toContain("animate-spin");
-    expect(running).toContain("text-amber-600");
+    // The branded breath blob is the running indicator - never a dashed ring.
+    expect(running).toContain('data-testid="working-animation"');
+    expect(running).not.toContain("circle-dashed");
+    const completed = renderToStaticMarkup(
+      React.createElement(ToolActivityLine, {
+        activity: activity("create_file", '{"name":"dup.txt"}', "completed"),
+      })
+    );
+    expect(completed).not.toContain('data-testid="working-animation"');
   });
 
   it("gives a running tool the bright reply-text color instead of the muted resting tone", () => {
@@ -943,6 +951,7 @@ describe("LiveActivityCard", () => {
     );
     expect(html).toContain("Working now");
     expect(html).toContain("Now: Read File t-2.txt");
+    expect(html).toContain('data-testid="working-animation"');
   });
 });
 
@@ -966,6 +975,8 @@ describe("ToolRunGroup", () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('data-testid="tool-run-group-detail"');
     expect(html).not.toContain("Read File t-1.txt");
+    // A settled run carries no working animation at all.
+    expect(html).not.toContain('data-testid="working-animation"');
   });
 
   it("starts open when one of the tools is still running so refreshes keep showing live progress", () => {
@@ -977,6 +988,8 @@ describe("ToolRunGroup", () => {
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('data-testid="tool-run-group-detail"');
     expect(html).toContain("Read File t-2.txt");
+    // The running group headline carries the branded blob, not a dashed ring.
+    expect(html).toContain('data-testid="working-animation"');
   });
 
   it("uses the singular for a single step and surfaces failures in the summary", () => {

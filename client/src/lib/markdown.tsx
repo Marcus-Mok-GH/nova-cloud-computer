@@ -5,7 +5,8 @@ import { HighlightedCode, type HighlightLanguage } from "@/lib/syntaxHighlight";
  * Lightweight Markdown renderer for AI chat messages.
  * Supports: **bold**, __bold__, *italic*, ~~strike~~, `inline code`,
  * fenced ``` code blocks (syntax highlighted), # headings, bullet and
- * numbered lists, > blockquotes, --- rules, [links](url) and bare URLs.
+ * numbered lists, > blockquotes, --- rules, [links](url), bare URLs and
+ * GFM tables (| a | b | + delimiter row).
  * Everything else renders as plain, safe text (no HTML injection).
  */
 
@@ -78,10 +79,139 @@ const BULLET = /^\s*[-*+]\s+(.+)$/;
 const ORDERED = /^\s*\d+[.)]\s+(.+)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 
+/** One cell of a GFM delimiter row: `---`, `:--`, `--:` or `:-:`. */
+const DELIMITER_CELL = /^:?-{1,}:?$/;
+/** A whole delimiter row, used to stop lists/paragraphs swallowing it. */
+const DELIMITER_ROW = /^\s*\|?\s*:?-{1,}:?(?:\s*\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+
+type ColumnAlign = "left" | "center" | "right";
+
+/**
+ * Split a GFM table row into trimmed cells, honouring escaped pipes (`\|`).
+ * Returns null when the line carries no pipe at all, so ordinary prose never
+ * reads as a table.
+ */
+function splitTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  let body = trimmed;
+  if (body.startsWith("|")) body = body.slice(1);
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+  const cells: string[] = [];
+  let current = "";
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === "\\" && body[index + 1] === "|") {
+      current += "|";
+      index += 1;
+      continue;
+    }
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseColumnAlign(cell: string): ColumnAlign | null {
+  if (!DELIMITER_CELL.test(cell.trim())) return null;
+  const text = cell.trim();
+  const left = text.startsWith(":");
+  const right = text.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  return "left";
+}
+
+interface TableShape {
+  header: string[];
+  aligns: ColumnAlign[];
+  rows: string[][];
+}
+
+/**
+ * Read a GFM table starting at `lines[start]`: a header row, a delimiter row,
+ * then every following row that still parses. `end` is the first line after
+ * the table. Returns null when the pair is not a valid header + delimiter, so
+ * pipe-heavy prose keeps rendering as paragraphs.
+ */
+function readTable(
+  lines: string[],
+  start: number
+): (TableShape & { end: number }) | null {
+  const header = splitTableRow(lines[start] ?? "");
+  const delimiter = splitTableRow(lines[start + 1] ?? "");
+  if (!header || !delimiter || header.length === 0) return null;
+  if (header.length !== delimiter.length) return null;
+  const aligns: ColumnAlign[] = [];
+  for (const cell of delimiter) {
+    const align = parseColumnAlign(cell);
+    if (align === null) return null;
+    aligns.push(align);
+  }
+
+  const rows: string[][] = [];
+  let index = start + 2;
+  while (index < lines.length) {
+    const cells = splitTableRow(lines[index]);
+    if (!cells) break;
+    const padded = [...cells];
+    while (padded.length < header.length) padded.push("");
+    rows.push(padded.slice(0, header.length));
+    index += 1;
+  }
+  return { header, aligns, rows, end: index };
+}
+
+function TableBlock({ table }: { table: TableShape }) {
+  const alignClass = (align: ColumnAlign) =>
+    align === "center" ? "text-center" : align === "right" ? "text-end" : "text-start";
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border dark:border-white/10">
+      <table className="w-full min-w-[24rem] border-collapse text-[13px] leading-5">
+        <thead>
+          <tr className="bg-muted/50">
+            {table.header.map((cell, index) => (
+              <th
+                key={index}
+                className={`border-b border-border px-2.5 py-1.5 font-semibold ${alignClass(table.aligns[index])}`}
+              >
+                {renderInline(cell, `th${index}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className="[&>td]:border-b [&>td]:border-border dark:[&>td]:border-white/10">
+              {row.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  className={`px-2.5 py-1.5 align-top ${alignClass(table.aligns[cellIndex])}`}
+                >
+                  {renderInline(cell, `td${rowIndex}-${cellIndex}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CodeBlock({ code, tag }: { code: string; tag: string }) {
   const language = fenceAliases[tag.trim().toLowerCase()] ?? "text";
   return <div className="overflow-x-auto rounded-lg border border-border bg-background p-3 dark:border-white/10 dark:bg-background"><pre className="m-0 whitespace-pre font-mono text-[13px] leading-6 text-foreground dark:text-foreground"><HighlightedCode code={code} language={language} /></pre></div>;
 }
+
+/** A delimiter row on its own (no valid header above it) - never prose. */
+const isDelimiterOnly = (line: string) =>
+  line.includes("|") && DELIMITER_ROW.test(line);
 
 export function MarkdownText({ text }: { text: string }) {
   const lines = (text ?? "").replace(/\r\n/g, "\n").split("\n");
@@ -101,6 +231,14 @@ export function MarkdownText({ text }: { text: string }) {
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) { code.push(lines[i]); i += 1; }
       i += 1; // skip closing fence (or EOF)
       blocks.push(<CodeBlock key={nextKey()} code={code.join("\n")} tag={fence[1]} />);
+      continue;
+    }
+
+    // GFM table: header row + delimiter row, then every row that still parses.
+    const table = readTable(lines, i);
+    if (table) {
+      blocks.push(<TableBlock key={nextKey()} table={table} />);
+      i = table.end;
       continue;
     }
 
@@ -135,13 +273,16 @@ export function MarkdownText({ text }: { text: string }) {
       continue;
     }
 
+    // A delimiter row with no matching header is a table artifact, not prose.
+    if (isDelimiterOnly(line)) { i += 1; continue; }
+
     // Bullet list (consecutive items)
     const bullet = BULLET.exec(line);
     if (bullet) {
       const items: string[] = [];
       while (i < lines.length) {
         const b = BULLET.exec(lines[i]);
-        if (!b) break;
+        if (!b || isDelimiterOnly(lines[i])) break;
         items.push(b[1]);
         i += 1;
       }
@@ -171,7 +312,8 @@ export function MarkdownText({ text }: { text: string }) {
     while (
       i < lines.length && lines[i].trim() !== "" &&
       !/^\s*```/.test(lines[i]) && !HEADING.test(lines[i]) && !HORIZONTAL_RULE.test(lines[i]) &&
-      !QUOTE.test(lines[i]) && !BULLET.test(lines[i]) && !ORDERED.test(lines[i])
+      !QUOTE.test(lines[i]) && !BULLET.test(lines[i]) && !ORDERED.test(lines[i]) &&
+      !isDelimiterOnly(lines[i])
     ) { para.push(lines[i]); i += 1; }
     blocks.push(<p key={nextKey()} className="whitespace-normal">{renderParagraphLines(para, `p${key}`)}</p>);
   }

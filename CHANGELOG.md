@@ -1,3 +1,10 @@
+2026-11-21 - fix(chat): double the working ember again
+
+The 30px ember still read small at a glance. Every indicator (typing row,
+thinking line, tool-group headline, step rows, live activity card) now draws at
+60px, painting a ~40px blob - twice the previous one and four times the 10px
+status label beside it.
+
 2026-11-21 - fix(chat): size the working ember against its status label
 
 The enlarged ember was still smaller than the "Nova"/"WORKING NOW" text beside

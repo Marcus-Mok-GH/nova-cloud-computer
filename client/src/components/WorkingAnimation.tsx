@@ -107,7 +107,7 @@ export function drawWorkingBlob(
  * still frame.
  */
 export function WorkingAnimation({
-  size = 30,
+  size = 60,
   className,
 }: {
   size?: number;
@@ -125,7 +125,7 @@ export function WorkingAnimation({
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
     ctx.scale(dpr, dpr);
-    const amplitude = size < 40 ? 1.8 : 1;
+    const amplitude = size < 76 ? 1.8 : 1;
     const reduced =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -463,6 +463,13 @@
       "when": 1794800000000,
       "tag": "0065_image_generation_quotas",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795285000000,
+      "tag": "0066_swap_gemini_3_8_flash",
+      "breakpoints": true
     }
   ]
 }

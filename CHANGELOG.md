@@ -1,3 +1,10 @@
+2026-11-21 - chore(models): replace Gemini 4 Carbon with Gemini 3.8 Flash
+
+The Coarena Gemini slot now serves `gemini-3-8-flash` (label "Gemini 3.8
+Flash") instead of `gemini-4-carbon`. Routing, the max-effort mapping and the
+catalogue entry move together, and a migration repoints existing chats that had
+Carbon selected.
+
 2026-11-21 - fix(chat): double the working ember again
 
 The 30px ember still read small at a glance. Every indicator (typing row,

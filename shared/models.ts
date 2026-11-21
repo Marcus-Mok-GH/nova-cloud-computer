@@ -78,11 +78,11 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     efforts: NOVA_EFFORTS,
   },
   {
-    id: "gemini-4-carbon",
-    label: "Gemini 4 Carbon",
-    description: "Google's Gemini 4 Carbon - newest flagship, long context and multimodal.",
+    id: "gemini-3-8-flash",
+    label: "Gemini 3.8 Flash",
+    description: "Google's Gemini 3.8 Flash - fast flagship-class answers with long context.",
     tier: "pro",
-    upstreamModel: "gemini-4-carbon",
+    upstreamModel: "gemini-3-8-flash",
     efforts: NOVA_EFFORTS,
   },
   {

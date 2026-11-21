@@ -220,6 +220,24 @@ describe("DashboardLayout one-shot country prompt", () => {
   });
 });
 
+describe("DashboardLayout sidebar profile", () => {
+  it("puts a profile entry at the bottom of both menus", () => {
+    mockUser = { name: "Test", email: "t@t.com" };
+    mockPath = "/app";
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    // mobile drawer + desktop rail
+    expect((html.match(/aria-label="Profile"/g) || []).length).toBe(2);
+    expect(html).toContain("t@t.com");
+  });
+
+  it("falls back to the display name when no username is set", () => {
+    mockUser = { name: "Test Person", email: "t@t.com" };
+    mockPath = "/app/chats";
+    const html = renderToStaticMarkup(<DashboardLayout><div>content</div></DashboardLayout>);
+    expect(html).toContain("Test Person");
+  });
+});
+
 describe("DashboardLayout operator navigation", () => {
   it("shows an always-visible Notifications entry with a count badge for admins", () => {
     mockUser = { name: "Owner", email: "owner@example.com", role: "admin" };

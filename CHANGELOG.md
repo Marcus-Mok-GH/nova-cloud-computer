@@ -1,3 +1,10 @@
+2026-11-21 - fix(chat): size the working ember against its status label
+
+The enlarged ember was still smaller than the "Nova"/"WORKING NOW" text beside
+it. The animation now draws at 30px, whose painted body measures ~20px - twice
+the 10px label - across the typing row, thinking line, tool-group headline,
+step rows and live activity card.
+
 2026-11-21 - fix(chat): make the working ember large enough to notice
 
 The branded working blob was only 12-14 CSS px, so it read as a tiny dot next

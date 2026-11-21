@@ -73,4 +73,51 @@ describe("MarkdownText", () => {
     const html = render("line one\nline two");
     expect(html).toContain("<br/>");
   });
+
+  it("renders a GFM table with a header row and body cells", () => {
+    const html = render("| Plan | Price |\n| --- | --- |\n| Free | $0 |\n| Pro | $10 |");
+    expect(html).toContain("<table");
+    expect(html).toContain("<thead>");
+    expect(html).toContain("<tbody>");
+    expect(html).toContain(">Plan</th>");
+    expect(html).toContain(">Pro</td>");
+    expect(html).toContain("$10");
+  });
+
+  it("applies delimiter alignment to header and body cells", () => {
+    const html = render("| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |");
+    expect(html).toContain("text-start");
+    expect(html).toContain("text-center");
+    expect(html).toContain("text-end");
+  });
+
+  it("keeps escaped pipes inside a cell", () => {
+    const html = render("| Command |\n| --- |\n| echo \\| pipe |");
+    expect(html).toContain("echo | pipe");
+    expect(html).not.toContain("echo \\");
+  });
+
+  it("renders a table without leading or trailing pipes", () => {
+    const html = render("Name | Note\n--- | ---\nNova | works");
+    expect(html).toContain("<table");
+    expect(html).toContain(">Nova</td>");
+  });
+
+  it("leaves pipe-heavy prose alone when the delimiter row is missing", () => {
+    const html = render("a | b\njust another line");
+    expect(html).not.toContain("<table");
+    expect(html).toContain("a | b");
+  });
+
+  it("does not treat a mismatched delimiter row as a table", () => {
+    const html = render("| A | B |\n| --- |\n| value |");
+    expect(html).not.toContain("<table");
+    expect(html).toContain("| A | B |");
+  });
+
+  it("keeps rendering a table while it streams (header + delimiter only)", () => {
+    const html = render("| Plan | Price |\n| --- | --- |");
+    expect(html).toContain("<table");
+    expect(html).toContain(">Plan</th>");
+  });
 });

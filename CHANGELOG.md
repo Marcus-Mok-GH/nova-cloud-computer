@@ -1,3 +1,13 @@
+2026-11-21 - feat(chat): render markdown tables in AI messages
+
+The chat's markdown renderer covered bold, lists, quotes, code and links but
+not GFM tables, so any table an answer produced collapsed into a paragraph of
+pipe-separated text. `MarkdownText` now reads a header row plus delimiter row
+into a real table: bordered, theme-aware, horizontally scrollable on narrow
+screens, with `:---` / `---:` / `:-:` column alignment and escaped pipes kept
+inside their cell. Tables stream safely too - a header that has arrived without
+its rows yet still renders.
+
 2026-11-21 - fix(chat): show the branded working blob in every running tool row
 
 The Nova-branded working animation had only replaced the dashed spinner in

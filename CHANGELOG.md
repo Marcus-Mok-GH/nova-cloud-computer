@@ -1,3 +1,18 @@
+2026-11-21 - feat(support): add a Buy Me a Coffee card
+
+Donations feed the next round of larger models, so the app now carries a
+dismissible "Buy us a coffee" card on Chats and Billing. It links to
+https://buymeacoffee.com/NovaLabsOfficial in a new tab (env-overridable via
+VITE_BUY_ME_A_COFFEE_URL, https only), remembers dismissal per browser, and
+names the models the fund targets.
+
+2026-11-21 - feat(layout): add a profile entry to the sidebar
+
+The left menu ended at the collapse chevron with no account affordance. Both
+the desktop rail and the mobile drawer now end with an avatar + username/email
+entry that opens the profile page; the nav list scrolls inside the rail so the
+bottom block never gets pushed off screen.
+
 2026-11-21 - chore(models): replace Gemini 4 Carbon with Gemini 3.8 Flash
 
 The Coarena Gemini slot now serves `gemini-3-8-flash` (label "Gemini 3.8

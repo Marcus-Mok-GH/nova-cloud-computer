@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { ChevronRight, MessageSquareText, Sparkles, Trash2 } from "lucide-react";
 import NewChatButton from "@/components/NewChatButton";
+import SupportCard from "@/components/SupportCard";
 import { toast } from "sonner";
 import { getNeonAccessToken } from "@/lib/neonAuth";
 import { useAwayChats } from "@/lib/awayChats";
@@ -43,6 +44,7 @@ export default function Chats() {
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight">Chats</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground dark:text-muted-foreground">Every conversation stays with the private computer it helps you shape.</p>
         </div>
+        <SupportCard className="mt-6" />
         <div className="mt-8 space-y-2">
           {chats.data?.length ? chats.data.map(chat => (
             <div key={chat.id} className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_8px_24px_rgba(10,10,10,0.07)] dark:border-white/10 dark:bg-card dark:hover:border-white/20">

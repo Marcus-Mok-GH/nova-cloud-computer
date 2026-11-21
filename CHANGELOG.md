@@ -1,3 +1,13 @@
+2026-11-21 - fix(chat): show the branded working blob in every running tool row
+
+The Nova-branded working animation had only replaced the dashed spinner in
+the thinking panel and the live activity card, so the most visible working
+indicator while an agent runs - the "Working now - ..." headline over a tool
+group, and each running step inside it - still fell back to a plain dashed
+ring. Running tool groups and running tool lines now carry the same
+`WorkingAnimation` as the rest of the chat, so the branded breath blob shows
+throughout a run instead of only in a couple of corners.
+
 2026-11-20 - fix(security): keep saved workspace environment variable values out of the browser
 
 `workspace.environmentVars` decrypted every stored variable and the settings

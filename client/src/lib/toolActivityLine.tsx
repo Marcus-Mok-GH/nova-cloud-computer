@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
-  CircleDashed,
   TriangleAlert,
   XCircle,
 } from "lucide-react";
@@ -620,17 +619,11 @@ export function toolLineText(activity: ToolActivity): string {
 
 export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
   const StatusIcon =
-    activity.state === "completed"
-      ? CheckCircle2
-      : activity.state === "failed"
-        ? XCircle
-        : CircleDashed;
+    activity.state === "completed" ? CheckCircle2 : XCircle;
   const stateClass =
     activity.state === "completed"
       ? "text-emerald-600 dark:text-emerald-400"
-      : activity.state === "failed"
-        ? "text-red-600 dark:text-red-400"
-        : "text-amber-600 dark:text-amber-400";
+      : "text-red-600 dark:text-red-400";
   // A tool that is still running is the one thing worth reading at a glance
   // while Nova works, so it gets the same bright text as an actual reply
   // instead of the muted tone settled (completed/failed) rows keep.
@@ -659,9 +652,13 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
       className={`flex min-w-0 flex-col px-1 text-[13px] font-medium leading-5 ${textClass}`}
     >
       <span className="flex min-w-0 items-center gap-1.5">
-        <StatusIcon
-          className={`size-3.5 shrink-0 ${stateClass}`}
-        />
+        {activity.state === "running" ? (
+          <WorkingAnimation size={12} />
+        ) : (
+          <StatusIcon
+            className={`size-3.5 shrink-0 ${stateClass}`}
+          />
+        )}
         {ownerBadge}
         <span className="min-w-0 truncate">
           {line}
@@ -1398,18 +1395,14 @@ export function ToolRunGroup({
     activities.some(activity => activity.state === "running")
   );
   const summary = summarizeActivities(activities);
+  const running = summary.running > 0;
   const StatusIcon =
-    summary.running > 0
-      ? CircleDashed
-      : summary.failed > 0
-        ? TriangleAlert
-        : CheckCircle2;
-  const iconClass =
-    summary.running > 0
-      ? "text-amber-600 dark:text-amber-400"
-      : summary.failed > 0
-        ? "text-red-600 dark:text-red-400"
-        : "text-emerald-600 dark:text-emerald-400";
+    summary.failed > 0 && !running ? TriangleAlert : CheckCircle2;
+  const iconClass = running
+    ? "text-amber-600 dark:text-amber-400"
+    : summary.failed > 0
+      ? "text-red-600 dark:text-red-400"
+      : "text-emerald-600 dark:text-emerald-400";
   return (
     <div data-testid="tool-run-group" className="flex w-full min-w-0 flex-col">
       <button
@@ -1418,7 +1411,11 @@ export function ToolRunGroup({
         aria-expanded={open}
         className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.08] bg-card/40 px-3 py-2 text-start transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.03]"
       >
-        <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
+        {running ? (
+          <WorkingAnimation size={12} />
+        ) : (
+          <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
+        )}
         {ownerBadge}
         <span
           data-testid="tool-run-group-summary"

@@ -1,3 +1,11 @@
+2026-11-21 - feat(settings): reassure users their environment variables are account-private
+
+The Environment settings card explained the deploy-by-name flow but never said
+who owns the stored secrets. Its copy now states that variables are saved
+against the account only - encrypted at rest, never sent to the browser, and
+readable or changeable by nobody else - with a short privacy note under the
+save row, so the guarantee is visible at the point of saving.
+
 2026-11-21 - feat(chat): render markdown tables in AI messages
 
 The chat's markdown renderer covered bold, lists, quotes, code and links but

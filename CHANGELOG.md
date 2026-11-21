@@ -1,3 +1,10 @@
+2026-11-21 - fix(chat): make the working ember large enough to notice
+
+The branded working blob was only 12-14 CSS px, so it read as a tiny dot next
+to the status text and was easy to miss in normal use. The animation now draws
+at 20 px for inline rows and tool groups and 22 px for the live activity card,
+and keeps its exaggerated micro-motion up to 32 px.
+
 2026-11-21 - feat(settings): reassure users their environment variables are account-private
 
 The Environment settings card explained the deploy-by-name flow but never said

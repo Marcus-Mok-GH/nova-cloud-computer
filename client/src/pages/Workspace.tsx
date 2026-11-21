@@ -824,7 +824,7 @@ export default function Workspace() {
                       </span>
                       <div className="min-w-0 max-w-[calc(100%-2.75rem)]">
                         <div className="mb-2 flex items-center gap-2">
-                          <WorkingAnimation size={12} />
+                          <WorkingAnimation size={20} />
                           {typingLabel && (
                             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                               Nova

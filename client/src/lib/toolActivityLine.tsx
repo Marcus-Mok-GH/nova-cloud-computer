@@ -514,6 +514,8 @@ export function toolLineText(activity: ToolActivity): string {
       return "Edit Plan";
     case "start_planning":
       return "Start Planning";
+    case "start_build":
+      return "Start Building";
     case "rename_file":
       return `Rename File ${file} → ${newName}`.trim();
     case "move_file":

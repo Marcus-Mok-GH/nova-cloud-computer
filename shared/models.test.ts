@@ -24,6 +24,12 @@ describe("shared model catalogue - effort options", () => {
     expect(ultra.upstreamModel).toBe("minimax/minimax-m3.1-flash");
   });
 
+  it("pins Nova Lite to its own Pollinations model", () => {
+    const lite = getChatModelById(FREE_CHAT_MODEL_ID)!;
+    expect(lite.tier).toBe("free");
+    expect(lite.upstreamModel).toBe("community/scriptsnsenses-sys/gpt-6-luna:free");
+  });
+
   it("offers every effort mode on every model", () => {
     const models = getChatModels();
     for (const model of models) {

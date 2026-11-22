@@ -1,14 +1,16 @@
 /** Nova's thinking specialist delegate.
  *
- * The heavy lifting is done by a frontier reasoning model served through
- * NVIDIA NIM (https://build.nvidia.com). The calling agent - Nova's main
- * model - is a fast supervisor that routes and verifies; when a problem
- * needs sustained reasoning rather than lookup or computation (a design or
- * strategy decision, a multi-step plan, a subtle trade-off, or a review of
- * its own reasoning), it delegates the question here. The thinker returns a
- * long, detailed account of what it found: the reasoning, the trade-offs,
- * the risks, and what is verified versus inferred. It reasons only - it has
- * no tools and never acts on the workspace. */
+ * The heavy lifting is done by a reasoning model served through Pollinations'
+ * unified API (https://gen.pollinations.ai) - an OpenAI-compatible endpoint,
+ * so the shared specialist transport below is used with the thinker's own
+ * base URL, credential and model id (see `resolveThinkerConfig`). The calling
+ * agent - Nova's main model - is a fast supervisor that routes and verifies;
+ * when a problem needs sustained reasoning rather than lookup or computation
+ * (a design or strategy decision, a multi-step plan, a subtle trade-off, or a
+ * review of its own reasoning), it delegates the question here. The thinker
+ * returns a long, detailed account of what it found: the reasoning, the
+ * trade-offs, the risks, and what is verified versus inferred. It reasons
+ * only - it has no tools and never acts on the workspace. */
 
 import { ENV } from "./_core/env";
 import { isNimConfigured, NimConfigError, runNimChat } from "./nim";
@@ -30,7 +32,7 @@ Output:
 export type ThinkerResult = {
   /** The specialist's complete analysis: findings, reasoning and conclusions. */
   analysis: string;
-  /** The NIM model ID that produced the analysis. */
+  /** The model ID that produced the analysis. */
   model: string;
 };
 
@@ -41,8 +43,8 @@ export type ThinkerResult = {
  *   completely, including what a good answer needs to resolve.
  * @param context Optional supporting material - the code, data, constraints,
  *   prior reasoning or conversation state the question depends on.
- * Rejects when the task is empty or NVIDIA NIM is not configured (the
- * operator must set NVIDIA_NIM_API_KEY).
+ * Rejects when the task is empty or the thinker's provider is not configured
+ * (the operator must set POLLINATIONS_API_KEY).
  */
 export async function runThinkerTask(
   question: string,
@@ -50,7 +52,7 @@ export async function runThinkerTask(
 ): Promise<ThinkerResult> {
   const trimmed = question.trim();
   if (!trimmed) throw new Error("A thinking task is required.");
-  if (!isNimConfigured()) {
+  if (!isNimConfigured(ENV.thinkerApiKey)) {
     throw new NimConfigError(
       "The thinker sub-agent is not configured on this workspace - the workspace owner must finish setting it up."
     );
@@ -62,7 +64,9 @@ export async function runThinkerTask(
   const analysis = await runNimChat({
     prompt: parts.join("\n\n"),
     systemPrompt: THINKER_SYSTEM_PROMPT,
-    model: ENV.nimThinkerModel,
+    model: ENV.thinkerModel,
+    apiUrl: ENV.thinkerApiUrl,
+    apiKey: ENV.thinkerApiKey,
   });
-  return { analysis: analysis.trim(), model: ENV.nimThinkerModel };
+  return { analysis: analysis.trim(), model: ENV.thinkerModel };
 }

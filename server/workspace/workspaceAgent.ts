@@ -84,6 +84,7 @@ import {
 } from "../ultraplan";
 import {
   AGENT_MODE_MESSAGE_PREFIX,
+  START_BUILD_TOOL,
   START_PLANNING_TOOL,
   type AgentMode,
   buildBuildModeInstruction,
@@ -136,7 +137,7 @@ export type {
   WorkspaceToolActivity,
 } from "./workspaceAgentTypes";
 export { SPECIALIST_ACCEPTANCE_MESSAGE_PREFIX } from "./workspaceAgentTypes";
-export { AGENT_MODE_MESSAGE_PREFIX, START_PLANNING_TOOL } from "../agentMode";
+export { AGENT_MODE_MESSAGE_PREFIX, START_BUILD_TOOL, START_PLANNING_TOOL } from "../agentMode";
 
 
 /** Identity + team context for one personal-agent run. */
@@ -720,7 +721,8 @@ ${
     // filter allowed, minus the plan-writing tools and the chat transition tool.
     const buildTools = allTools.filter(tool => {
       const { name } = tool.function;
-      if (isPlanTool(name) || name === START_PLANNING_TOOL) return false;
+      if (isPlanTool(name) || name === START_PLANNING_TOOL || name === START_BUILD_TOOL)
+        return false;
       // Ending a chase only means something while one is running; an ordinary
       // run must not be able to report a goal it is not chasing.
       if (name === REPORT_GOAL_TOOL && !goalRun) return false;
@@ -1498,6 +1500,54 @@ ${
             role: "tool",
             tool_call_id: call.id,
             content: `${START_PLANNING_TOOL} is only available in chat mode.`,
+          });
+          continue;
+        }
+        // The chat-mode model decides a request is small and unambiguous, so it
+        // skips planning and builds now. Also a local control call: it records
+        // the task, flips the rest of this run into build mode with the full
+        // toolkit, and tells the model to get on with the work.
+        if (call.name === START_BUILD_TOOL) {
+          let buildTask = "";
+          try {
+            const parsed = JSON.parse(call.arguments || "{}") as {
+              task?: unknown;
+            };
+            if (typeof parsed?.task === "string") buildTask = parsed.task.trim();
+          } catch {
+            // Malformed arguments fall back to the conversation's request; the
+            // build instruction then works from the thread.
+          }
+          if (modesEnabled && agentMode === "chat") {
+            agentMode = "build";
+            agentTools = toolsForMode();
+            await recordAgentMode(ownerId, chatId, "build");
+            await emitTool({
+              id: call.id,
+              name: call.name,
+              state: "completed",
+              args: { arguments: call.arguments.slice(0, 500) },
+              summary:
+                "Skipping planning and building right away.",
+            });
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content:
+                "Build mode is now active. Carry out the task end-to-end with the full toolkit and verify the work before you finish.",
+            });
+            if (buildTask) {
+              messages.push({
+                role: "user",
+                content: `[BUILD mode]\nThe user's request is small enough that planning was skipped. Do this now, end-to-end, using the full toolkit: ${buildTask}`,
+              });
+            }
+            continue;
+          }
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: `${START_BUILD_TOOL} is only available in chat mode.`,
           });
           continue;
         }

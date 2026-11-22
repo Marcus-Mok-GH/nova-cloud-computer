@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveCoderConfig, resolveNeonAuthVerificationConfig, resolveNeonAuthVerificationConfigList, resolveNimApiKey, resolvePublicBaseUrl, resolveTranscriptionConfig } from "./env";
+import { resolveCoderConfig, resolveNeonAuthVerificationConfig, resolveNeonAuthVerificationConfigList, resolveNimApiKey, resolvePublicBaseUrl, resolveThinkerConfig, resolveTranscriptionConfig } from "./env";
 
 describe("resolveNeonAuthVerificationConfig", () => {
   const baseUrl = "https://ep-wispy-salad-au8m5tie.neonauth.c-10.us-east-1.aws.neon.tech/neondb/auth";
@@ -371,5 +371,47 @@ describe("resolveNeonAuthVerificationConfigList", () => {
         c => c.baseUrl
       )
     ).toEqual([PRIMARY, BACKUP, SECOND]);
+  });
+});
+
+describe("resolveThinkerConfig", () => {
+  const names = ["THINKER_API_URL", "THINKER_API_KEY", "THINKER_MODEL", "POLLINATIONS_API_KEY"] as const;
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]])) as Record<string, string | undefined>;
+
+  beforeEach(() => {
+    for (const name of names) delete process.env[name];
+  });
+
+  afterEach(() => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  it("defaults to Pollinations' unified API with the community reasoning model", () => {
+    process.env.POLLINATIONS_API_KEY = "sk-poll";
+    expect(resolveThinkerConfig()).toEqual({
+      thinkerApiUrl: "https://gen.pollinations.ai/v1",
+      thinkerApiKey: "sk-poll",
+      thinkerModel: "community/morriszdweck/glm-5.3-flash-free",
+    });
+  });
+
+  it("honors the dedicated endpoint, key and model overrides", () => {
+    process.env.THINKER_API_URL = "https://thinker.example.com/v1/";
+    process.env.THINKER_API_KEY = "sk-thinker";
+    process.env.THINKER_MODEL = "custom-reasoner";
+    expect(resolveThinkerConfig()).toEqual({
+      thinkerApiUrl: "https://thinker.example.com/v1",
+      thinkerApiKey: "sk-thinker",
+      thinkerModel: "custom-reasoner",
+    });
+  });
+
+  it("sends no credential to a non-Pollinations endpoint unless one is named", () => {
+    process.env.THINKER_API_URL = "https://thinker.example.com/v1";
+    process.env.POLLINATIONS_API_KEY = "sk-poll";
+    expect(resolveThinkerConfig().thinkerApiKey).toBe("");
   });
 });

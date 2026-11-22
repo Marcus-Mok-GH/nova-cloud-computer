@@ -5,8 +5,8 @@
  * subscription (see server/db/credits.ts).
  *
  * `upstreamModel` is the model id requested from the AI gateway. When it is
- * undefined the gateway's own primary → fallback chain runs, which is exactly
- * what `nova-pro` is. Premium ids default to the latest models below and can
+ * undefined the gateway's own primary → fallback chain runs. Premium ids
+ * default to the latest models below and can
  * be replaced wholesale with the NOVA_CHAT_MODELS_JSON env var (same shape as
  * `DEFAULT_CHAT_MODELS`), so a deployment can match its gateway's catalogue
  * without a code change.
@@ -59,6 +59,9 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     label: "Nova Lite",
     description: "Nova's built-in model - fast, free for everyone.",
     tier: "free",
+    // The free tier pins its own Pollinations model id; the gateway still
+    // keeps its primary -> fallback chain behind it as the safety net.
+    upstreamModel: "community/scriptsnsenses-sys/gpt-6-luna:free",
     efforts: NOVA_EFFORTS,
   },
   {

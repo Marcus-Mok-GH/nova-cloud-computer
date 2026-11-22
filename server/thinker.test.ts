@@ -2,13 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runThinkerTask } from "./thinker";
 
 const state = vi.hoisted(() => ({
-  nimModel: "moonshotai/kimi-k3",
+  model: "community/morriszdweck/glm-5.3-flash-free",
+  apiUrl: "https://gen.pollinations.ai/v1",
+  apiKey: "sk-poll",
   configured: true,
 }));
 vi.mock("./_core/env", () => ({
   ENV: {
-    get nimThinkerModel() {
-      return state.nimModel;
+    get thinkerModel() {
+      return state.model;
+    },
+    get thinkerApiUrl() {
+      return state.apiUrl;
+    },
+    get thinkerApiKey() {
+      return state.apiKey;
     },
   },
 }));
@@ -25,7 +33,9 @@ vi.mock("./nim", () => {
 
 beforeEach(() => {
   runNimChatMock.mockReset();
-  state.nimModel = "moonshotai/kimi-k3";
+  state.model = "community/morriszdweck/glm-5.3-flash-free";
+  state.apiUrl = "https://gen.pollinations.ai/v1";
+  state.apiKey = "sk-poll";
   state.configured = true;
 });
 
@@ -43,7 +53,7 @@ describe("runThinkerTask", () => {
     expect(result.analysis).toBe(
       "Restated: should we cache?\n\n## Findings\n\nYes, with a short TTL."
     );
-    expect(result.model).toBe("moonshotai/kimi-k3");
+    expect(result.model).toBe("community/morriszdweck/glm-5.3-flash-free");
     const [options] = runNimChatMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Nova's thinking specialist");
     expect(options.prompt).toBe(
@@ -52,8 +62,10 @@ describe("runThinkerTask", () => {
         "Context and material:\n\nThe service does 500 rps and the data changes hourly.",
       ].join("\n\n")
     );
-    // It runs on the dedicated thinker model, not the coder default.
-    expect(options.model).toBe("moonshotai/kimi-k3");
+    // It runs on the configured thinker endpoint and model.
+    expect(options.model).toBe("community/morriszdweck/glm-5.3-flash-free");
+    expect(options.apiUrl).toBe("https://gen.pollinations.ai/v1");
+    expect(options.apiKey).toBe("sk-poll");
   });
 
   it("omits the context block when only the question is provided", async () => {

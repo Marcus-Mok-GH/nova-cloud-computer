@@ -537,9 +537,45 @@ function defaultBranchOf(data: unknown): string | null {
 }
 
 /**
- * Resolves a downloadable tarball URL for a repository through the connected
- * GitHub account. The archive action's parameter name for the git reference is
- * not stable across Composio catalog versions (`ref` vs `git_ref`), so both are
+ * Direct GitHub transport used when a server-side access token is configured
+ * (`gh auth token`, stored as GITHUB_ACCESS_TOKEN). The token stays on the
+ * server; the archive is fetched from codeload, which accepts it for private
+ * repositories.
+ */
+async function directRepositoryArchive(
+  owner: string,
+  repo: string,
+  refInput: string | undefined,
+  fetchImpl: typeof fetch
+): Promise<{ url: string; ref: string }> {
+  const headers: Record<string, string> = ENV.githubAccessToken
+    ? { authorization: `Bearer ${ENV.githubAccessToken}` }
+    : {};
+  let ref = refInput ?? "";
+  if (!ref) {
+    const response = await fetchImpl(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+    if (!response.ok)
+      throw new ComposioApiError(
+        `GitHub could not read ${owner}/${repo} (status ${response.status}).`,
+        400
+      );
+    const payload = (await response.json().catch(() => null)) as { default_branch?: unknown } | null;
+    ref = typeof payload?.default_branch === "string" && payload.default_branch.trim()
+      ? payload.default_branch.trim()
+      : "main";
+  }
+  return {
+    url: `https://codeload.github.com/${owner}/${repo}/tar.gz/${encodeURIComponent(ref)}`,
+    ref,
+  };
+}
+
+/**
+ * Resolves a downloadable tarball URL for a repository. Preferred path is the
+ * connected Composio account; a configured GITHUB_ACCESS_TOKEN (for example
+ * from `gh auth token`) is the fallback so cloning works without the OAuth
+ * connection. The archive action's parameter name for the git reference is not
+ * stable across Composio catalog versions (`ref` vs `git_ref`), so both are
  * tried; without an explicit ref the default branch is used and the ref is
  * omitted when the provider does not need it.
  */
@@ -548,48 +584,70 @@ export async function requestGithubRepositoryArchive(
   input: { repo: string; ref?: string },
   fetchImpl: typeof fetch = fetch
 ): Promise<{ url: string; ref: string }> {
-  await requireComposioConnection(ownerId, "github", fetchImpl);
   const { owner, repo } = repositoryParts({ repo: input.repo });
+  const refInput = input.ref?.trim() || undefined;
 
-  let ref = input.ref?.trim() ?? "";
-  if (!ref) {
-    const meta = await executeComposioTool(
-      ownerId,
-      "github",
-      "GITHUB_GET_A_REPOSITORY",
-      { owner, repo },
-      fetchImpl
+  let composioUsable = false;
+  if (isComposioConfigured()) {
+    try {
+      await requireComposioConnection(ownerId, "github", fetchImpl);
+      composioUsable = true;
+    } catch (error) {
+      if (!ENV.githubAccessToken) throw error;
+    }
+  }
+  if (!composioUsable && !ENV.githubAccessToken)
+    throw new ComposioApiError(
+      "GitHub is not connected yet. Connect GitHub in Settings, or set GITHUB_ACCESS_TOKEN on the server.",
+      428
     );
-    if (!meta.ok)
+
+  if (composioUsable) {
+    try {
+      let ref = refInput ?? "";
+      if (!ref) {
+        const meta = await executeComposioTool(
+          ownerId,
+          "github",
+          "GITHUB_GET_A_REPOSITORY",
+          { owner, repo },
+          fetchImpl
+        );
+        if (!meta.ok)
+          throw new ComposioApiError(
+            `GitHub could not read ${owner}/${repo}: ${meta.error ?? "unknown error"}`,
+            400
+          );
+        const branch = defaultBranchOf(meta.data);
+        ref = branch ?? "main";
+      }
+
+      const attempts: Array<Record<string, unknown>> = [{ owner, repo, ref }];
+      if (refInput) attempts.push({ owner, repo, git_ref: ref });
+      else attempts.push({ owner, repo });
+
+      let lastError = "no download URL was returned.";
+      for (const args of attempts) {
+        const result = await executeComposioTool(
+          ownerId,
+          "github",
+          "GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR",
+          args,
+          fetchImpl
+        );
+        const url = findUrl(result.data);
+        if (result.ok && url) return { url, ref };
+        lastError = result.error ?? lastError;
+      }
       throw new ComposioApiError(
-        `GitHub could not read ${owner}/${repo}: ${meta.error ?? "unknown error"}`,
-        400
+        `GitHub would not hand back a download link for ${owner}/${repo} (${lastError}).`,
+        502
       );
-    const branch = defaultBranchOf(meta.data);
-    ref = branch ?? "main";
+    } catch (error) {
+      if (!ENV.githubAccessToken) throw error;
+    }
   }
-
-  const attempts: Array<Record<string, unknown>> = [{ owner, repo, ref }];
-  if (input.ref?.trim()) attempts.push({ owner, repo, git_ref: ref });
-  else attempts.push({ owner, repo });
-
-  let lastError = "no download URL was returned.";
-  for (const args of attempts) {
-    const result = await executeComposioTool(
-      ownerId,
-      "github",
-      "GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR",
-      args,
-      fetchImpl
-    );
-    const url = findUrl(result.data);
-    if (result.ok && url) return { url, ref };
-    lastError = result.error ?? lastError;
-  }
-  throw new ComposioApiError(
-    `GitHub would not hand back a download link for ${owner}/${repo} (${lastError}).`,
-    502
-  );
+  return directRepositoryArchive(owner, repo, refInput, fetchImpl);
 }
 
 /** Throws a clear ComposioApiError when the toolkit is not usable for this user. */

@@ -5,6 +5,9 @@ vi.mock("./_core/env", () => ({
     get composioApiKey() {
       return process.env.COMPOSIO_API_KEY ?? "";
     },
+    get githubAccessToken() {
+      return process.env.GITHUB_ACCESS_TOKEN ?? "";
+    },
     composioApiUrl: "https://backend.composio.dev",
   },
 }));
@@ -487,6 +490,36 @@ describe("requestGithubRepositoryArchive", () => {
       { owner: "octocat", repo: "Hello-World", ref: "v1" },
       { owner: "octocat", repo: "Hello-World", git_ref: "v1" },
     ]);
+  });
+
+  it("falls back to a server access token when GitHub is not connected", async () => {
+    process.env.GITHUB_ACCESS_TOKEN = "gh-token";
+    try {
+      const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url).includes("/connected_accounts?"))
+          return composioResponse({ items: [] }); // not connected
+        if (String(url).includes("api.github.com/repos/octocat/Hello-World"))
+          return new Response(JSON.stringify({ default_branch: "develop" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        throw new Error(`unexpected fetch: ${String(url)}`);
+      });
+
+      await expect(requestGithubRepositoryArchive(12, { repo: "octocat/Hello-World" }, fetchImpl))
+        .resolves.toEqual({
+          url: "https://codeload.github.com/octocat/Hello-World/tar.gz/develop",
+          ref: "develop",
+        });
+      const metaCall = fetchImpl.mock.calls.find(call =>
+        String(call[0]).includes("api.github.com/repos/octocat/Hello-World")
+      );
+      expect(metaCall?.[1]).toEqual(expect.objectContaining({
+        headers: { authorization: "Bearer gh-token" },
+      }));
+    } finally {
+      delete process.env.GITHUB_ACCESS_TOKEN;
+    }
   });
 
   it("fails clearly when no download URL comes back", async () => {

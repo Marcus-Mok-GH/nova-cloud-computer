@@ -267,6 +267,13 @@ export const ENV = {
   ...resolveThinkerConfig(),
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
+  /**
+   * Optional server-side GitHub access token (for example the output of
+   * `gh auth token`). When it is set, the github connector's clone operation
+   * can talk to GitHub directly and does not need a Composio OAuth connection;
+   * the token stays on the server and never reaches the browser or sandbox.
+   */
+  githubAccessToken: process.env.GITHUB_ACCESS_TOKEN ?? process.env.GITHUB_TOKEN ?? "",
   /** Whop webhook signing secret (`whsec_...`). Empty disables the Whop webhook endpoint. */
   whopWebhookSecret: process.env.WHOP_WEBHOOK_SECRET ?? "",
   /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */

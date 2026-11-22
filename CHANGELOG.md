@@ -1,3 +1,13 @@
+2026-11-22 - fix(chat): surface replies that land between transcript polls
+
+A turn admitted to the peak-hours queue ends its stream immediately and has no
+live run row, so when a status poll missed the short run, nothing re-read the
+ledger: the chat looked idle while the reply was already saved, and only a
+manual refresh showed it. The transcript and run-status polls now stay on their
+fast cadence while a queue notice is up, a run transitioning active -> idle
+invalidates the transcript, the transcript refetches on window focus, and the
+stream's settle path does one delayed reconcile read a few seconds later.
+
 2026-11-22 - feat(chat): let the model choose plan-first or build-now
 
 The first message in a conversation no longer always routes through plan

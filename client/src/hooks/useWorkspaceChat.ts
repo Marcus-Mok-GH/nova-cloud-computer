@@ -24,6 +24,7 @@ import {
   type ChatFileUpload,
 } from "@/lib/fileAttachments";
 import { consumeChatAway, markChatAway } from "@/lib/awayChats";
+import { messagesIntervalMs, runStatusIntervalMs } from "@/lib/chatPolling";
 import { stopAllSpeech } from "@/lib/speech";
 import {
   appendLiveTextDelta,
@@ -258,7 +259,15 @@ export function useWorkspaceChat({
       retry: false,
       refetchOnWindowFocus: true,
       refetchInterval: query =>
-        Boolean(chatId) ? (query.state.data?.active ? 3_000 : 30_000) : false,
+        Boolean(chatId)
+          ? runStatusIntervalMs({
+              active: Boolean(query.state.data?.active),
+              // A queued turn has no live run row yet; keep polling fast while
+              // its notice is up, or the worker can finish between slow polls
+              // and the reply waits for a manual refresh.
+              queued: Boolean(queueNotice),
+            })
+          : false,
       refetchIntervalInBackground: false,
     }
   );
@@ -272,11 +281,16 @@ export function useWorkspaceChat({
     {
       enabled: Boolean(chatId),
       retry: false,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
       refetchInterval: Boolean(chatId)
-        ? Boolean(runStatus.data?.active) || isStreaming
-          ? 5_000
-          : 30_000
+        ? messagesIntervalMs({
+            active: Boolean(runStatus.data?.active),
+            streaming: isStreaming,
+            // A queued turn persists in the ledger poll until its run is seen,
+            // so the reply is picked up within seconds instead of waiting out
+            // the idle cadence.
+            queued: Boolean(queueNotice),
+          })
         : false,
       refetchIntervalInBackground: false,
     }
@@ -287,6 +301,19 @@ export function useWorkspaceChat({
   useEffect(() => {
     if (runStatus.data?.active) setQueueNotice(null);
   }, [runStatus.data?.active]);
+  // A run the poller watched end-to-end: when it flips to idle, pull the
+  // transcript once more. The stream's settle path already does this for turns
+  // this browser streamed; a queued turn (or work started from another
+  // channel) has no such path, so without this its reply can sit unseen until
+  // the slow idle poll - or a manual refresh.
+  const previouslyActiveRunRef = useRef(false);
+  useEffect(() => {
+    const active = Boolean(runStatus.data?.active);
+    const wasActive = previouslyActiveRunRef.current;
+    previouslyActiveRunRef.current = active;
+    if (wasActive && !active && chatId)
+      void utils.chats.messages.invalidate({ chatId });
+  }, [runStatus.data?.active, chatId, utils]);
   // A queued turn has no agent-run row yet, so it would otherwise look idle;
   // treat it as busy so the composer offers Stop, which cancels the queued item.
   const composerBusy = agentIsWorking || Boolean(queueNotice);
@@ -373,6 +400,12 @@ export function useWorkspaceChat({
     if (refreshed) {
       setPendingUserContent("");
       setLiveEvents([]);
+      // One more read a few seconds later: if the server persisted the final
+      // rows just after closing the stream (a queued turn's worker landing a
+      // beat late), this closes the gap without making the reader refresh.
+      window.setTimeout(() => {
+        if (viewedChatIdRef.current === streamChatId) void refreshMessages();
+      }, 4_000);
     } else {
       toast.error(
         "Nova replied, but it could not be reloaded yet. Please wait a moment before sending again."

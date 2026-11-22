@@ -1,3 +1,11 @@
+2026-11-22 - feat(github): clone without Composio via a server access token
+
+A GITHUB_ACCESS_TOKEN (for example `gh auth token`) lets clone_repository talk
+to GitHub directly when the user has not completed the Composio OAuth flow: the
+default branch is read from the GitHub API and the tarball comes from codeload,
+with the credential staying on the server. Composio remains the preferred path
+when connected.
+
 2026-11-22 - feat(github): clone a repository straight into the workspace
 
 "Clone my repo" used to mean git in the terminal, which stalls on private

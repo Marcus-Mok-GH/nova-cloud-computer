@@ -13,12 +13,13 @@ export { latestAgentModeMarker as readAgentModeMarker } from "@shared/agentMode"
 
 /**
  * The workflow modes a conversation moves through: chat is the default for a
- * new conversation and can only research; an action request flips it into
- * plan (the planning-only /ultraplan machinery); the user's approval flips it
- * into build, the ordinary full-toolkit mode. Acting is deliberately gated
- * behind planning so a request is researched and laid out before anything in
- * the workspace is touched. The type and the persisted-marker parsing are
- * shared with the client in `@shared/agentMode`.
+ * new conversation and can only research; from there the model itself picks
+ * the route when the user asks it to do something - start_planning enters plan
+ * mode (the planning-only /ultraplan machinery) for anything sizeable, while
+ * start_build enters build, the ordinary full-toolkit mode, directly for small
+ * and unambiguous work. Acting is deliberately gated so a request is either
+ * laid out for approval or plainly small enough to just do. The type and the
+ * persisted-marker parsing are shared with the client in `@shared/agentMode`.
  */
 
 
@@ -38,8 +39,18 @@ export { latestAgentModeMarker as readAgentModeMarker } from "@shared/agentMode"
 export const START_PLANNING_TOOL = "start_planning";
 
 /**
- * The tools a chat-mode turn may use: read-only research, the transition
- * tool, and generate_image. Every other tool that changes anything - files and
+ * The tool a chat-mode turn calls to skip planning and build right away. The
+ * model uses it when the first request is small and unambiguous - one file,
+ * one command, a rename - so trivial work does not wait for plan approval.
+ * Calling it flips the rest of this run into build mode with the full toolkit;
+ * the conversation keeps the build marker like any approved plan.
+ */
+export const START_BUILD_TOOL = "start_build";
+
+/**
+ * The tools a chat-mode turn may use: read-only research, the two transition
+ * tools (plan-first or build-now), and generate_image. Every other tool that
+ * changes anything - files and
  * folders, the editor, run_bash / run_vm_task, deploys, Telegram sends, project
  * scaffolding, memory writes, connectors, the wallet and agent email - is
  * withheld by name. New tools are excluded by default, exactly like the
@@ -67,6 +78,7 @@ const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   "research_web",
   "thinker",
   START_PLANNING_TOOL,
+  START_BUILD_TOOL,
   "generate_image",
 ]);
 
@@ -110,14 +122,19 @@ export async function recordAgentMode(
 /**
  * The chat-mode block appended to the system prompt. It deliberately overrides
  * the prompt's "never reply with only a plan" and "bias to action" rules for
- * this mode: chat mode answers and researches, and hands any action request to
- * start_planning instead of attempting it.
+ * this mode: chat mode answers and researches, and the model chooses between
+ * the two transition tools when the user asks it to do something - planning
+ * first for anything sizeable or hard to reverse, building right away for a
+ * small and unambiguous request.
  */
 export function buildChatModePromptBlock(): string {
   return (
     `\n\n[CHAT MODE] This conversation is in CHAT mode: answer questions, explain, research, and discuss - but do NOT perform any action on the user's workspace. File and folder tools, the editor, run_bash / run_vm_task, deploys, sends, project scaffolding, memory writes, and connectors are NOT available in this mode, so never attempt a change and never claim one was made. ` +
     `The one exception is generate_image: when the user asks you for a picture, call it directly instead of planning - generating an image is the request itself. ` +
-    `When the user asks you to DO anything else - create, edit, move, rename, or delete files or folders, build or scaffold a project or site, run code or commands, deploy or delete a website, send a message, or any other change to their workspace or outside services - do not attempt it and do not refuse it: call ${START_PLANNING_TOOL} with the concrete task to carry out. That switches this conversation into planning mode, where the task is researched and a plan is drafted for the user's approval before anything changes. ` +
+    `When the user asks you to DO anything else, decide which route fits and do not attempt the action yourself:` +
+    `- Small, unambiguous, low risk (one file, one command, a rename, a quick fix): call ${START_BUILD_TOOL} with the concrete task. That switches this conversation into build mode, and you carry the work out immediately with the full toolkit.` +
+    `- Bigger, multi-step, hard to reverse, or touching deploys, messages, money or outside accounts: call ${START_PLANNING_TOOL} with the concrete task. That switches this conversation into planning mode, where the task is researched and a plan is drafted for the user's approval before anything changes. ` +
+    `Never refuse a request, and never attempt either kind of action while still in chat mode. ` +
     `Answer a pure question, greeting, explanation, or research request directly with end_turn as usual.`
   );
 }

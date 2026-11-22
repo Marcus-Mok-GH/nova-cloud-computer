@@ -252,6 +252,25 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "start_build",
+      description:
+        "Chat mode only. Call this when the user's request is small, unambiguous and low risk - one file, one command, a rename, a quick fix. It records the task to carry out and switches this conversation into build mode so you can do it immediately with the full toolkit. Use start_planning instead for anything bigger, multi-step, hard to reverse, or touching deploys, messages, money or outside accounts.",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description:
+              "The concrete action the user asked for, stated plainly and completely (include any names, paths, and details they gave).",
+          },
+        },
+        required: ["task"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "rename_file",
       description: "Rename an existing workspace file.",
       parameters: {

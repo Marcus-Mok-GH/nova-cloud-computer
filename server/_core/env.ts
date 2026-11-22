@@ -124,6 +124,29 @@ export function resolveTranscriptionConfig() {
 
 /** Pollinations' OpenAI-compatible unified API base URL. */
 const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
+
+/**
+ * The thinker sub-agent's transport. It runs on Pollinations' unified API
+ * (https://gen.pollinations.ai) with a community reasoning model by default;
+ * THINKER_API_URL / THINKER_API_KEY / THINKER_MODEL point it at any other
+ * OpenAI-compatible endpoint, key or model id. The credential follows the
+ * endpoint: a Pollinations endpoint uses POLLINATIONS_API_KEY unless
+ * THINKER_API_KEY is set explicitly.
+ */
+export function resolveThinkerConfig() {
+  const explicitBaseUrl = (process.env.THINKER_API_URL ?? "").trim().replace(/\/+$/, "");
+  const explicitKey = (process.env.THINKER_API_KEY ?? "").trim();
+  const explicitModel = (process.env.THINKER_MODEL ?? "").trim();
+  const apiUrl = explicitBaseUrl || POLLINATIONS_API_BASE_URL;
+  return {
+    /** The thinker's OpenAI-compatible base URL. */
+    thinkerApiUrl: apiUrl,
+    /** The thinker's credential: its dedicated name first, then the endpoint's own key. */
+    thinkerApiKey: explicitKey || (apiUrl.includes("gen.pollinations.ai") ? (process.env.POLLINATIONS_API_KEY ?? "").trim() : ""),
+    /** The thinker's model id; defaults to the Pollinations community reasoning model. */
+    thinkerModel: explicitModel || "community/morriszdweck/glm-5.3-flash-free",
+  };
+}
 /** The hosted NVIDIA NIM coder endpoint whose served models the default below tracks. */
 const NIM_HOSTED_API_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
@@ -163,7 +186,7 @@ export function resolveCoderConfig() {
 }
 
 /**
- * Resolves the NVIDIA NIM API key - the thinker sub-agent's credential and the
+ * Resolves the NVIDIA NIM API key - the personal agents' credential and the
  * coder's fallback when its endpoint is not Pollinations. The dedicated
  * NVIDIA_NIM_API_KEY wins; NVIDIA_NIM_GATEWAY_TOKEN, NVIDIA_API_KEY, or
  * NOVA_NVIDIA_GATEWAY_TOKEN work as fallbacks because they authenticate against
@@ -236,19 +259,12 @@ export const ENV = {
    */
   ...resolveCoderConfig(),
   /**
-   * The reasoning model the thinker sub-agent calls on NVIDIA NIM. On the
-   * hosted endpoint this defaults to the strongest frontier reasoning model
-   * NIM serves (Kimi K3); NVIDIA_NIM_THINKER_MODEL overrides it with a
-   * smarter or cheaper reasoning model. A self-hosted or custom endpoint
-   * registers different served model IDs, so the override must be set there -
-   * it resolves to empty until it is.
+   * The reasoning model the thinker sub-agent calls on Pollinations' unified
+   * API (see resolveThinkerConfig). THINKER_MODEL overrides it with a
+   * smarter or cheaper reasoning model; THINKER_API_URL / THINKER_API_KEY
+   * move the thinker to another OpenAI-compatible provider.
    */
-  nimThinkerModel:
-    process.env.NVIDIA_NIM_THINKER_MODEL ??
-    ((process.env.NVIDIA_NIM_API_URL ?? "https://integrate.api.nvidia.com/v1") ===
-    "https://integrate.api.nvidia.com/v1"
-      ? "moonshotai/kimi-k3"
-      : ""),
+  ...resolveThinkerConfig(),
   /** Netlify personal access token powering free live website deployments. Empty string when unset. */
   netlifyApiToken: process.env.NETLIFY_API_TOKEN ?? "",
   /** Whop webhook signing secret (`whsec_...`). Empty disables the Whop webhook endpoint. */

@@ -1,3 +1,12 @@
+2026-11-22 - feat(github): clone a repository straight into the workspace
+
+"Clone my repo" used to mean git in the terminal, which stalls on private
+repositories because the connector credential never reaches the sandbox. The
+github tool now has clone_repository: it downloads the archive through the
+connected GitHub account server-side and unpacks the text files into a
+workspace folder (nested paths included), skipping binary and oversized files.
+Optional ref and destination arguments pick the revision and folder name.
+
 2026-11-22 - fix(chat): surface replies that land between transcript polls
 
 A turn admitted to the peak-hours queue ends its stream immediately and has no

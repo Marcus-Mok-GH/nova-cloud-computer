@@ -647,7 +647,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "github",
       description:
-        "Use GitHub through Nova's stable connector interface. Do not search for raw GitHub actions, GitHub App installations, or event endpoints. For every repository operation, pass repo as owner/name (for example 'octocat/Hello-World'). Use number for an issue or pull request number. Search repositories is limited to the connected account by default; use scope:'public' only when the user explicitly asks for public repositories outside their account. When the user says 'my repo' or asks to clone a repository, never accept an arbitrary public match: verify the returned owner and repository before proceeding, and ask for clarification when multiple matches remain. Only include fields relevant to the selected operation. Requires GitHub to be connected in Settings.",
+        "Use GitHub through Nova's stable connector interface. Do not search for raw GitHub actions, GitHub App installations, or event endpoints. For every repository operation, pass repo as owner/name (for example 'octocat/Hello-World'). Use number for an issue or pull request number. Search repositories is limited to the connected account by default; use scope:'public' only when the user explicitly asks for public repositories outside their account. When the user says 'my repo' or asks to clone a repository, never accept an arbitrary public match: verify the returned owner and repository before proceeding, and ask for clarification when multiple matches remain. clone_repository downloads the repository archive through the connected account and unpacks its text files into a workspace folder named after the repository (or destination). Only include fields relevant to the selected operation. Requires GitHub to be connected in Settings.",
       parameters: {
         type: "object",
         properties: {
@@ -655,7 +655,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
             type: "string",
             enum: GITHUB_OPERATIONS,
             description:
-              "search_repositories finds repositories (omit repo); get_repository reads repo metadata; read_file reads a file; list_pull_requests lists PRs; get_pull_request reads one PR; get_issue reads one issue; list_issue_comments reads an issue/PR discussion; create_issue opens an issue; comment_on_issue comments on an issue/PR; create_pull_request opens a PR from an existing branch; write_file creates or updates one file.",
+              "search_repositories finds repositories (omit repo); get_repository reads repo metadata; read_file reads a file; list_pull_requests lists PRs; get_pull_request reads one PR; get_issue reads an issue; list_issue_comments reads an issue/PR discussion; create_issue opens an issue; comment_on_issue comments on an issue/PR; create_pull_request opens a PR from an existing branch; write_file creates or updates one file; clone_repository downloads the repository into the workspace.",
           },
           repo: {
             type: "string",
@@ -685,7 +685,7 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           ref: {
             type: "string",
             description:
-              "Optional branch, tag, or commit to read from with read_file.",
+              "Optional branch, tag, or commit to read from with read_file, or the revision clone_repository downloads.",
           },
           number: {
             type: "integer",
@@ -746,6 +746,11 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
           sha: {
             type: "string",
             description: "Optional current file SHA for write_file updates.",
+          },
+          destination: {
+            type: "string",
+            description:
+              "Optional workspace folder name for clone_repository; defaults to the repository name.",
           },
         },
         required: ["operation"],

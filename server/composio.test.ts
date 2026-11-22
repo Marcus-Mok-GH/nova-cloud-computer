@@ -20,6 +20,7 @@ import {
   githubOperationRequest,
   getComposioConnectionStatus,
   listComposioTools,
+  requestGithubRepositoryArchive,
 } from "./composio";
 
 function composioResponse(body: unknown, status = 200) {
@@ -426,5 +427,78 @@ describe("Composio connector client", () => {
   it("wraps Composio HTTP errors with their message", async () => {
     const fetchImpl = vi.fn(async () => composioResponse({ error: { message: "Invalid API key" } }, 401));
     await expect(getComposioConnectionStatus(1, "github", fetchImpl)).rejects.toThrow("Invalid API key");
+  });
+});
+
+describe("requestGithubRepositoryArchive", () => {
+  beforeEach(() => {
+    process.env.COMPOSIO_API_KEY = "test-composio-key";
+  });
+
+  const accounts = () => ({
+    items: [{ id: "acc_active", user_id: "nova-user-12", status: "ACTIVE", toolkit: { slug: "github" } }],
+  });
+
+  it("resolves the default branch and asks for its tarball", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const target = String(url);
+      if (target.includes("/connected_accounts?")) return composioResponse(accounts());
+      if (target.includes("/tools/execute/GITHUB_GET_A_REPOSITORY"))
+        return composioResponse({ data: { full_name: "octocat/Hello-World", default_branch: "develop" }, successful: true });
+      if (target.includes("/tools/execute/GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR"))
+        return composioResponse({ data: { archive_url: "https://codeload.example/octocat/Hello-World/tar.gz/develop" }, successful: true });
+      throw new Error(`unexpected Composio call: ${target}`);
+    });
+
+    await expect(requestGithubRepositoryArchive(12, { repo: "octocat/Hello-World" }, fetchImpl))
+      .resolves.toEqual({
+        url: "https://codeload.example/octocat/Hello-World/tar.gz/develop",
+        ref: "develop",
+      });
+    const archiveCall = fetchImpl.mock.calls.find(call =>
+      String(call[0]).includes("GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR")
+    );
+    expect(JSON.parse(String(archiveCall?.[1].body))).toEqual({
+      user_id: "nova-user-12",
+      arguments: { owner: "octocat", repo: "Hello-World", ref: "develop" },
+    });
+  });
+
+  it("honors an explicit ref and retries with the git_ref spelling", async () => {
+    const seenArgs: Array<Record<string, unknown>> = [];
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const target = String(url);
+      if (target.includes("/connected_accounts?")) return composioResponse(accounts());
+      if (target.includes("/tools/execute/GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          arguments?: Record<string, unknown>;
+        };
+        seenArgs.push(body.arguments ?? {});
+        if (!("git_ref" in (seenArgs[seenArgs.length - 1] ?? {})))
+          return composioResponse({ error: "unknown parameter: ref", successful: false });
+        return composioResponse({ data: { download_url: "https://codeload.example/x/y/tar.gz/v1" }, successful: true });
+      }
+      throw new Error(`unexpected Composio call: ${target}`);
+    });
+
+    await expect(requestGithubRepositoryArchive(12, { repo: "octocat/Hello-World", ref: "v1" }, fetchImpl))
+      .resolves.toEqual({ url: "https://codeload.example/x/y/tar.gz/v1", ref: "v1" });
+    expect(seenArgs).toEqual([
+      { owner: "octocat", repo: "Hello-World", ref: "v1" },
+      { owner: "octocat", repo: "Hello-World", git_ref: "v1" },
+    ]);
+  });
+
+  it("fails clearly when no download URL comes back", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const target = String(url);
+      if (target.includes("/connected_accounts?")) return composioResponse(accounts());
+      if (target.includes("/tools/execute/GITHUB_GET_A_REPOSITORY"))
+        return composioResponse({ data: { default_branch: "main" }, successful: true });
+      return composioResponse({ data: {}, successful: true });
+    });
+
+    await expect(requestGithubRepositoryArchive(12, { repo: "octocat/Hello-World" }, fetchImpl))
+      .rejects.toThrow(/would not hand back a download link/);
   });
 });

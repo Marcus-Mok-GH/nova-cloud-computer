@@ -77,10 +77,11 @@ export const GITHUB_OPERATIONS = [
   "comment_on_issue",
   "create_pull_request",
   "write_file",
+  "clone_repository",
 ] as const;
 export type GithubOperation = (typeof GITHUB_OPERATIONS)[number];
 
-const GITHUB_OPERATION_ACTIONS: Record<GithubOperation, string> = {
+const GITHUB_OPERATION_ACTIONS: Record<Exclude<GithubOperation, "clone_repository">, string> = {
   search_repositories: "GITHUB_FIND_REPOSITORIES",
   get_repository: "GITHUB_GET_A_REPOSITORY",
   read_file: "GITHUB_GET_REPOSITORY_CONTENT",
@@ -339,7 +340,7 @@ function positiveInteger(input: GithubOperationInput, name: string): number {
 }
 
 /** Splits and validates the model-facing owner/name repository format. */
-function repositoryParts(input: GithubOperationInput): { owner: string; repo: string } {
+export function repositoryParts(input: GithubOperationInput): { owner: string; repo: string } {
   const repository = requiredString(input, "repo").replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
   const separator = repository.indexOf("/");
   if (separator <= 0 || separator === repository.length - 1 || repository.indexOf("/", separator + 1) !== -1)
@@ -383,6 +384,8 @@ export function githubOperationRequest(
   operation: GithubOperation,
   input: GithubOperationInput
 ): { action: string; args: Record<string, unknown> } {
+  if (operation === "clone_repository")
+    githubInputError("clone_repository is handled by the workspace clone tool.");
   const action = GITHUB_OPERATION_ACTIONS[operation];
   if (operation === "search_repositories") {
     const requestedQuery = optionalString(input, "query");
@@ -487,6 +490,106 @@ export async function executeGithubOperation(
 ): Promise<ComposioToolExecution> {
   const request = githubOperationRequest(operation, input);
   return executeComposioTool(ownerId, "github", request.action, request.args, fetchImpl);
+}
+
+/** Recursively finds the first http(s) URL in an unknown Composio payload. */
+function findUrl(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findUrl(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (/url|download|link/i.test(key)) {
+        const found = findUrl(item);
+        if (found) return found;
+      }
+    }
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      const found = findUrl(item);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Reads the default branch out of a Composio repository payload. */
+function defaultBranchOf(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  if (typeof record.default_branch === "string" && record.default_branch.trim())
+    return record.default_branch.trim();
+  // Composio may wrap the provider response one level deeper.
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      const nested = defaultBranchOf(value);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves a downloadable tarball URL for a repository through the connected
+ * GitHub account. The archive action's parameter name for the git reference is
+ * not stable across Composio catalog versions (`ref` vs `git_ref`), so both are
+ * tried; without an explicit ref the default branch is used and the ref is
+ * omitted when the provider does not need it.
+ */
+export async function requestGithubRepositoryArchive(
+  ownerId: number,
+  input: { repo: string; ref?: string },
+  fetchImpl: typeof fetch = fetch
+): Promise<{ url: string; ref: string }> {
+  await requireComposioConnection(ownerId, "github", fetchImpl);
+  const { owner, repo } = repositoryParts({ repo: input.repo });
+
+  let ref = input.ref?.trim() ?? "";
+  if (!ref) {
+    const meta = await executeComposioTool(
+      ownerId,
+      "github",
+      "GITHUB_GET_A_REPOSITORY",
+      { owner, repo },
+      fetchImpl
+    );
+    if (!meta.ok)
+      throw new ComposioApiError(
+        `GitHub could not read ${owner}/${repo}: ${meta.error ?? "unknown error"}`,
+        400
+      );
+    const branch = defaultBranchOf(meta.data);
+    ref = branch ?? "main";
+  }
+
+  const attempts: Array<Record<string, unknown>> = [{ owner, repo, ref }];
+  if (input.ref?.trim()) attempts.push({ owner, repo, git_ref: ref });
+  else attempts.push({ owner, repo });
+
+  let lastError = "no download URL was returned.";
+  for (const args of attempts) {
+    const result = await executeComposioTool(
+      ownerId,
+      "github",
+      "GITHUB_DOWNLOAD_A_REPOSITORY_ARCHIVE_TAR",
+      args,
+      fetchImpl
+    );
+    const url = findUrl(result.data);
+    if (result.ok && url) return { url, ref };
+    lastError = result.error ?? lastError;
+  }
+  throw new ComposioApiError(
+    `GitHub would not hand back a download link for ${owner}/${repo} (${lastError}).`,
+    502
+  );
 }
 
 /** Throws a clear ComposioApiError when the toolkit is not usable for this user. */

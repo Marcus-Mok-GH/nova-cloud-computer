@@ -630,6 +630,7 @@ describe("Nova tool-calling workspace agent", () => {
     expect(toolNames).toContain("research_web");
     expect(toolNames).toContain("read_file");
     expect(toolNames).toContain("start_planning");
+    expect(toolNames).toContain("start_build");
     // Suggesting next actions changes nothing either, so chat mode may offer
     // follow-up chips.
     expect(toolNames).toContain("follow_up");
@@ -695,6 +696,49 @@ describe("Nova tool-calling workspace agent", () => {
     expect(append).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ content: `${AGENT_MODE_MESSAGE_PREFIX}plan` })
+    );
+  });
+
+  it("skips planning and builds when a chat-mode turn calls start_build", async () => {
+    chatMessages.mockResolvedValueOnce([]);
+    chatWithAiGateway
+      .mockResolvedValueOnce(
+        chatResult({
+          toolCalls: [
+            {
+              id: "call-build-1",
+              name: "start_build",
+              arguments: JSON.stringify({ task: "rename README to READ_ME" }),
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(endTurnReply({ reply: "Done - renamed it." }));
+    await runWorkspaceAgent(1, 3, "rename README to READ_ME");
+    // The second round advertises the full build toolkit.
+    const [, buildMessages, buildOptions] = chatWithAiGateway.mock.calls[1] as unknown as [
+      number,
+      Array<{ role: string; content?: unknown }>,
+      { tools: Array<{ function: { name: string } }> },
+    ];
+    const buildToolNames = buildOptions.tools.map(
+      tool => tool.function.name
+    );
+    expect(buildToolNames).toContain("create_file");
+    expect(buildToolNames).toContain("run_bash");
+    expect(buildToolNames).not.toContain("start_build");
+    expect(buildToolNames).not.toContain("start_planning");
+    // The model is told to just get on with it, with the recorded task.
+    const buildInstruction = buildMessages.find(
+      (message: { content?: unknown }) =>
+        typeof message.content === "string" &&
+        message.content.includes("[BUILD mode]")
+    );
+    expect(buildInstruction?.content).toContain("rename README to READ_ME");
+    // The conversation is marked build, exactly like an approved plan.
+    expect(append).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ content: `${AGENT_MODE_MESSAGE_PREFIX}build` })
     );
   });
 

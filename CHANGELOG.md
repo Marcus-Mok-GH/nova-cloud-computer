@@ -1,3 +1,22 @@
+2026-11-22 - feat(chat): let the model choose plan-first or build-now
+
+The first message in a conversation no longer always routes through plan
+approval. Chat mode now offers both transition tools and tells the model to
+pick: small, unambiguous, low-risk work calls start_build and happens right
+away with the full toolkit; anything bigger, multi-step, hard to reverse or
+touching deploys, messages, money or outside accounts still calls
+start_planning and waits for approval. The conversation records the same build
+marker either way.
+
+2026-11-22 - chore(models): move the thinker to Pollinations and repin Nova Lite
+
+The thinker sub-agent left NVIDIA NIM (the Kimi K3 default was failing) and now
+runs on Pollinations' unified API with community/morriszdweck/glm-5.3-flash-free,
+configurable via THINKER_API_URL / THINKER_API_KEY / THINKER_MODEL. Nova Lite
+pins its own Pollinations id, community/scriptsnsenses-sys/gpt-6-luna:free, and
+the gateway now routes an explicit upstream id at any tier instead of only for
+premium models.
+
 2026-11-21 - feat(support): add a Buy Me a Coffee card
 
 Donations feed the next round of larger models, so the app now carries a

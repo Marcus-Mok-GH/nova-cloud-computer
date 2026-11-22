@@ -1,14 +1,13 @@
-/** OpenAI-compatible chat client for Nova's specialist sub-agents.
+/**
+ * OpenAI-compatible chat client for Nova's specialist sub-agents.
  *
- * NIM serves OpenAI-compatible chat completions from frontier open models
- * (https://build.nvidia.com): a personal key from build.nvidia.com unlocks
- * the hosted endpoint at https://integrate.api.nvidia.com/v1, and a
- * self-hosted NIM container speaks the same protocol, so the base URL is
- * overridable. The thinker runs on NIM, while the coder (Nova's editor)
- * passes its own endpoint and key - Pollinations' unified API by default -
- * so each specialist can sit on a different provider. Nova's own model is
- * served by its built-in AI gateway; specialist delegates with different
- * strengths live next to it and call their providers directly through this
+ * The transport speaks plain OpenAI chat completions, so any compatible
+ * provider can serve a specialist. The thinker runs on Pollinations' unified
+ * API with its own base URL, credential and model (see
+ * `resolveThinkerConfig`); personal agents use the shared NVIDIA NIM defaults;
+ * and the coder (Nova's editor) passes its own endpoint and key - Pollinations'
+ * unified API by default. Nova's own model is served by its built-in AI
+ * gateway; specialist delegates call their providers directly through this
  * small client. */
 
 import { sleep } from "@shared/timing";

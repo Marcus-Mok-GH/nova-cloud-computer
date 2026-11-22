@@ -9,6 +9,7 @@ vi.mock("./db", () => ({
 
 const {
   AGENT_MODE_MESSAGE_PREFIX,
+  START_BUILD_TOOL,
   START_PLANNING_TOOL,
   buildBuildModeInstruction,
   buildChatModePromptBlock,
@@ -87,7 +88,7 @@ describe("resolveAgentMode", () => {
 });
 
 describe("chatModeAllowsTool", () => {
-  it("allows research, the transition tool, and direct image generation", () => {
+  it("allows research, both transition tools, and direct image generation", () => {
     for (const name of [
       "end_turn",
       "list_workspace",
@@ -99,6 +100,7 @@ describe("chatModeAllowsTool", () => {
       "research_web",
       "thinker",
       START_PLANNING_TOOL,
+      START_BUILD_TOOL,
       // A first-turn request for a picture is the whole ask, so chat mode may
       // generate one directly instead of routing through plan approval.
       "generate_image",
@@ -124,11 +126,15 @@ describe("chatModeAllowsTool", () => {
 });
 
 describe("mode instructions", () => {
-  it("frames chat mode around researching and handing actions to planning", () => {
+  it("frames chat mode around researching and the model's route choice", () => {
     const block = buildChatModePromptBlock();
     expect(block).toContain("[CHAT MODE]");
     expect(block).toContain("do NOT perform any action");
     expect(block).toContain(START_PLANNING_TOOL);
+    expect(block).toContain(START_BUILD_TOOL);
+    // Both routes must say what they do, or the model cannot choose between them.
+    expect(block).toContain("build mode");
+    expect(block).toContain("planning mode");
     // The image exception is stated in the prompt too, or the model would be
     // told to plan something the tool list says it may do.
     expect(block).toContain("generate_image");

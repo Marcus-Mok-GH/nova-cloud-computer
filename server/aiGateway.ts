@@ -1291,13 +1291,11 @@ export async function chatWithAiGateway(
   }
   // Routing chain: an explicit per-call model (the chat's selected model)
   // leads, with the default primary → fallback chain behind it as the safety
-  // net. The allowance was claimed once above, so a fallback hop reuses the
-  // same claim without double-charging.
-  const chain = chatModelChain(
-    selectedModel && selectedModel.tier === "pro"
-      ? (selectedModel.upstreamModel ?? selectedModel.id)
-      : undefined
-  );
+  // net. A catalogue entry may pin its own upstream id at any tier (Nova Lite
+  // does); an unknown id falls through to the built-in chain. The allowance
+  // was claimed once above, so a fallback hop reuses the same claim without
+  // double-charging.
+  const chain = chatModelChain(selectedModel?.upstreamModel);
   let streamedBeforeFallback = false;
   const trackingOnChunk = options.onChunk
     ? (chunk: string) => {

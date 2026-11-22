@@ -14,10 +14,15 @@ import {
   toolkitLabel,
 } from "../composio";
 import { type ToolCtx, type ToolExecution } from "./types";
+import { toolGithubClone } from "./githubClone";
 
 export async function toolGithub(ctx: ToolCtx): Promise<ToolExecution> {
   const { args, str, ownerId } = ctx;
   const operation = str(args.operation);
+  // Cloning writes into the workspace, so it runs through its own family with
+  // the per-call context (owner, folders, sandbox mirror) rather than the
+  // request mapper below.
+  if (operation === "clone_repository") return toolGithubClone(ctx, args);
   if (!isGithubOperation(operation))
     return {
       ok: false,

@@ -169,6 +169,18 @@ describe("buildChatUploadContext", () => {
     expect(context).toContain("pydub");
   });
 
+  it("prefixes the paths with the uploads folder when one is given", () => {
+    const context = buildChatUploadContext(
+      [{ name: "image-a.png", id: 11 }],
+      [{ name: "data.csv", id: 31, mimeType: "text/csv" }],
+      0,
+      "temp"
+    );
+    expect(context).toContain('"temp/image-a.png" (file id 11)');
+    expect(context).toContain('"temp/data.csv" (file id 31)');
+    expect(context).not.toContain('workspace as "data.csv"');
+  });
+
   it("covers a mixed image + file turn and mentions anything that failed to save", () => {
     const context = buildChatUploadContext(
       [{ name: "image-a.png", id: 11 }],

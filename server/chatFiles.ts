@@ -171,20 +171,23 @@ function fileReadGuide(mimeType: string): string {
  * The attachment note appended to the agent's turn (never to the chat
  * bubble): which images are visible on the message directly, which files were
  * saved to the workspace and how to open each, and anything that failed to
- * save. Empty when there are no attachments.
+ * save. Empty when there are no attachments. `folder` is the workspace folder
+ * the uploads were filed into (for example temp/), so the paths match Files.
  */
 export function buildChatUploadContext(
   savedImages: Array<{ name: string; id: number }>,
   savedFiles: Array<{ name: string; id: number; mimeType: string }>,
-  missedFiles = 0
+  missedFiles = 0,
+  folder?: string
 ): string {
+  const path = (name: string) => (folder ? `${folder}/${name}` : name);
   if (!savedImages.length && !savedFiles.length && !missedFiles) return "";
   const parts: string[] = [];
   if (savedImages.length) {
     const count = savedImages.length;
     parts.push(
       `The user attached ${count === 1 ? "an image" : `${count} images`}, saved in the workspace as ${savedImages
-        .map(file => `"${file.name}" (file id ${file.id})`)
+        .map(file => `"${path(file.name)}" (file id ${file.id})`)
         .join(", ")}. ${count === 1 ? "The image is" : "The images are"} attached to this message - you can see ${
           count === 1 ? "it" : "them"
         } directly.`
@@ -196,7 +199,7 @@ export function buildChatUploadContext(
       `The user attached ${count === 1 ? "a file" : `${count} files`}, saved in the workspace as ${savedFiles
         .map(
           file =>
-            `"${file.name}" (file id ${file.id}) - ${fileReadGuide(file.mimeType)}`
+            `"${path(file.name)}" (file id ${file.id}) - ${fileReadGuide(file.mimeType)}`
         )
         .join("; ")}.`
     );

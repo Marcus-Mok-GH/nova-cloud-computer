@@ -1,13 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
-  createWorkspaceFileForUser: vi.fn(async (_ownerId: number, input: { name: string; folderId?: number | null }) => ({
-    id: 42,
-    name: input.name,
-    folderId: input.folderId ?? null,
-  })),
-  createWorkspaceFolderForUser: vi.fn(async () => ({ id: 7, name: "Captures", parentId: null })),
-  listWorkspaceFoldersForUser: vi.fn(async () => []),
+  createWorkspaceFileForUser: vi.fn(
+    async (
+      _ownerId: number,
+      input: { name: string; folderId?: number | null }
+    ): Promise<{ id: number; name: string; folderId: number | null }> => ({
+      id: 42,
+      name: input.name,
+      folderId: input.folderId ?? null,
+    })
+  ),
+  createWorkspaceFolderForUser: vi.fn(
+    async (): Promise<{ id: number; name: string; parentId: number | null }> => ({
+      id: 7,
+      name: "Captures",
+      parentId: null,
+    })
+  ),
+  listWorkspaceFoldersForUser: vi.fn(
+    async (): Promise<Array<{ id: number; name: string; parentId: number | null }>> => []
+  ),
 }));
 vi.mock("../db", () => db);
 

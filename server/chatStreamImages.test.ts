@@ -35,6 +35,8 @@ vi.mock("./db", () => ({
   getDb: vi.fn(),
   activatePriorityWindowForUser: vi.fn(async () => ({ priority: false, justActivated: false, expiresAt: null })),
   createWorkspaceFileForUser: spies.createWorkspaceFileForUser,
+  listWorkspaceFoldersForUser: vi.fn(async () => []),
+  createWorkspaceFolderForUser: vi.fn(async () => ({ id: 9, name: "temp", parentId: null })),
   startAgentRunForUser: spies.startAgentRunForUser,
   finishAgentRunForUser: spies.finishAgentRunForUser,
   holdAgentRunForContinue: vi.fn(async () => false),
@@ -232,7 +234,7 @@ describe("Chat stream file attachments", () => {
       uploadContext?: string;
       imageAttachments?: string[];
     };
-    expect(runOptions.uploadContext).toContain('"notes.txt" (file id 55)');
+    expect(runOptions.uploadContext).toContain('"temp/notes.txt" (file id 55)');
     expect(runOptions.uploadContext).toContain("read its contents with read_file");
     // Files are workspace uploads, not vision input.
     expect(runOptions.imageAttachments).toBeUndefined();
@@ -298,6 +300,6 @@ describe("Chat stream file attachments", () => {
     };
     expect(runOptions.imageAttachments).toEqual([PNG]);
     expect(runOptions.uploadContext).toContain("an image");
-    expect(runOptions.uploadContext).toContain('"figures.csv" (file id 55)');
+    expect(runOptions.uploadContext).toContain('"temp/figures.csv" (file id 55)');
   });
 });

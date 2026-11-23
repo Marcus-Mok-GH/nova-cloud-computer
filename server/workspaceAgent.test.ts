@@ -107,6 +107,7 @@ vi.mock("./db", () => ({
   // handles.
   getDb: vi.fn(async () => null),
   createWorkspaceFileForUser: createFile,
+  listWorkspaceFoldersForUser: vi.fn(async () => []),
   updateWorkspaceBrowserSandbox: vi.fn(async () => undefined),
   createWorkspaceFolderForUser: createFolder,
   getWorkspaceComputer: computer,

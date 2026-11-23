@@ -3,8 +3,9 @@
 A GITHUB_ACCESS_TOKEN (for example `gh auth token`) lets clone_repository talk
 to GitHub directly when the user has not completed the Composio OAuth flow: the
 default branch is read from the GitHub API and the tarball comes from codeload,
-with the credential staying on the server. Composio remains the preferred path
-when connected.
+with the credential staying on the server. The github tool is offered whenever
+the token is set, so cloning needs no OAuth connection at all; Composio remains
+the preferred path for repositories already connected.
 
 2026-11-22 - feat(github): clone a repository straight into the workspace
 

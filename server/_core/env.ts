@@ -273,7 +273,9 @@ export const ENV = {
    * can talk to GitHub directly and does not need a Composio OAuth connection;
    * the token stays on the server and never reaches the browser or sandbox.
    */
-  githubAccessToken: process.env.GITHUB_ACCESS_TOKEN ?? process.env.GITHUB_TOKEN ?? "",
+  get githubAccessToken() {
+    return process.env.GITHUB_ACCESS_TOKEN ?? process.env.GITHUB_TOKEN ?? "";
+  },
   /** Whop webhook signing secret (`whsec_...`). Empty disables the Whop webhook endpoint. */
   whopWebhookSecret: process.env.WHOP_WEBHOOK_SECRET ?? "",
   /** Voice-note transcription provider (see resolveTranscriptionConfig: Pollinations unified API by default, legacy OpenAI keys keep OpenAI). */

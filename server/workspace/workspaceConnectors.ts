@@ -3,6 +3,7 @@
  * tools that exposes to the model, the inbound-email tool allowlist, and the
  * status line injected into the system prompt.
  */
+import { ENV } from "../_core/env";
 import {
   COMPOSIO_TOOLKITS,
   type ComposioToolkit,
@@ -40,7 +41,11 @@ export async function getConnectedConnectorToolkits(
       }
     })
   );
-  return results.filter(entry => entry.connected).map(entry => entry.toolkit);
+  const connected = results.filter(entry => entry.connected).map(entry => entry.toolkit);
+  // A server-side GitHub token (gh auth token) stands in for the OAuth
+  // connection so cloning works without the Composio flow.
+  if (!connected.includes("github") && ENV.githubAccessToken) return [...connected, "github"];
+  return connected;
 }
 
 /** Builds the model tool list: connector tools are exposed only for connected toolkits. */

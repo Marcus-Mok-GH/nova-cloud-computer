@@ -1,3 +1,10 @@
+2026-11-23 - fix(workspace): keep browse captures out of the workspace root
+
+Desktop and browse screenshots were written into the Files root as
+desktop-*.png, burying real work after every browse run. New captures now land
+in a single Captures/ folder (created on first use, reused afterwards); older
+root-level captures are unaffected and can be deleted from Files.
+
 2026-11-22 - feat(github): clone without Composio via a server access token
 
 A GITHUB_ACCESS_TOKEN (for example `gh auth token`) lets clone_repository talk

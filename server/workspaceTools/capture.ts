@@ -1,21 +1,47 @@
 import type { DesktopCapture } from "../desktopBrowser";
-import { createWorkspaceFileForUser } from "../db";
+import {
+  createWorkspaceFileForUser,
+  createWorkspaceFolderForUser,
+  listWorkspaceFoldersForUser,
+} from "../db";
 import { fileStamp } from "@shared/text";
+
+/** Where browse/desktop captures live, so the workspace root stays tidy. */
+export const CAPTURES_FOLDER = "Captures";
+
+/** Finds (or lazily creates) the single root-level captures folder. */
+async function capturesFolderId(ownerId: number): Promise<number | null> {
+  const folders = await listWorkspaceFoldersForUser(ownerId);
+  const existing = folders.find(
+    folder =>
+      folder.parentId === null &&
+      folder.name.toLowerCase() === CAPTURES_FOLDER.toLowerCase()
+  );
+  if (existing) return existing.id;
+  const created = await createWorkspaceFolderForUser(ownerId, {
+    name: CAPTURES_FOLDER,
+    parentId: null,
+  });
+  return created?.id ?? null;
+}
 
 /**
  * Saves a desktop capture into the workspace as a PNG file, so the user can
  * open what the agent was looking at. The content is the base64 data URI, the
- * same shape chat image attachments use.
+ * same shape chat image attachments use. Captures collect in the Captures/
+ * folder rather than the root, where they would bury real work.
  */
 export async function saveBrowseCapture(ownerId: number, capture: DesktopCapture) {
+  const folderId = await capturesFolderId(ownerId);
   const attempt = async (name: string) => {
     const created = await createWorkspaceFileForUser(ownerId, {
       name,
       content: capture.dataUri,
       mimeType: "image/png",
+      folderId,
     });
     return created
-      ? `Saved to the workspace as "${created.name}" (file id ${created.id}).`
+      ? `Saved to the workspace as "${folderId ? `${CAPTURES_FOLDER}/` : ""}${created.name}" (file id ${created.id}).`
       : "";
   };
   const saved = await attempt(browseCaptureFileName(capture.suggestedName));

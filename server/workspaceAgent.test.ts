@@ -6215,6 +6215,18 @@ describe("connector tool gating", () => {
     expect(connected).toEqual(["gmail"]);
   });
 
+  it("treats a server GitHub token as a GitHub connection", async () => {
+    const check = vi.fn(async () => ({ connected: false }));
+    delete process.env.GITHUB_ACCESS_TOKEN;
+    await expect(getConnectedConnectorToolkits(1, check as never)).resolves.toEqual([]);
+    process.env.GITHUB_ACCESS_TOKEN = "gh-token";
+    try {
+      await expect(getConnectedConnectorToolkits(1, check as never)).resolves.toEqual(["github"]);
+    } finally {
+      delete process.env.GITHUB_ACCESS_TOKEN;
+    }
+  });
+
   it("exposes the memory tools to the model", async () => {
     chatWithAiGateway.mockReset();
     chatWithAiGateway

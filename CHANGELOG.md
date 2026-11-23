@@ -1,3 +1,11 @@
+2026-11-23 - fix(uploads): file attachments go to a temp folder
+
+Chat and Telegram uploads (images included) were saved into the Files root,
+where transient context buried the user's own work. New uploads land in a
+single `temp` folder, created on first upload and reused afterwards; the
+attachment note tells the agent the `temp/<name>` path. Existing root files are
+untouched.
+
 2026-11-23 - fix(workspace): keep browse captures out of the workspace root
 
 Desktop and browse screenshots were written into the Files root as

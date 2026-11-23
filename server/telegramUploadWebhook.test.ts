@@ -33,6 +33,8 @@ vi.mock("./db", () => ({
   updateTelegramChatForUser: spies.updateTelegramChatForUser,
   createChatForUser: spies.createChatForUser,
   createWorkspaceFileForUser: spies.createWorkspaceFileForUser,
+  listWorkspaceFoldersForUser: vi.fn(async () => []),
+  createWorkspaceFolderForUser: vi.fn(async () => ({ id: 9, name: "temp", parentId: null })),
   isUserBanned: spies.isUserBanned,
   cancelActiveAgentVmRunsForUser: vi.fn(async () => 0),
   cancelWaitingInferenceQueueItemsForUser: vi.fn(async () => 0),
@@ -221,6 +223,7 @@ describe("Telegram upload webhook (full handler)", () => {
       name: "notes.txt",
       content: "shopping list",
       mimeType: "text/plain",
+      folderId: 9,
     });
     const [, , agentContent, options] = spies.runWorkspaceAgent.mock.calls[0];
     expect(agentContent).toContain("Uploaded notes.txt");

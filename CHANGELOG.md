@@ -1,3 +1,13 @@
+2026-11-24 - fix(agent): don't start the coding specialist with no time left
+
+A call begun with too little of the segment left was cut off mid-flight by the
+deadline race and then restarted from scratch in the next segment, so a long
+coding task could be interrupted over and over without ever finishing. Long
+sub-agent calls now reserve budget before they start: the editor needs about
+3.5 minutes, research/thinker about 90 seconds. Below that the call is not
+started - the run closes out-of-budget and the continuation segment begins it
+with a fresh budget instead.
+
 2026-11-24 - feat(chat): sub-agent state in the owner tag, quiet tool failures
 
 A delegated stretch now says what it is doing. The owner block's tag carries

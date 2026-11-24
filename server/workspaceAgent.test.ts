@@ -1215,6 +1215,35 @@ describe("Nova tool-calling workspace agent", () => {
     expect(result.message.content).toBe("Added calc.py with an add function.");
   });
 
+  it("does not start the coding specialist when this segment cannot give it enough time", async () => {
+    // Starting the editor with a minute left only gets it interrupted
+    // mid-flight, and the next segment restarts the same task from scratch.
+    // Defer instead: close out of budget so the next segment begins it fresh.
+    runCoderTaskMock.mockReset();
+    runAutonomousCoderTaskMock.mockReset();
+    chatWithAiGateway.mockResolvedValueOnce(
+      chatResult({
+        toolCalls: [
+          {
+            id: "call-editor-late",
+            name: "editor",
+            arguments: JSON.stringify({ task: "build the game" }),
+          },
+        ],
+      })
+    );
+    completeWithAiGateway.mockResolvedValueOnce({
+      text: "Starting the coding work now - it continues automatically.",
+    });
+    const result = await runWorkspaceAgent(1, 3, "build my game", {
+      deadlineAtMs: Date.now() + 60_000,
+      continuationPlanned: true,
+    });
+    expect(runCoderTaskMock).not.toHaveBeenCalled();
+    expect(runAutonomousCoderTaskMock).not.toHaveBeenCalled();
+    expect(result.outOfBudget).toBe(true);
+  });
+
   it("reports an unconfigured editor sub-agent back to the model instead of breaking the run", async () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock.mockRejectedValueOnce(
@@ -1290,7 +1319,7 @@ describe("Nova tool-calling workspace agent", () => {
     ]);
   });
 
-  it("retries the specialist even when the segment budget is nearly spent", async () => {
+  it("retries a transient specialist failure in place", async () => {
     runCoderTaskMock.mockReset();
     runCoderTaskMock
       .mockRejectedValueOnce(new Error("NVIDIA NIM responded with status 503."))
@@ -1311,10 +1340,11 @@ describe("Nova tool-calling workspace agent", () => {
         })
       )
       .mockResolvedValueOnce(chatResult({ text: "Here is your todo app." }));
-    // The specialist is never on a clock, so the automatic retry runs even
-    // with only seconds left in the segment.
+    // A long sub-agent call is only started with enough of the segment left
+    // to finish, so this gives it room; the automatic retry itself still runs
+    // in place on a transient blip.
     const result = await runWorkspaceAgent(1, 3, "build me a todo app", {
-      deadlineAtMs: Date.now() + 30_000,
+      deadlineAtMs: Date.now() + 240_000,
     });
     expect(runCoderTaskMock).toHaveBeenCalledTimes(2);
     expect(result.actions).toEqual([

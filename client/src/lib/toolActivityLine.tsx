@@ -230,26 +230,6 @@ function RunningProgress({
   return <LiveNote>{activity.detail || fallback}</LiveNote>;
 }
 
-/**
- * The one-line reason a step failed, for the inline red note under a failed
- * row. The server already writes a human summary for every settled call
- * ("Ran a bash command…", "Command failed: …") - the UI used to drop it and
- * show only "(failed)" next to a raw command, so nobody could tell what
- * went wrong without opening devtools. Detail wins when it exists (it is
- * the tool's own output); otherwise the summary. Capped to the first
- * non-empty line so a multi-kilobyte error body cannot flood the chat.
- */
-export function failureReason(activity: ToolActivity): string {
-  const raw = (activity.detail || activity.summary || "").trim();
-  if (!raw) return "";
-  const firstLine =
-    raw
-      .split("\n")
-      .map(line => line.trim())
-      .find(Boolean) ?? "";
-  return firstLine.length > 180 ? `${firstLine.slice(0, 179)}…` : firstLine;
-}
-
 /** The full command behind a run_command / run_bash / browse row, if any. */
 function fullCommand(activity: ToolActivity): string {
   const args = parseToolArgs(activity);
@@ -348,7 +328,7 @@ function OwnerGroupedRows({ activities }: { activities: ToolActivity[] }) {
             ))}
           </React.Fragment>
         ) : (
-          <OwnerBlock key={group.owner} activity={group.items[0]}>
+          <OwnerBlock key={group.owner} activities={group.items}>
             {group.items.map((activity) => (
               <ActivityRow key={activity.id} activity={activity} />
             ))}
@@ -616,31 +596,23 @@ export function toolLineText(activity: ToolActivity): string {
 export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
   const StatusIcon =
     activity.state === "completed" ? CheckCircle2 : XCircle;
+  // Both settled outcomes sit in the quiet resting tone - a tick for a step
+  // that did its job, a cross for one that did not. A failure is recorded in
+  // the icon alone: a whole red row plus the error text under it reads as an
+  // incident for something the agent simply recovers from.
   const stateClass =
     activity.state === "completed"
       ? "text-emerald-600 dark:text-emerald-400"
-      : "text-red-600 dark:text-red-400";
+      : "text-muted-foreground";
   // A tool that is still running is the one thing worth reading at a glance
   // while Nova works, so it gets the same bright text as an actual reply
-  // instead of the muted tone settled (completed/failed) rows keep.
-  // A failed step gets the red tone instead of the muted one: in a long
-  // list the failures are the only rows worth scanning for, and they must
-  // not hide behind the same grey as everything else.
+  // instead of the muted tone settled rows keep.
   const textClass =
     activity.state === "running"
       ? "text-foreground"
-      : activity.state === "failed"
-        ? "text-red-600 dark:text-red-400"
-        : "text-muted-foreground dark:text-muted-foreground";
+      : "text-muted-foreground dark:text-muted-foreground";
   const line = toolLineText(activity);
   const ownerBadge = <ToolOwnerBadge activity={activity} />;
-  // Panel steps (editor, research, …) explain themselves in their panel;
-  // a plain step has nowhere else to say why it failed, so the reason
-  // rides inline under its line.
-  const reason =
-    activity.state === "failed" && !isPanelToolActivity(activity.name)
-      ? failureReason(activity)
-      : "";
   return (
     <div
       data-testid="tool-activity-line"
@@ -656,19 +628,8 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
           />
         )}
         {ownerBadge}
-        <span className="min-w-0 truncate">
-          {line}
-          {activity.state === "failed" ? " (failed)" : ""}
-        </span>
+        <span className="min-w-0 truncate">{line}</span>
       </span>
-      {reason ? (
-        <span
-          data-testid="tool-activity-failure-reason"
-          className="min-w-0 break-words ps-5 text-xs font-normal leading-5 text-red-600/90 dark:text-red-400/90"
-        >
-          {reason}
-        </span>
-      ) : null}
     </div>
   );
 }

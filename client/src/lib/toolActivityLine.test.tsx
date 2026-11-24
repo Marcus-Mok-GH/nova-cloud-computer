@@ -602,7 +602,6 @@ describe("CodeTaskToolActivity", () => {
     );
     expect(html).toContain("code-task-detail-panel"); // open by default
     expect(html).toContain("NIM is down.");
-    expect(html).toContain("(failed)");
   });
 
   it("survives malformed arguments without crashing", () => {
@@ -732,7 +731,10 @@ describe("ToolActivityLine", () => {
         activity: activity("create_file", '{"name":"dup.txt"}', "failed"),
       })
     );
-    expect(failed).toContain("(failed)");
+    // A failure is a quiet cross in the settled tone, not a red row.
+    expect(failed).toContain("text-muted-foreground");
+    expect(failed).not.toContain("(failed)");
+    expect(failed).not.toContain("text-red-600");
     const running = renderToStaticMarkup(
       React.createElement(ToolActivityLine, {
         activity: activity("create_file", '{"name":"dup.txt"}', "running"),
@@ -766,7 +768,7 @@ describe("ToolActivityLine", () => {
     expect(completed).toContain("text-muted-foreground");
   });
 
-  it("shows the failure reason inline under a failed step, not just (failed)", () => {
+  it("marks a failed step with a quiet cross instead of a red error", () => {
     const failed = renderToStaticMarkup(
       React.createElement(ToolActivityLine, {
         activity: {
@@ -776,10 +778,13 @@ describe("ToolActivityLine", () => {
         },
       })
     );
-    expect(failed).toContain("(failed)");
-    expect(failed).toContain('data-testid="tool-activity-failure-reason"');
-    expect(failed).toContain("module not found");
-    expect(failed).toContain("text-red-600");
+    expect(failed).toContain("Run Command: npm test");
+    // The outcome is the icon alone: no "(failed)", no reason, no red.
+    expect(failed).not.toContain("(failed)");
+    expect(failed).not.toContain("module not found");
+    expect(failed).not.toContain('data-testid="tool-activity-failure-reason"');
+    expect(failed).not.toContain("text-red-600");
+    expect(failed).toContain("text-muted-foreground");
   });
 
   it("shows the full command on command steps without needing the chevron", () => {
@@ -944,7 +949,6 @@ describe("LiveActivityCard", () => {
     expect(html).toContain("Finished with problems");
     expect(html).toContain("2 steps");
     expect(html).toContain("1 failed");
-    expect(html).toContain("(failed)");
   });
 
   it("names the current step while working, so progress is not just a spinner", () => {
@@ -1154,5 +1158,44 @@ describe("generate_image activity", () => {
       })
     );
     expect(html).toContain("no longer available");
+  });
+});
+
+describe("OwnerBlock state", () => {
+  const specialist = (state: ToolActivity["state"]): ToolActivity => ({
+    ...activity("write_file", '{"path":"src/a.js","content":"x"}', state),
+    owner: "coding-specialist",
+  });
+
+  it("names the specialist and says whether it is still working", () => {
+    const working = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [specialist("running")],
+        working: true,
+      })
+    );
+    expect(working).toContain("Coding specialist");
+    expect(working).toContain("· working");
+    expect(working).toContain('data-working="true"');
+    expect(working).toContain('data-testid="owner-block-state"');
+
+    const settled = renderToStaticMarkup(
+      React.createElement(LiveActivityCard, {
+        activities: [specialist("completed")],
+        working: false,
+      })
+    );
+    expect(settled).toContain("· done");
+    expect(settled).toContain('data-working="false"');
+  });
+
+  it("reads as working while any step of the delegated stretch runs", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ToolRunGroup, {
+        activities: [specialist("completed"), specialist("running")],
+      })
+    );
+    expect(html).toContain('data-working="true"');
+    expect(html).toContain("· working");
   });
 });

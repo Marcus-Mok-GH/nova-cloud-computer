@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import React, { createContext, useContext, type ReactNode } from "react";
 import {
   toolActivityActor,
   type ToolActivity,
@@ -37,23 +37,31 @@ export function ownerTint(owner: ToolActivityOwner, pct: number): string {
 
 /**
  * A sub-agent's stretch of tool calls, wrapped in a color-coded block: a named
- * tag on top, a colored rule down the side, and a faint tint behind the rows.
- * Nova's own rows never get this treatment - plain rows are the default.
+ * tag on top that also says whether the specialist is still working, a colored
+ * rule down the side, and a faint tint behind the rows. Nova's own rows never
+ * get this treatment - plain rows are the default.
  */
 export function OwnerBlock({
-  activity,
+  activities,
   children,
 }: {
-  activity: ToolActivity;
+  activities: ToolActivity[];
   children: ReactNode;
 }) {
-  const actor = toolActivityActor(activity);
+  const actor = toolActivityActor(activities[0]);
   const accent = ownerAccentVar(actor.owner);
+  // Any step still running means the specialist is at work; the label carries
+  // that state so a delegated block reads as "happening" even before the row
+  // beneath it is looked at.
+  const working = activities.some(
+    activity => activity.state === "running"
+  );
   return (
     <InOwnerBlockContext.Provider value={true}>
       <div
         data-testid="owner-block"
         data-owner={actor.owner}
+        data-working={working}
         className="ms-2 mt-0.5 overflow-hidden rounded-lg border-s-[3px] py-2 ps-3 pe-2"
         style={{
           borderInlineStartColor: accent,
@@ -67,10 +75,22 @@ export function OwnerBlock({
         >
           <span
             aria-hidden
-            className="inline-block size-[7px] rounded-full"
+            className={`inline-block size-[7px] rounded-full ${
+              working ? "animate-pulse" : ""
+            }`}
             style={{ background: accent }}
           />
           {actor.label}
+          <span
+            data-testid="owner-block-state"
+            className={
+              working
+                ? "font-semibold"
+                : "font-medium opacity-70"
+            }
+          >
+            {working ? "· working" : "· done"}
+          </span>
         </span>
         <div className="flex flex-col gap-2">{children}</div>
       </div>

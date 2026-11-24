@@ -95,9 +95,16 @@ ensureFolder.cache = new Map<string, number>();
 
 export async function toolGithubClone(ctx: ToolCtx, args: Record<string, unknown>): Promise<ToolExecution> {
   const label = "GitHub: clone repository";
+  // Every failure branch reports the same connector action; one helper leaves
+  // each branch holding only the message that differs.
+  const fail = (result: string): ToolExecution => ({
+    ok: false,
+    result,
+    action: { kind: "connector", name: label, operation: "failed" },
+  });
   try {
     const repo = typeof args.repo === "string" ? args.repo.trim() : "";
-    if (!repo) return { ok: false, result: "A repository (owner/name) is required.", action: { kind: "connector", name: label, operation: "failed" } };
+    if (!repo) return fail("A repository (owner/name) is required.");
     const ref = typeof args.ref === "string" ? args.ref.trim() || undefined : undefined;
     const destination =
       typeof args.destination === "string" && args.destination.trim()
@@ -111,28 +118,16 @@ export async function toolGithubClone(ctx: ToolCtx, args: Record<string, unknown
 
     const response = await fetch(url, { redirect: "follow" });
     if (!response.ok)
-      return {
-        ok: false,
-        result: `Downloading the archive failed (status ${response.status}). Make sure the connected GitHub account can read this repository.`,
-        action: { kind: "connector", name: label, operation: "failed" },
-      };
+      return fail(`Downloading the archive failed (status ${response.status}). Make sure the connected GitHub account can read this repository.`);
     const archiveBytes = Buffer.from(await response.arrayBuffer());
     if (archiveBytes.length > MAX_ARCHIVE_BYTES)
-      return {
-        ok: false,
-        result: `The repository archive is ${(archiveBytes.length / 1024 / 1024).toFixed(1)} MB, over the ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB clone limit.`,
-        action: { kind: "connector", name: label, operation: "failed" },
-      };
+      return fail(`The repository archive is ${(archiveBytes.length / 1024 / 1024).toFixed(1)} MB, over the ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB clone limit.`);
 
     let entries: ArchiveEntry[];
     try {
       entries = parseTar(gunzipSync(archiveBytes));
     } catch {
-      return {
-        ok: false,
-        result: "The downloaded archive could not be unpacked. Try again, or clone a smaller repository.",
-        action: { kind: "connector", name: label, operation: "failed" },
-      };
+      return fail("The downloaded archive could not be unpacked. Try again, or clone a smaller repository.");
     }
 
     const rootName = destination;
@@ -143,7 +138,7 @@ export async function toolGithubClone(ctx: ToolCtx, args: Record<string, unknown
       existingRoot ??
       (await createWorkspaceFolderForUser(ctx.ownerId, { name: rootName, parentId: null }));
     if (!rootFolder)
-      return { ok: false, result: "Could not create the destination folder.", action: { kind: "connector", name: label, operation: "failed" } };
+      return fail("Could not create the destination folder.");
 
     ensureFolder.cache.clear();
     const skipped = { binary: 0, oversize: 0, path: 0 };
@@ -199,10 +194,6 @@ export async function toolGithubClone(ctx: ToolCtx, args: Record<string, unknown
       action: { kind: "connector", name: label, operation: "executed" },
     };
   } catch (error) {
-    return {
-      ok: false,
-      result: error instanceof Error ? error.message : "The clone failed for an unknown reason.",
-      action: { kind: "connector", name: label, operation: "failed" },
-    };
+    return fail(error instanceof Error ? error.message : "The clone failed for an unknown reason.");
   }
 }

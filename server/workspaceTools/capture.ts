@@ -1,9 +1,6 @@
 import type { DesktopCapture } from "../desktopBrowser";
-import {
-  createWorkspaceFileForUser,
-  createWorkspaceFolderForUser,
-  listWorkspaceFoldersForUser,
-} from "../db";
+import { createWorkspaceFileForUser } from "../db";
+import { ensureRootFolder } from "../workspaceFolders";
 import { fileStamp } from "@shared/text";
 
 /** Where browse/desktop captures live, so the workspace root stays tidy. */
@@ -11,18 +8,7 @@ export const CAPTURES_FOLDER = "Captures";
 
 /** Finds (or lazily creates) the single root-level captures folder. */
 async function capturesFolderId(ownerId: number): Promise<number | null> {
-  const folders = await listWorkspaceFoldersForUser(ownerId);
-  const existing = folders.find(
-    folder =>
-      folder.parentId === null &&
-      folder.name.toLowerCase() === CAPTURES_FOLDER.toLowerCase()
-  );
-  if (existing) return existing.id;
-  const created = await createWorkspaceFolderForUser(ownerId, {
-    name: CAPTURES_FOLDER,
-    parentId: null,
-  });
-  return created?.id ?? null;
+  return ensureRootFolder(ownerId, CAPTURES_FOLDER);
 }
 
 /**

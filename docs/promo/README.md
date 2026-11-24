@@ -7,7 +7,12 @@ extended rather than re-derived from scratch.
 
 ## Videos
 
-| File | Length | What it is |
+The six finished cuts live as downloadable assets on the
+[`promo-videos` release](https://github.com/Marcus-Mok-GH/nova-cloud-computer/releases/tag/promo-videos)
+— they are marketing deliverables, not build inputs, so they are kept out of
+git history (a 51 MB MP4 in history is 51 MB every clone downloads forever).
+
+| Asset | Length | What it is |
 | --- | --- | --- |
 | `nova-cloud-computer-demo.mp4` | 1:47 | Short product demo: sign in, workspace overview, agent running a job, files, deploy. |
 | `nova-cloud-computer-demo-subtitled.mp4` | 1:47 | Same cut with burned-in captions. |
@@ -15,6 +20,10 @@ extended rather than re-derived from scratch.
 | `nova-cloud-computer-full-demo-subtitled.mp4` | 2:04 | Same cut with burned-in captions. |
 | `nova-cloud-computer-walkthrough.mp4` | 5:00 | Complete walkthrough: app tour, environment variables, automations, API keys, API docs, end card. |
 | `nova-cloud-computer-walkthrough-subtitled.mp4` | 5:00 | Same cut with burned-in captions (46 caption blocks, one per narration line). |
+
+```bash
+gh release download promo-videos -R Marcus-Mok-GH/nova-cloud-computer
+```
 
 Published: the walkthrough is on YouTube — https://www.youtube.com/watch?v=y7Xs7QpYuSg
 ("Nova Cloud Computer — Complete Product Walkthrough (2026)", 15 chapters,
@@ -72,5 +81,6 @@ pip install -r docs/promo/tools/requirements.txt
 ## Not committed
 
 The ~950 MB of intermediates these scripts emit — raw clips, audio stems,
-frame dumps, QA screenshots, `__pycache__` — stays local. Only the six final
-videos and the scripts are versioned.
+frame dumps, QA screenshots, `__pycache__` — stays local. Only the scripts
+are versioned here; the six final videos are release assets, deliberately
+kept out of git history so clones stay small.

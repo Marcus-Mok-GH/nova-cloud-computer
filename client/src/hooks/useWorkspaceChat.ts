@@ -25,12 +25,18 @@ import {
 } from "@/lib/fileAttachments";
 import { consumeChatAway, markChatAway } from "@/lib/awayChats";
 import { messagesIntervalMs, runStatusIntervalMs } from "@/lib/chatPolling";
+import {
+  EMPTY_CHAT_LEDGER,
+  mergeChatLedger,
+  type ChatLedgerState,
+} from "@/lib/chatLedger";
 import { stopAllSpeech } from "@/lib/speech";
 import {
   appendLiveTextDelta,
   isInternalChatMessage,
   upsertLiveToolEvent,
   type LiveChatEvent,
+  type PersistedChatMessage,
   type ToolActivity,
 } from "@/lib/chatMessages";
 import { decideComposerSubmit } from "@/lib/composerSubmit";
@@ -276,8 +282,22 @@ export function useWorkspaceChat({
   // run's final rows are refetched when the stream closes. So it polls at a
   // relaxed cadence while work is in flight - enough to pick up rows written by
   // another channel (e.g. Telegram) - and slowly when the chat is idle.
-  const savedMessages = trpc.chats.messages.useQuery(
-    { chatId: chatId ?? "" },
+  //
+  // It also reads incrementally. The first fetch carries no cursor and returns
+  // the whole conversation; every later fetch asks only for rows after the
+  // newest id already on screen. Re-sending the full transcript on every poll
+  // was this project's dominant database egress, so a poll now costs only the
+  // rows that actually changed.
+  const [ledger, setLedger] =
+    useState<ChatLedgerState>(EMPTY_CHAT_LEDGER);
+  const appliedLedgerPayloadRef = useRef<PersistedChatMessage[] | null>(null);
+  // A cursor belongs to the conversation it was read from: opening a different
+  // chat sends no cursor at all, so the request is the full history again
+  // rather than the previous chat's tail.
+  const ledgerCursor =
+    chatId && ledger.chatId === chatId ? ledger.cursor : undefined;
+  const ledgerQuery = trpc.chats.messages.useQuery(
+    { chatId: chatId ?? "", afterId: ledgerCursor },
     {
       enabled: Boolean(chatId),
       retry: false,
@@ -295,6 +315,22 @@ export function useWorkspaceChat({
       refetchIntervalInBackground: false,
     }
   );
+  useEffect(() => {
+    const rows = ledgerQuery.data;
+    if (!chatId || !rows || appliedLedgerPayloadRef.current === rows) return;
+    appliedLedgerPayloadRef.current = rows;
+    setLedger(current => mergeChatLedger(current, rows, chatId));
+  }, [chatId, ledgerQuery.data]);
+  const savedMessages = {
+    ...ledgerQuery,
+    // Before the first payload has been merged (a loading chat, or a render
+    // that cannot run effects) fall back to whatever the query returned, so
+    // consumers keep seeing the same shape they always did.
+    data:
+      ledger.chatId === chatId && ledger.rows.length > 0
+        ? ledger.rows
+        : ledgerQuery.data,
+  };
   const agentIsWorking = isStreaming || Boolean(runStatus.data?.active);
   // The worker flips the deferred turn into a live agent run; at that point the
   // waiting notice has done its job and the normal working indicator takes over.
@@ -695,6 +731,13 @@ export function useWorkspaceChat({
     }
     try {
       await revertChat.mutateAsync({ chatId, messageId: revertFromId });
+      // Revert deletes the message and everything after it, so the incremental
+      // read has to start over: appending after the old cursor would keep the
+      // deleted tail on screen. Resetting the cursor makes the next fetch the
+      // full ledger again; the tick lets the new query key land first.
+      appliedLedgerPayloadRef.current = null;
+      setLedger({ chatId, rows: [], cursor: undefined });
+      await new Promise(resolve => setTimeout(resolve, 0));
       await savedMessages.refetch();
       await sendMessage(chatId, resendContent);
     } catch (error) {

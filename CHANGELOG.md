@@ -1,3 +1,18 @@
+2026-11-24 - perf(chat): read the transcript incrementally
+
+The ledger poll re-sent the entire conversation every time it ran - every 5
+seconds while a run was live, every 30 seconds when idle. That is this
+project's dominant database egress and the reason a Neon project exhausts its
+5 GB/month transfer allowance (docs/database-role-flip.md puts the app at
+~6 GB/month).
+
+The first read still returns the whole history; every later read asks only for
+rows after the newest id already on screen and the client merges them, so a
+poll ships just what changed instead of the whole thread forever. Opening a
+different conversation drops the previous chat's cursor, and a regenerate or
+revert resets it - both delete history that append-only reading would keep on
+screen.
+
 2026-11-24 - fix(agent): don't start the coding specialist with no time left
 
 A call begun with too little of the segment left was cut off mid-flight by the

@@ -1,3 +1,15 @@
+2026-11-24 - feat(chat): sub-agent state in the owner tag, quiet tool failures
+
+A delegated stretch now says what it is doing. The owner block's tag carries
+the specialist's name plus its live state - "Coding specialist · working" with
+a pulsing dot while any step runs, "· done" once they all settle - so a
+sub-agent reads as a distinct actor at a glance instead of blending into Nova's
+own rows.
+
+A failed tool step no longer reads as an incident: it keeps the cross icon but
+drops the red row text, the "(failed)" suffix and the inline error message, so
+a step the agent simply recovers from does not shout.
+
 2026-11-24 - perf(chat): reason at the model's own pace
 
 The thinking block could only update about twice a second because every update

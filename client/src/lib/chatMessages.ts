@@ -656,6 +656,21 @@ export type TurnRenderItem =
     };
 
 /**
+ * A live thinking block that is at least as long as its polled ledger row is
+ * newer than that row. Reasoning only accumulates, so length orders it; the
+ * server streams thinking on a fast beat and persists it on a slower one, and
+ * without this a poll landing between the two would render the shorter row and
+ * visibly roll the panel back.
+ */
+function liveThinkingIsFresher(
+  live: ToolActivity,
+  ledger: ToolActivity
+): boolean {
+  if (live.name !== "thinking" || ledger.name !== "thinking") return false;
+  return (live.detail ?? "").length >= (ledger.detail ?? "").length;
+}
+
+/**
  * Lays the current turn out in the order it actually happened: what the user
  * asked, what Nova said, the tools it called, what it said next, and finally
  * the reply. This is what keeps an intro line ("let me check that") above the
@@ -708,6 +723,12 @@ export function buildTurnItems({
     else if (message.role === "assistant") ledgerReplies.push(message.content);
   }
   const liveItems = groupLiveChatItems(liveEvents);
+  const liveActivityById = new Map<string, ToolActivity>();
+  for (const item of liveItems) {
+    if (item.kind !== "toolRun") continue;
+    for (const activity of item.activities)
+      liveActivityById.set(activity.id, activity);
+  }
 
   // The optimistic bubble stands in for the user's row until the server
   // persists it; afterwards the ledger copy takes its place in the skeleton
@@ -763,9 +784,13 @@ export function buildTurnItems({
         key: `tools-${item.activities[0].id}`,
         live: false,
         createdAt: item.activities[0].createdAt ?? null,
-        activities: item.activities.map(
-          activity => ledgerActivities.get(activity.id) ?? activity
-        ),
+        activities: item.activities.map(activity => {
+          const ledger = ledgerActivities.get(activity.id) ?? activity;
+          const live = liveActivityById.get(activity.id);
+          // Thinking streams faster than it persists, so a poll can deliver a
+          // shorter row than the live copy; the live text wins there.
+          return live && liveThinkingIsFresher(live, ledger) ? live : ledger;
+        }),
       });
     else if (item.message.role === "user")
       items.push({

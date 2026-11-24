@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_UNAVAILABLE_PREFIX, GOAL_MESSAGE_PREFIX } from "@shared/const";
+import {
+  AI_UNAVAILABLE_PREFIX,
+  GOAL_MESSAGE_PREFIX,
+  TOOL_ACTIVITY_MESSAGE_PREFIX,
+} from "@shared/const";
 import {
   formatGoalMarker,
   MAX_GOAL_SEGMENTS,
@@ -4730,6 +4734,54 @@ describe("Nova tool-calling workspace agent", () => {
     // The streamed reply is not re-sent as one bulk chunk.
     expect(onChunk).not.toHaveBeenCalledWith("Hello world");
     expect(result.message.content).toBe("Hello world");
+  });
+
+  it("streams thinking to the open chat faster than it writes the ledger row", async () => {
+    const liveDetails: string[] = [];
+    // The gateway mock is typed from the two-argument default echo, so the
+    // third options argument is supplied through a narrowly typed round.
+    const reasoningThenEnd = async (
+      _ownerId: number,
+      _messages: unknown,
+      gatewayOptions?: { onReasoning?: (chunk: string) => void }
+    ) => {
+      for (let index = 0; index < 200; index += 1) {
+        gatewayOptions?.onReasoning?.(`step ${index} `);
+        await new Promise<void>(resolve => setTimeout(resolve, 5));
+      }
+      return chatResult({ toolCalls: [endTurnCall("Done.")] });
+    };
+    chatWithAiGateway.mockImplementationOnce(
+      reasoningThenEnd as unknown as typeof endTurnEchoOnNudge
+    );
+    append.mockClear();
+    await runWorkspaceAgent(1, 3, "think it through", {
+      onEvent: event => {
+        if (event.type === "tool" && event.tool.name === "thinking")
+          liveDetails.push(event.tool.detail ?? "");
+      },
+    });
+
+    // What the user watches updates many times over...
+    expect(liveDetails.length).toBeGreaterThan(5);
+    // ...while the ledger row follows on a slower beat.
+    const thinkingRows = append.mock.calls
+      .map(call => String((call[1] as { content?: string }).content ?? ""))
+      .filter(content => content.includes(TOOL_ACTIVITY_MESSAGE_PREFIX))
+      .filter(content => content.includes('"name":"thinking"'))
+      .map(content =>
+        JSON.parse(content.slice(TOOL_ACTIVITY_MESSAGE_PREFIX.length)) as {
+          state: string;
+          detail: string;
+        }
+      );
+    expect(thinkingRows.length).toBeGreaterThan(0);
+    expect(thinkingRows.length).toBeLessThan(liveDetails.length);
+    // The settled row always lands, carrying the complete reasoning.
+    expect(thinkingRows[thinkingRows.length - 1].state).toBe("completed");
+    expect(thinkingRows[thinkingRows.length - 1].detail).toBe(
+      liveDetails[liveDetails.length - 1]
+    );
   });
 
   it("retries a transient outage until the run deadline instead of showing an error", async () => {

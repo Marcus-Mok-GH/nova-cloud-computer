@@ -157,14 +157,15 @@ const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
 /**
  * Thinking-block streaming cadence: reasoning-capable models emit their
  * private reasoning as reasoning_content deltas, which are shown live as a
- * collapsible thinking block (like the tool blocks). Deltas are coalesced -
- * a persisted activity update goes out at most twice a second and only once a
- * small amount of new reasoning arrived - fast enough that the panel reads as
- * a live transcript rather than a result that appears at the end, without
- * flooding the event stream or the chat ledger.
+ * collapsible thinking block (like the tool blocks). The two beats are
+ * deliberate: what the user watches is coalesced to about ten updates a
+ * second so the panel reads as a transcript, while the ledger copy - the row
+ * a reload or another channel reads - is written about once a second so a
+ * fast stream cannot become a run of database writes. Both beats still emit
+ * the settled state, which carries the complete text.
  */
-const THINKING_EMIT_INTERVAL_MS = 500;
-const THINKING_MIN_DELTA_CHARS = 40;
+const THINKING_LIVE_INTERVAL_MS = 100;
+const THINKING_PERSIST_INTERVAL_MS = 800;
 /** Cap on the reasoning text kept in a thinking block (reasoning can be long). */
 const THINKING_DETAIL_LIMIT = 20_000;
 /**
@@ -1167,37 +1168,54 @@ ${
       // tool-activity pipeline (persisted like any activity, so a page
       // reload replays it), and closes when the round settles.
       let reasoningThisRound = "";
-      let reasoningEmittedChars = 0;
-      let reasoningLastEmitAt = 0;
-      // Serialize the emissions for this round's thinking block: each update
-      // chains after the previous one, so a slow "running" persist can never
-      // land after the final "completed" state and regress the activity.
-      let thinkingEmissions: Promise<unknown> = Promise.resolve();
+      let reasoningLastLiveAt = 0;
+      let reasoningLastPersistAt = 0;
+      // Two independent chains. Live delivery never waits on the ledger write,
+      // so a slow database hop cannot delay what the user is watching; the
+      // ledger chain still serializes its own writes, so a later row can never
+      // be recorded before an earlier one and read back out of order.
+      let thinkingLive: Promise<unknown> = Promise.resolve();
+      let thinkingLedger: Promise<unknown> = Promise.resolve();
+      const settleThinking = () => Promise.all([thinkingLive, thinkingLedger]);
       const flushThinking = (state: "running" | "completed") => {
         if (!reasoningThisRound) return;
-        if (state === "running") {
-          const now = Date.now();
-          if (
-            now - reasoningLastEmitAt < THINKING_EMIT_INTERVAL_MS ||
-            reasoningThisRound.length - reasoningEmittedChars <
-              THINKING_MIN_DELTA_CHARS
-          )
-            return;
-          reasoningLastEmitAt = now;
+        const now = Date.now();
+        const tool: WorkspaceToolActivity = {
+          id: `thinking-${round}`,
+          name: "thinking",
+          state,
+          args: {},
+          detail: reasoningThisRound.slice(0, THINKING_DETAIL_LIMIT),
+          ...(state === "completed"
+            ? { summary: "The model's thinking for this step." }
+            : {}),
+        };
+        if (
+          state === "completed" ||
+          now - reasoningLastLiveAt >= THINKING_LIVE_INTERVAL_MS
+        ) {
+          reasoningLastLiveAt = now;
+          thinkingLive = thinkingLive
+            .then(() => options.onEvent?.({ type: "tool", tool }))
+            .catch(() => {});
         }
-        reasoningEmittedChars = reasoningThisRound.length;
-        thinkingEmissions = thinkingEmissions.then(() =>
-          emitTool({
-            id: `thinking-${round}`,
-            name: "thinking",
-            state,
-            args: {},
-            detail: reasoningThisRound.slice(0, THINKING_DETAIL_LIMIT),
-            ...(state === "completed"
-              ? { summary: "The model's thinking for this step." }
-              : {}),
-          })
-        );
+        if (
+          state === "completed" ||
+          now - reasoningLastPersistAt >= THINKING_PERSIST_INTERVAL_MS
+        ) {
+          reasoningLastPersistAt = now;
+          thinkingLedger = thinkingLedger
+            .then(() =>
+              appendChatMessageForUser(ownerId, {
+                chatId,
+                role: "assistant",
+                content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify(tool)}`,
+              })
+            )
+            .catch(error => {
+              console.error("[Thinking] failed to persist", error);
+            });
+        }
       };
       const onReasoning = (chunk: string) => {
         reasoningThisRound += chunk;
@@ -1244,7 +1262,7 @@ ${
       } catch (error) {
         if (error instanceof RunDeadlineExceeded) {
           flushThinking("completed");
-          await thinkingEmissions;
+          await settleThinking();
           reply = await composeDeadlineClose();
           streamedReplyChars = 0;
           closedByDeadline = true;
@@ -1252,14 +1270,14 @@ ${
         }
         if (stopController.signal.aborted && (await stopRequested())) {
           flushThinking("completed");
-          await thinkingEmissions;
+          await settleThinking();
           return stopRun();
         }
         if (!visionActive) {
           // A terminal gateway error must not leave the thinking block
           // stuck in its running state.
           flushThinking("completed");
-          await thinkingEmissions;
+          await settleThinking();
           modelCallFailed = true;
           throw error;
         }
@@ -1298,7 +1316,7 @@ ${
         } catch (error) {
           if (error instanceof RunDeadlineExceeded) {
             flushThinking("completed");
-            await thinkingEmissions;
+            await settleThinking();
             reply = await composeDeadlineClose();
             streamedReplyChars = 0;
             closedByDeadline = true;
@@ -1311,7 +1329,7 @@ ${
       // Drain the queue before the round's tool calls or reply so the
       // settled thinking block is persisted before anything follows it.
       flushThinking("completed");
-      await thinkingEmissions;
+      await settleThinking();
       // Recover a tool call the model wrote out as text: run it as a real
       // call so the action executes instead of dumping raw JSON on the user.
       const recoveredCall =

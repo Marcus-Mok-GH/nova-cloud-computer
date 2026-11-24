@@ -1,3 +1,13 @@
+2026-11-24 - perf(chat): reason at the model's own pace
+
+The thinking block could only update about twice a second because every update
+also wrote a ledger row. Live delivery and persistence now run on separate
+beats: what the user watches is coalesced to roughly ten updates a second and
+never waits on the database, while the persisted row - the one a reload or
+another channel reads - is written about once a second and always on settle.
+The transcript merge lets a fresher live thinking block win over the shorter
+row a poll delivered between those writes, so the panel never rolls back.
+
 2026-11-24 - feat(agents): starter agent and team galleries
 
 The Agents page could only build an agent or a team from an empty form. It now

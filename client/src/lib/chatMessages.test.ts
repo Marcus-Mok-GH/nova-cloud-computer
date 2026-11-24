@@ -586,6 +586,79 @@ describe("buildTurnItems", () => {
     });
   });
 
+  it("keeps the live thinking block ahead of a slower persisted ledger row", () => {
+    // Thinking streams on a fast beat and is persisted on a slower one, so a
+    // poll can deliver a shorter row while the live copy holds more text.
+    const ledgerRow: PersistedChatMessage = {
+      id: 2,
+      role: "assistant",
+      content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "thinking-1",
+        name: "thinking",
+        state: "running",
+        args: {},
+        detail: "Weighing the options",
+      })}`,
+    };
+    const items = buildTurnItems({
+      messages: [userRow, ledgerRow],
+      liveEvents: upsertLiveToolEvent([], {
+        id: "thinking-1",
+        name: "thinking",
+        state: "running",
+        args: {},
+        detail: "Weighing the options, then ruling out the second one",
+      }),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    const runs = items.filter(item => item.kind === "toolRun");
+    expect(runs).toHaveLength(1);
+    // Rendered where the ledger put it, but with the fresher live text.
+    expect(runs[0]).toMatchObject({
+      live: false,
+      activities: [
+        expect.objectContaining({
+          id: "thinking-1",
+          detail: "Weighing the options, then ruling out the second one",
+        }),
+      ],
+    });
+  });
+
+  it("still prefers the ledger row when it is the newer thinking state", () => {
+    const ledgerRow: PersistedChatMessage = {
+      id: 2,
+      role: "assistant",
+      content: `${TOOL_ACTIVITY_MESSAGE_PREFIX}${JSON.stringify({
+        id: "thinking-1",
+        name: "thinking",
+        state: "completed",
+        args: {},
+        detail: "Full reasoning, settled round.",
+        summary: "The model's thinking for this step.",
+      })}`,
+    };
+    const items = buildTurnItems({
+      messages: [userRow, ledgerRow],
+      liveEvents: upsertLiveToolEvent([], {
+        id: "thinking-1",
+        name: "thinking",
+        state: "running",
+        args: {},
+        detail: "Partial reasoning",
+      }),
+      pendingUserContent: "Tidy my files",
+      userCommitted: true,
+    });
+    const runs = items.filter(item => item.kind === "toolRun");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      live: false,
+      activities: [expect.objectContaining({ state: "completed" })],
+    });
+  });
+
   it("hands a persisted text segment over to its ledger row in order", () => {
     const items = buildTurnItems({
       messages: [

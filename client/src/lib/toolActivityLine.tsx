@@ -167,8 +167,9 @@ function SummaryNote({
 
 /**
  * The collapsible shell every panel-style activity renders through: a
- * one-line header that toggles an optional detail panel beneath it. A running
- * tool starts open so live progress is visible; a settled one starts closed.
+ * one-line header that toggles an optional detail panel beneath it. Panels
+ * start open so their content is readable without a tap; the caller can still
+ * force a different initial state with `startOpen`.
  */
 function CollapsibleToolPanel({
   testId,
@@ -190,9 +191,7 @@ function CollapsibleToolPanel({
   startOpen?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(
-    startOpen ?? activity.state === "running"
-  );
+  const [open, setOpen] = useState(startOpen ?? true);
   return (
     <div data-testid={testId} className="flex w-full min-w-0 flex-col">
       <button
@@ -263,11 +262,10 @@ function fullCommand(activity: ToolActivity): string {
  * reveals the full command / output in mono, instead of the truncated
  * preview the one-liner shows. Failed steps already carry their reason
  * inline (see ToolActivityLine), so this panel is for the details behind
- * a finished step - and it stays closed until asked for, so a long run
- * does not turn into a wall of open panels.
+ * a finished step. It starts open so the work is visible without a tap.
  */
 function PlainToolActivity({ activity }: { activity: ToolActivity }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const command = fullCommand(activity);
   const detail = (activity.detail || "").trim();
   const hasPanel = Boolean(command || detail);
@@ -1379,13 +1377,12 @@ function StepsDetail({ activities }: { activities: ToolActivity[] }) {
 /**
  * One collapsible group for a stretch of tool calls in the persisted
  * transcript. Instead of one full-width chip row per tool, consecutive tool
- * runs fold into a single quiet headline that expands on demand, so a
- * finished conversation reads as messages with tidy footnotes rather
- * than a wall of tool rows. The headline is an outcome - what is
+ * runs fold into a single quiet headline, open by default so the work is
+ * readable without a tap; collapsing it restores the tidy-footnote reading a
+ * finished conversation had. The headline is an outcome - what is
  * happening now, or how the run ended - not a tool count. A group that
- * still contains a running tool starts open, so a refreshed browser
- * keeps showing live progress, but open now means the recent steps
- * plus their failures, not all 30 rows at once.
+ * still contains a running tool stays open too, so a refreshed browser keeps
+ * showing live progress.
  */
 export function ToolRunGroup({
   activities,
@@ -1394,9 +1391,7 @@ export function ToolRunGroup({
   activities: ToolActivity[];
   ownerBadge?: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(
-    activities.some(activity => activity.state === "running")
-  );
+  const [open, setOpen] = useState(true);
   const summary = summarizeActivities(activities);
   const running = summary.running > 0;
   const StatusIcon =

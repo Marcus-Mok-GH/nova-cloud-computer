@@ -594,7 +594,7 @@ describe("Workspace rendered browser states", () => {
     expect(markup).not.toContain('data-testid="typing-indicator"');
   });
 
-  it("collapses consecutive persisted tool runs into one outcome group instead of a wall of chip rows", () => {
+  it("groups consecutive persisted tool runs under one open outcome headline", () => {
     const toolRow = (
       id: string,
       name: string,
@@ -615,7 +615,9 @@ describe("Workspace rendered browser states", () => {
     expect(markup).toContain('data-testid="tool-run-group"');
     expect(markup).toContain("Finished · 2 steps");
     expect(markup).not.toContain("Used 2 tools");
-    expect(markup).not.toContain('data-testid="tool-run-group-detail"');
+    // The group starts open, so its steps render rather than hiding behind a tap.
+    expect(markup).toContain('data-testid="tool-run-group-detail"');
+    expect(markup).toContain("Read File a.md");
     expect(markup).toContain("Sorted both files.");
   });
 

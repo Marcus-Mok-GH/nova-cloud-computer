@@ -158,12 +158,13 @@ const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
  * Thinking-block streaming cadence: reasoning-capable models emit their
  * private reasoning as reasoning_content deltas, which are shown live as a
  * collapsible thinking block (like the tool blocks). Deltas are coalesced -
- * a persisted activity update goes out at most every 2s and only once a
- * meaningful amount of new reasoning arrived - so watching the model think
- * never floods the event stream or the chat ledger.
+ * a persisted activity update goes out at most twice a second and only once a
+ * small amount of new reasoning arrived - fast enough that the panel reads as
+ * a live transcript rather than a result that appears at the end, without
+ * flooding the event stream or the chat ledger.
  */
-const THINKING_EMIT_INTERVAL_MS = 2_000;
-const THINKING_MIN_DELTA_CHARS = 240;
+const THINKING_EMIT_INTERVAL_MS = 500;
+const THINKING_MIN_DELTA_CHARS = 40;
 /** Cap on the reasoning text kept in a thinking block (reasoning can be long). */
 const THINKING_DETAIL_LIMIT = 20_000;
 /**

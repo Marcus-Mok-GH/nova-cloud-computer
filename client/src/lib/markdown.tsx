@@ -34,7 +34,10 @@ function safeHref(href: string): string | null {
 
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const regex = new RegExp(INLINE_TOKEN.source, "g");
+  // Reuse the compiled pattern: this runs once per line of every rendered
+  // message, so rebuilding the same RegExp each time was pure overhead.
+  const regex = INLINE_TOKEN;
+  regex.lastIndex = 0;
   let cursor = 0;
   let match: RegExpExecArray | null;
   let n = 0;
@@ -235,7 +238,9 @@ export function MarkdownText({ text }: { text: string }) {
     }
 
     // GFM table: header row + delimiter row, then every row that still parses.
-    const table = readTable(lines, i);
+    // A line with no pipe cannot open a table, so skip the row splitting for
+    // the prose lines that make up most of a message.
+    const table = line.includes("|") ? readTable(lines, i) : null;
     if (table) {
       blocks.push(<TableBlock key={nextKey()} table={table} />);
       i = table.end;

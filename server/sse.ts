@@ -19,6 +19,11 @@ export type SseLineFramer = {
   pending(): string;
 };
 
+/** The line text without its trailing CR, allocated only when one is there. */
+function stripTrailingCr(line: string): string {
+  return line.charCodeAt(line.length - 1) === 13 ? line.slice(0, -1) : line;
+}
+
 /**
  * Builds a line framer for one stream. `push` throws whatever
  * `lineLengthError` returns when the retained partial line exceeds
@@ -39,12 +44,18 @@ export function createSseLineFramer(
   return {
     push(chunk: string) {
       buffer += chunk;
-      let newlineIndex = buffer.indexOf("\n");
+      // Scan with a cursor and cut each line out of the buffer as-is: slicing
+      // the remainder after every newline (the old shape) copied the whole
+      // chunk once per line, so a burst of hundreds of lines went quadratic.
+      // One slice at the end keeps the partial line and drops the rest.
+      let start = 0;
+      let newlineIndex = buffer.indexOf("\n", start);
       while (newlineIndex !== -1) {
-        onLine(buffer.slice(0, newlineIndex).replace(/\r$/, ""));
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
+        onLine(stripTrailingCr(buffer.slice(start, newlineIndex)));
+        start = newlineIndex + 1;
+        newlineIndex = buffer.indexOf("\n", start);
       }
+      if (start > 0) buffer = buffer.slice(start);
       if (buffer.length > maxLineLength) {
         throw (
           options?.lineLengthError?.() ??

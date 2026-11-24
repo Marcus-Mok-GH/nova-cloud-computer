@@ -361,10 +361,6 @@ function OwnerGroupedRows({ activities }: { activities: ToolActivity[] }) {
   );
 }
 
-/** How many steps of a run failed, for the visible failure counters. */
-const failedCount = (activities: ToolActivity[]) =>
-  activities.filter(activity => activity.state === "failed").length;
-
 /* ------------------------------------------------------------------ *
  * Components
  * ------------------------------------------------------------------ */
@@ -1276,18 +1272,23 @@ export function summarizeActivities(
   activities: ToolActivity[]
 ): ActivitySummary {
   const total = activities.length;
-  const failed = failedCount(activities);
-  const running = activities.filter(
-    activity => activity.state === "running"
-  ).length;
-  const completed = total - failed - running;
-  const current = [...activities]
-    .reverse()
-    .find(activity => activity.state === "running");
+  // One pass for the state counts, the current step and the category tally:
+  // every run renders this, and a long run can hold dozens of steps.
+  let failed = 0;
+  let running = 0;
+  let current: ToolActivity | undefined;
   const counts = new Map<string, number>();
-  for (const activity of activities) {
+  for (let index = 0; index < total; index += 1) {
+    const activity = activities[index];
+    if (activity.state === "failed") failed += 1;
+    else if (activity.state === "running") {
+      running += 1;
+      // The newest running step wins, matching a reversed search.
+      current = activity;
+    }
     counts.set(activity.name, (counts.get(activity.name) ?? 0) + 1);
   }
+  const completed = total - failed - running;
   const categories = Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)

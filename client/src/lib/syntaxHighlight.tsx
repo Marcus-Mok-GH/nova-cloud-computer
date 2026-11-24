@@ -14,8 +14,12 @@ const extensionMap: Record<string, HighlightLanguage> = {
 };
 
 export function detectLanguage(filename: string, mimeType?: string | null): HighlightLanguage {
-  const extension = filename.toLowerCase().split(".").pop() ?? "";
-  if (extensionMap[extension]) return extensionMap[extension];
+  const name = filename.toLowerCase();
+  // `.slice(lastIndexOf + 1)` is the same extension as `.split(".").pop()`
+  // (a dot-less name yields the whole name) without allocating every segment.
+  const extension = name.slice(name.lastIndexOf(".") + 1);
+  const mapped = extensionMap[extension];
+  if (mapped) return mapped;
   const mime = mimeType?.toLowerCase() ?? "";
   if (mime.includes("javascript")) return "javascript";
   if (mime.includes("typescript")) return "typescript";
@@ -29,13 +33,14 @@ export function detectLanguage(filename: string, mimeType?: string | null): High
   return "text";
 }
 
+const LANGUAGE_LABELS: Record<HighlightLanguage, string> = {
+  javascript: "JavaScript", typescript: "TypeScript", jsx: "JSX", tsx: "TSX", json: "JSON", html: "HTML", xml: "XML",
+  css: "CSS", scss: "SCSS", python: "Python", java: "Java", c: "C", cpp: "C++", csharp: "C#", go: "Go", rust: "Rust",
+  bash: "Bash", shell: "Shell", sql: "SQL", yaml: "YAML", markdown: "Markdown", php: "PHP", text: "Plain text",
+};
+
 export function languageLabel(language: HighlightLanguage) {
-  const labels: Record<HighlightLanguage, string> = {
-    javascript: "JavaScript", typescript: "TypeScript", jsx: "JSX", tsx: "TSX", json: "JSON", html: "HTML", xml: "XML",
-    css: "CSS", scss: "SCSS", python: "Python", java: "Java", c: "C", cpp: "C++", csharp: "C#", go: "Go", rust: "Rust",
-    bash: "Bash", shell: "Shell", sql: "SQL", yaml: "YAML", markdown: "Markdown", php: "PHP", text: "Plain text",
-  };
-  return labels[language];
+  return LANGUAGE_LABELS[language];
 }
 
 type Token = { kind: "comment" | "string" | "number" | "keyword" | "literal" | "function" | "tag" | "attribute" | "property" | "operator" | "heading" | "punctuation" | "plain"; text: string };
@@ -58,35 +63,67 @@ const keywordSets: Record<string, Set<string>> = {
   php: new Set("and or xor __FILE__ __LINE__ array as break case class const continue declare default die do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile eval exit extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while yield true false null".split(" ")),
 };
 
+const TOKEN_CLASSES: Record<Token["kind"], string> = {
+  comment: "text-neutral-500 italic", string: "text-emerald-600 dark:text-emerald-400", number: "text-amber-600 dark:text-amber-300",
+  keyword: "text-purple-700 dark:text-purple-400 font-medium", literal: "text-orange-600 dark:text-orange-300", function: "text-blue-700 dark:text-blue-300",
+  tag: "text-red-600 dark:text-red-400", attribute: "text-sky-700 dark:text-sky-300", property: "text-cyan-700 dark:text-cyan-300",
+  operator: "text-pink-600 dark:text-pink-300", heading: "text-purple-700 dark:text-purple-300 font-semibold", punctuation: "text-neutral-600 dark:text-neutral-300", plain: "",
+};
+
 function tokenClass(kind: Token["kind"]) {
-  return {
-    comment: "text-neutral-500 italic", string: "text-emerald-600 dark:text-emerald-400", number: "text-amber-600 dark:text-amber-300",
-    keyword: "text-purple-700 dark:text-purple-400 font-medium", literal: "text-orange-600 dark:text-orange-300", function: "text-blue-700 dark:text-blue-300",
-    tag: "text-red-600 dark:text-red-400", attribute: "text-sky-700 dark:text-sky-300", property: "text-cyan-700 dark:text-cyan-300",
-    operator: "text-pink-600 dark:text-pink-300", heading: "text-purple-700 dark:text-purple-300 font-semibold", punctuation: "text-neutral-600 dark:text-neutral-300", plain: "",
-  }[kind];
+  return TOKEN_CLASSES[kind];
 }
 
+/** Shared by every language with no keyword list, so no Set is allocated. */
+const NO_KEYWORDS: ReadonlySet<string> = new Set<string>();
+
+/** Words a tokeniser reports as literals rather than keywords. */
+const LITERAL_WORDS: ReadonlySet<string> = new Set([
+  "true", "false", "null", "undefined", "None", "True", "False", "none", "nil", "nullptr",
+]);
+
+/** The markup and code token patterns, compiled once instead of per call. */
+const HTML_TOKEN = /(<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+const CODE_TOKEN = /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b|===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\+=|-=|\*=|\/=|[+\-*\/%=<>!&|^~?:])+/g;
+/** Markdown is rendered by splitting, never by tokenising. */
+const MARKDOWN_SPLIT = /(\n#{1,6}\s+[^\n]+|`[^`]+`)/g;
+/** ` name=` inside a start tag, split so the attribute can be coloured. */
+const TAG_ATTRIBUTE = /(\s+)([A-Za-z_:][-\w:.]*)(=)/g;
+const TAG_ATTRIBUTE_HEAD = /^([A-Za-z_:][-\w:.]*)(=)/;
+const QUOTE_START = /^[`"']/;
+const DIGIT_START = /^\d/;
+const OPERATOR_START = /^[+\-*\/%=<>!&|^~?:]/;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const CALL_FOLLOWS = /^\s*\(/;
+const JSON_VALUE_FOLLOWS = /^\s*:/;
+
 function tokenize(code: string, language: HighlightLanguage): Token[] {
+  if (language === "markdown")
+    return code.split(MARKDOWN_SPLIT).map(text => ({ kind: text.startsWith("#") ? "heading" : text.startsWith("`") ? "string" : "plain", text } as Token));
   const tokens: Token[] = [];
-  const keywords = keywordSets[language] ?? new Set<string>();
+  const keywords = keywordSets[language] ?? NO_KEYWORDS;
   const htmlLike = language === "html" || language === "xml";
-  const pattern = htmlLike
-    ? /(<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g
-    : /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b|===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\+=|-=|\*=|\/=|[+\-*\/%=<>!&|^~?:])+/g;
+  const pattern = htmlLike ? HTML_TOKEN : CODE_TOKEN;
+  const isJson = language === "json";
   let last = 0;
-  for (const match of Array.from(code.matchAll(pattern))) {
+  // Stepped with `exec` on the compiled pattern rather than materialising
+  // every match first: a large file produces thousands of matches, and the
+  // intermediate array was a full second copy of them.
+  pattern.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(code)) !== null) {
     const index = match.index ?? 0;
     if (index > last) tokens.push({ kind: "plain", text: code.slice(last, index) });
     const value = match[0];
     if (htmlLike) {
       if (value.startsWith("<!--")) tokens.push({ kind: "comment", text: value });
       else if (value.startsWith("<")) {
-        const tag = value.replace(/(\s+)([A-Za-z_:][-\w:.]*)(=)/g, "$1§ATTR§$2$3");
+        const tag = value.replace(TAG_ATTRIBUTE, "$1§ATTR§$2$3");
         const pieces = tag.split("§ATTR§");
         tokens.push({ kind: "tag", text: pieces[0] });
-        for (const piece of pieces.slice(1)) {
-          const attr = piece.match(/^([A-Za-z_:][-\w:.]*)(=)/);
+        for (let pieceIndex = 1; pieceIndex < pieces.length; pieceIndex += 1) {
+          const piece = pieces[pieceIndex];
+          const attr = TAG_ATTRIBUTE_HEAD.exec(piece);
           if (attr) {
             tokens.push({ kind: "attribute", text: attr[1] });
             tokens.push({ kind: "operator", text: "=" });
@@ -95,18 +132,24 @@ function tokenize(code: string, language: HighlightLanguage): Token[] {
         }
       } else tokens.push({ kind: "string", text: value });
     } else if (value.startsWith("//") || value.startsWith("#") || value.startsWith("/*")) tokens.push({ kind: "comment", text: value });
-    else if (/^[`"']/.test(value)) tokens.push({ kind: "string", text: value });
-    else if (/^\d/.test(value)) tokens.push({ kind: "number", text: value });
-    else if (keywords.has(value)) tokens.push({ kind: ["true", "false", "null", "undefined", "None", "True", "False", "none", "nil", "nullptr"].includes(value) ? "literal" : "keyword", text: value });
-    else if (/^[+\-*\/%=<>!&|^~?:]/.test(value)) tokens.push({ kind: "operator", text: value });
+    else if (QUOTE_START.test(value)) tokens.push({ kind: "string", text: value });
+    else if (DIGIT_START.test(value)) tokens.push({ kind: "number", text: value });
+    else if (keywords.has(value)) tokens.push({ kind: LITERAL_WORDS.has(value) ? "literal" : "keyword", text: value });
+    else if (OPERATOR_START.test(value)) tokens.push({ kind: "operator", text: value });
     else {
       const rest = code.slice(index + value.length);
-      tokens.push({ kind: /^[A-Za-z_$][\w$]*$/.test(value) && /^\s*\(/.test(rest) ? "function" : language === "json" && /^\s*:/.test(rest) ? "property" : "plain", text: value });
+      tokens.push({
+        kind: IDENTIFIER.test(value) && CALL_FOLLOWS.test(rest)
+          ? "function"
+          : isJson && JSON_VALUE_FOLLOWS.test(rest)
+            ? "property"
+            : "plain",
+        text: value,
+      });
     }
     last = index + value.length;
   }
   if (last < code.length) tokens.push({ kind: "plain", text: code.slice(last) });
-  if (language === "markdown") return code.split(/(\n#{1,6}\s+[^\n]+|`[^`]+`)/g).map(text => ({ kind: text.startsWith("#") ? "heading" : text.startsWith("`") ? "string" : "plain", text } as Token));
   return tokens;
 }
 

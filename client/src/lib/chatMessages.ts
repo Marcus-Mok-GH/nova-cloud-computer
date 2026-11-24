@@ -253,10 +253,11 @@ export function appendLiveTextDelta(
   if (!delta) return events;
   const last = events[events.length - 1];
   if (last && last.kind === "text") {
-    return [
-      ...events.slice(0, -1),
-      { kind: "text", content: last.content + delta },
-    ];
+    // One copy instead of slice-then-spread: this runs for every streamed
+    // delta, so the transcript is copied once per token, not twice.
+    const next = events.slice();
+    next[next.length - 1] = { kind: "text", content: last.content + delta };
+    return next;
   }
   return [...events, { kind: "text", content: delta }];
 }

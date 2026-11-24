@@ -23,6 +23,7 @@ import {
   effortOptionsForModelId,
   FREE_CHAT_MODEL_ID,
 } from "@shared/models";
+import { ModelNameDisclaimer } from "@/components/ModelNameDisclaimer";
 
 const EFFORT_LABELS: Record<EffortId, string> = {
   auto: "Auto",
@@ -121,6 +122,8 @@ export function PromptModelControls({
               </DropdownMenuItem>
             );
           })}
+          <DropdownMenuSeparator />
+          <ModelNameDisclaimer />
           {!isPaid && (
             <>
               <DropdownMenuSeparator />

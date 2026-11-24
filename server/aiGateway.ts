@@ -124,7 +124,7 @@ const POLLINATIONS_API_BASE_URL = "https://gen.pollinations.ai/v1";
  * automatically.
  */
 const COARENA_API_BASE_URL = "https://coarena.ai/api/v1";
-const COARENA_MODELS = new Set(["gemini-3-8-flash", "gpt-6-1-sol"]);
+const COARENA_MODELS = new Set(["gemini-3-8-flash", "gpt-6-luna"]);
 
 /** The primary model Nova's built-in gateway serves. */
 export const POLLINATIONS_CHAT_MODEL = "openai/gpt-6-luna";
@@ -596,7 +596,8 @@ export function reasoningParamsForModel(
  * Our deepest level ("max") is named differently per route: Pollinations'
  * request schema accepts none | minimal | low | medium | high | xhigh and
  * rejects anything else with a 400, which does NOT fall back, Coarena's
- * GPT-6.1 Sol tops out at "xhigh", while Coarena's Gemini and bare GLM ids
+ * GPT-6 Luna tops out at "xhigh" (its live capabilities list is none | low |
+ * medium | high | xhigh), while Coarena's Gemini and bare GLM ids
  * (BYOK against the Zhipu API, which documents "max") keep "max". Levels
  * below max pass through unchanged.
  */

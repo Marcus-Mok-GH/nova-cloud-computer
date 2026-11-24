@@ -50,6 +50,13 @@ export type ChatModel = {
 
 export const FREE_CHAT_MODEL_ID = "nova-pro";
 
+/**
+ * Shown under every model picker. Nova Lite / Nova Ultra are this product's own
+ * labels - they are unrelated to Amazon's Nova foundation models.
+ */
+export const NOVA_MODEL_NAME_DISCLAIMER =
+  "Nova Lite and Nova Ultra are Nova Cloud Computer model names; they have no association with Amazon's Nova foundation models.";
+
 /** The full depth range every model exposes. */
 const NOVA_EFFORTS: EffortId[] = ["auto", "low", "medium", "high", "max"];
 
@@ -92,11 +99,11 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     efforts: NOVA_EFFORTS,
   },
   {
-    id: "gpt-6.1-sol",
-    label: "GPT-6.1 Sol",
-    description: "OpenAI's GPT-6.1 Sol - fast, strong coding and reasoning.",
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    description: "OpenAI's GPT-6 Luna - fast, strong coding and reasoning.",
     tier: "pro",
-    upstreamModel: "gpt-6-1-sol",
+    upstreamModel: "gpt-6-luna",
     efforts: NOVA_EFFORTS,
   },
 ];

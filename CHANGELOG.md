@@ -1,3 +1,7 @@
+2026-11-24 - feat(models): GPT-6 Luna replaces GPT-6.1 Sol, and the Nova/Amazon name clash gets a disclaimer
+
+The premium model `GPT-6.1 Sol` is replaced in the chat catalog with `GPT-6 Luna`, using Coarena ID `gpt-6-luna`. Coarena lists it as active with the same 1,050,000-token context, vision and tool-call capabilities, and reasoning efforts up to `xhigh`; a live chat-completions request returned HTTP 200. Migration 0067 remaps saved selections to the new catalog id. Both model pickers explicitly state that Nova Lite and Nova Ultra are Nova Cloud Computer model names with no association with Amazon's Nova foundation models.
+
 2026-11-24 - feat(skills): search public skills and add them to the library
 
 The Skills page could only create skills from scratch. It now carries a

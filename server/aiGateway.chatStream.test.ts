@@ -385,7 +385,7 @@ describe("AI gateway chat stream handling", () => {
       )
     ).toEqual({ thinking: { type: "enabled" }, reasoning_effort: "high" });
     // Coarena models carry the classified level on the wire...
-    expect(reasoningParamsForModel("gpt-6-1-sol", "auto", "hi")).toEqual({
+    expect(reasoningParamsForModel("gpt-6-luna", "auto", "hi")).toEqual({
       reasoning_effort: "low",
     });
     expect(
@@ -396,12 +396,12 @@ describe("AI gateway chat stream handling", () => {
       )
     ).toEqual({ reasoning_effort: "high" });
     // ...but with no request text they keep the provider default.
-    expect(reasoningParamsForModel("gpt-6-1-sol", "auto")).toEqual({});
-    // Explicit effort wins, including sol's xhigh alias for max.
-    expect(reasoningParamsForModel("gpt-6-1-sol", "max")).toEqual({
+    expect(reasoningParamsForModel("gpt-6-luna", "auto")).toEqual({});
+    // Explicit effort wins, including luna's xhigh alias for max.
+    expect(reasoningParamsForModel("gpt-6-luna", "max")).toEqual({
       reasoning_effort: "xhigh",
     });
-    expect(reasoningParamsForModel("gpt-6-1-sol", "low")).toEqual({
+    expect(reasoningParamsForModel("gpt-6-luna", "low")).toEqual({
       reasoning_effort: "low",
     });
     // A pinned deployment lever beats classification.
@@ -522,7 +522,7 @@ describe("AI gateway chat stream handling", () => {
       reasoning_effort: "xhigh",
     });
     // Bare GLM ids (BYOK against Zhipu) and Coarena's Gemini keep "max";
-    // Coarena's sol tops out at "xhigh".
+    // Coarena's luna tops out at "xhigh".
     expect(reasoningParamsForModel("glm-5.3-flash", "max")).toEqual({
       thinking: { type: "enabled" },
       reasoning_effort: "max",
@@ -530,7 +530,7 @@ describe("AI gateway chat stream handling", () => {
     expect(reasoningParamsForModel("gemini-3-8-flash", "max")).toEqual({
       reasoning_effort: "max",
     });
-    expect(reasoningParamsForModel("gpt-6-1-sol", "max")).toEqual({
+    expect(reasoningParamsForModel("gpt-6-luna", "max")).toEqual({
       reasoning_effort: "xhigh",
     });
   });

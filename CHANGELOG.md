@@ -9,6 +9,20 @@ place; a team start resolves its roster through a helper that creates any
 missing member and reuses one already present. A starter the account already
 holds reads as added instead of being offerable twice.
 
+2026-11-24 - feat(chat): tool expanders open by default, reasoning streams live
+
+Every tool expander starts open: the run-group headline ("Finished · N steps"),
+the specialist panels (research / thinker / editor / solver / edit_file) and the
+per-step command + output chevrons all render their detail without a tap. Each
+still toggles shut, and a long run's own step list keeps its "+N earlier steps"
+fold so a 30-step run does not become a wall.
+
+The reasoning panel keeps its own lifecycle - open while the model thinks,
+collapsed as soon as the round settles - but the server now persists thinking
+updates twice a second once 40 new characters have arrived (was 2s / 240), so
+the panel reads as a live transcript instead of a block that only appears when
+the answer lands.
+
 2026-11-24 - feat(ui): halve the working blob
 
 The "AI is working" indicator was oversized next to its 10px status label. The

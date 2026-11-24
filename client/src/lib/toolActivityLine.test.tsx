@@ -283,7 +283,7 @@ describe("EditFileToolActivity", () => {
     expect(html).toContain("Edit File notes.md");
   });
 
-  it("renders collapsed with a chevron once completed, ready to reveal the diff", () => {
+  it("renders open once completed, with the diff visible", () => {
     const html = renderToStaticMarkup(
       React.createElement(EditFileToolActivity, {
         activity: edit(
@@ -292,9 +292,10 @@ describe("EditFileToolActivity", () => {
         ),
       })
     );
-    expect(html).not.toContain("edit-file-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("edit-file-detail-panel"); // open by default
+    expect(html).toContain("+Hello, updated!");
     expect(html).toContain("Edit File notes.md");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 
   it("says there was no change when the edit wrote the same content back", () => {
@@ -357,7 +358,7 @@ describe("ResearchToolActivity", () => {
     expect(html).toContain("Deep Research: python versions");
   });
 
-  it("renders collapsed with a chevron once completed, ready to reveal the report", () => {
+  it("renders open once completed, with the report visible", () => {
     const completed = research(
       "completed",
       "The report says Python 3.14.7 is latest.\n\nAll sources consulted by the researcher:\n1. python.org - https://python.org"
@@ -365,9 +366,10 @@ describe("ResearchToolActivity", () => {
     const html = renderToStaticMarkup(
       React.createElement(ResearchToolActivity, { activity: completed })
     );
-    expect(html).not.toContain("research-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("research-detail-panel"); // open by default
+    expect(html).toContain("The report says Python 3.14.7 is latest.");
     expect(html).toContain("Deep Research: python versions");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 
   it("falls back to the starting note while running without progress yet", () => {
@@ -471,7 +473,7 @@ describe("ThinkerToolActivity", () => {
     expect(html).not.toContain("Context");
   });
 
-  it("renders collapsed with a chevron once completed, ready to reveal the analysis", () => {
+  it("renders open once completed, with the analysis visible", () => {
     const html = renderToStaticMarkup(
       React.createElement(ThinkerToolActivity, {
         activity: thinker(
@@ -480,9 +482,10 @@ describe("ThinkerToolActivity", () => {
         ),
       })
     );
-    expect(html).not.toContain("thinker-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("thinker-detail-panel"); // open by default
+    expect(html).toContain("Yes - add a short TTL cache.");
     expect(html).toContain("Thinker: Should we add a cache?");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 
   it("shows the full analysis rendered as markdown when expanded", () => {
@@ -573,7 +576,7 @@ describe("CodeTaskToolActivity", () => {
     expect(html).toContain("Editor: write a traffic-jam game in HTML");
   });
 
-  it("renders collapsed with a chevron once completed, ready to reveal the code", () => {
+  it("renders open once completed, with the code visible", () => {
     const html = renderToStaticMarkup(
       React.createElement(CodeTaskToolActivity, {
         activity: codeTask(
@@ -582,9 +585,10 @@ describe("CodeTaskToolActivity", () => {
         ),
       })
     );
-    expect(html).not.toContain("code-task-detail-panel"); // default closed, toggleable via the chevron
+    expect(html).toContain("code-task-detail-panel"); // open by default
+    expect(html).toContain("Specialist");
     expect(html).toContain("Editor: write a traffic-jam game in HTML");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 
   it("shows the specialist failure reason when the task failed", () => {
@@ -596,7 +600,8 @@ describe("CodeTaskToolActivity", () => {
         ),
       })
     );
-    expect(html).not.toContain("code-task-detail-panel");
+    expect(html).toContain("code-task-detail-panel"); // open by default
+    expect(html).toContain("NIM is down.");
     expect(html).toContain("(failed)");
   });
 
@@ -613,7 +618,7 @@ describe("CodeTaskToolActivity", () => {
     );
     expect(html).toContain('data-testid="code-task-tool-activity"');
     expect(html).toContain("Editor"); // header falls back to the bare tool name
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 });
 
@@ -640,16 +645,16 @@ describe("SolveEquationToolActivity", () => {
     expect(html).toContain("Solve: 20 - (5*2 + 2*(2/3))");
   });
 
-  it("renders collapsed with a chevron once completed, showing input and output when open", () => {
+  it("renders open once completed, showing input and output", () => {
     const html = renderToStaticMarkup(
       React.createElement(SolveEquationToolActivity, {
         activity: solve("completed", "20 - (5*2 + 2*(2/3)) = 8.3333"),
       })
     );
-    // Default closed, toggleable via the chevron.
-    expect(html).not.toContain("solve-equation-detail-panel");
+    expect(html).toContain("solve-equation-detail-panel"); // open by default
+    expect(html).toContain("= 8.3333");
     expect(html).toContain("Solve: 20 - (5*2 + 2*(2/3))");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 
   it("shows the expression as Input and the answer as Output when expanded", () => {
@@ -704,7 +709,7 @@ describe("SolveEquationToolActivity", () => {
     );
     expect(html).toContain('data-testid="solve-equation-tool-activity"');
     expect(html).toContain("Solve");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-expanded="true"');
   });
 });
 
@@ -777,7 +782,7 @@ describe("ToolActivityLine", () => {
     expect(failed).toContain("text-red-600");
   });
 
-  it("keeps the full command behind a chevron on command steps", () => {
+  it("shows the full command on command steps without needing the chevron", () => {
     const html = renderToStaticMarkup(
       React.createElement(LiveActivityCard, {
         activities: [
@@ -793,10 +798,10 @@ describe("ToolActivityLine", () => {
         working: false,
       })
     );
-    // The one-liner previews the program; the full command stays behind
-    // the row's chevron instead of being dumped into the chat.
+    // Open by default, so the one-liner's preview and the full command are
+    // both readable without a tap.
     expect(html).toContain("Run Command: python3");
-    expect(html).not.toContain("from pathlib import Path");
+    expect(html).toContain("from pathlib import Path");
   });
 });
 
@@ -963,7 +968,7 @@ describe("ToolRunGroup", () => {
     args: { arguments: `{"file":"${id}.txt"}` },
   });
 
-  it("collapses a settled stretch of tool rows into one quiet outcome headline", () => {
+  it("opens a settled stretch of tool rows by default under one outcome headline", () => {
     const html = renderToStaticMarkup(
       React.createElement(ToolRunGroup, {
         activities: [run("t-1", "completed"), run("t-2", "completed")],
@@ -972,9 +977,9 @@ describe("ToolRunGroup", () => {
     expect(html).toContain('data-testid="tool-run-group"');
     expect(html).toContain("Finished · 2 steps");
     expect(html).not.toContain("Used 2 tools");
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).not.toContain('data-testid="tool-run-group-detail"');
-    expect(html).not.toContain("Read File t-1.txt");
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-testid="tool-run-group-detail"');
+    expect(html).toContain("Read File t-1.txt");
     // A settled run carries no working animation at all.
     expect(html).not.toContain('data-testid="working-animation"');
   });

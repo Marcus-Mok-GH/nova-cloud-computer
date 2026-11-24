@@ -22,6 +22,10 @@ export const pluralize = (count: number, noun: string): string =>
 export const fileStamp = (atMs: number) =>
   new Date(atMs).toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
+/** Precompiled data-URI prefix matcher — reused across calls instead of
+ * allocating a new RegExp on every invocation. */
+const _DATA_URI_MIME_RE = /^data:([a-z0-9.+/-]+\/[a-z0-9.+/-]+);base64,/i;
+
 /**
  * The declared mime type of a base64 data URI (`data:<type>;base64,...`), or
  * null when the value is not one. Both the chat-image and chat-file request
@@ -29,6 +33,6 @@ export const fileStamp = (atMs: number) =>
  * either of them.
  */
 export function base64DataUriMimeType(value: string): string | null {
-  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,/i.exec(value);
+  const match = _DATA_URI_MIME_RE.exec(value);
   return match ? match[1].toLowerCase() : null;
 }

@@ -235,16 +235,16 @@ describe("AI gateway client", () => {
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${COARENA_KEY}` }) }));
   });
 
-  it("routes the GPT-6.1 Sol slot to Coarena under its upstream id", async () => {
+  it("routes the GPT-6 Luna slot to Coarena under its upstream id", async () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "sol reply" } }], model: "gpt-6-1-sol" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Luna route verified." } }], model: "gpt-6-luna" }), { status: 200 }));
 
-    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6.1-sol" });
-    expect(result).toMatchObject({ text: "sol reply" });
+    const result = await chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6-luna" });
+    expect(result).toMatchObject({ text: "Luna route verified." });
     expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${COARENA_BASE_URL}/chat/completions`, expect.anything());
-    // The catalogue id (dot) becomes the upstream id (hyphen) on the wire.
-    expect(postedModels()).toEqual(["gpt-6-1-sol"]);
+    // The catalogue id is sent on the wire as the provider's own id.
+    expect(postedModels()).toEqual(["gpt-6-luna"]);
   });
 
   it("falls back to Pollinations behind a failed Coarena hop", async () => {
@@ -266,7 +266,7 @@ describe("AI gateway client", () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
     await expect(
-      chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6.1-sol" })
+      chatWithAiGateway(7, [{ role: "user", content: "hi" }], { model: "gpt-6-luna" })
     ).rejects.toMatchObject({ kind: "configuration" });
     // Only the Pollinations health probe ever left the process.
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);

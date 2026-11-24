@@ -50,8 +50,18 @@ export type ChatModel = {
 
 export const FREE_CHAT_MODEL_ID = "nova-pro";
 
+/**
+ * Shown under every model picker. Nova Lite / Nova Ultra are this product's own
+ * labels - they are unrelated to Amazon's Nova foundation models.
+ */
+export const NOVA_MODEL_NAME_DISCLAIMER =
+  "Nova Lite and Nova Ultra are Nova Cloud Computer model names; they have no association with Amazon's Nova foundation models.";
+
 /** The full depth range every model exposes. */
 const NOVA_EFFORTS: EffortId[] = ["auto", "low", "medium", "high", "max"];
+
+/** Module-level so normalising a catalogue allocates one Set, not one per model. */
+const KNOWN_EFFORTS: ReadonlySet<string> = new Set(CHAT_EFFORT_OPTIONS);
 
 export const DEFAULT_CHAT_MODELS: ChatModel[] = [
   {
@@ -89,11 +99,11 @@ export const DEFAULT_CHAT_MODELS: ChatModel[] = [
     efforts: NOVA_EFFORTS,
   },
   {
-    id: "gpt-6.1-sol",
-    label: "GPT-6.1 Sol",
-    description: "OpenAI's GPT-6.1 Sol - fast, strong coding and reasoning.",
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    description: "OpenAI's GPT-6 Luna - fast, strong coding and reasoning.",
     tier: "pro",
-    upstreamModel: "gpt-6-1-sol",
+    upstreamModel: "gpt-6-luna",
     efforts: NOVA_EFFORTS,
   },
 ];
@@ -119,15 +129,20 @@ function isChatModel(value: unknown): value is ChatModel {
  * and de-dupes. An entry with no recognisable effort list offers only auto.
  */
 function normalizeEfforts(raw: unknown): EffortId[] {
-  const known = new Set<string>(CHAT_EFFORT_OPTIONS);
   const cleaned = Array.isArray(raw)
-    ? raw.filter((value): value is EffortId => typeof value === "string" && known.has(value))
+    ? raw.filter(
+        (value): value is EffortId =>
+          typeof value === "string" && KNOWN_EFFORTS.has(value)
+      )
     : [];
   const deduped: EffortId[] = [];
+  const seen = new Set<string>();
   for (const value of cleaned) {
-    if (!deduped.includes(value)) deduped.push(value);
+    if (seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
   }
-  if (!deduped.includes("auto")) deduped.unshift("auto");
+  if (!seen.has("auto")) deduped.unshift("auto");
   return deduped;
 }
 
@@ -139,14 +154,38 @@ function defaultModelsEnv(): string | undefined {
   return typeof process !== "undefined" ? process.env?.NOVA_CHAT_MODELS_JSON : undefined;
 }
 
+/** Memoised catalogues, keyed by the trimmed env value ("" = built-in). */
+const catalogueCache = new Map<string, ChatModel[]>();
+
+/** How many distinct env values to remember before the cache is reset. */
+const MAX_CATALOGUE_CACHE = 8;
+
 /**
  * The active catalogue: NOVA_CHAT_MODELS_JSON when it parses as a valid list
  * that still contains the free model, otherwise the built-in defaults. The
  * env override can only relabel or replace premium entries - a catalogue
  * without `nova-pro` is rejected so the free path can never disappear.
+ *
+ * The catalogue is resolved on every chat request and on every render that
+ * offers the model picker, so each distinct env value is parsed and
+ * normalised once and the result kept: the env var is fixed for the life of
+ * a process, which makes the repeated JSON parse pure overhead. Callers only
+ * read the returned entries.
  */
 export function getChatModels(env: string | undefined = defaultModelsEnv()): ChatModel[] {
-  const raw = env?.trim();
+  const raw = env?.trim() ?? "";
+  const cached = catalogueCache.get(raw);
+  if (cached) return cached;
+  const models = resolveCatalogue(raw);
+  // One entry covers a deployment; the cap only stops a caller that passes
+  // ever-different strings from growing the map without bound.
+  if (catalogueCache.size >= MAX_CATALOGUE_CACHE) catalogueCache.clear();
+  catalogueCache.set(raw, models);
+  return models;
+}
+
+/** Parses one raw NOVA_CHAT_MODELS_JSON value, falling back to the defaults. */
+function resolveCatalogue(raw: string): ChatModel[] {
   if (!raw) return withEfforts(DEFAULT_CHAT_MODELS);
   try {
     const parsed = JSON.parse(raw);

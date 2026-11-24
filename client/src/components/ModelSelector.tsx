@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { trpc } from "@/lib/trpc";
 import type { ChatModel } from "@shared/models";
+import { ModelNameDisclaimer } from "@/components/ModelNameDisclaimer";
 
 function modelLabel(models: ChatModel[], id: string | undefined) {
   return models.find(model => model.id === id)?.label ?? "Nova Lite";
@@ -105,6 +106,8 @@ export function ModelSelector({ chatId }: { chatId: string }) {
             </DropdownMenuItem>
           );
         })}
+        <DropdownMenuSeparator />
+        <ModelNameDisclaimer />
         {!isPaid && (
           <>
             <DropdownMenuSeparator />

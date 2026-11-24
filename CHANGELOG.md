@@ -1,3 +1,17 @@
+2026-11-24 - feat(skills): search public skills and add them to the library
+
+The Skills page could only create skills from scratch. It now carries a
+searchable catalogue of public skills - 13 ready-made procedures (weekly
+report, code review, commit messages, meeting notes, bug triage, release
+notes, research brief, email reply, CSV cleanup, incident postmortem, API
+design, slide deck, SQL tuning) - that anyone can search by name,
+description or instructions and add to their own library. An added skill is a
+normal skill: it lands in `workspace_skills`, is editable and deletable, and
+an entry already in the library shows as added rather than being offerable
+twice. The catalogue ships with the app in `shared/publicSkills.ts`, so
+searching runs in the browser with no new query, and the create endpoint,
+its validation, and the prompt are unchanged.
+
 2026-11-23 - fix(uploads): file attachments go to a temp folder
 
 Chat and Telegram uploads (images included) were saved into the Files root,

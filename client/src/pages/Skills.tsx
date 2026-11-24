@@ -1,7 +1,16 @@
 import React, { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
-import { FileText, Loader2, Pencil, Plus, Puzzle, Trash2 } from "lucide-react";
+import {
+  Check,
+  FileText,
+  Loader2,
+  Pencil,
+  Plus,
+  Puzzle,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +31,11 @@ import {
   skillDescriptionError,
   skillNameError,
 } from "@shared/skills";
+import {
+  listPublicSkills,
+  searchPublicSkills,
+  type PublicSkill,
+} from "@shared/publicSkills";
 
 /**
  * The Skills destination: reusable procedures Nova follows on demand, in the
@@ -233,6 +247,135 @@ function Hint({
   return <p className="text-xs text-muted-foreground">{children}</p>;
 }
 
+/**
+ * The searchable public catalogue. Filtering runs here rather than on the
+ * server: the list is shipped with the app, so typing is instant and the
+ * gallery keeps working while the user's own library is still in flight.
+ */
+function PublicSkillGallery({
+  ownedNames,
+  addingName,
+  onAdd,
+}: {
+  ownedNames: Set<string>;
+  addingName: string | null;
+  onAdd: (skill: PublicSkill) => void;
+}) {
+  const [query, setQuery] = useState("");
+  // Browse the alphabetised catalogue, then narrow it - so the unsearched list
+  // reads the same way on every visit.
+  const results = searchPublicSkills(query, listPublicSkills());
+  const busy = addingName !== null;
+
+  return (
+    <div className="mt-10" data-testid="public-skills">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className={sectionHeading}>Public skills</h2>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
+            Ready-made procedures from the Nova community. Add one and it lands
+            in your library - yours to edit, rename, or delete.
+          </p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="public-skill-search"
+            data-testid="public-skill-search"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder="Search public skills"
+            aria-label="Search public skills"
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      {results.length === 0 ? (
+        <div
+          className="mt-4 grid min-h-32 place-items-center rounded-2xl border border-dashed border-border bg-card px-6 text-center dark:border-white/10"
+          data-testid="public-skills-empty"
+        >
+          <div>
+            <p className="text-sm font-semibold">
+              No public skills match &ldquo;{query.trim()}&rdquo;
+            </p>
+            <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
+              Try a shorter word, or write this one yourself as a new skill.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={() => setQuery("")}
+            >
+              Clear search
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+            {results.length} {results.length === 1 ? "skill" : "skills"}
+            {query.trim() ? " found" : ""}
+          </p>
+          {results.map(skill => {
+            const owned = ownedNames.has(skill.name);
+            return (
+              <article
+                key={skill.name}
+                data-testid={`public-skill-${skill.name}`}
+                className={`${cardClass} flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Puzzle className="size-4 shrink-0 text-primary" />
+                    <span className="truncate font-mono text-sm font-bold">
+                      {skill.name}
+                    </span>
+                    {owned && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground dark:border-white/10">
+                        In your library
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                    {skill.description}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {owned ? (
+                    <span
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground"
+                      data-testid={`added-${skill.name}`}
+                    >
+                      <Check className="size-3.5" /> Added
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={busy}
+                      onClick={() => onAdd(skill)}
+                      data-testid={`add-${skill.name}`}
+                    >
+                      {addingName === skill.name ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="size-3.5" />
+                      )}
+                      Add
+                    </Button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Skills() {
   const utils = trpc.useUtils();
   const skills = trpc.skills.list.useQuery(undefined, { retry: false });
@@ -249,6 +392,33 @@ export default function Skills() {
   });
 
   const rows = (skills.data ?? []) as SkillRow[];
+  /** The public skill currently being added, so only its row shows a spinner. */
+  const [addingName, setAddingName] = useState<string | null>(null);
+
+  const addPublicSkill = trpc.skills.create.useMutation({
+    onSuccess: created => {
+      setAddingName(null);
+      toast.success(`"${created.name}" is now in your library.`);
+      void utils.skills.list.invalidate();
+    },
+    onError: error => {
+      setAddingName(null);
+      toast.error(error.message);
+    },
+  });
+
+  /** Names the library already holds, so a catalogue entry cannot be added twice. */
+  const ownedNames = new Set(rows.map(skill => skill.name));
+
+  const addPublic = (skill: PublicSkill) => {
+    if (addPublicSkill.isPending) return;
+    setAddingName(skill.name);
+    addPublicSkill.mutate({
+      name: skill.name,
+      description: skill.description,
+      body: skill.body,
+    });
+  };
 
   const confirmDelete = (skill: SkillRow) => {
     if (
@@ -388,6 +558,14 @@ export default function Skills() {
               </article>
             ))}
           </div>
+        )}
+
+        {!skills.isLoading && !skills.isError && (
+          <PublicSkillGallery
+            ownedNames={ownedNames}
+            addingName={addingName}
+            onAdd={addPublic}
+          />
         )}
 
         {dialog && (

@@ -293,32 +293,10 @@ export async function closeDatabase(): Promise<void> {
   });
 }
 
-/**
- * The workspace enforces one file per (folder, name) via a unique constraint.
- * Drizzle wraps the database error, so walk the cause chain for Postgres
- * code 23505. A duplicate insert means the name is taken; callers surface a
- * friendly "already exists" result instead of a raw database error.
- */
-export function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
-    const code = (current as Error & { code?: unknown }).code;
-    if (code === "23505") return true;
-    current = (current as Error & { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-/** Postgres `foreign_key_violation`. Raised when a referenced row is missing. */
-export function isForeignKeyViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
-    const code = (current as Error & { code?: unknown }).code;
-    if (code === "23503") return true;
-    current = (current as Error & { cause?: unknown }).cause;
-  }
-  return false;
-}
+/** Postgres error predicates - re-exported here so the existing `./core`
+ * importers keep one path to them; the implementation lives in the
+ * import-free `./pgErrors`. */
+export { isForeignKeyViolation, isUniqueViolation } from "./pgErrors";
 
 /** Current database server time - used so stop requests and run starts are compared on one clock. */
 export async function getDatabaseTime(): Promise<Date> {

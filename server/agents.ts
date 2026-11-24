@@ -21,6 +21,7 @@ import {
   type AgentProfileRow,
 } from "../drizzle/schema";
 import { newChatId } from "./chatId";
+import { isUniqueViolation } from "./db/pgErrors";
 import { formatCredits } from "@shared/money";
 
 /**
@@ -236,17 +237,6 @@ export function walletRemainingCredits(agent: {
 }): number {
   if (agent.walletBudgetCredits === null) return Number.POSITIVE_INFINITY;
   return Math.max(0, agent.walletBudgetCredits - agent.walletSpentCredits);
-}
-
-/** Drizzle wraps the database error; walk the cause chain for Postgres 23505. */
-function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
-    const code = (current as Error & { code?: unknown }).code;
-    if (code === "23505") return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 export class AgentNameTakenError extends Error {

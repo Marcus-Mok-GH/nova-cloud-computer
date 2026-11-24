@@ -1,4 +1,4 @@
-# Toolchain for the promo videos in ../videos.
+# Toolchain for the promo videos (assets: releases/tag/promo-videos).
 # Python 3.10+; ffmpeg/ffprobe is a system dependency (see ../README.md).
 edge-tts>=6.1
 numpy>=1.26

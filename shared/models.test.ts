@@ -93,4 +93,16 @@ describe("shared model catalogue - effort options", () => {
       CHAT_EFFORT_OPTIONS
     );
   });
+
+  it("resolves each env value once and still honours a changed env", () => {
+    const first = getChatModels();
+    // The same catalogue comes back to every caller (the parse is memoised),
+    // and asking with a different env value still re-reads it.
+    expect(getChatModels()).toBe(first);
+    const relabelled = JSON.stringify(
+      DEFAULT_CHAT_MODELS.map(model => ({ ...model, label: `${model.label} X` }))
+    );
+    expect(getChatModels(relabelled)[0].label).toBe("Nova Lite X");
+    expect(getChatModels()[0].label).toBe("Nova Lite");
+  });
 });

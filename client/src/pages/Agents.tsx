@@ -32,6 +32,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  listPublicAgents,
+  listPublicTeams,
+  type PublicAgent,
+  type PublicTeam,
+} from "@shared/publicAgents";
+import { resolveRosterIds } from "@/lib/starterTeams";
 
 /**
  * The Agents destination: Nova's Cue-style personal agents. Each agent gets
@@ -513,6 +520,191 @@ function TeamDialog({
   );
 }
 
+/**
+ * The starter agents: a handful of ready-made personas shipped with the app.
+ * Adding one is a normal create - the copy lands in the roster and is the
+ * user's from then on - and a name the roster already holds reads as added
+ * rather than being offerable twice. Everything the builders above offer
+ * stays open; this is a starting point, not a fixed menu.
+ */
+function StarterAgentGallery({
+  ownedNames,
+  locked,
+  addingName,
+  onUse,
+}: {
+  ownedNames: Set<string>;
+  locked: boolean;
+  addingName: string | null;
+  onUse: (agent: PublicAgent) => void;
+}) {
+  const busy = addingName !== null;
+
+  return (
+    <div className="mt-8" data-testid="starter-agents">
+      <h2 className={sectionHeading}>Starter agents</h2>
+      <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
+        A few ready-made ones to begin with. Add one and it joins your roster -
+        yours to edit, rename, or delete. Build anything else yourself with
+        New agent.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {listPublicAgents().map(agent => {
+          const owned = ownedNames.has(agent.name.toLowerCase());
+          return (
+            <div
+              key={agent.name}
+              className={cardClass}
+              data-testid={`starter-agent-${agent.name}`}
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-extrabold text-primary ring-1 ring-primary/15">
+                  {agent.name.charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-bold text-foreground">
+                    {agent.name}
+                  </h3>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {agent.role}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2.5 line-clamp-3 text-xs leading-5 text-muted-foreground">
+                {agent.instructions}
+              </p>
+              <div className="mt-3">
+                {owned ? (
+                  <span
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium text-muted-foreground"
+                    data-testid={`starter-added-${agent.name}`}
+                  >
+                    <CheckCircle2 className="size-3.5" /> In your roster
+                  </span>
+                ) : locked ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      window.location.href = "/checkout?product=pro";
+                    }}
+                    data-testid={`starter-lock-${agent.name}`}
+                    title="Personal agents are part of Nova Pro"
+                  >
+                    <Crown className="size-3.5" /> Upgrade to add
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="w-full gap-1.5"
+                    disabled={busy}
+                    onClick={() => onUse(agent)}
+                    data-testid={`starter-use-${agent.name}`}
+                  >
+                    <Plus className="size-3.5" /> Add agent
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The starter teams: two ready-made rosters with a shared goal. Starting one
+ * creates any roster member the account does not have yet, so a single click
+ * lands a working team; the Pro gate matches the team builder beside it.
+ */
+function StarterTeamGallery({
+  ownedNames,
+  locked,
+  startingName,
+  onStart,
+}: {
+  ownedNames: Set<string>;
+  locked: boolean;
+  startingName: string | null;
+  onStart: (team: PublicTeam) => void;
+}) {
+  const busy = startingName !== null;
+
+  return (
+    <div className="mt-8" data-testid="starter-teams">
+      <h2 className={sectionHeading}>Starter teams</h2>
+      <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
+        Two ready-made crews to start from. Starting one creates the members
+        you do not have yet, then opens the shared chat with a plan for its
+        goal. Build any other mix yourself with New team.
+      </p>
+      <div className="mt-3 space-y-3">
+        {listPublicTeams().map(team => {
+          const missing = team.members.filter(
+            member => !ownedNames.has(member.toLowerCase())
+          );
+          return (
+            <div
+              key={team.name}
+              className={`${cardClass} flex flex-col gap-3 sm:flex-row sm:items-center`}
+              data-testid={`starter-team-${team.name}`}
+            >
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-bold text-foreground">
+                  {team.name}
+                </h3>
+                <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                  {team.goal}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {team.members.map(member => (
+                    <span key={member} className={chipClass}>
+                      <Bot className="size-3 shrink-0" />
+                      {member}
+                      {!ownedNames.has(member.toLowerCase()) && " (new)"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {locked ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => {
+                    window.location.href = "/checkout?product=pro";
+                  }}
+                  data-testid={`starter-team-lock-${team.name}`}
+                  title="Agent teams are part of Nova Pro"
+                >
+                  <Crown className="size-3.5" /> Upgrade - $7.99/month
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="shrink-0 gap-1.5"
+                  disabled={busy}
+                  onClick={() => onStart(team)}
+                  data-testid={`starter-team-start-${team.name}`}
+                >
+                  <Users className="size-3.5" /> Start team
+                </Button>
+              )}
+              {missing.length > 0 && !locked && (
+                <span className="text-[11px] text-muted-foreground">
+                  Creates {missing.join(", ")}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Agents() {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
@@ -572,6 +764,77 @@ export default function Agents() {
     chat => chat.kind === "team"
   );
   const emailRows = (inbox.data ?? []) as AgentEmailRow[];
+
+  /** The starter agent currently being added, so only its card spins. */
+  const [addingStarter, setAddingStarter] = useState<string | null>(null);
+  /** The starter team currently starting, so only its row spins. */
+  const [startingTeam, setStartingTeam] = useState<string | null>(null);
+
+  const addStarterAgent = trpc.agents.create.useMutation({
+    onSuccess: created => {
+      setAddingStarter(null);
+      toast.success(`${created.name} is ready - identity and wallet created.`);
+      void utils.agents.list.invalidate();
+    },
+    onError: error => {
+      setAddingStarter(null);
+      toast.error(error.message);
+    },
+  });
+
+  // Roster assembly for a team runs silently: its failures are reported by
+  // startStarterTeam below, once, instead of once per member.
+  const ensureRosterAgent = trpc.agents.create.useMutation();
+
+  const createStarterTeam = trpc.agents.createTeam.useMutation({
+    onSuccess: result => {
+      setStartingTeam(null);
+      toast.success(
+        `${result.chat.title} created - it will open with a plan for its goal.`
+      );
+      void utils.agents.chats.invalidate();
+      void utils.agents.list.invalidate();
+      setLocation(`/app?chatId=${result.chat.id}&teamstart=1`);
+    },
+  });
+
+  /**
+   * Starts a starter team: every roster member the account does not hold yet
+   * is created from the catalogue first, so one click lands a working team.
+   * The roster step is idempotent - a retry reuses the agents it just made.
+   */
+  const startStarterTeam = async (team: PublicTeam) => {
+    if (createStarterTeam.isPending || ensureRosterAgent.isPending) return;
+    setStartingTeam(team.name);
+    try {
+      const owned = new Map(
+        agentRows.map(row => [row.name.toLowerCase(), row.id])
+      );
+      const agentIds = await resolveRosterIds(team, owned, agent =>
+        ensureRosterAgent.mutateAsync({
+          name: agent.name,
+          role: agent.role,
+          instructions: agent.instructions,
+          walletBudgetCredits: agent.walletBudgetCredits,
+        })
+      );
+      await createStarterTeam.mutateAsync({
+        name: team.name,
+        goal: team.goal,
+        agentIds,
+      });
+    } catch (error) {
+      setStartingTeam(null);
+      toast.error(
+        error instanceof Error ? error.message : "Nova could not start that team."
+      );
+    }
+  };
+
+  /** Lowercased names the roster already holds, for the added/missing marks. */
+  const ownedAgentNames = new Set(
+    agentRows.map(row => row.name.toLowerCase())
+  );
 
   const confirmDelete = (agent: AgentRow) => {
     if (
@@ -766,6 +1029,25 @@ export default function Agents() {
           </div>
         )}
 
+        {/* Starter agents - a few ready-made personas to begin from. */}
+        {!agents.isLoading && (
+          <StarterAgentGallery
+            ownedNames={ownedAgentNames}
+            locked={proLocked}
+            addingName={addingStarter}
+            onUse={agent => {
+              if (addStarterAgent.isPending) return;
+              setAddingStarter(agent.name);
+              addStarterAgent.mutate({
+                name: agent.name,
+                role: agent.role,
+                instructions: agent.instructions,
+                walletBudgetCredits: agent.walletBudgetCredits,
+              });
+            }}
+          />
+        )}
+
         {/* Teams */}
         <div className="mt-8 flex items-center justify-between">
           <h2 className={sectionHeading}>
@@ -841,6 +1123,16 @@ export default function Agents() {
             </div>
           )}
         </div>
+
+        {/* Starter teams - two ready-made rosters to start from. */}
+        {!agentChats.isLoading && (
+          <StarterTeamGallery
+            ownedNames={ownedAgentNames}
+            locked={proLocked}
+            startingName={startingTeam}
+            onStart={startStarterTeam}
+          />
+        )}
 
         {/* Recent decisions - the wallet's transaction history. */}
         {recent.length > 0 && (

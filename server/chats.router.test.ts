@@ -14,6 +14,7 @@ const getChatForUser = vi.fn(
   })
 );
 const getSubscriptionForUser = vi.fn(async () => ({ plan: "free" }));
+const listChatMessagesForUser = vi.fn(async () => []);
 /** The Pro-entitlement gate (paid subscription OR console-operator role). */
 const hasProAccessForUser = vi.fn(async () => false);
 
@@ -23,6 +24,7 @@ vi.mock("./db", () => ({
   getChatForUser,
   getSubscriptionForUser,
   hasProAccessForUser,
+  listChatMessagesForUser,
 }));
 
 vi.mock("./whop", () => ({
@@ -157,5 +159,28 @@ describe("chats model + effort router", () => {
     const caller = appRouter.createCaller(contextFor(userRow(6)));
     const result = await caller.chats.models({ chatId: "c1" });
     expect(result.plan).toBe("paid");
+  });
+});
+
+
+describe("chats messages ledger", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listChatMessagesForUser.mockResolvedValue([
+      { id: 7, role: "assistant", content: "hi" },
+    ]);
+  });
+
+  it("returns the full history when no cursor is given", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    const rows = await caller.chats.messages({ chatId: "c1" });
+    expect(listChatMessagesForUser).toHaveBeenCalledWith(1, "c1", undefined);
+    expect(rows).toEqual([{ id: 7, role: "assistant", content: "hi" }]);
+  });
+
+  it("passes the cursor through so a poll ships only newer rows", async () => {
+    const caller = appRouter.createCaller(contextFor(userRow(1)));
+    await caller.chats.messages({ chatId: "c1", afterId: 42 });
+    expect(listChatMessagesForUser).toHaveBeenCalledWith(1, "c1", 42);
   });
 });

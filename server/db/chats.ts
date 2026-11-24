@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray } from "drizzle-orm";
 import { chatMessages, chats, workspaces } from "../../drizzle/schema";
 import { newChatId } from "../chatId";
 import { isForeignKeyViolation, isUniqueViolation, requireDb } from "./core";
@@ -78,11 +78,27 @@ export async function createChatForUser(
   return undefined;
 }
 
-export async function listChatMessagesForUser(ownerId: number, chatId: string) {
+/**
+ * The chat's ledger, oldest first. Pass `afterId` to read only rows the caller
+ * has not seen yet: the client polls this every few seconds, and shipping the
+ * whole conversation each time is the project's dominant database egress, so
+ * the incremental form keeps a poll to just the new rows once a thread is
+ * loaded. Omitted = the full history (first load, and any caller that wants
+ * everything).
+ */
+export async function listChatMessagesForUser(ownerId: number, chatId: string, afterId?: number) {
   const db = await requireDb();
   const chat = await getChatForUser(ownerId, chatId);
   if (!chat) return undefined;
-  return db.select().from(chatMessages).where(eq(chatMessages.chatId, chat.id)).orderBy(asc(chatMessages.createdAt));
+  return db
+    .select()
+    .from(chatMessages)
+    .where(
+      afterId === undefined
+        ? eq(chatMessages.chatId, chat.id)
+        : and(eq(chatMessages.chatId, chat.id), gt(chatMessages.id, afterId))
+    )
+    .orderBy(asc(chatMessages.createdAt));
 }
 
 

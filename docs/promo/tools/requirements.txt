@@ -1,0 +1,6 @@
+# Toolchain for the promo videos in ../videos.
+# Python 3.10+; ffmpeg/ffprobe is a system dependency (see ../README.md).
+edge-tts>=6.1
+numpy>=1.26
+Pillow>=10.0
+playwright>=1.44

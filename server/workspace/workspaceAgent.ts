@@ -152,6 +152,27 @@ export { AGENT_MODE_MESSAGE_PREFIX, START_BUILD_TOOL, START_PLANNING_TOOL } from
 export const MAX_RUN_BUDGET_MS = 285_000;
 /** Race cap for the model-written closing status; falls back to the template. */
 const DEADLINE_CLOSE_MODEL_CAP_MS = 8_000;
+/**
+ * Remaining budget a call must have before it may start. A call begun with
+ * too little left is cut off mid-flight by the deadline race, which reports an
+ * interrupted step and then restarts the same work from scratch in the next
+ * segment - so a long tool gets a floor large enough to actually finish inside
+ * one segment rather than being started doomed.
+ */
+/** Sub-agent calls (research, thinker) run longer than an ordinary tool. */
+const MIN_SUBAGENT_BUDGET_MS = 90_000;
+/** The coding specialist works autonomously and is the longest call Nova makes. */
+const MIN_EDITOR_BUDGET_MS = 210_000;
+
+/**
+ * Reserve a long sub-agent call must have before it may start; ordinary tools
+ * get no reserve (0) and keep the exact-deadline check they always had.
+ */
+function requiredBudgetFor(name: string): number {
+  if (name === "editor" || name === "code_task") return MIN_EDITOR_BUDGET_MS;
+  if (name === "research_web" || name === "thinker") return MIN_SUBAGENT_BUDGET_MS;
+  return 0;
+}
 /** Skip the final model round when less than this remains. */
 const FINAL_ROUND_MIN_REMAINING_MS = 45_000;
 /**
@@ -1571,10 +1592,12 @@ ${
           continue;
         }
         if (await stopRequested()) return stopRun();
-        // The budget is already gone: starting the call would begin its side
-        // effects (a file write, a deploy) after the run has effectively
-        // ended. Skip it, record why, and close the run instead.
-        if (Date.now() >= deadlineAtMs) {
+        // The budget is already gone (or too short for this call to finish):
+        // starting it would begin its side effects - a file write, a deploy -
+        // after the run has effectively ended, and a long call would only be
+        // interrupted mid-flight. Skip it, record why, and close the run
+        // instead, so the next segment starts it with a fresh budget.
+        if (Date.now() >= deadlineAtMs - requiredBudgetFor(call.name)) {
           const skipped = `${call.name} was skipped because the request budget ran out before it could start.`;
           await emitTool({
             id: call.id,

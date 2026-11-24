@@ -361,10 +361,6 @@ function OwnerGroupedRows({ activities }: { activities: ToolActivity[] }) {
   );
 }
 
-/** How many steps of a run failed, for the visible failure counters. */
-const failedCount = (activities: ToolActivity[]) =>
-  activities.filter(activity => activity.state === "failed").length;
-
 /* ------------------------------------------------------------------ *
  * Components
  * ------------------------------------------------------------------ */
@@ -655,7 +651,7 @@ export function ToolActivityLine({ activity }: { activity: ToolActivity }) {
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {activity.state === "running" ? (
-          <WorkingAnimation size={60} />
+          <WorkingAnimation size={30} />
         ) : (
           <StatusIcon
             className={`size-3.5 shrink-0 ${stateClass}`}
@@ -742,7 +738,7 @@ export function ThinkingToolActivity({ activity }: { activity: ToolActivity }) {
           className="flex min-w-0 items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground dark:text-muted-foreground"
         >
           {running ? (
-            <WorkingAnimation size={60} />
+            <WorkingAnimation size={30} />
           ) : (
             <CheckCircle2 className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
@@ -1276,18 +1272,23 @@ export function summarizeActivities(
   activities: ToolActivity[]
 ): ActivitySummary {
   const total = activities.length;
-  const failed = failedCount(activities);
-  const running = activities.filter(
-    activity => activity.state === "running"
-  ).length;
-  const completed = total - failed - running;
-  const current = [...activities]
-    .reverse()
-    .find(activity => activity.state === "running");
+  // One pass for the state counts, the current step and the category tally:
+  // every run renders this, and a long run can hold dozens of steps.
+  let failed = 0;
+  let running = 0;
+  let current: ToolActivity | undefined;
   const counts = new Map<string, number>();
-  for (const activity of activities) {
+  for (let index = 0; index < total; index += 1) {
+    const activity = activities[index];
+    if (activity.state === "failed") failed += 1;
+    else if (activity.state === "running") {
+      running += 1;
+      // The newest running step wins, matching a reversed search.
+      current = activity;
+    }
     counts.set(activity.name, (counts.get(activity.name) ?? 0) + 1);
   }
+  const completed = total - failed - running;
   const categories = Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
@@ -1414,7 +1415,7 @@ export function ToolRunGroup({
         className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-foreground/[0.08] bg-card/40 px-3 py-2 text-start transition hover:border-primary/40 dark:border-white/10 dark:bg-white/[0.03]"
       >
         {running ? (
-          <WorkingAnimation size={60} />
+          <WorkingAnimation size={30} />
         ) : (
           <StatusIcon className={`size-3.5 shrink-0 ${iconClass}`} />
         )}
@@ -1484,7 +1485,7 @@ export function LiveActivityCard({
     >
       <div className="flex min-w-0 items-center gap-2">
         {working ? (
-          <WorkingAnimation size={60} />
+          <WorkingAnimation size={30} />
         ) : failed > 0 ? (
           <TriangleAlert className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         ) : (

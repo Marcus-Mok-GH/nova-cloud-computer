@@ -168,16 +168,16 @@ describe("WorkingAnimation", () => {
     expect(canvas?.style.height).toBe("16px");
   });
 
-  it("defaults to four times the 10px status label beside it", async () => {
+  it("defaults to three times the 10px status label beside it", async () => {
     await act(async () => {
       root?.render(<WorkingAnimation />);
     });
     const canvas = container?.querySelector(
       '[data-testid="working-animation"]'
     ) as HTMLCanvasElement | null;
-    // The painted body is ~2/3 of the box, so a 60px canvas reads ~40px:
-    // four times the 10px "Nova"/"WORKING NOW" labels the blob sits next to.
-    expect(canvas?.style.width).toBe("60px");
-    expect(canvas?.style.height).toBe("60px");
+    // The painted body is ~2/3 of the box, so a 30px canvas reads ~20px:
+    // three times the 10px "Nova"/"WORKING NOW" labels the blob sits next to.
+    expect(canvas?.style.width).toBe("30px");
+    expect(canvas?.style.height).toBe("30px");
   });
 });

@@ -107,7 +107,7 @@ export function drawWorkingBlob(
  * still frame.
  */
 export function WorkingAnimation({
-  size = 60,
+  size = 30,
   className,
 }: {
   size?: number;

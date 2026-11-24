@@ -1,3 +1,24 @@
+2026-11-24 - feat(agents): starter agent and team galleries
+
+The Agents page could only build an agent or a team from an empty form. It now
+opens with a small static catalogue (`shared/publicAgents.ts`) - four starter
+agents (Beacon, Rook, Scout, Scribe) and two starter teams (Launch crew, Ship
+crew) - rendered beside the builder rather than replacing it. Adding one is a
+normal `agents.create`, so validation, ownership and the Pro gate stay in one
+place; a team start resolves its roster through a helper that creates any
+missing member and reuses one already present. A starter the account already
+holds reads as added instead of being offerable twice.
+
+2026-11-24 - feat(ui): halve the working blob
+
+The "AI is working" indicator was oversized next to its 10px status label. The
+canvas box and every call site move from 60px to 30px (`WorkingAnimation`
+default plus the five `size={60}` usages in the chat thread and the tool
+activity lines), which halves the painted body too - ~32px to ~16px across,
+because every radius in `drawWorkingBlob` scales with `size`. Motion stays
+readable: the animation already exaggerates its amplitude on canvases under
+76px, and at 30px every surface stays inside that branch.
+
 2026-11-24 - feat(models): GPT-6 Luna replaces GPT-6.1 Sol, and the Nova/Amazon name clash gets a disclaimer
 
 The premium model `GPT-6.1 Sol` is replaced in the chat catalog with `GPT-6 Luna`, using Coarena ID `gpt-6-luna`. Coarena lists it as active with the same 1,050,000-token context, vision and tool-call capabilities, and reasoning efforts up to `xhigh`; a live chat-completions request returned HTTP 200. Migration 0067 remaps saved selections to the new catalog id. Both model pickers explicitly state that Nova Lite and Nova Ultra are Nova Cloud Computer model names with no association with Amazon's Nova foundation models.

@@ -489,6 +489,12 @@ export function toolLineText(activity: ToolActivity): string {
       return withArg("Edit File", file || path);
     case "generate_image":
       return "Generate Image";
+    case "generate_presentation":
+      return withArg("Generate Presentation", s("title"));
+    case "edit_presentation":
+      return "Edit Presentation";
+    case "export_presentation":
+      return "Export Presentation";
     case "create_plan":
       return "Create Plan";
     case "edit_plan":

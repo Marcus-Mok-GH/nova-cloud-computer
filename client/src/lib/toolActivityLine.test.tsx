@@ -247,6 +247,18 @@ describe("toolLineText", () => {
     ).toBe("Run Command: npm test");
     expect(toolLineText(activity("run_command", "{}"))).toBe("Run Command");
   });
+
+  it("labels presentation tools in plain English", () => {
+    expect(
+      toolLineText(activity("generate_presentation", '{"title":"Q3 plan"}'))
+    ).toBe("Generate Presentation Q3 plan");
+    expect(
+      toolLineText(activity("edit_presentation", '{"operations":[]}'))
+    ).toBe("Edit Presentation");
+    expect(
+      toolLineText(activity("export_presentation", '{"formats":["pdf"]}'))
+    ).toBe("Export Presentation");
+  });
 });
 
 describe("EditFileToolActivity", () => {

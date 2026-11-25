@@ -885,27 +885,32 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
     function: {
       name: "generate_presentation",
       description:
-        "Create a PowerPoint presentation with a unique visual design and save it to workspace Files. Choose the design deliberately for this topic and audience - background, accent, muted colour, font, motif, cover style and density - do not fall back to a generic template; vary the slide layouts too (cover, statement, bullets, split, metrics, timeline, quote, closing). The tool saves a .deck.json source and an initial editable .pptx. Provide 1-20 slides, each with a title, up to 6 short bullets, optional label/value items and optional speaker notes. After any later edit, call export_presentation.",
+        "Create a polished PowerPoint presentation using the codified presentation design system and save it to workspace Files. Pick ONE preset theme deliberately for this topic and audience - its ink/paper background, accent, safe font pairing and style carry the whole deck; never invent hex colours. Every slide gets a visual element, a mono label motif and an action-style title; alternate dark hero pages with light content pages. Vary the layout across slides (cover, statement, bullets, split, metrics, timeline, quote, closing) and never repeat one layout three times in a row. The tool saves a .deck.json source and an initial editable .pptx. Provide 1-20 slides, each with a short title (12 words or fewer), up to 5 short bullets, optional label/value items for real data and optional speaker notes. After any later edit, call export_presentation.",
       parameters: {
         type: "object",
         properties: {
           title: { type: "string", description: "Presentation title, 1-160 characters." },
           design: {
             type: "object",
-            description: "Unique look for THIS deck. Pick values that suit the subject; every deck must look different.",
+            description:
+              "Look of the whole deck. Choose one preset theme (do not supply hex colours) and a density; the theme fixes the palette and Office-safe font pairing.",
             properties: {
-              background: { type: "string", description: "Hex background such as #FFF4E6." },
-              accent: { type: "string", description: "Hex accent such as #C56A32." },
-              muted: { type: "string", description: "Hex muted tone such as #6B5B4E." },
-              font: { type: "string", enum: ["Helvetica", "Times", "Courier"] },
-              motif: { type: "string", enum: ["none", "rule", "dots", "grid"] },
-              cover: { type: "string", enum: ["centered", "left", "banner"] },
-              density: { type: "string", enum: ["airy", "balanced"] },
+              theme: {
+                type: "string",
+                enum: [
+                  "ink-classic", "indigo-porcelain", "forest-ink", "kraft-paper", "dune",
+                  "swiss-blue", "swiss-yellow", "swiss-green", "swiss-orange",
+                ],
+                description:
+                  "Required design system theme: magazine (ink-classic, indigo-porcelain, forest-ink, kraft-paper, dune) or Swiss (swiss-blue, swiss-yellow, swiss-green, swiss-orange).",
+              },
+              density: { type: "string", enum: ["airy", "balanced"], description: "Card spacing; balanced is the default." },
             },
           },
           slides: {
             type: "array",
-            description: "Slides in order, 1-20. Mix layouts so the deck does not read as one repeated block.",
+            description:
+              "Slides in order, 1-20. Give each page one argument and an action-style title; mix layouts so no single layout repeats three times in a row.",
             items: {
               type: "object",
               properties: {
@@ -914,8 +919,8 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
                   type: "string",
                   enum: ["cover", "statement", "bullets", "split", "metrics", "timeline", "quote", "closing"],
                 },
-                title: { type: "string" },
-                bullets: { type: "array", items: { type: "string" }, description: "Up to 6 bullets." },
+                title: { type: "string", description: "Action-style conclusion, 12 words or fewer." },
+                bullets: { type: "array", items: { type: "string" }, description: "Up to 5 short bullets, each one idea." },
                 items: {
                   type: "array",
                   description: "Up to 6 label/value pairs for metrics or timeline layouts.",

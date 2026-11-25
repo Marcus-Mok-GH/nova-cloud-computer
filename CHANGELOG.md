@@ -1,3 +1,27 @@
+2026-11-25 - fix(agent): clean up presentation layouts after visual QA
+
+Fresh-eye review of a rendered ten-slide deck found duplicated cover chrome,
+doubled quote marks and attribution dashes, a colliding closing label, a
+placeholder 'VALUE' repeated on every metric card, timeline numbers offset from
+their nodes, underfilled card columns, and faint microtext. The layouts now use
+full-width card grids, a monogram motif instead of duplicated folios, stripped
+quote/dash punctuation, centred timeline markers, connected metric labels and
+stronger contrast. Skill contrast and overflow gates still pass.
+
+2026-11-25 - refactor(agent): apply the presentation design system
+
+Generated decks now follow the installed ppt-design-skill: one preset theme per
+deck (nine magazine/Swiss choices with Office-safe font pairings), no custom
+hex colours, a mono-label motif, short action-style titles, dark hero pages
+with a light content rhythm, and 12-column grids with capped card counts. The
+shared layout engine now owns line breaking, title fitting, card-grid balancing
+and WCAG-safe palette derivation, so the PPTX and PDF renderers produce the same
+composition; the PPTX canvas was corrected to the same 13.333x7.5 widescreen
+size as the PDF, and PDF gained wrapping, italics and theme-mapped fonts. Both
+skill QA gates (contrast and overflow) pass on a ten-slide sample. Existing decks
+with custom colours are migrated to the nearest theme on load. Schema guidance,
+tests and this changelog were updated alongside the renderer rewrite.
+
 2026-11-25 - feat(agent): high-quality shared presentation layouts
 
 Presentations now render from a single shared layout engine used by both the

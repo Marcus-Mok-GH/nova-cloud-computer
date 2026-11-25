@@ -86,7 +86,7 @@ export async function toolGeneratePresentation(ctx: ToolCtx): Promise<ToolExecut
   return {
     ok: true,
     result:
-      `Created an editable ${deck.slides.length}-slide presentation with a unique design. ` +
+      `Created an editable ${deck.slides.length}-slide presentation in the ${deck.design.theme} theme. ` +
       `Editable deck source: "${jsonName}" (file id ${saved.id}); PowerPoint: ${pptx.label}. ` +
       "Tell the user they can ask for changes and then export to PDF. Do not paste file contents into the conversation.",
     action: { kind: "file", name: saved.name, operation: "created" },

@@ -120,10 +120,6 @@ export function useWorkspaceChat({
   // Throttles the "a send was blocked while Nova was working" notice so rapid
   // Enter presses don't stack toasts.
   const lastBlockedSendNoticeAtRef = useRef(0);
-  // Mirrors the chat viewport's "user scrolled up" flag: sendMessage clears it
-  // so the next turn scrolls to the bottom again. It lives here because the
-  // send path resets it; the scroll listeners that read it stay in the view.
-  const userScrolledUpRef = useRef(false);
   // One-shot flag set by Settings' "Start guided setup" button; the effect
   // below turns it into the opening message of a personalisation session.
   const personaliseIntent =
@@ -461,7 +457,6 @@ export function useWorkspaceChat({
     images: string[] = [],
     files: ChatFileUpload[] = []
   ): Promise<boolean> => {
-    userScrolledUpRef.current = false;
     // Supersede any stream still running (a previous send, or one left behind
     // by the chat we came from) before taking over the view.
     streamAbortRef.current?.abort();
@@ -858,7 +853,6 @@ export function useWorkspaceChat({
     stopLedgerCutoffId,
     settledWhileAway,
     revertChat,
-    userScrolledUpRef,
     pendingEnvVarRequests,
     fulfillEnvVarRequest,
     dismissEnvVarRequest,

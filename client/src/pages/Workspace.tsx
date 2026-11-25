@@ -144,7 +144,6 @@ export default function Workspace() {
     stopLedgerCutoffId,
     settledWhileAway,
     revertChat,
-    userScrolledUpRef,
     pendingEnvVarRequests,
     fulfillEnvVarRequest,
     dismissEnvVarRequest,
@@ -176,12 +175,18 @@ export default function Workspace() {
       : undefined;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The auto-scroll effect fires on content updates, not on scroll events, so
+  // a render-time flag cannot tell it apart from a user who scrolled up.
+  // Track scroll intent on the element itself and clear it whenever the view
+  // is asked to stick to the bottom, so only the user's own scrolling away
+  // from the bottom ever pins the view.
+  const stickToBottomRef = useRef(true);
 
   const handleChatScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    userScrolledUpRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight > 120;
+    stickToBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= 120;
   };
 
   // Desktop drag & drop: while files hover the chat, an overlay invites the
@@ -299,13 +304,13 @@ export default function Workspace() {
   };
 
   useEffect(() => {
-    userScrolledUpRef.current = false;
+    stickToBottomRef.current = true;
   }, [chatId]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (userScrolledUpRef.current) return;
+    stickToBottomRef.current = true;
     el.scrollTop = el.scrollHeight;
   }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
 

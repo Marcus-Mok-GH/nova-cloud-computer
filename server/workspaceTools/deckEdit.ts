@@ -9,7 +9,12 @@ export type DeckOperation =
   | { op: "move_slide"; id: string; before?: string };
 
 export function applyDeckOperations(deck: Deck, operations: DeckOperation[]): Deck {
-  let next: Deck = { ...deck, design: { ...deck.design }, slides: deck.slides.map(s => ({ ...s })) };
+  let next: Deck = {
+    ...deck,
+    design: { ...deck.design },
+    exports: { ...deck.exports },
+    slides: deck.slides.map(s => ({ ...s })),
+  };
   for (const op of operations) {
     if (op.op === "set_title") {
       next = { ...next, title: op.value.trim() || next.title };

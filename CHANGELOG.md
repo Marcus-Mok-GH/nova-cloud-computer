@@ -1,3 +1,11 @@
+2026-11-25 - fix(agent): export presentations by remembered file id
+
+A generate followed by an export in the same assistant round used a stale
+workspace snapshot, so the export could not find the just-created PowerPoint
+by name and reported a failure. Deck JSON now records export file ids; exports
+update those files by id and persist the map, and an integration test drives
+generate → edit → export through the real PPTX and PDF renderers.
+
 2026-11-25 - feat(agent): generate, edit and export presentations
 
 Nova can now build a presentation as a structured .deck.json file with a

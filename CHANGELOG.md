@@ -1,3 +1,22 @@
+2026-11-25 - fix(landing): portrait canyon crop for phones
+
+On a 412px viewport the wide panorama was cropped to a narrow centre slice by
+`background-size: cover`, so the hero read as an over-zoomed dark smear. Phones
+now load a portrait crop of the same public-domain photo (152 KB AVIF, 250 KB
+WebP) with a shorter background layer and a copy-focused scrim, so the strata
+and sky stay in frame in both themes.
+
+2026-11-25 - feat(landing): Grand Canyon sunrise hero background
+
+The public landing now opens over a Grand Canyon sunrise, behind the nav and
+hero, fading into paper before Connections. The photo is a public-domain Grand
+Canyon National Park image from Wikimedia Commons, shipped as a 169 KB, 3200px
+AVIF with a 150 KB WebP fallback at 2200px, so it stays sharp on high-DPR
+screens. A copy-focused scrim replaces the old full-width wash, keeping the
+serif headline readable while leaving the rock detail visible. Midnight grades
+the photo down to ember and lifts a warm glow at the top right; a faint film
+grain sits over both treatments.
+
 2026-11-24 - perf(chat): read the transcript incrementally
 
 The ledger poll re-sent the entire conversation every time it ran - every 5
@@ -12,17 +31,6 @@ poll ships just what changed instead of the whole thread forever. Opening a
 different conversation drops the previous chat's cursor, and a regenerate or
 revert resets it - both delete history that append-only reading would keep on
 screen.
-
-2026-11-25 - feat(landing): Grand Canyon sunrise hero background
-
-The public landing now opens over a Grand Canyon sunrise, behind the nav and
-hero, fading into paper before Connections. The photo is a public-domain Grand
-Canyon National Park image from Wikimedia Commons, shipped as a 169 KB, 3200px
-AVIF with a 150 KB WebP fallback at 2200px, so it stays sharp on high-DPR
-screens. A copy-focused scrim replaces the old full-width wash, keeping the
-serif headline readable while leaving the rock detail visible. Midnight grades
-the photo down to ember and lifts a warm glow at the top right; a faint film
-grain sits over both treatments.
 
 2026-11-24 - fix(agent): don't start the coding specialist with no time left
 

@@ -359,6 +359,29 @@ button, a, [role="button"] { touch-action: manipulation; }
 .landing-hero { position: relative; }
 .landing-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }
 
+/* Scroll reveals. The hidden state only exists once the script has installed
+   the observer, so a no-script render shows everything. Only opacity and
+   transform animate; reduced motion disables the whole treatment. */
+html.reveals-ready [data-reveal],
+html.reveals-ready [data-reveal-group] > * {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition: opacity .55s ease, transform .55s cubic-bezier(.22,1,.36,1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+html.reveals-ready .is-revealed {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.reveals-ready [data-reveal],
+  html.reveals-ready [data-reveal-group] > * {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 /* The single inverted band on the page (developer callout). Light themes use
    the ink foreground; dark themes lift the card surface instead of glaring. */
 .landing-invert { background: var(--foreground); color: var(--background); }

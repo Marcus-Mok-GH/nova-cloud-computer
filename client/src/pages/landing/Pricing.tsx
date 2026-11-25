@@ -70,7 +70,7 @@ export default function Pricing() {
       className="scroll-mt-24 border-y border-border bg-surface"
     >
       <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
-        <div className="max-w-2xl">
+        <div data-reveal className="max-w-2xl">
           <Eyebrow>{t("landing.pricing.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.pricing.title")}
@@ -80,7 +80,7 @@ export default function Pricing() {
           </p>
         </div>
 
-        <div className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-3">
+        <div data-reveal-group className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-3">
           {plans.map(plan => (
             <section
               key={plan.name}
@@ -123,7 +123,7 @@ export default function Pricing() {
           {t("landing.pricing.extra")}
         </p>
 
-        <div className="mt-10 max-w-3xl rounded-3xl border border-border bg-card p-6 sm:mt-12 sm:p-8">
+        <div data-reveal className="mt-10 max-w-3xl rounded-3xl border border-border bg-card p-6 sm:mt-12 sm:p-8">
           <ul className="divide-y divide-border">
             {items.map(item => {
               const Icon = item.icon;

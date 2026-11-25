@@ -25,7 +25,7 @@ export default function HowItWorks() {
       className="scroll-mt-24 border-y border-border bg-surface"
     >
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-20">
-        <div className="max-w-2xl">
+        <div data-reveal className="max-w-2xl">
           <Eyebrow>{t("landing.steps.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.steps.title")}
@@ -35,7 +35,7 @@ export default function HowItWorks() {
           </p>
         </div>
 
-        <ol className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
+        <ol data-reveal-group className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
           {steps.map((step, index) => (
             <li
               key={step.title}

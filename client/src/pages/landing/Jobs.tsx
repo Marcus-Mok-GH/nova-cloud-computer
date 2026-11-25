@@ -30,7 +30,7 @@ export default function Jobs() {
   return (
     <section id="uses" className="scroll-mt-24 border-t border-border">
       <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
-        <div className="max-w-2xl">
+        <div data-reveal className="max-w-2xl">
           <Eyebrow>{t("landing.jobs.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.jobs.title")}
@@ -40,7 +40,7 @@ export default function Jobs() {
           </p>
         </div>
 
-        <ul className="mt-10 grid gap-x-10 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
+        <ul data-reveal-group className="mt-10 grid gap-x-10 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
           {jobs.map(job => {
             const Icon = job.icon;
             return (

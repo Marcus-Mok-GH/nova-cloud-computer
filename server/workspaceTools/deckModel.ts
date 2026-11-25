@@ -24,7 +24,14 @@ export type Slide = {
   items?: Array<{ label: string; value: string }>;
   notes?: string;
 };
-export type Deck = { version: 1; title: string; design: Design; slides: Slide[] };
+export type Deck = {
+  version: 1;
+  title: string;
+  design: Design;
+  slides: Slide[];
+  /** Ids of the exported files, so a later export updates instead of duplicating. */
+  exports?: Partial<Record<"pptx" | "pdf", number>>;
+};
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");
@@ -94,7 +101,22 @@ export function normaliseDeck(input: unknown): Result {
     cover: oneOf(COVERS, rawDesign.cover, "centered"),
     density: oneOf(DENSITIES, rawDesign.density, "balanced"),
   };
-  return { ok: true, value: { version: 1, title, design, slides: slides as Slide[] } };
+  const exportsMap: NonNullable<Deck["exports"]> = {};
+  const rawExports = (raw.exports ?? {}) as Record<string, unknown>;
+  for (const format of ["pptx", "pdf"] as const) {
+    const id = Number(rawExports[format]);
+    if (Number.isInteger(id) && id > 0) exportsMap[format] = id;
+  }
+  return {
+    ok: true,
+    value: {
+      version: 1,
+      title,
+      design,
+      slides: slides as Slide[],
+      ...(Object.keys(exportsMap).length ? { exports: exportsMap } : {}),
+    },
+  };
 }
 
 export function parseDeck(json: string): Deck | null {

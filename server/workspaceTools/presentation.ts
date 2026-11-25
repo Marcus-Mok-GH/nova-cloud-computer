@@ -34,19 +34,34 @@ async function saveExport(
   ctx: ToolCtx,
   deck: Deck,
   format: "pptx" | "pdf"
-): Promise<string> {
+): Promise<{ label: string; id?: number }> {
   const buffer =
     format === "pptx" ? await renderDeckPptx(deck) : await renderDeckPdf(deck);
   const mime = format === "pptx" ? PPTX_MIME : PDF_MIME;
   const name = `${baseName(deck.title)}.${format}`;
-  const existing = ctx.computer.files.find(file => file.name === name);
   const content = dataUri(mime, buffer);
+
+  // The workspace snapshot is refreshed only BETWEEN model rounds. A model
+  // that calls generate and export in the same round would not see the new
+  // file by name, so remember export ids in the deck itself.
+  const rememberedId = deck.exports?.[format];
+  const remembered = rememberedId
+    ? await getWorkspaceFileForUser(ctx.ownerId, rememberedId).catch(() => null)
+    : null;
+  const existing =
+    remembered ?? ctx.computer.files.find(file => file.name === name) ?? null;
+
   if (existing) {
     await updateWorkspaceFileForUser(ctx.ownerId, existing.id, { content });
-    return `${name} (updated file id ${existing.id})`;
+    deck.exports = { ...deck.exports, [format]: existing.id };
+    return { label: `${name} (updated file id ${existing.id})`, id: existing.id };
   }
   const created = await createWorkspaceFileForUser(ctx.ownerId, { name, content, mimeType: mime });
-  return created ? `${name} (file id ${created.id})` : `${name} (could not be saved)`;
+  if (created) deck.exports = { ...deck.exports, [format]: created.id };
+  return {
+    label: created ? `${name} (file id ${created.id})` : `${name} (could not be saved)`,
+    id: created?.id,
+  };
 }
 
 export async function toolGeneratePresentation(ctx: ToolCtx): Promise<ToolExecution> {
@@ -65,11 +80,14 @@ export async function toolGeneratePresentation(ctx: ToolCtx): Promise<ToolExecut
   });
   if (!saved) return fail("The deck could not be saved to Files.");
   const pptx = await saveExport(ctx, deck, "pptx");
+  await updateWorkspaceFileForUser(ctx.ownerId, saved.id, {
+    content: JSON.stringify(deck),
+  });
   return {
     ok: true,
     result:
       `Created an editable ${deck.slides.length}-slide presentation with a unique design. ` +
-      `Editable deck source: "${jsonName}" (file id ${saved.id}); PowerPoint: ${pptx}. ` +
+      `Editable deck source: "${jsonName}" (file id ${saved.id}); PowerPoint: ${pptx.label}. ` +
       "Tell the user they can ask for changes and then export to PDF. Do not paste file contents into the conversation.",
     action: { kind: "file", name: saved.name, operation: "created" },
   };
@@ -113,7 +131,10 @@ export async function toolExportPresentation(ctx: ToolCtx): Promise<ToolExecutio
   const formats = (["pptx", "pdf"] as const).filter(format => requested.includes(format));
   if (!formats.length) return fail("Request at least one format: pptx or pdf.");
   const saved: string[] = [];
-  for (const format of formats) saved.push(await saveExport(ctx, loaded.deck, format));
+  for (const format of formats) saved.push((await saveExport(ctx, loaded.deck, format)).label);
+  await updateWorkspaceFileForUser(ctx.ownerId, loaded.id, {
+    content: JSON.stringify(loaded.deck),
+  });
   return {
     ok: true,
     result: `Exported the deck: ${saved.join("; ")}. Tell the user where to find the files.`,

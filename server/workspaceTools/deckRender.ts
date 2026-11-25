@@ -1,8 +1,9 @@
 import PptxGenJS from "pptxgenjs";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { deriveInk, type Deck, type Design, type Slide } from "./deckModel";
+import { PDFDocument, StandardFonts, type PDFFont, rgb } from "pdf-lib";
+import type { Deck } from "./deckModel";
+import { layoutDeck, SLIDE_H, SLIDE_W, type TextSpec } from "./deckLayout";
 
-const hex = (value: string) => value.replace("#", "").toUpperCase();
+const pptxHex = (value: string) => value.replace("#", "").toUpperCase();
 const pdfRgb = (value: string) =>
   rgb(
     parseInt(value.slice(1, 3), 16) / 255,
@@ -10,100 +11,126 @@ const pdfRgb = (value: string) =>
     parseInt(value.slice(5, 7), 16) / 255
   );
 
-const titleSize = (design: Design) => (design.density === "airy" ? 34 : 28);
-
-function pptxSlide(pptx: PptxGenJS, slide: Slide, design: Design, deckTitle: string) {
-  const page = pptx.addSlide();
-  page.background = { color: hex(design.background) };
-  const ink = hex(deriveInk(design.background));
-  const accent = hex(design.accent);
-  const font = design.font;
-  const isCover = slide.layout === "cover";
-
-  page.addText(isCover ? deckTitle : slide.title, {
-    x: 0.7,
-    y: design.cover === "banner" && isCover ? 2.6 : 0.55,
-    w: 8.6,
-    h: isCover ? 1.8 : 0.95,
-    fontFace: font,
-    fontSize: isCover ? 42 : titleSize(design),
-    bold: true,
-    color: ink,
-    breakLine: false,
-  });
-
-  const bullets = slide.bullets ?? [];
-  if (bullets.length) {
-    page.addText(
-      bullets.map(bullet => ({ text: bullet, options: { bullet: { code: "2022" }, breakLine: true } })),
-      { x: 0.9, y: isCover ? 2.8 : 1.7, w: 8.2, h: 3.8, fontFace: font, fontSize: 18, color: ink }
-    );
-  }
-  if (slide.items?.length) {
-    page.addText(
-      slide.items.map(item => ({
-        text: `${item.label}: ${item.value}`,
-        options: { bullet: { code: "25AA" }, breakLine: true },
-      })),
-      { x: 0.9, y: 3.0, w: 8.2, h: 2.6, fontFace: font, fontSize: 16, color: ink }
-    );
-  }
-  if (design.motif === "rule") {
-    page.addShape(pptx.ShapeType.rect, { x: 0.7, y: 1.45, w: 1.1, h: 0.05, fill: { color: accent }, line: { color: accent } });
-  } else if (design.motif === "dots") {
-    for (let i = 0; i < 6; i += 1)
-      page.addShape(pptx.ShapeType.ellipse, { x: 0.7 + i * 0.22, y: 6.55, w: 0.08, h: 0.08, fill: { color: accent }, line: { color: accent } });
-  } else if (design.motif === "grid") {
-    for (let i = 0; i < 4; i += 1)
-      page.addShape(pptx.ShapeType.rect, { x: 8.3, y: 0.7 + i * 1.4, w: 0.4, h: 0.02, fill: { color: accent }, line: { color: accent } });
-  }
-  page.addText("Nova", { x: 0.7, y: 6.65, w: 2, h: 0.3, fontFace: font, fontSize: 10, color: accent });
-  if (slide.notes) page.addNotes(slide.notes);
-}
-
 export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_16x9";
   pptx.author = "Nova";
   pptx.subject = deck.title;
-  for (const slide of deck.slides) pptxSlide(pptx, slide, deck.design, deck.title);
+
+  layoutDeck(deck).forEach((spec, index) => {
+    const page = pptx.addSlide();
+    page.background = { color: pptxHex(spec.background) };
+    for (const shape of spec.shapes) {
+      if (shape.kind === "line") {
+        page.addShape(pptx.ShapeType.line, {
+          x: shape.box.x,
+          y: shape.box.y,
+          w: shape.box.w,
+          h: 0,
+          line: { color: pptxHex(shape.color), width: 1.5 },
+        });
+      } else {
+        page.addShape(shape.kind === "ellipse" ? pptx.ShapeType.ellipse : pptx.ShapeType.rect, {
+          ...shape.box,
+          fill: { color: pptxHex(shape.color) },
+          line: { color: pptxHex(shape.color) },
+        });
+      }
+    }
+    for (const item of spec.texts) {
+      page.addText(item.text, {
+        ...item.box,
+        fontFace: item.font,
+        fontSize: item.size,
+        bold: Boolean(item.bold),
+        color: pptxHex(item.color),
+        align: item.align ?? "left",
+        valign: "top",
+        breakLine: false,
+        lineSpacingMultiple: 1.1,
+      });
+    }
+    const notes = deck.slides[index]?.notes;
+    if (notes) page.addNotes(notes);
+  });
+
   return (await pptx.write({ outputType: "nodebuffer", compression: true })) as Buffer;
+}
+
+type PdfPage = ReturnType<Awaited<ReturnType<typeof PDFDocument.create>>["addPage"]>;
+
+function standardFonts(font: string): { regular: string; bold: string } {
+  if (font === "Times")
+    return { regular: StandardFonts.TimesRoman, bold: StandardFonts.TimesRomanBold };
+  if (font === "Courier")
+    return { regular: StandardFonts.Courier, bold: StandardFonts.CourierBold };
+  return { regular: StandardFonts.Helvetica, bold: StandardFonts.HelveticaBold };
+}
+
+function drawPdfText(page: PdfPage, item: TextSpec, fonts: Map<string, PDFFont>) {
+  const key = `${item.font}:${item.bold ? "bold" : "regular"}`;
+  const font = fonts.get(key);
+  if (!font) return;
+  const x = item.box.x * 72;
+  const w = item.box.w * 72;
+  const h = item.box.h * 72;
+  const y = (SLIDE_H - item.box.y - item.box.h) * 72;
+  const textWidth = font.widthOfTextAtSize(item.text, item.size);
+  const drawX =
+    item.align === "center"
+      ? x + (w - textWidth) / 2
+      : item.align === "right"
+        ? x + w - textWidth
+        : x;
+  const drawY = y + Math.max(0, h - item.size) - item.size * 0.1;
+  page.drawText(item.text, {
+    x: drawX,
+    y: drawY,
+    size: item.size,
+    font,
+    color: pdfRgb(item.color),
+  });
 }
 
 export async function renderDeckPdf(deck: Deck): Promise<Buffer> {
   const pdf = await PDFDocument.create();
-  const fontName =
-    deck.design.font === "Times"
-      ? StandardFonts.TimesRoman
-      : deck.design.font === "Courier"
-        ? StandardFonts.Courier
-        : StandardFonts.Helvetica;
-  const font = await pdf.embedFont(fontName);
-  const bold = await pdf.embedFont(
-    deck.design.font === "Times"
-      ? StandardFonts.TimesRomanBold
-      : deck.design.font === "Courier"
-        ? StandardFonts.CourierBold
-        : StandardFonts.HelveticaBold
-  );
-  const ink = pdfRgb(deriveInk(deck.design.background));
-  const accent = pdfRgb(deck.design.accent);
-  for (const slide of deck.slides) {
-    const page = pdf.addPage([720, 405]);
-    page.drawRectangle({ x: 0, y: 0, width: 720, height: 405, color: pdfRgb(deck.design.background) });
-    page.drawText(slide.layout === "cover" ? deck.title : slide.title, {
-      x: 48, y: 330, size: slide.layout === "cover" ? 36 : 26, font: bold, color: ink,
+  const fonts = new Map<string, PDFFont>();
+  for (const item of layoutDeck(deck).flatMap(spec => spec.texts)) {
+    const key = `${item.font}:${item.bold ? "bold" : "regular"}`;
+    if (fonts.has(key)) continue;
+    const pair = standardFonts(item.font);
+    fonts.set(key, await pdf.embedFont(item.bold ? pair.bold : pair.regular));
+  }
+
+  for (const spec of layoutDeck(deck)) {
+    const page = pdf.addPage([SLIDE_W * 72, SLIDE_H * 72]);
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width: SLIDE_W * 72,
+      height: SLIDE_H * 72,
+      color: pdfRgb(spec.background),
     });
-    (slide.bullets ?? []).forEach((bullet, index) => {
-      page.drawText(`• ${bullet}`, { x: 60, y: 280 - index * 34, size: 16, font, color: ink });
-    });
-    (slide.items ?? []).forEach((item, index) => {
-      page.drawText(`${item.label}: ${item.value}`, { x: 60, y: 280 - index * 30, size: 14, font, color: ink });
-    });
-    if (deck.design.motif !== "none") {
-      page.drawLine({ start: { x: 48, y: 305 }, end: { x: 150, y: 305 }, thickness: 2, color: accent });
+    for (const shape of spec.shapes) {
+      const x = shape.box.x * 72;
+      const w = shape.box.w * 72;
+      const h = shape.box.h * 72;
+      const y = (SLIDE_H - shape.box.y - shape.box.h) * 72;
+      const color = pdfRgb(shape.color);
+      if (shape.kind === "line") {
+        page.drawLine({
+          start: { x, y: y + h / 2 },
+          end: { x: x + w, y: y + h / 2 },
+          thickness: 1.5,
+          color,
+        });
+      } else if (shape.kind === "ellipse") {
+        page.drawEllipse({ x: x + w / 2, y: y + h / 2, xScale: w / 2, yScale: h / 2, color });
+      } else {
+        page.drawRectangle({ x, y, width: w, height: h, color });
+      }
     }
-    page.drawText("Nova", { x: 48, y: 22, size: 9, font, color: accent });
+    for (const item of spec.texts) drawPdfText(page, item, fonts);
   }
   return Buffer.from(await pdf.save());
 }

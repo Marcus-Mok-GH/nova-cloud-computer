@@ -12,10 +12,15 @@ describe("presentation tool schemas", () => {
     ]));
   });
 
-  it("asks for a design spec so each deck looks different", () => {
+  it("asks for a single preset theme instead of custom colours", () => {
     const generate = WORKSPACE_TOOLS.find(t => t.function.name === "generate_presentation")!;
-    expect(generate.function.description).toContain("unique");
+    expect(generate.function.description).toContain("theme");
     expect(generate.function.description).toContain("background");
+    expect(generate.function.description).toContain("hex");
+    const design = (generate.function.parameters as {
+      properties: { design: { properties: { theme: { enum: string[] } } } };
+    }).properties.design;
+    expect(design.properties.theme.enum).toHaveLength(9);
     const edit = WORKSPACE_TOOLS.find(t => t.function.name === "edit_presentation")!;
     expect(edit.function.description).toContain("export_presentation");
   });

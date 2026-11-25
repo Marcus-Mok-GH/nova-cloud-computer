@@ -27,9 +27,9 @@ describe("applyDeckOperations", () => {
       { op: "add_slide", slide: { id: "s3", layout: "quote", title: "Quote" }, after: "s2" },
       { op: "remove_slide", id: "s1" },
       { op: "move_slide", id: "s3", before: "s2" },
-      { op: "set_design", patch: { motif: "grid" } },
+      { op: "set_design", patch: { theme: "swiss-green" } },
     ]);
     expect(next.slides.map(slide => slide.id)).toEqual(["s3", "s2"]);
-    expect(next.design.motif).toBe("grid");
+    expect(next.design.theme).toBe("swiss-green");
   });
 });

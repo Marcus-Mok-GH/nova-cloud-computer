@@ -13,7 +13,10 @@ const pdfRgb = (value: string) =>
 
 export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
   const pptx = new PptxGenJS();
-  pptx.layout = "LAYOUT_16x9";
+  // LAYOUT_16x9 in pptxgenjs is 10"x5.625"; the shared engine uses the
+  // PowerPoint widescreen canvas, so define it explicitly to stay in sync.
+  pptx.defineLayout({ name: "NOVA_WIDE", width: SLIDE_W, height: SLIDE_H });
+  pptx.layout = "NOVA_WIDE";
   pptx.author = "Nova";
   pptx.subject = deck.title;
 
@@ -24,7 +27,7 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
       if (shape.kind === "line") {
         page.addShape(pptx.ShapeType.line, {
           x: shape.box.x,
-          y: shape.box.y,
+          y: shape.box.y + shape.box.h / 2,
           w: shape.box.w,
           h: 0,
           line: { color: pptxHex(shape.color), width: 1.5 },
@@ -43,11 +46,16 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
         fontFace: item.font,
         fontSize: item.size,
         bold: Boolean(item.bold),
+        italic: Boolean(item.italic),
         color: pptxHex(item.color),
         align: item.align ?? "left",
-        valign: "top",
+        valign: item.valign ?? "top",
+        // No internal insets: the layout engine already reserves grid gutters,
+        // and zero insets keep PPTX text boxes identical to PDF boxes.
+        inset: 0,
         breakLine: false,
-        lineSpacingMultiple: 1.1,
+        wrap: true,
+        lineSpacingMultiple: item.lineSpacing ?? 1.25,
       });
     }
     const notes = deck.slides[index]?.notes;
@@ -59,50 +67,85 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
 
 type PdfPage = ReturnType<Awaited<ReturnType<typeof PDFDocument.create>>["addPage"]>;
 
-function standardFonts(font: string): { regular: string; bold: string } {
-  if (font === "Times")
-    return { regular: StandardFonts.TimesRoman, bold: StandardFonts.TimesRomanBold };
-  if (font === "Courier")
-    return { regular: StandardFonts.Courier, bold: StandardFonts.CourierBold };
-  return { regular: StandardFonts.Helvetica, bold: StandardFonts.HelveticaBold };
+/** The layout engine uses Office-safe fonts; pdf-lib maps them to its standard families. */
+function standardFonts(font: string) {
+  if (font === "Cambria") {
+    return {
+      regular: StandardFonts.TimesRoman,
+      bold: StandardFonts.TimesRomanBold,
+      italic: StandardFonts.TimesRomanItalic,
+      boldItalic: StandardFonts.TimesRomanBoldItalic,
+    };
+  }
+  if (font === "Consolas") {
+    return {
+      regular: StandardFonts.Courier,
+      bold: StandardFonts.CourierBold,
+      italic: StandardFonts.CourierOblique,
+      boldItalic: StandardFonts.CourierBoldOblique,
+    };
+  }
+  // Calibri and Arial are metrically close to Helvetica for PDF handouts.
+  return {
+    regular: StandardFonts.Helvetica,
+    bold: StandardFonts.HelveticaBold,
+    italic: StandardFonts.HelveticaOblique,
+    boldItalic: StandardFonts.HelveticaBoldOblique,
+  };
+}
+
+function fontKey(item: TextSpec) {
+  const variant = item.bold
+    ? item.italic ? "boldItalic" : "bold"
+    : item.italic ? "italic" : "regular";
+  return `${item.font}:${variant}`;
 }
 
 function drawPdfText(page: PdfPage, item: TextSpec, fonts: Map<string, PDFFont>) {
-  const key = `${item.font}:${item.bold ? "bold" : "regular"}`;
-  const font = fonts.get(key);
+  const font = fonts.get(fontKey(item));
   if (!font) return;
   const x = item.box.x * 72;
   const w = item.box.w * 72;
   const h = item.box.h * 72;
-  const y = (SLIDE_H - item.box.y - item.box.h) * 72;
-  const textWidth = font.widthOfTextAtSize(item.text, item.size);
-  const drawX =
-    item.align === "center"
-      ? x + (w - textWidth) / 2
-      : item.align === "right"
-        ? x + w - textWidth
-        : x;
-  const drawY = y + Math.max(0, h - item.size) - item.size * 0.1;
-  page.drawText(item.text, {
-    x: drawX,
-    y: drawY,
-    size: item.size,
-    font,
-    color: pdfRgb(item.color),
+  const lines = item.text.split("\n");
+  const leading = item.size * (item.lineSpacing ?? 1.25);
+  const top = (SLIDE_H - item.box.y) * 72 - item.size * 0.78;
+  const firstY = item.valign === "middle"
+    ? top - Math.max(0, h - lines.length * leading) / 2
+    : top;
+  lines.forEach((line, index) => {
+    const textWidth = font.widthOfTextAtSize(line, item.size);
+    const drawX =
+      item.align === "center"
+        ? x + (w - textWidth) / 2
+        : item.align === "right"
+          ? x + w - textWidth
+          : x;
+    page.drawText(line, {
+      x: Math.max(0, drawX),
+      y: firstY - index * leading,
+      size: item.size,
+      font,
+      color: pdfRgb(item.color),
+    });
   });
 }
 
 export async function renderDeckPdf(deck: Deck): Promise<Buffer> {
   const pdf = await PDFDocument.create();
+  const specs = layoutDeck(deck);
   const fonts = new Map<string, PDFFont>();
-  for (const item of layoutDeck(deck).flatMap(spec => spec.texts)) {
-    const key = `${item.font}:${item.bold ? "bold" : "regular"}`;
+  for (const item of specs.flatMap(spec => spec.texts)) {
+    const key = fontKey(item);
     if (fonts.has(key)) continue;
     const pair = standardFonts(item.font);
-    fonts.set(key, await pdf.embedFont(item.bold ? pair.bold : pair.regular));
+    const variant = item.bold
+      ? item.italic ? pair.boldItalic : pair.bold
+      : item.italic ? pair.italic : pair.regular;
+    fonts.set(key, await pdf.embedFont(variant));
   }
 
-  for (const spec of layoutDeck(deck)) {
+  for (const spec of specs) {
     const page = pdf.addPage([SLIDE_W * 72, SLIDE_H * 72]);
     page.drawRectangle({
       x: 0,

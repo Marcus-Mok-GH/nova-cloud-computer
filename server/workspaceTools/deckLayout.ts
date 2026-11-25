@@ -1,7 +1,18 @@
-import { deriveInk, type Deck, type Slide } from "./deckModel";
+import { getTheme, type Deck, type Design, type Slide, type Theme } from "./deckModel";
 
 export const SLIDE_W = 13.333;
 export const SLIDE_H = 7.5;
+export const MARGIN = 0.85;
+export const GRID_GAP = 0.22;
+export const GRID_COL = (SLIDE_W - MARGIN * 2 - GRID_GAP * 11) / 12;
+
+/** 12-column Swiss grid, scaled from the skill's 10" reference canvas. */
+export function span(columns: number, offset = 0) {
+  return {
+    x: MARGIN + offset * (GRID_COL + GRID_GAP),
+    w: columns * GRID_COL + (columns - 1) * GRID_GAP,
+  };
+}
 
 export type Box = { x: number; y: number; w: number; h: number };
 export type TextSpec = {
@@ -12,66 +23,104 @@ export type TextSpec = {
   color: string;
   font: string;
   bold?: boolean;
+  italic?: boolean;
   align?: "left" | "center" | "right";
   valign?: "top" | "middle";
+  lineSpacing?: number;
 };
 export type ShapeSpec = {
   kind: "rect" | "ellipse" | "line";
   box: Box;
   color: string;
 };
+export type Tone = "dark" | "light";
 export type SlideSpec = {
   background: string;
+  tone: Tone;
   shapes: ShapeSpec[];
   texts: TextSpec[];
 };
 
-const rgb = (hex: string) => ({
-  r: parseInt(hex.slice(1, 3), 16),
-  g: parseInt(hex.slice(3, 5), 16),
-  b: parseInt(hex.slice(5, 7), 16),
-});
-const hex = (r: number, g: number, b: number) =>
-  `#${[r, g, b].map(value => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, "0")).join("")}`;
-
 export function mixColor(a: string, b: string, amount: number): string {
-  const first = rgb(a);
-  const second = rgb(b);
-  return hex(
-    first.r + (second.r - first.r) * amount,
-    first.g + (second.g - first.g) * amount,
-    first.b + (second.b - first.b) * amount
-  );
+  const parse = (hex: string) => [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  return `#${[ar + (br - ar) * amount, ag + (bg - ag) * amount, ab + (bb - ab) * amount]
+    .map(value => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
-type Palette = {
+function luminance(hex: string) {
+  const channel = (value: number) => {
+    const linear = value / 255;
+    return linear <= 0.03928 ? linear / 12.92 : ((linear + 0.055) / 1.055) ** 2.4;
+  };
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+export function contrastRatio(a: string, b: string) {
+  const first = luminance(a);
+  const second = luminance(b);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+export type Palette = {
   background: string;
+  surface: string;
   ink: string;
   muted: string;
-  accent: string;
-  surface: string;
-  font: string;
+  accentSmall: string;
+  accentLarge: string;
+  titleFont: string;
+  bodyFont: string;
+  monoFont: string;
+  style: Theme["style"];
+  colors: Set<string>;
 };
 
-function palette(deck: Deck): Palette {
-  const background = deck.design.background;
-  const ink = deriveInk(background);
-  const surface = mixColor(background, ink, ink === "#241C17" ? 0.07 : 0.12);
-  const supplied = /^#[0-9a-fA-F]{6}$/.test(deck.design.muted)
-    ? deck.design.muted
-    : mixColor(background, ink, 0.45);
+/** Every colour is a theme token or a tint mixed from two theme tokens. */
+export function paletteFor(design: Design, tone: Tone): Palette {
+  const theme = getTheme(design.theme);
+  const background = tone === "dark" ? theme.inkTint : theme.paper;
+  const ink = tone === "dark" ? theme.paper : theme.ink;
+  const surface = tone === "dark"
+    ? mixColor(theme.ink, theme.paper, 0.08)
+    : mixColor(theme.paperTint, theme.ink, 0.06);
+  const muted = mixColor(ink, background, tone === "dark" ? 0.24 : 0.22);
+  const readableAccent = (minimum: number) =>
+    contrastRatio(theme.accent, background) >= minimum ? theme.accent : ink;
   return {
     background,
-    ink,
-    muted: supplied,
-    accent: deck.design.accent,
     surface,
-    font: deck.design.font,
+    ink,
+    muted,
+    accentSmall: readableAccent(4.5),
+    accentLarge: readableAccent(3),
+    titleFont: theme.titleFont,
+    bodyFont: theme.bodyFont,
+    monoFont: theme.monoFont,
+    style: theme.style,
+    colors: new Set([
+      theme.ink,
+      theme.paper,
+      theme.paperTint,
+      theme.inkTint,
+      theme.accent,
+      surface,
+      muted,
+    ]),
   };
 }
 
 const text = (
-  paletteValue: Palette,
+  colors: Palette,
   box: Box,
   content: string,
   size: number,
@@ -83,194 +132,364 @@ const text = (
   text: content,
   size,
   color,
-  font: extra.font ?? paletteValue.font,
+  font: colors.bodyFont,
+  // Single-line labels get tight leading; multi-line fits pass their own value.
+  lineSpacing: 1,
   ...extra,
 });
 
-function footer(spec: SlideSpec, colors: Palette, index: number, total: number) {
-  spec.shapes.push({
-    kind: "line",
-    box: { x: 0.85, y: 6.88, w: 1.15, h: 0 },
-    color: colors.accent,
-  });
-  spec.texts.push(
-    text(colors, { x: 0.85, y: 6.98, w: 2, h: 0.25 }, "NOVA", 9, colors.muted, { bold: true }),
-    text(colors, { x: 10.5, y: 6.98, w: 1.98, h: 0.25 },
-      `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`,
-      9, colors.muted, { align: "right" })
-  );
+/** Conservative width estimate in ems; CJK glyphs are full width. */
+function charWidth(char: string, mono: boolean) {
+  if (mono) return 0.6;
+  if (/[\u3000-\u9fff\uff00-\uffef]/.test(char)) return 1;
+  if (char === " ") return 0.3;
+  if (/[.,:;!|'’`]/.test(char)) return 0.28;
+  if (/[ilI1]/.test(char)) return 0.32;
+  if (/[MW@%]/.test(char)) return 0.85;
+  return 0.54;
 }
+
+/** The layout engine owns line breaks so PPTX and PDF show the same lines. */
+export function wrapText(content: string, width: number, size: number, mono = false): string {
+  const limit = Math.max(width * 72 / size, 1);
+  return content.split("\n").map(paragraph => {
+    const words = paragraph.split(/(\s+)/).filter(Boolean);
+    const lines: string[] = [];
+    let line = "";
+    let used = 0;
+    for (const word of words) {
+      const wordWidth = word.split("").reduce((sum, char) => sum + charWidth(char, mono), 0);
+      if (used > 0 && used + wordWidth > limit) {
+        lines.push(line.trimEnd());
+        line = "";
+        used = 0;
+      }
+      // Break very long single tokens (URLs, CJK runs) at character boundaries.
+      if (wordWidth > limit) {
+        for (const char of word.split("")) {
+          const width = charWidth(char, mono);
+          if (used + width > limit && line) {
+            lines.push(line.trimEnd());
+            line = "";
+            used = 0;
+          }
+          line += char;
+          used += width;
+        }
+      } else {
+        line += word;
+        used += wordWidth;
+      }
+    }
+    lines.push(line.trimEnd());
+    return lines.join("\n");
+  }).join("\n");
+}
+
+function fitText(
+  content: string,
+  box: Box,
+  base: number,
+  minimum: number,
+  mono = false,
+  lineSpacing = 1.15
+) {
+  for (let size = base; size > minimum; size -= 2) {
+    const wrapped = wrapText(content, box.w - 0.1, size, mono);
+    const lines = wrapped.split("\n").length;
+    // pptxgenjs/PowerPoint render a line at ~1.2x the point size; the layout
+    // gate uses the same estimate so both exporters stay inside their boxes.
+    if (lines * (size / 72) * 1.2 * lineSpacing <= box.h) return { text: wrapped, size };
+  }
+  const size = minimum;
+  return { text: wrapText(content, box.w - 0.1, size, mono), size };
+}
+
+const stripQuotes = (value: string) => value.replace(/^[“"'\s]+|[”"'\s]+$/g, "").trim();
+const stripDash = (value: string) => value.replace(/^[-—–\s]+/, "").trim();
 
 function kicker(spec: SlideSpec, colors: Palette, label: string) {
-  spec.shapes.push({
-    kind: "rect",
-    box: { x: 0.85, y: 0.78, w: 0.42, h: 0.055 },
-    color: colors.accent,
-  });
   spec.texts.push(
-    text(colors, { x: 1.42, y: 0.62, w: 10.5, h: 0.35 }, label.toUpperCase(), 10, colors.accent, { bold: true })
+    text(colors, { x: MARGIN, y: 0.52, w: span(12).w, h: 0.3 }, `— ${label.toUpperCase()}`, 11,
+      colors.accentSmall, { font: colors.monoFont, bold: true })
   );
 }
 
-function layoutCover(slide: Slide, colors: Palette, deck: Deck): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
-  const panel = mixColor(colors.accent, colors.background, 0.66);
-  spec.shapes.push(
-    { kind: "rect", box: { x: 8.35, y: 0, w: 4.98, h: SLIDE_H }, color: panel },
-    { kind: "ellipse", box: { x: 9.05, y: 1.25, w: 3.55, h: 3.55 }, color: mixColor(colors.accent, colors.background, 0.22) },
-    { kind: "line", box: { x: 8.9, y: 5.35, w: 3.8, h: 0 }, color: mixColor(colors.accent, colors.background, 0.35) },
-    { kind: "line", box: { x: 8.9, y: 5.75, w: 2.4, h: 0 }, color: mixColor(colors.accent, colors.background, 0.35) },
-    { kind: "ellipse", box: { x: 9.4, y: 1.6, w: 2.85, h: 2.85 }, color: panel },
-    { kind: "line", box: { x: 8.35, y: 0, w: 0, h: SLIDE_H }, color: mixColor(colors.accent, colors.background, 0.55) },
-    { kind: "rect", box: { x: 0.85, y: 3.35, w: 1.65, h: 0.075 }, color: colors.accent }
-  );
+function contentTitle(spec: SlideSpec, colors: Palette, title: string) {
+  const box = { x: MARGIN, y: 0.95, w: span(12).w, h: 0.95 };
+  const fitted = fitText(title, box, 34, 26, false, 1.1);
   spec.texts.push(
-    text(colors, { x: 9.05, y: 2.05, w: 3.55, h: 1.6 }, "01", 118, mixColor(colors.accent, colors.background, 0.34), { bold: true, align: "center" }),
-    text(colors, { x: 0.85, y: 1.28, w: 6.9, h: 0.35 }, "NOVA · PRESENTATION", 11, colors.accent, { bold: true }),
-    text(colors, { x: 0.85, y: 2.15, w: 7.05, h: 1.05 }, deck.title, 46, colors.ink, { bold: true }),
-    text(colors, { x: 0.85, y: 3.72, w: 6.9, h: 0.6 }, slide.bullets?.[0] ?? "Prepared with Nova", 17, colors.muted)
+    text(colors, box, fitted.text, fitted.size, colors.ink, {
+      font: colors.titleFont, bold: true, lineSpacing: 1.1,
+    })
   );
-  (slide.bullets ?? []).slice(1, 4).forEach((bullet, index) => {
-    const x = 0.85 + index * 2.32;
-    spec.shapes.push({ kind: "rect", box: { x, y: 5.75, w: 2.1, h: 0.62 }, color: colors.surface });
-    spec.texts.push(text(colors, { x: x + 0.18, y: 5.9, w: 1.76, h: 0.34 }, bullet, 11, colors.ink));
-  });
+}
+
+function footer(spec: SlideSpec, colors: Palette, index: number, total: number) {
+  const page = `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`;
+  spec.texts.push(
+    text(colors, { x: MARGIN, y: SLIDE_H - 0.42, w: 4, h: 0.24 }, "NOVA / PRESENTATION", 11,
+      colors.muted, { font: colors.monoFont }),
+    text(colors, { x: SLIDE_W - MARGIN - 2.5, y: SLIDE_H - 0.42, w: 2.5, h: 0.24 }, page, 11,
+      colors.muted, { font: colors.monoFont, align: "right" })
+  );
+}
+
+function base(tone: Tone, colors: Palette): SlideSpec {
+  return { background: colors.background, tone, shapes: [], texts: [] };
+}
+
+/** Cover, hero and closing pages are dark; no three adjacent pages share a tone. */
+export function tonesForDeck(deck: Deck): Tone[] {
+  const hero = new Set(["cover", "statement", "quote", "closing"]);
+  const isBody = (index: number) => index > 0 && index < deck.slides.length - 1;
+  const tones: Tone[] = deck.slides.map((slide, index) =>
+    hero.has(slide.layout) || (index === 0 && slide.layout === "cover") ? "dark" : "light"
+  );
+  if (deck.slides.length >= 8 && !tones.some((tone, index) => tone === "dark" && isBody(index))) {
+    const metric = deck.slides.findIndex((slide, index) => isBody(index) && slide.layout === "metrics");
+    const target = metric >= 0 ? metric : deck.slides.findIndex((_, index) => isBody(index));
+    if (target >= 0) tones[target] = "dark";
+  }
+  for (let index = 2; index < tones.length; index++) {
+    if (tones[index] === tones[index - 1] && tones[index] === tones[index - 2]) {
+      tones[index] = tones[index] === "dark" ? "light" : "dark";
+    }
+  }
+  return tones;
+}
+
+function layoutCover(slide: Slide, deck: Deck, colors: Palette): SlideSpec {
+  const spec = base("dark", colors);
+  // A monogram in a ring is the deck's repeatable motif; no duplicate folio.
+  spec.shapes.push(
+    { kind: "rect", box: { x: 9.15, y: 0, w: SLIDE_W - 9.15, h: SLIDE_H }, color: colors.surface },
+    { kind: "ellipse", box: { x: 9.75, y: 1.85, w: 2.9, h: 2.9 }, color: colors.background },
+    { kind: "ellipse", box: { x: 10.25, y: 2.35, w: 1.9, h: 1.9 }, color: colors.surface }
+  );
+  spec.texts.push(text(colors, { x: 10.25, y: 2.82, w: 1.9, h: 0.9 }, "N", 52,
+    colors.accentLarge, { font: colors.monoFont, bold: true, align: "center" }));
+  const box = { x: MARGIN, y: 1.75, w: 8.0, h: 2.6 };
+  const fitted = fitText(deck.title, box, 60, 40, false, 1.08);
+  spec.texts.push(text(colors, box, fitted.text, fitted.size, colors.ink, {
+    font: colors.titleFont, bold: true, lineSpacing: 1.08,
+  }));
+  if (slide.bullets?.[0]) {
+    const sub = { x: MARGIN, y: 4.55, w: 8.0, h: 0.8 };
+    const wrap = fitText(slide.bullets[0], sub, 21, 15);
+    spec.texts.push(text(colors, sub, wrap.text, wrap.size, colors.muted));
+  }
+  const meta = (slide.bullets ?? []).slice(1, 3).join("  ·  ") || deck.title;
+  const metaBox = { x: MARGIN, y: 5.75, w: 8.0, h: 0.4 };
+  const metaFitted = fitText(meta, metaBox, 13, 11, true);
+  spec.texts.push(text(colors, metaBox, metaFitted.text, metaFitted.size,
+    colors.muted, { font: colors.monoFont }));
   return spec;
 }
 
 function layoutStatement(slide: Slide, colors: Palette): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
-  spec.shapes.push(
-    { kind: "ellipse", box: { x: -1.2, y: 3.6, w: 5.5, h: 5.5 }, color: mixColor(colors.accent, colors.background, 0.86) },
-    { kind: "rect", box: { x: 9.9, y: 0.9, w: 2.5, h: 0.07 }, color: colors.accent }
-  );
-  kicker(spec, colors, "The idea");
-  spec.texts.push(text(colors, { x: 1.35, y: 2.25, w: 10.6, h: 2.3 }, slide.title, 42, colors.ink, { bold: true }));
-  if (slide.bullets?.[0])
-    spec.texts.push(text(colors, { x: 1.38, y: 4.75, w: 9.6, h: 0.8 }, slide.bullets[0], 18, colors.muted));
+  const spec = base("dark", colors);
+  kicker(spec, colors, "Thesis");
+  const box = { x: MARGIN, y: 1.95, w: 7.9, h: 2.9 };
+  const fitted = fitText(slide.title, box, 52, 34, false, 1.1);
+  spec.texts.push(text(colors, box, fitted.text, fitted.size, colors.ink, {
+    font: colors.titleFont, bold: true, lineSpacing: 1.1,
+  }));
+  if (slide.bullets?.[0]) {
+    const card = { x: 9.2, y: 2.15, w: 3.3, h: 3.1 };
+    spec.shapes.push({ kind: "rect", box: card, color: colors.surface });
+    spec.texts.push(
+      text(colors, { x: card.x + 0.25, y: card.y + 0.25, w: card.w - 0.5, h: 0.3 }, "THESIS", 11,
+        colors.accentSmall, { font: colors.monoFont, bold: true }),
+      text(colors, { x: card.x + 0.25, y: card.y + 0.75, w: card.w - 0.5, h: 2.0 },
+        fitText(slide.bullets[0], { x: card.x + 0.25, y: card.y + 0.75, w: card.w - 0.5, h: 2.0 }, 18, 14).text,
+        17, colors.ink, { lineSpacing: 1.3 })
+    );
+  }
   return spec;
 }
 
 function layoutBullets(slide: Slide, colors: Palette, dense: boolean): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
+  const spec = base("light", colors);
   kicker(spec, colors, "Details");
-  spec.texts.push(text(colors, { x: 0.85, y: 1.12, w: 11.6, h: 0.9 }, slide.title, 32, colors.ink, { bold: true }));
-  spec.shapes.push({ kind: "line", box: { x: 0.85, y: 2.02, w: 11.63, h: 0 }, color: mixColor(colors.ink, colors.background, 0.78) });
-
+  contentTitle(spec, colors, slide.title);
   const bullets = (slide.bullets ?? []).slice(0, 6);
-  const columns = bullets.length > 3 ? 2 : 1;
-  const perColumn = Math.ceil(bullets.length / columns);
+  if (!bullets.length) return spec;
+  // Fill the canvas with an intentional card grid, never a narrow left column.
+  const columns = Math.min(3, bullets.length);
+  const rows = Math.ceil(bullets.length / columns);
+  const gap = 0.22;
+  const cardW = (span(12).w - gap * (columns - 1)) / columns;
+  const cardH = rows === 1 ? 2.8 : 1.85;
+  const groupH = rows * cardH + (rows - 1) * gap;
+  const yStart = 2.25 + Math.max(0, (4.75 - groupH) / 2);
+  const size = dense ? 15 : 16;
   bullets.forEach((bullet, index) => {
-    const column = Math.floor(index / perColumn);
-    const row = index % perColumn;
-    const x = 0.85 + column * 6.0;
-    const y = 2.35 + row * (dense ? 1.15 : 1.45);
-    const w = columns === 2 ? 5.55 : 10.9;
-    spec.shapes.push(
-      { kind: "rect", box: { x, y, w, h: dense ? 0.96 : 1.2 }, color: colors.surface },
-      { kind: "rect", box: { x, y, w: 0.055, h: dense ? 0.96 : 1.2 }, color: colors.accent }
-    );
-    spec.texts.push(
-      text(colors, { x: x + 0.3, y: y + 0.12, w: 0.7, h: 0.35 }, String(index + 1).padStart(2, "0"), 11, colors.accent, { bold: true }),
-      text(colors, { x: x + 0.95, y: y + 0.1, w: w - 1.25, h: dense ? 0.74 : 0.98 }, bullet, dense ? 15 : 17, colors.ink)
-    );
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = MARGIN + column * (cardW + gap);
+    const y = yStart + row * (cardH + gap);
+    spec.shapes.push({ kind: "rect", box: { x, y, w: cardW, h: cardH }, color: colors.surface });
+    spec.texts.push(text(colors, { x: x + 0.22, y: y + 0.18, w: 0.7, h: 0.3 },
+      String(index + 1).padStart(2, "0"), 11, colors.accentSmall, { font: colors.monoFont, bold: true }));
+    const bodyH = Math.min(1.5, cardH - 1.0);
+    const bodyBox = { x: x + 0.22, y: y + (cardH - bodyH) / 2, w: cardW - 0.44, h: bodyH };
+    const fitted = fitText(bullet, bodyBox, size, 14, false, 1.3);
+    spec.texts.push(text(colors, bodyBox, fitted.text, fitted.size, colors.ink,
+      { lineSpacing: 1.3, valign: "middle" }));
   });
   return spec;
 }
 
 function layoutSplit(slide: Slide, colors: Palette): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
-  spec.shapes.push(
-    { kind: "rect", box: { x: 7.55, y: 0, w: 5.79, h: SLIDE_H }, color: mixColor(colors.accent, colors.background, 0.76) },
-    { kind: "ellipse", box: { x: 9.15, y: 2.1, w: 3.0, h: 3.0 }, color: mixColor(colors.accent, colors.background, 0.45) }
-  );
+  const spec = base("light", colors);
   kicker(spec, colors, "Focus");
-  spec.texts.push(text(colors, { x: 0.85, y: 1.3, w: 6.1, h: 1.8 }, slide.title, 36, colors.ink, { bold: true }));
-  (slide.bullets ?? []).slice(0, 4).forEach((bullet, index) => {
+  contentTitle(spec, colors, slide.title);
+  const left = span(7);
+  const right = span(5, 7);
+  const panel = { kind: "rect" as const, box: { x: right.x, y: 2.15, w: right.w, h: 3.6 }, color: colors.surface };
+  spec.shapes.push(panel);
+  (slide.bullets ?? []).slice(1, 5).forEach((bullet, index) => {
+    const y = 2.5 + index * 0.85;
     spec.texts.push(
-      text(colors, { x: 0.88, y: 3.25 + index * 0.72, w: 0.5, h: 0.35 }, "—", 14, colors.accent, { bold: true }),
-      text(colors, { x: 1.35, y: 3.22 + index * 0.72, w: 5.5, h: 0.6 }, bullet, 15, colors.ink)
+      text(colors, { x: left.x, y, w: 0.4, h: 0.3 }, String(index + 1).padStart(2, "0"), 11,
+        colors.accentSmall, { font: colors.monoFont, bold: true }),
+      text(colors, { x: left.x + 0.55, y: y - 0.05, w: left.w - 0.65, h: 0.7 },
+        fitText(bullet, { x: left.x + 0.55, y: y - 0.05, w: left.w - 0.65, h: 0.7 }, 16, 14).text,
+        16, colors.ink, { lineSpacing: 1.3 })
     );
   });
+  if (slide.bullets?.[0]) {
+    const pullBox = { x: right.x + 0.32, y: 2.6, w: right.w - 0.64, h: 2.7 };
+    const pull = fitText(slide.bullets[0], pullBox, 28, 20, false, 1.15);
+    spec.texts.push(text(colors, pullBox, pull.text, pull.size, colors.ink,
+      { font: colors.titleFont, bold: true, lineSpacing: 1.15 }));
+  }
   return spec;
 }
 
-function layoutMetrics(slide: Slide, colors: Palette): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
+function layoutMetrics(slide: Slide, colors: Palette, tone: Tone): SlideSpec {
+  const spec = base(tone, colors);
   kicker(spec, colors, "By the numbers");
-  spec.texts.push(text(colors, { x: 0.85, y: 1.15, w: 11.6, h: 0.9 }, slide.title, 32, colors.ink, { bold: true }));
-  const items = (slide.items ?? []).slice(0, 4);
-  const width = items.length ? 11.6 / items.length : 11.6;
-  const centered = items.length <= 2;
+  contentTitle(spec, colors, slide.title);
+  const items = slide.items ?? [];
+  if (!items.length) return spec;
+  const columns = items.length <= 3 ? items.length : items.length === 4 ? 2 : 3;
+  const rows = Math.ceil(items.length / columns);
+  const gap = 0.22;
+  const cardW = (span(12).w - gap * (columns - 1)) / columns;
+  const cardH = rows === 1 ? 3.6 : 2.05;
   items.forEach((item, index) => {
-    const x = 0.85 + index * width;
-    if (index > 0)
-      spec.shapes.push({ kind: "line", box: { x: x - 0.1, y: 2.5, w: 0, h: 2.6 }, color: mixColor(colors.ink, colors.background, 0.8) });
-    spec.texts.push(
-      text(colors, { x, y: 2.65, w: width - 0.4, h: 1.3 }, item.value, 50, colors.accent, { bold: true, align: centered ? "center" : "left" }),
-      text(colors, { x, y: 4.1, w: width - 0.4, h: 0.8 }, item.label, 15, colors.ink, { align: centered ? "center" : "left" })
-    );
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = MARGIN + column * (cardW + gap);
+    const y = 2.3 + row * (cardH + gap);
+    spec.shapes.push({ kind: "rect", box: { x, y, w: cardW, h: cardH }, color: colors.surface });
+    const valueBox = { x: x + 0.2, y: y + 0.55, w: cardW - 0.4, h: rows === 1 ? 1.5 : 0.95 };
+    const value = fitText(item.value, valueBox, rows === 1 ? 58 : 44, 30, true, 1.05);
+    spec.texts.push(text(colors, valueBox, value.text, value.size, colors.accentLarge, {
+      font: colors.monoFont, bold: true, lineSpacing: 1.05,
+    }));
+    spec.shapes.push({ kind: "line", box: { x: x + 0.22, y: y + cardH - 1.08, w: cardW - 0.44, h: 0 }, color: colors.muted });
+    const labelBox = { x: x + 0.22, y: y + cardH - 0.9, w: cardW - 0.44, h: 0.65 };
+    const label = fitText(item.label, labelBox, 16, 14, false, 1.25);
+    spec.texts.push(text(colors, labelBox, label.text, label.size, colors.ink, { lineSpacing: 1.25 }));
   });
-  (slide.bullets ?? []).slice(0, 1).forEach(bullet =>
-    spec.texts.push(text(colors, { x: 0.85, y: 5.7, w: 11.6, h: 0.6 }, bullet, 14, colors.muted))
-  );
+  if (slide.bullets?.[0]) {
+    const note = fitText(slide.bullets[0], { x: MARGIN, y: 6.05, w: span(12).w, h: 0.5 }, 14, 14);
+    spec.texts.push(text(colors, { x: MARGIN, y: 6.05, w: span(12).w, h: 0.5 }, note.text, 14, colors.muted));
+  }
   return spec;
 }
 
 function layoutTimeline(slide: Slide, colors: Palette): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
+  const spec = base("light", colors);
   kicker(spec, colors, "Sequence");
-  spec.texts.push(text(colors, { x: 0.85, y: 1.15, w: 11.6, h: 0.9 }, slide.title, 32, colors.ink, { bold: true }));
-  const items = (slide.items ?? []).slice(0, 5);
+  contentTitle(spec, colors, slide.title);
+  const items = slide.items ?? [];
   if (!items.length) return spec;
-  const start = 1.4;
-  const gap = items.length > 1 ? 10.2 / (items.length - 1) : 0;
-  spec.shapes.push({ kind: "line", box: { x: start, y: 4.1, w: gap * (items.length - 1), h: 0 }, color: mixColor(colors.accent, colors.background, 0.45) });
+  const axisY = 4.25;
+  const step = span(12).w / items.length;
+  spec.shapes.push({
+    kind: "line",
+    box: { x: MARGIN + step / 2, y: axisY, w: step * (items.length - 1), h: 0 },
+    color: colors.muted,
+  });
   items.forEach((item, index) => {
-    const x = start + index * gap;
-    spec.shapes.push({ kind: "ellipse", box: { x: x - 0.11, y: 3.99, w: 0.22, h: 0.22 }, color: colors.accent });
+    const center = MARGIN + step * (index + 0.5);
+    const labelBox = { x: center - step / 2 + 0.1, y: 3.15, w: step - 0.2, h: 0.7 };
+    const valueBox = { x: center - step / 2 + 0.1, y: 4.7, w: step - 0.2, h: 0.7 };
+    spec.shapes.push({
+      kind: "ellipse", box: { x: center - 0.11, y: axisY - 0.11, w: 0.22, h: 0.22 },
+      color: colors.accentLarge,
+    });
+    const label = fitText(item.label, labelBox, 16, 14, true, 1.15);
+    const value = fitText(item.value, valueBox, 15, 14, false, 1.25);
     spec.texts.push(
-      text(colors, { x: x - 1.0, y: index % 2 ? 2.65 : 4.45, w: 2.0, h: 0.9 }, item.label, 13, colors.ink, { align: "center", bold: true }),
-      text(colors, { x: x - 1.0, y: index % 2 ? 3.25 : 5.05, w: 2.0, h: 0.6 }, item.value, 12, colors.muted, { align: "center" })
+      text(colors, { x: center - 0.45, y: 2.75, w: 0.9, h: 0.3 },
+        String(index + 1).padStart(2, "0"), 11, colors.accentSmall,
+        { font: colors.monoFont, bold: true, align: "center" }),
+      text(colors, labelBox, label.text, label.size, colors.ink,
+        { font: colors.titleFont, bold: true, align: "center", lineSpacing: 1.15 }),
+      text(colors, valueBox, value.text, value.size, colors.muted,
+        { align: "center", lineSpacing: 1.25 })
     );
   });
   return spec;
 }
 
 function layoutQuote(slide: Slide, colors: Palette): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
-  spec.shapes.push(
-    { kind: "rect", box: { x: 0.85, y: 1.5, w: 0.07, h: 3.9 }, color: colors.accent },
-    { kind: "ellipse", box: { x: 10.7, y: 4.9, w: 2.4, h: 2.4 }, color: mixColor(colors.accent, colors.background, 0.84) }
-  );
-  spec.texts.push(
-    text(colors, { x: 1.35, y: 1.25, w: 3, h: 1.2 }, "“", 72, colors.accent, { bold: true, font: "Times" }),
-    text(colors, { x: 1.35, y: 2.35, w: 10.2, h: 2.3 }, slide.title, 30, colors.ink, { font: "Times" }),
-    text(colors, { x: 1.38, y: 4.85, w: 9.8, h: 0.7 }, slide.bullets?.[0] ?? "", 14, colors.muted)
-  );
+  const spec = base("dark", colors);
+  kicker(spec, colors, "In their words");
+  spec.texts.push(text(colors, { x: 10.4, y: 1.05, w: 2.1, h: 1.5 }, "“", 120,
+    colors.muted, { font: colors.titleFont, align: "right" }));
+  const box = { x: MARGIN, y: 1.75, w: 10.1, h: 3.1 };
+  const fitted = fitText(stripQuotes(slide.title), box, 46, 28, false, 1.15);
+  spec.texts.push(text(colors, box, fitted.text, fitted.size, colors.ink, {
+    font: colors.style === "magazine" ? colors.titleFont : colors.bodyFont,
+    italic: colors.style === "magazine",
+    bold: colors.style === "swiss",
+    lineSpacing: 1.15,
+  }));
+  if (slide.bullets?.[0]) {
+    spec.shapes.push({ kind: "rect", box: { x: MARGIN, y: 5.15, w: 7.0, h: 0.62 }, color: colors.surface });
+    spec.texts.push(text(colors, { x: MARGIN + 0.2, y: 5.25, w: 9.5, h: 0.4 }, `— ${stripDash(slide.bullets[0])}`, 12,
+      colors.accentSmall, { font: colors.monoFont }));
+  }
   return spec;
 }
 
-function layoutClosing(slide: Slide, colors: Palette, deck: Deck): SlideSpec {
-  const spec: SlideSpec = { background: colors.background, shapes: [], texts: [] };
+function layoutClosing(slide: Slide, deck: Deck, colors: Palette): SlideSpec {
+  const spec = base("dark", colors);
+  kicker(spec, colors, "Closing");
+  // Mirror the cover's monogram panel so the deck has a deliberate bookend.
   spec.shapes.push(
-    { kind: "rect", box: { x: 5.95, y: 1.7, w: 1.43, h: 0.08 }, color: colors.accent },
-    { kind: "ellipse", box: { x: -1.8, y: -2.0, w: 5.5, h: 5.5 }, color: mixColor(colors.accent, colors.background, 0.88) }
+    { kind: "rect", box: { x: 0, y: 0, w: 4.6, h: SLIDE_H }, color: colors.surface },
+    { kind: "ellipse", box: { x: 1.15, y: 2.15, w: 2.3, h: 2.3 }, color: colors.background },
+    { kind: "ellipse", box: { x: 1.52, y: 2.52, w: 1.56, h: 1.56 }, color: colors.surface }
   );
-  spec.texts.push(
-    text(colors, { x: 1.5, y: 2.05, w: 10.33, h: 1.2 }, slide.title || "Thank you", 46, colors.ink, { bold: true, align: "center" }),
-    text(colors, { x: 2.0, y: 3.35, w: 9.33, h: 0.8 }, slide.bullets?.[0] ?? deck.title, 17, colors.muted, { align: "center" })
-  );
+  spec.texts.push(text(colors, { x: 1.52, y: 2.92, w: 1.56, h: 0.7 }, "N", 44,
+    colors.accentLarge, { font: colors.monoFont, bold: true, align: "center" }));
+  const box = { x: 5.15, y: 2.05, w: 7.3, h: 2.3 };
+  const fitted = fitText(slide.title || "Thank you", box, 50, 34, false, 1.1);
+  spec.texts.push(text(colors, box, fitted.text, fitted.size, colors.ink, {
+    font: colors.titleFont, bold: true, lineSpacing: 1.1,
+  }));
+  const detailBox = { x: 5.15, y: 4.65, w: 7.3, h: 0.8 };
+  const detail = fitText(slide.bullets?.[0] ?? deck.title, detailBox, 20, 15);
+  spec.texts.push(text(colors, detailBox, detail.text, detail.size, colors.muted));
   return spec;
 }
 
 export function layoutDeck(deck: Deck): SlideSpec[] {
-  const colors = palette(deck);
+  const tones = tonesForDeck(deck);
   return deck.slides.map((slide, index) => {
+    const tone = tones[index];
+    const colors = paletteFor(deck.design, tone);
     let spec: SlideSpec;
     switch (slide.layout) {
       case "cover":
-        spec = layoutCover(slide, colors, deck);
+        spec = layoutCover(slide, deck, colors);
         break;
       case "statement":
         spec = layoutStatement(slide, colors);
@@ -279,7 +498,7 @@ export function layoutDeck(deck: Deck): SlideSpec[] {
         spec = layoutSplit(slide, colors);
         break;
       case "metrics":
-        spec = layoutMetrics(slide, colors);
+        spec = layoutMetrics(slide, colors, tone);
         break;
       case "timeline":
         spec = layoutTimeline(slide, colors);
@@ -288,7 +507,7 @@ export function layoutDeck(deck: Deck): SlideSpec[] {
         spec = layoutQuote(slide, colors);
         break;
       case "closing":
-        spec = layoutClosing(slide, colors, deck);
+        spec = layoutClosing(slide, deck, colors);
         break;
       default:
         spec = layoutBullets(slide, colors, deck.design.density === "balanced");

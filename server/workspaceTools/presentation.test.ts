@@ -29,7 +29,7 @@ function ctx(args: Record<string, unknown>) {
 
 const deckArgs = {
   title: "Q3 plan",
-  design: { background: "#FFF4E6", accent: "#C56A32" },
+  design: { theme: "ink-classic" },
   slides: [{ id: "s1", layout: "cover", title: "Q3 plan" }],
 };
 

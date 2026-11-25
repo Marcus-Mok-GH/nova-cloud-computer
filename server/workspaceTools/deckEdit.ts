@@ -1,4 +1,4 @@
-import { type Deck, type Design, type Slide } from "./deckModel";
+import { normaliseDesign, type Deck, type Design, type Slide } from "./deckModel";
 
 export type DeckOperation =
   | { op: "set_title"; value: string }
@@ -19,7 +19,7 @@ export function applyDeckOperations(deck: Deck, operations: DeckOperation[]): De
     if (op.op === "set_title") {
       next = { ...next, title: op.value.trim() || next.title };
     } else if (op.op === "set_design") {
-      next = { ...next, design: { ...next.design, ...op.patch } };
+      next = { ...next, design: normaliseDesign({ ...next.design, ...op.patch }) };
     } else if (op.op === "update_slide") {
       next = {
         ...next,

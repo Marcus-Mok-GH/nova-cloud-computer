@@ -63,7 +63,7 @@ describe("real presentation pipeline", () => {
   it("generates, edits and exports a genuine PPTX and PDF", async () => {
     const generated = await toolGeneratePresentation(ctx({
       title: "Nova Systems Briefing",
-      design: { background: "#18313A", accent: "#F2A65A", muted: "#9AB3BA", font: "Helvetica", motif: "grid", cover: "left", density: "airy" },
+      design: { theme: "indigo-porcelain", density: "airy" },
       slides: [
         { id: "s1", layout: "cover", title: "Nova Systems Briefing", bullets: ["November 2026"] },
         { id: "s2", layout: "bullets", title: "What we shipped", bullets: ["Scroll reveals", "Presentations"], notes: "Mention the agent tools" },
@@ -77,7 +77,8 @@ describe("real presentation pipeline", () => {
 
     const deckRow = state.files.find(file => file.name.endsWith(".deck.json"))!;
     const deck = JSON.parse(deckRow.content);
-    expect(deck.design.background).toBe("#18313A");
+    expect(deck.design.theme).toBe("indigo-porcelain");
+    expect(deck.design.density).toBe("airy");
     expect(deck.slides).toHaveLength(2);
 
     const edited = await toolEditPresentation(ctx({
@@ -85,14 +86,14 @@ describe("real presentation pipeline", () => {
       operations: [
         { op: "update_slide", id: "s2", patch: { title: "What changed", bullets: ["Scroll reveals", "Presentations", "Unique designs"] } },
         { op: "add_slide", after: "s2", slide: { id: "s3", layout: "metrics", title: "By the numbers", items: [{ label: "Slides", value: "3" }] } },
-        { op: "set_design", patch: { motif: "dots" } },
+        { op: "set_design", patch: { theme: "swiss-green" } },
       ],
     }));
     expect(edited.ok).toBe(true);
     const afterEdit = JSON.parse(state.store.get(deckRow.id)!.content);
     expect(afterEdit.slides.map((slide: { id: string }) => slide.id)).toEqual(["s1", "s2", "s3"]);
     expect(afterEdit.slides[1].title).toBe("What changed");
-    expect(afterEdit.design.motif).toBe("dots");
+    expect(afterEdit.design.theme).toBe("swiss-green");
 
     const exported = await toolExportPresentation(ctx({ deck_id: deckRow.id, formats: ["pptx", "pdf"] }));
     expect(exported.ok).toBe(true);
@@ -114,7 +115,7 @@ describe("real presentation pipeline", () => {
   it("exports by stored file id when the workspace snapshot is stale in the same round", async () => {
     const generated = await toolGeneratePresentation(ctx({
       title: "Same Round Deck",
-      design: { background: "#FBF8F3", accent: "#B96A3C" },
+      design: { theme: "ink-classic" },
       slides: [{ id: "s1", layout: "cover", title: "Same Round Deck" }],
     }));
     expect(generated.ok).toBe(true);

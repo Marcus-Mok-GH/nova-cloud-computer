@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { deriveInk, normaliseDeck, parseDeck } from "./deckModel";
+import { deriveInk, getTheme, normaliseDeck, normaliseDesign, parseDeck, THEMES } from "./deckModel";
 
 describe("normaliseDeck", () => {
-  it("creates a full deck with a generated design spec", () => {
+  it("creates a full deck with a preset theme instead of custom colours", () => {
     const result = normaliseDeck({
       title: "  Q3 plan  ",
-      design: { background: "#FFF4E6", accent: "#C56A32", font: "Times" },
+      design: { theme: "swiss-blue", density: "airy" },
       slides: [
         { id: "s1", layout: "cover", title: "Q3 plan", bullets: [] },
         { id: "s2", layout: "bullets", title: "Wins", bullets: ["Revenue up"] },
@@ -14,9 +14,39 @@ describe("normaliseDeck", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.title).toBe("Q3 plan");
-    expect(result.value.design.motif).toBe("rule");
-    expect(result.value.design.density).toBe("balanced");
+    expect(result.value.design).toEqual({ theme: "swiss-blue", density: "airy" });
     expect(result.value.slides).toHaveLength(2);
+  });
+
+  it("accepts every registered theme and defaults sensibly", () => {
+    for (const theme of THEMES) {
+      expect(normaliseDesign({ theme: theme.name }).theme).toBe(theme.name);
+    }
+    expect(normaliseDesign({})).toEqual({ theme: "ink-classic", density: "balanced" });
+    expect(normaliseDesign({ theme: "not-a-theme" }).theme).toBe("ink-classic");
+    expect(getTheme("forest-ink").style).toBe("magazine");
+  });
+
+  it("migrates legacy hex designs onto a theme and caps content density", () => {
+    const result = normaliseDeck({
+      title: "Legacy",
+      design: { background: "#FFF4E6", accent: "#C56A32", font: "Times", motif: "dots" },
+      slides: [
+        {
+          id: "s1",
+          layout: "bullets",
+          title: "Wins",
+          bullets: ["1", "2", "3", "4", "5", "6"],
+          items: Array.from({ length: 9 }, (_, index) => ({ label: `L${index}`, value: `${index}` })),
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(THEMES.map(theme => theme.name)).toContain(result.value.design.theme);
+    expect(JSON.stringify(result.value.design)).not.toContain("#");
+    expect(result.value.slides[0].bullets).toHaveLength(5);
+    expect(result.value.slides[0].items).toHaveLength(6);
   });
 
   it("rejects no slides, malformed slides and too many slides", () => {

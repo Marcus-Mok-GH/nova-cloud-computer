@@ -1,3 +1,12 @@
+2026-11-25 - fix(chat): follow the run on mobile too
+
+The chat's bottom-follow only wrote to the inner viewport. When the browser
+ended up scrolling the document instead (narrow screens), that write did
+nothing and the run stayed at the top. The pin now falls back to the document
+scroller, re-pins on the next frame after a new row, and ignores the scroll
+event its own pin produces so the "user scrolled up" flag cannot lock the view
+away from the run.
+
 2026-11-25 - fix(chat): keep the conversation pinned to the newest message
 
 A running sub-agent's progress log followed its newest line with

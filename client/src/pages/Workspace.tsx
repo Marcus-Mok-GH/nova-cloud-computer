@@ -4,6 +4,7 @@ import NovaLogo from "@/components/NovaLogo";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { pinChatToBottom } from "@/lib/chatScroll";
 import {
   effortOptionsForModelId,
   FREE_CHAT_MODEL_ID,
@@ -43,7 +44,7 @@ import {
 } from "lucide-react";
 // JSX compiles to React.createElement in this build (classic runtime), so the
 // default React binding must stay imported even without explicit React.* calls.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
@@ -177,9 +178,12 @@ export default function Workspace() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const programmaticScrollRef = useRef(false);
   const handleChatScroll = () => {
     const el = scrollRef.current;
-    if (!el) return;
+    // Our own pin is not the user scrolling away from the run. Treating it as
+    // such used to set the "scrolled up" flag and stop all future following.
+    if (!el || programmaticScrollRef.current) return;
     userScrolledUpRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight > 120;
   };
@@ -302,11 +306,22 @@ export default function Workspace() {
     userScrolledUpRef.current = false;
   }, [chatId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    if (userScrolledUpRef.current) return;
-    el.scrollTop = el.scrollHeight;
+    if (!el || userScrolledUpRef.current) return;
+    programmaticScrollRef.current = true;
+    const documentScroller = document.scrollingElement as HTMLElement | null;
+    pinChatToBottom(el, documentScroller);
+    // A new tool row can grow the run after this commit. Pin once more on the
+    // next frame so the view never settles at the top of the conversation.
+    const frame = requestAnimationFrame(() => {
+      if (!userScrolledUpRef.current) pinChatToBottom(el, documentScroller);
+      programmaticScrollRef.current = false;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      programmaticScrollRef.current = false;
+    };
   }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
 
   // The header shows the chat's title, which the server auto-renames a moment

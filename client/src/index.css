@@ -301,8 +301,47 @@ button, a, [role="button"] { touch-action: manipulation; }
   opacity: .08;
   mix-blend-mode: overlay;
 }
+/* Phones need their own crop: `cover` on the wide panorama shrinks a 412px
+   viewport to a 16% centre slice, which reads as a blurry smear. A portrait
+   crop of the same public-domain photo keeps the strata and sky in frame. */
 @media (max-width: 1023px) {
-  .landing-canyon-bg { height: 1300px; }
+  .landing-canyon-bg {
+    height: 1000px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+  }
+  .landing-canyon-photo {
+    background-image: image-set(
+      url("/landing/grand-canyon-mobile.avif") type("image/avif"),
+      url("/landing/grand-canyon-mobile.webp") type("image/webp")
+    );
+    background-position: 50% 26%;
+  }
+  .landing-canyon-scrim {
+    background:
+      radial-gradient(76% 44% at 50% 31%,
+        oklch(0.981 0.0079 73.7 / .9) 0%,
+        oklch(0.981 0.0079 73.7 / .66) 54%,
+        transparent 88%),
+      linear-gradient(180deg,
+        oklch(0.981 0.0079 73.7 / .4) 0%,
+        transparent 22%, transparent 70%,
+        oklch(0.981 0.0079 73.7 / .6) 100%);
+  }
+  [data-theme="midnight"] .landing-canyon-photo {
+    background-position: 50% 26%;
+  }
+  [data-theme="midnight"] .landing-canyon-scrim {
+    background:
+      radial-gradient(76% 44% at 50% 31%,
+        oklch(0.190 0.0102 67.1 / .9) 0%,
+        oklch(0.190 0.0102 67.1 / .64) 54%,
+        transparent 88%),
+      linear-gradient(180deg,
+        oklch(0.190 0.0102 67.1 / .55) 0%,
+        transparent 22%, transparent 70%,
+        oklch(0.190 0.0102 67.1 / .85) 100%);
+  }
 }
 
 /* The /app overview's task prompt: a faint dot grid (graph-paper texture)

@@ -1,3 +1,12 @@
+2026-11-25 - fix(chat): ignore layout-driven scroll events
+
+A scroll event fires whenever a tool row grows the conversation, not just when
+the reader moves it. Those passive events were being read as "user scrolled
+up", which disabled auto-follow and left a long run sitting at the top of the
+chat. The reader is now considered scrolled away only when a wheel, touch or
+keyboard gesture happened within the last 700ms; the down-arrow button and the
+run share the same pin path.
+
 2026-11-25 - feat(chat): scroll-to-bottom button
 
 When the reader scrolls away from the newest message, a circular down-arrow

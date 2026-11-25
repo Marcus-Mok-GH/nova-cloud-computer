@@ -180,6 +180,7 @@ export default function Workspace() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const programmaticScrollRef = useRef(false);
+  const lastScrollGestureRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   /** Pin the newest row, including the mobile document-scroller fallback. */
@@ -202,6 +203,11 @@ export default function Workspace() {
     // Our own pin is not the user scrolling away from the run. Treating it as
     // such used to set the "user scrolled up" flag and stop all future following.
     if (!el || programmaticScrollRef.current) return;
+    // Layout changes (a tool row growing, an image decoding) fire scroll
+    // events too. Only a real wheel/touch/key gesture means the reader left
+    // the run deliberately; otherwise a passive scroll at top would set the
+    // flag and disable following for the rest of the run.
+    if (Date.now() - lastScrollGestureRef.current > 700) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     userScrolledUpRef.current = distance > 120;
     setShowScrollToBottom(distance > 120);
@@ -609,6 +615,9 @@ export default function Workspace() {
           <div
             ref={scrollRef}
             onScroll={handleChatScroll}
+            onWheel={() => { lastScrollGestureRef.current = Date.now(); }}
+            onTouchMove={() => { lastScrollGestureRef.current = Date.now(); }}
+            onKeyDown={() => { lastScrollGestureRef.current = Date.now(); }}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-7 sm:px-7 sm:py-10"
           >
             <div

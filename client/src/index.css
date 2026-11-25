@@ -221,7 +221,79 @@ button, a, [role="button"] { touch-action: manipulation; }
 .dashboard-shell main { -webkit-overflow-scrolling: touch; }
 
 /* ---------------- Landing page ---------------- */
-.landing-shell { background: var(--background); color: var(--foreground); }
+.landing-shell {
+  position: relative;
+  isolation: isolate;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Grand Canyon sunrise behind the nav and hero. One public-domain NPS photo
+   (Wikimedia Commons) in two treatments: daylight washes it to warm paper,
+   midnight grades it down and lifts an ember glow. The scrim is strongest
+   where the headline sits; the mask dissolves the photo before Connections. */
+.landing-canyon-bg {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -1;
+  height: 1000px;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 66%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 66%, transparent 100%);
+}
+.landing-canyon-bg > * { position: absolute; inset: 0; }
+.landing-canyon-photo {
+  background-image: image-set(
+    url("/landing/grand-canyon.avif") type("image/avif"),
+    url("/landing/grand-canyon.webp") type("image/webp")
+  );
+  background-size: cover;
+  background-position: 52% 40%;
+  filter: saturate(1.03) contrast(1.01) brightness(1.02);
+}
+.landing-canyon-scrim {
+  background:
+    linear-gradient(90deg,
+      oklch(0.981 0.0079 73.7 / .88) 0%,
+      oklch(0.981 0.0079 73.7 / .62) 26%,
+      oklch(0.981 0.0079 73.7 / .18) 48%,
+      transparent 68%),
+    linear-gradient(180deg,
+      oklch(0.981 0.0079 73.7 / .5) 0%,
+      transparent 20%, transparent 74%,
+      oklch(0.981 0.0079 73.7 / .58) 100%);
+}
+.landing-canyon-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  opacity: .05;
+  mix-blend-mode: multiply;
+}
+[data-theme="midnight"] .landing-canyon-photo {
+  background-position: 52% 38%;
+  filter: brightness(.64) saturate(.96) contrast(1.05);
+}
+[data-theme="midnight"] .landing-canyon-scrim {
+  background:
+    radial-gradient(58% 68% at 80% 2%, oklch(0.625 0.1563 43.8 / .4), transparent 66%),
+    linear-gradient(90deg,
+      oklch(0.190 0.0102 67.1 / .92) 0%,
+      oklch(0.190 0.0102 67.1 / .58) 30%,
+      oklch(0.190 0.0102 67.1 / .14) 52%,
+      transparent 72%),
+    linear-gradient(180deg,
+      oklch(0.190 0.0102 67.1 / .55) 0%,
+      transparent 24%, transparent 72%,
+      oklch(0.190 0.0102 67.1 / .8) 100%);
+}
+[data-theme="midnight"] .landing-canyon-grain {
+  opacity: .08;
+  mix-blend-mode: overlay;
+}
+@media (max-width: 1023px) {
+  .landing-canyon-bg { height: 1300px; }
+}
 
 /* The /app overview's task prompt: a faint dot grid (graph-paper texture)
    that keeps the prompt the focus of the screen. Dots follow the theme. */

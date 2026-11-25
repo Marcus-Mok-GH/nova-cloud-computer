@@ -1,3 +1,12 @@
+2026-11-25 - fix(chat): keep the conversation pinned to the newest message
+
+A running sub-agent's progress log followed its newest line with
+`scrollIntoView`, which scrolls EVERY scrollable ancestor - including the chat
+viewport. The jump also fired the chat's scroll listener, setting the
+"user scrolled up" flag, so the conversation stayed at the wrong end for the
+rest of the run. The log now scrolls only its own bounded container, leaving
+the chat's bottom-follow effect in charge.
+
 2026-11-25 - feat(landing): carry the canyon behind every section
 
 The Grand Canyon backdrop is now a fixed viewport layer instead of a hero-only

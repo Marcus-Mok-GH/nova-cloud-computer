@@ -49,7 +49,7 @@ export default function DeepDives() {
   return (
     <section id="product" className="scroll-mt-24 border-t border-border">
       <div className="mx-auto max-w-6xl px-5 pb-4 pt-14 sm:px-8 sm:pb-6 sm:pt-20">
-        <div className="max-w-3xl">
+        <div data-reveal className="max-w-3xl">
           <Eyebrow>{t("landing.product.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.product.title")}
@@ -59,7 +59,7 @@ export default function DeepDives() {
           </p>
         </div>
       </div>
-      <div className="mx-auto max-w-6xl divide-y divide-border border-t border-border px-5 sm:px-8">
+      <div data-reveal-group className="mx-auto max-w-6xl divide-y divide-border border-t border-border px-5 sm:px-8">
         <Row
           eyebrow={t("landing.workspace.eyebrow")}
           title={t("landing.workspace.title")}

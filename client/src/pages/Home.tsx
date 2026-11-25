@@ -1,5 +1,6 @@
 import React from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { useLandingReveal } from "@/hooks/useLandingReveal";
 import LandingNav from "./landing/LandingNav";
 import Hero from "./landing/Hero";
 import Connections from "./landing/Connections";
@@ -18,6 +19,7 @@ import SiteFooter from "./landing/SiteFooter";
  */
 export default function Home() {
   const { t } = useTranslation();
+  useLandingReveal();
 
   return (
     <div id="top" className="landing-shell min-h-dvh overflow-x-clip">

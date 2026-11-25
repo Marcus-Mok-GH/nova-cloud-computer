@@ -58,6 +58,10 @@ describe("landing and sign-in render", () => {
     expect(markup).toContain(
       "Start with the task that has been waiting in another tab."
     );
+    // Scroll-reveal hooks are in the static markup; the observer is installed
+    // after mount, so a no-script render still shows every section.
+    expect(markup).toContain("data-reveal");
+    expect(markup).toContain("data-reveal-group");
     // The previous hero must not come back.
     expect(markup).not.toContain("Give your AI a computer of its own.");
   });

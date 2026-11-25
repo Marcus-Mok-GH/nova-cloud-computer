@@ -30,10 +30,10 @@ export default function Connections() {
   return (
     <section aria-label={t("landing.connections.aria")} className="border-y border-border">
       <div className="mx-auto grid max-w-7xl gap-6 px-5 py-7 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,15rem)_1fr] lg:items-center lg:gap-10">
-        <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+        <p data-reveal className="max-w-sm text-sm leading-6 text-muted-foreground">
           {t("landing.connections.lead")}
         </p>
-        <ul className="grid gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
+        <ul data-reveal-group className="grid gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
           {connectors.map(connector => {
             const Icon = connector.icon;
             return (

@@ -31,7 +31,7 @@ export default function Channels() {
   return (
     <section id="channels" className="scroll-mt-24">
       <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-20">
-        <div className="max-w-2xl">
+        <div data-reveal className="max-w-2xl">
           <Eyebrow>{t("landing.channels.eyebrow")}</Eyebrow>
           <h2 className="landing-display mt-4 text-3xl leading-tight text-foreground sm:text-5xl">
             {t("landing.channels.title")}
@@ -40,7 +40,7 @@ export default function Channels() {
             {t("landing.channels.body")}
           </p>
         </div>
-        <ul className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
+        <ul data-reveal-group className="mt-10 grid border-y border-border sm:mt-12 lg:grid-cols-3">
           {channels.map(channel => {
             const Icon = channel.icon;
             return (

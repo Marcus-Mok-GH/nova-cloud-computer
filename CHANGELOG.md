@@ -1,3 +1,11 @@
+2026-11-25 - feat(landing): scroll reveals on the public page
+
+Below-fold section headers and card grids now fade and lift in as they enter
+the viewport. One IntersectionObserver handles the whole page, siblings stagger
+by 70ms, and only opacity and transform animate. Content already on screen at
+load stays opaque; reduced motion, `?static`, and no-script renders skip the
+treatment entirely, and the hidden state only exists while the script is running, so a no-script render stays visible.
+
 2026-11-25 - fix(landing): portrait canyon crop for phones
 
 On a 412px viewport the wide panorama was cropped to a narrow centre slice by

@@ -194,11 +194,37 @@ describe("workspace chat scroll", () => {
     });
     const el = findViewport();
     (el as unknown as { __setScrollTop: (n: number) => void }).__setScrollTop(0);
-    act(() => el.dispatchEvent(new Event("scroll")));
+    act(() => {
+      el.dispatchEvent(new Event("wheel", { bubbles: true }));
+      el.dispatchEvent(new Event("scroll"));
+    });
     const button = container.querySelector<HTMLButtonElement>('[data-testid="scroll-to-bottom"]');
     expect(button).not.toBeNull();
     act(() => button!.click());
     expect(writes.at(-1)?.value).toBe(3000);
     expect(container.querySelector('[data-testid="scroll-to-bottom"]')).toBeNull();
+  });
+
+  it("only treats a gesture-driven scroll as the user leaving the run", async () => {
+    act(() => root.render(<Workspace />));
+    instrument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    fixture.scrolledUp.current = false;
+    const el = findViewport();
+    (el as unknown as { __setScrollTop: (n: number) => void }).__setScrollTop(2400);
+    act(() => {
+      el.dispatchEvent(new Event("wheel", { bubbles: true }));
+      el.dispatchEvent(new Event("scroll"));
+    });
+    // Still near enough to the bottom that this is not "scrolled up".
+    expect(fixture.scrolledUp.current).toBe(false);
+    (el as unknown as { __setScrollTop: (n: number) => void }).__setScrollTop(0);
+    act(() => {
+      el.dispatchEvent(new Event("wheel", { bubbles: true }));
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(fixture.scrolledUp.current).toBe(true);
   });
 });

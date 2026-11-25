@@ -13,6 +13,15 @@ different conversation drops the previous chat's cursor, and a regenerate or
 revert resets it - both delete history that append-only reading would keep on
 screen.
 
+2026-11-25 - feat(landing): Grand Canyon sunrise hero background
+
+The public landing now opens over a Grand Canyon sunrise, behind the nav and
+hero, fading into paper before Connections. The photo is a public-domain Grand
+Canyon National Park image from Wikimedia Commons, shipped as a 67 KB AVIF
+with a 165 KB WebP fallback. Daylight washes it warm with a paper scrim that
+keeps the serif headline readable; midnight grades it down to ember and lifts
+a warm glow at the top right. A faint film grain sits over both treatments.
+
 2026-11-24 - fix(agent): don't start the coding specialist with no time left
 
 A call begun with too little of the segment left was cut off mid-flight by the

@@ -110,6 +110,10 @@ function instrument() {
       value = next;
     },
   });
+  Object.defineProperty(el, "__setScrollTop", {
+    configurable: true,
+    value: (next: number) => { value = next; },
+  });
 }
 
 beforeEach(() => {
@@ -179,5 +183,22 @@ describe("workspace chat scroll", () => {
     });
     // The scroll event was produced by the pin itself; the run must keep following.
     expect(fixture.scrolledUp.current).toBe(false);
+  });
+
+  it("offers a scroll-to-bottom button when the reader is up the thread", async () => {
+    act(() => root.render(<Workspace />));
+    instrument();
+    // Let the mount pin finish so its own scroll event is ignored.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    const el = findViewport();
+    (el as unknown as { __setScrollTop: (n: number) => void }).__setScrollTop(0);
+    act(() => el.dispatchEvent(new Event("scroll")));
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="scroll-to-bottom"]');
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    expect(writes.at(-1)?.value).toBe(3000);
+    expect(container.querySelector('[data-testid="scroll-to-bottom"]')).toBeNull();
   });
 });

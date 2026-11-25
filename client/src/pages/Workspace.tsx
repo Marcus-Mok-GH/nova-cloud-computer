@@ -30,6 +30,7 @@ import {
 } from "@/lib/chatMessages";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowUp,
   CornerDownLeft,
@@ -44,7 +45,7 @@ import {
 } from "lucide-react";
 // JSX compiles to React.createElement in this build (classic runtime), so the
 // default React binding must stay imported even without explicit React.* calls.
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   LEGACY_AI_UNAVAILABLE_PREFIX,
@@ -179,13 +180,31 @@ export default function Workspace() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const programmaticScrollRef = useRef(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  /** Pin the newest row, including the mobile document-scroller fallback. */
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    programmaticScrollRef.current = true;
+    const documentScroller = document.scrollingElement as HTMLElement | null;
+    pinChatToBottom(el, documentScroller);
+    setShowScrollToBottom(false);
+    const frame = requestAnimationFrame(() => {
+      pinChatToBottom(el, documentScroller);
+      programmaticScrollRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const handleChatScroll = () => {
     const el = scrollRef.current;
     // Our own pin is not the user scrolling away from the run. Treating it as
-    // such used to set the "scrolled up" flag and stop all future following.
+    // such used to set the "user scrolled up" flag and stop all future following.
     if (!el || programmaticScrollRef.current) return;
-    userScrolledUpRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight > 120;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUpRef.current = distance > 120;
+    setShowScrollToBottom(distance > 120);
   };
 
   // Desktop drag & drop: while files hover the chat, an overlay invites the
@@ -304,25 +323,15 @@ export default function Workspace() {
 
   useEffect(() => {
     userScrolledUpRef.current = false;
+    setShowScrollToBottom(false);
   }, [chatId]);
 
   useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el || userScrolledUpRef.current) return;
-    programmaticScrollRef.current = true;
-    const documentScroller = document.scrollingElement as HTMLElement | null;
-    pinChatToBottom(el, documentScroller);
-    // A new tool row can grow the run after this commit. Pin once more on the
-    // next frame so the view never settles at the top of the conversation.
-    const frame = requestAnimationFrame(() => {
-      if (!userScrolledUpRef.current) pinChatToBottom(el, documentScroller);
-      programmaticScrollRef.current = false;
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      programmaticScrollRef.current = false;
-    };
-  }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking]);
+    if (!scrollRef.current || userScrolledUpRef.current) return;
+    // A new tool row can grow the run after this commit; scrollToBottom pins
+    // once more on the next frame so the view never settles at the top.
+    return scrollToBottom();
+  }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking, scrollToBottom]);
 
   // The header shows the chat's title, which the server auto-renames a moment
   // after a run finishes. When work transitions to done, refresh the workspace
@@ -596,10 +605,11 @@ export default function Workspace() {
             </div>
           </header>
 
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollRef}
             onScroll={handleChatScroll}
-            className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-7 sm:px-7 sm:py-10"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-7 sm:px-7 sm:py-10"
           >
             <div
               className={`mx-auto grid w-full max-w-[1240px] min-w-0 gap-10 lg:grid-cols-[minmax(0,1fr)_248px] lg:gap-14${
@@ -874,6 +884,19 @@ export default function Workspace() {
                 </div>
               </aside>
             </div>
+          </div>
+          {showScrollToBottom && (
+            <button
+              type="button"
+              data-testid="scroll-to-bottom"
+              aria-label="Scroll to bottom"
+              title="Scroll to bottom"
+              onClick={scrollToBottom}
+              className="absolute bottom-4 end-4 z-20 grid size-10 place-items-center rounded-full border border-foreground/15 bg-card/95 text-foreground shadow-lg backdrop-blur transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ArrowDown className="size-4" aria-hidden="true" />
+            </button>
+          )}
           </div>
 
           {!accessActive && (

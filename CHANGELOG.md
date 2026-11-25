@@ -1,3 +1,10 @@
+2026-11-25 - feat(chat): scroll-to-bottom button
+
+When the reader scrolls away from the newest message, a circular down-arrow
+button appears above the composer. Tapping it pins the conversation to the
+latest row through the same helper the auto-follow uses, including the mobile
+document-scroller fallback; the button hides once the view is at the bottom.
+
 2026-11-25 - fix(chat): follow the run on mobile too
 
 The chat's bottom-follow only wrote to the inner viewport. When the browser

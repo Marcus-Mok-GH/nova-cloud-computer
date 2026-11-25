@@ -250,19 +250,29 @@ button, a, [role="button"] { touch-action: manipulation; }
   );
   background-size: cover;
   background-position: 52% 40%;
-  filter: saturate(1.03) contrast(1.01) brightness(1.02);
+  filter: saturate(1.05) contrast(1.05) brightness(1.02);
 }
 .landing-canyon-scrim {
+  /* Wash concentrated behind the copy rather than across the whole image,
+     so the rock keeps its detail everywhere else. */
   background:
-    linear-gradient(90deg,
-      oklch(0.981 0.0079 73.7 / .88) 0%,
-      oklch(0.981 0.0079 73.7 / .62) 26%,
-      oklch(0.981 0.0079 73.7 / .18) 48%,
-      transparent 68%),
+    radial-gradient(46% 54% at 19% 36%,
+      oklch(0.981 0.0079 73.7 / .95) 0%,
+      oklch(0.981 0.0079 73.7 / .74) 44%,
+      transparent 79%),
     linear-gradient(180deg,
-      oklch(0.981 0.0079 73.7 / .5) 0%,
-      transparent 20%, transparent 74%,
-      oklch(0.981 0.0079 73.7 / .58) 100%);
+      oklch(0.981 0.0079 73.7 / .28) 0%,
+      transparent 18%, transparent 76%,
+      oklch(0.981 0.0079 73.7 / .5) 100%);
+}
+@media (max-width: 1023px) {
+  .landing-canyon-scrim {
+    background:
+      linear-gradient(180deg,
+        oklch(0.981 0.0079 73.7 / .82) 0%,
+        oklch(0.981 0.0079 73.7 / .7) 46%,
+        oklch(0.981 0.0079 73.7 / .45) 74%, transparent 100%);
+  }
 }
 .landing-canyon-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");

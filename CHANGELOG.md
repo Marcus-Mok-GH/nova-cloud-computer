@@ -1,3 +1,12 @@
+2026-11-25 - feat(landing): carry the canyon behind every section
+
+The Grand Canyon backdrop is now a fixed viewport layer instead of a hero-only
+band, so the same photo continues behind the integrations, product stories,
+pricing, FAQ and footer. A base paper/charcoal wash under the section content
+keeps long copy readable, while the copy-focused scrim still protects the hero
+headline. The `bg-surface` bands (How it works, Pricing, footer) are translucent
+so the photo reaches them too. No new image bytes.
+
 2026-11-25 - feat(landing): scroll reveals on the public page
 
 Below-fold section headers and card grids now fade and lift in as they enter

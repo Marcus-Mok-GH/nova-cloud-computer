@@ -228,19 +228,18 @@ button, a, [role="button"] { touch-action: manipulation; }
   color: var(--foreground);
 }
 
-/* Grand Canyon sunrise behind the nav and hero. One public-domain NPS photo
-   (Wikimedia Commons) in two treatments: daylight washes it to warm paper,
-   midnight grades it down and lifts an ember glow. The scrim is strongest
-   where the headline sits; the mask dissolves the photo before Connections. */
+/* Grand Canyon sunrise behind the whole public page. One public-domain NPS
+   photo (Wikimedia Commons) in two treatments: daylight washes it to warm
+   paper, midnight grades it down and lifts an ember glow. The layer is fixed
+   to the viewport so every section shares the same crop; the scrim is heaviest
+   where copy sits and the base wash keeps long paragraphs readable. */
 .landing-canyon-bg {
-  position: absolute;
-  inset: 0 0 auto;
+  position: fixed;
+  inset: 0;
   z-index: -1;
-  height: 1000px;
+  height: 100vh;
   overflow: hidden;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 66%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 66%, transparent 100%);
 }
 .landing-canyon-bg > * { position: absolute; inset: 0; }
 .landing-canyon-photo {
@@ -263,7 +262,11 @@ button, a, [role="button"] { touch-action: manipulation; }
     linear-gradient(180deg,
       oklch(0.981 0.0079 73.7 / .28) 0%,
       transparent 18%, transparent 76%,
-      oklch(0.981 0.0079 73.7 / .5) 100%);
+      oklch(0.981 0.0079 73.7 / .5) 100%),
+    linear-gradient(180deg,
+      oklch(0.981 0.0079 73.7 / .58),
+      oklch(0.981 0.0079 73.7 / .66) 55%,
+      oklch(0.981 0.0079 73.7 / .74));
 }
 @media (max-width: 1023px) {
   .landing-canyon-scrim {
@@ -271,7 +274,8 @@ button, a, [role="button"] { touch-action: manipulation; }
       linear-gradient(180deg,
         oklch(0.981 0.0079 73.7 / .82) 0%,
         oklch(0.981 0.0079 73.7 / .7) 46%,
-        oklch(0.981 0.0079 73.7 / .45) 74%, transparent 100%);
+        oklch(0.981 0.0079 73.7 / .58) 74%,
+        oklch(0.981 0.0079 73.7 / .68));
   }
 }
 .landing-canyon-grain {
@@ -295,7 +299,11 @@ button, a, [role="button"] { touch-action: manipulation; }
     linear-gradient(180deg,
       oklch(0.190 0.0102 67.1 / .55) 0%,
       transparent 24%, transparent 72%,
-      oklch(0.190 0.0102 67.1 / .8) 100%);
+      oklch(0.190 0.0102 67.1 / .8) 100%),
+    linear-gradient(180deg,
+      oklch(0.190 0.0102 67.1 / .74),
+      oklch(0.190 0.0102 67.1 / .79) 55%,
+      oklch(0.190 0.0102 67.1 / .84));
 }
 [data-theme="midnight"] .landing-canyon-grain {
   opacity: .08;
@@ -306,9 +314,7 @@ button, a, [role="button"] { touch-action: manipulation; }
    crop of the same public-domain photo keeps the strata and sky in frame. */
 @media (max-width: 1023px) {
   .landing-canyon-bg {
-    height: 1000px;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+    height: 100vh;
   }
   .landing-canyon-photo {
     background-image: image-set(
@@ -326,7 +332,10 @@ button, a, [role="button"] { touch-action: manipulation; }
       linear-gradient(180deg,
         oklch(0.981 0.0079 73.7 / .4) 0%,
         transparent 22%, transparent 70%,
-        oklch(0.981 0.0079 73.7 / .6) 100%);
+        oklch(0.981 0.0079 73.7 / .6) 100%),
+      linear-gradient(180deg,
+        oklch(0.981 0.0079 73.7 / .64),
+        oklch(0.981 0.0079 73.7 / .72));
   }
   [data-theme="midnight"] .landing-canyon-photo {
     background-position: 50% 26%;
@@ -340,7 +349,10 @@ button, a, [role="button"] { touch-action: manipulation; }
       linear-gradient(180deg,
         oklch(0.190 0.0102 67.1 / .55) 0%,
         transparent 22%, transparent 70%,
-        oklch(0.190 0.0102 67.1 / .85) 100%);
+        oklch(0.190 0.0102 67.1 / .85) 100%),
+      linear-gradient(180deg,
+        oklch(0.190 0.0102 67.1 / .76),
+        oklch(0.190 0.0102 67.1 / .82));
   }
 }
 
@@ -358,6 +370,12 @@ button, a, [role="button"] { touch-action: manipulation; }
 /* Plain paper background and editorial display type keep the product in focus. */
 .landing-hero { position: relative; }
 .landing-display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }
+
+/* Section surface bands stay translucent so the fixed canyon reads through
+   them; the token still drives the colour in both themes. */
+.landing-shell .bg-surface {
+  background-color: color-mix(in srgb, var(--surface) 78%, transparent);
+}
 
 /* Scroll reveals. The hidden state only exists once the script has installed
    the observer, so a no-script render shows everything. Only opacity and

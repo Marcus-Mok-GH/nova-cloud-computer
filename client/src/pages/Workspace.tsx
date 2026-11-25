@@ -6,6 +6,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { pinChatToBottom } from "@/lib/chatScroll";
 import {
+  formatScrollEntry,
+  installScrollDebug,
+  scrollMetrics,
+  isScrollDebug,
+  type ScrollDebugEntry,
+} from "@/lib/chatScrollDebug";
+import {
   effortOptionsForModelId,
   FREE_CHAT_MODEL_ID,
   getChatModels,
@@ -182,6 +189,12 @@ export default function Workspace() {
   const programmaticScrollRef = useRef(false);
   const lastScrollGestureRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // Temporary opt-in diagnostics: ?scrollDebug=1 on the chat URL.
+  const debugMode = isScrollDebug();
+  const [debugEntries, setDebugEntries] = useState<ScrollDebugEntry[]>([]);
+  const pushDebug = useCallback((entry: ScrollDebugEntry) => {
+    setDebugEntries(previous => [entry, ...previous].slice(0, 20));
+  }, []);
 
   /** Pin the newest row, including the mobile document-scroller fallback. */
   const scrollToBottom = useCallback(() => {
@@ -189,14 +202,16 @@ export default function Workspace() {
     if (!el) return;
     programmaticScrollRef.current = true;
     const documentScroller = document.scrollingElement as HTMLElement | null;
+    if (debugMode) pushDebug(formatScrollEntry("PIN", `${scrollMetrics(el)} doc=${Math.round(documentScroller?.scrollTop ?? -1)}`));
     pinChatToBottom(el, documentScroller);
     setShowScrollToBottom(false);
     const frame = requestAnimationFrame(() => {
+      if (debugMode) pushDebug(formatScrollEntry("PIN-RAF", scrollMetrics(el)));
       pinChatToBottom(el, documentScroller);
       programmaticScrollRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [debugMode, pushDebug]);
 
   const handleChatScroll = () => {
     const el = scrollRef.current;
@@ -207,8 +222,10 @@ export default function Workspace() {
     // events too. Only a real wheel/touch/key gesture means the reader left
     // the run deliberately; otherwise a passive scroll at top would set the
     // flag and disable following for the rest of the run.
-    if (Date.now() - lastScrollGestureRef.current > 700) return;
+    const gestureAge = Date.now() - lastScrollGestureRef.current;
+    if (gestureAge > 700) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (debugMode) pushDebug(formatScrollEntry("HANDLER", `distance=${Math.round(distance)} gestureAge=${gestureAge} ${scrollMetrics(el)}`));
     userScrolledUpRef.current = distance > 120;
     setShowScrollToBottom(distance > 120);
   };
@@ -338,6 +355,15 @@ export default function Workspace() {
     // once more on the next frame so the view never settles at the top.
     return scrollToBottom();
   }, [chatId, savedMessages.data?.length, liveEvents, agentIsWorking, scrollToBottom]);
+
+  useEffect(() => {
+    if (!debugMode || !scrollRef.current) return;
+    return installScrollDebug(
+      scrollRef.current,
+      () => userScrolledUpRef.current,
+      pushDebug
+    );
+  }, [debugMode, pushDebug]);
 
   // The header shows the chat's title, which the server auto-renames a moment
   // after a run finishes. When work transitions to done, refresh the workspace
@@ -905,6 +931,24 @@ export default function Workspace() {
             >
               <ArrowDown className="size-4" aria-hidden="true" />
             </button>
+          )}
+          {debugMode && (
+            <div
+              data-testid="scroll-debug"
+              className="absolute bottom-16 start-4 z-30 max-w-[min(92vw,540px)] rounded-lg border border-foreground/20 bg-background/95 p-2 font-mono text-[9px] leading-4 text-foreground shadow-xl"
+            >
+              <p className="mb-1 font-bold">SCROLL DEBUG — remove ?scrollDebug=1 to hide</p>
+              {debugEntries.length === 0 ? (
+                <p>waiting for scroll activity…</p>
+              ) : (
+                debugEntries.map((entry, index) => (
+                  <p key={index}>
+                    <span className="opacity-60">{entry.time}</span>{" "}
+                    {entry.kind} {entry.detail}
+                  </p>
+                ))
+              )}
+            </div>
           )}
           </div>
 

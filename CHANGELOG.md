@@ -1,3 +1,9 @@
+2026-11-25 - chore(chat): opt-in scroll diagnostics
+
+Adding `?scrollDebug=1` to a chat URL shows a small overlay listing every
+`scrollTop` write, scroll event, pin call and "user scrolled away" decision for
+the last 20 events. It is off by default and has no effect on normal chats.
+
 2026-11-25 - fix(chat): ignore layout-driven scroll events
 
 A scroll event fires whenever a tool row grows the conversation, not just when

@@ -1,3 +1,11 @@
+2026-11-25 - feat(agent): high-quality shared presentation layouts
+
+Presentations now render from a single shared layout engine used by both the
+PowerPoint and PDF exporters: designed covers, statement/split/metrics/timeline/
+quote/closing layouts, coherent palette derivation, deliberate typographic
+scale, card panels, geometric motifs and consistent footers. A layout test
+covers every slide type and the cover composition.
+
 2026-11-25 - fix(agent): export presentations by remembered file id
 
 A generate followed by an export in the same assistant round used a stale

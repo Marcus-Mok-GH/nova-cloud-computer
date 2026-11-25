@@ -350,12 +350,20 @@ function OwnerGroupedRows({ activities }: { activities: ToolActivity[] }) {
  * watch the process happen instead of a single "working..." line.
  */
 function ProgressLog({ log }: { log: string[] }) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "nearest" });
+    // Only the log scrolls. scrollIntoView() walks every scrollable ancestor,
+    // including the chat viewport, so a new progress line yanked the whole
+    // conversation away from the newest message (and set the "user scrolled
+    // up" flag, which stopped the chat following the run).
+    scrollPanelToBottom(logRef.current);
   }, [log.length]);
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    <div
+      ref={logRef}
+      data-testid="progress-log"
+      className="flex max-h-40 min-w-0 flex-col gap-1.5 overflow-y-auto overscroll-contain"
+    >
       {log.map((line, index) => {
         const latest = index === log.length - 1;
         return (
@@ -371,7 +379,6 @@ function ProgressLog({ log }: { log: string[] }) {
           </p>
         );
       })}
-      <div ref={endRef} />
     </div>
   );
 }

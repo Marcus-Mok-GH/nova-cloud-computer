@@ -80,6 +80,10 @@ const CHAT_MODE_TOOL_ALLOWLIST = new Set([
   START_PLANNING_TOOL,
   START_BUILD_TOOL,
   "generate_image",
+  // A first-turn deck request is the whole ask, like image generation.
+  "generate_presentation",
+  "edit_presentation",
+  "export_presentation",
 ]);
 
 /** True when a tool may run inside a chat-mode turn. */

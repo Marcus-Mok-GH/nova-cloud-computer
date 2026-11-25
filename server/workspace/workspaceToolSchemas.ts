@@ -883,6 +883,116 @@ export const WORKSPACE_TOOLS: GatewayToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "generate_presentation",
+      description:
+        "Create a PowerPoint presentation with a unique visual design and save it to workspace Files. Choose the design deliberately for this topic and audience - background, accent, muted colour, font, motif, cover style and density - do not fall back to a generic template; vary the slide layouts too (cover, statement, bullets, split, metrics, timeline, quote, closing). The tool saves a .deck.json source and an initial editable .pptx. Provide 1-20 slides, each with a title, up to 6 short bullets, optional label/value items and optional speaker notes. After any later edit, call export_presentation.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Presentation title, 1-160 characters." },
+          design: {
+            type: "object",
+            description: "Unique look for THIS deck. Pick values that suit the subject; every deck must look different.",
+            properties: {
+              background: { type: "string", description: "Hex background such as #FFF4E6." },
+              accent: { type: "string", description: "Hex accent such as #C56A32." },
+              muted: { type: "string", description: "Hex muted tone such as #6B5B4E." },
+              font: { type: "string", enum: ["Helvetica", "Times", "Courier"] },
+              motif: { type: "string", enum: ["none", "rule", "dots", "grid"] },
+              cover: { type: "string", enum: ["centered", "left", "banner"] },
+              density: { type: "string", enum: ["airy", "balanced"] },
+            },
+          },
+          slides: {
+            type: "array",
+            description: "Slides in order, 1-20. Mix layouts so the deck does not read as one repeated block.",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "Unique stable id, e.g. s1, s2." },
+                layout: {
+                  type: "string",
+                  enum: ["cover", "statement", "bullets", "split", "metrics", "timeline", "quote", "closing"],
+                },
+                title: { type: "string" },
+                bullets: { type: "array", items: { type: "string" }, description: "Up to 6 bullets." },
+                items: {
+                  type: "array",
+                  description: "Up to 6 label/value pairs for metrics or timeline layouts.",
+                  items: {
+                    type: "object",
+                    properties: { label: { type: "string" }, value: { type: "string" } },
+                    required: ["label", "value"],
+                  },
+                },
+                notes: { type: "string", description: "Optional speaker notes." },
+              },
+              required: ["id", "layout", "title"],
+            },
+          },
+        },
+        required: ["title", "slides"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_presentation",
+      description:
+        "Apply the user's requested changes to an existing presentation by editing its .deck.json source file. Pass the file id returned by generate_presentation and explicit operations: set_title, set_design, update_slide, add_slide, remove_slide, move_slide. NEVER recreate the whole deck for a small edit. After every edit call export_presentation so the user's PowerPoint/PDF files reflect the change. Slide ids are stable; use them, not array positions, in operations.",
+      parameters: {
+        type: "object",
+        properties: {
+          deck_id: { type: "number", description: "File id of the .deck.json source." },
+          operations: {
+            type: "array",
+            description: "Ordered edits to apply.",
+            items: {
+              type: "object",
+              properties: {
+                op: {
+                  type: "string",
+                  enum: ["set_title", "set_design", "update_slide", "add_slide", "remove_slide", "move_slide"],
+                },
+                value: { type: "string", description: "For set_title." },
+                patch: { type: "object", description: "Partial design or slide fields for set_design/update_slide." },
+                id: { type: "string", description: "Slide id for slide operations." },
+                slide: { type: "object", description: "Full slide object for add_slide." },
+                after: { type: "string", description: "Slide id to insert after for add_slide." },
+                before: { type: "string", description: "Slide id to move before." },
+              },
+              required: ["op"],
+            },
+          },
+        },
+        required: ["deck_id", "operations"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "export_presentation",
+      description:
+        "Render the current .deck.json source into downloadable files. Use pptx for an editable PowerPoint file and pdf for a fixed-layout handout. Prefer exporting both when the user asks for a presentation they can share. Files are updated in place so the user sees one deck, not a pile of versions.",
+      parameters: {
+        type: "object",
+        properties: {
+          deck_id: { type: "number", description: "File id of the .deck.json source." },
+          formats: {
+            type: "array",
+            items: { type: "string", enum: ["pptx", "pdf"] },
+            description: "Which files to render, default pptx.",
+          },
+        },
+        required: ["deck_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "research_web",
       description:
         "Delegate deep research to Exa AI's deep research models. The chosen model fans out live web searches, reads and cross-checks the sources, and returns a research report with inline citations and a numbered source list. Use it for anything current or factual you do not know for certain. You MUST choose the difficulty yourself on every single call, estimating how deep the research needs to be before calling - never omit it, never default lazily. Say nothing about the choice unless asked.",

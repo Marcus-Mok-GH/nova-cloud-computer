@@ -1,3 +1,12 @@
+2026-11-25 - feat(agent): generate, edit and export presentations
+
+Nova can now build a presentation as a structured .deck.json file with a
+unique design chosen for that deck, apply follow-up edits as explicit slide
+operations, and export the current deck to an editable .pptx and a fixed-
+layout .pdf. Every deck gets its own palette, font, motif, cover style and mix
+of slide layouts instead of one repeated template. The tools are available
+from the first chat turn, like direct image generation.
+
 2026-11-25 - chore(chat): opt-in scroll diagnostics
 
 Adding `?scrollDebug=1` to a chat URL shows a small overlay listing every

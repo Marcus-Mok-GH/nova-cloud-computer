@@ -40,6 +40,11 @@ import { toolSetEnvVar } from "../workspaceTools/envvars";
 import { toolSolveEquation } from "../workspaceTools/equation";
 import { toolBase44 } from "../workspaceTools/codec";
 import { toolGenerateImage } from "../workspaceTools/image";
+import {
+  toolEditPresentation,
+  toolExportPresentation,
+  toolGeneratePresentation,
+} from "../workspaceTools/presentation";
 import { toolResearchWeb } from "../workspaceTools/research";
 import { toolThinker } from "../workspaceTools/thinker";
 import { toolAcceptOwnCoding, toolEditor } from "../workspaceTools/editor";
@@ -310,6 +315,12 @@ export async function executeWorkspaceTool(
       return toolBase44(ctx);
     case "generate_image":
       return toolGenerateImage(ctx);
+    case "generate_presentation":
+      return toolGeneratePresentation(ctx);
+    case "edit_presentation":
+      return toolEditPresentation(ctx);
+    case "export_presentation":
+      return toolExportPresentation(ctx);
     case "research_web":
       return toolResearchWeb(ctx);
     case "thinker":

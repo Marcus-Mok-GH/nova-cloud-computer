@@ -101,9 +101,13 @@ describe("chatModeAllowsTool", () => {
       "thinker",
       START_PLANNING_TOOL,
       START_BUILD_TOOL,
-      // A first-turn request for a picture is the whole ask, so chat mode may
-      // generate one directly instead of routing through plan approval.
+      // A first-turn request for a picture or a presentation is the whole
+      // ask, so chat mode may create one directly instead of routing through
+      // plan approval.
       "generate_image",
+      "generate_presentation",
+      "edit_presentation",
+      "export_presentation",
     ])
       expect(chatModeAllowsTool(name)).toBe(true);
     for (const name of [

@@ -1,5 +1,6 @@
 /** Nova app router - Zo-inspired clean light theme system with orange accents across the whole application. */
 import { Analytics } from "@vercel/analytics/react";
+import { shouldShowWaitlist } from "@shared/waitlist";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -26,8 +27,18 @@ import Status from "./pages/Status";
 import Admin from "./pages/Admin";
 import ApiDocs from "./pages/ApiDocs";
 import Checkout from "./pages/Checkout";
+import Waitlist from "./pages/Waitlist";
+
+function currentSearch(): string {
+  return typeof window === "undefined" ? "" : window.location.search;
+}
 
 function Router() {
+  const [location] = useLocation();
+  // While Nova's storage limits are being reset, every route that needs the
+  // database shows the waitlist instead of failing. The landing page and the
+  // API docs are static and stay up - the landing page is the way in.
+  if (shouldShowWaitlist(location, currentSearch())) return <Waitlist />;
   return (
     <Switch>
       <Route path={"/"} component={Home} />

@@ -1,5 +1,5 @@
 import NovaLogo from "@/components/NovaLogo";
-import { waitlistLaunchLabel } from "@shared/waitlist";
+import { waitlistReopenLabel } from "@shared/waitlist";
 import { ArrowRight, Check, Mail } from "lucide-react";
 import React, { FormEvent, useState } from "react";
 
@@ -10,7 +10,6 @@ type State =
   | { kind: "error"; message: string };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
-const LAUNCH_LABEL = waitlistLaunchLabel();
 
 function messageForStatus(status: number, error: string | undefined): string {
   if (error === "waitlist-not-configured") return "The waitlist is briefly unavailable. Please try again in a moment.";
@@ -20,15 +19,16 @@ function messageForStatus(status: number, error: string | undefined): string {
 }
 
 /**
- * Pre-launch `/sign-in`: collect an address, promise exactly one email when
- * Nova opens. Nothing is written to Nova's own database - the address goes
- * straight to the list provider.
+ * Shown on the database-backed routes while Nova's storage limits reset.
+ * Collects an address and promises exactly one email when the app is back.
+ * Nothing is written to Nova's own database - the address goes straight to the
+ * list provider, so signups keep working while the database is unavailable.
  */
 export default function Waitlist() {
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
-  const launchLabel = waitlistLaunchLabel();
+  const reopenLabel = waitlistReopenLabel();
 
   async function joinWaitlist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,16 +72,16 @@ export default function Waitlist() {
             </span>
             <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-card-foreground">You&rsquo;re on the list.</h1>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              We&rsquo;ll email <span className="font-semibold text-card-foreground">{email}</span> the moment Nova opens on{" "}
-              {launchLabel}. Nothing else lands in your inbox.
+              We&rsquo;ll email <span className="font-semibold text-card-foreground">{email}</span> the moment Nova is back on{" "}
+              {reopenLabel}. Nothing else lands in your inbox.
             </p>
           </div>
         ) : (
           <>
-            <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-card-foreground">Nova opens on {launchLabel}.</h1>
+            <h1 className="mt-8 text-3xl font-extrabold tracking-tight text-card-foreground">Nova is back on {reopenLabel}.</h1>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              A cloud computer that runs your projects, files, and AI around the clock. Leave your email and we&rsquo;ll write to you
-              once, when the doors open.
+              We&rsquo;re upgrading Nova&rsquo;s storage and pausing the app while the new limits switch on. Leave your email and
+              we&rsquo;ll write to you once, the moment it&rsquo;s back.
             </p>
 
             <form onSubmit={joinWaitlist} className="mt-7 space-y-4">
@@ -124,7 +124,7 @@ export default function Waitlist() {
 
         <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
           <Mail size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
-          <span>One launch email. No newsletter, no sharing your address. Ask us to delete it any time.</span>
+          <span>One email when we&rsquo;re back. No newsletter, no sharing your address. Ask us to delete it any time.</span>
         </p>
       </section>
     </main>

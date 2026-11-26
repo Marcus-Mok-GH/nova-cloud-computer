@@ -15,16 +15,16 @@ afterEach(() => {
 });
 
 describe("Waitlist page", () => {
-  it("promises one launch email and collects an address", () => {
+  it("promises one email when Nova returns and collects an address", () => {
     const markup = renderToStaticMarkup(<Waitlist />);
-    expect(markup).toContain("Nova opens on 13 November.");
+    expect(markup).toContain("Nova is back on 1 December.");
     expect(markup).toContain('type="email"');
     expect(markup).toContain("you@example.com");
     expect(markup).toContain("Join the waitlist");
-    expect(markup).toContain("One launch email.");
+    expect(markup).toContain("One email when we’re back.");
   });
 
-  it("never offers a way into the product before launch", () => {
+  it("never offers a way into the product during the outage", () => {
     const markup = renderToStaticMarkup(<Waitlist />);
     expect(markup).not.toContain("Sign in");
     expect(markup).not.toContain("Email me a sign-in code");
@@ -32,13 +32,13 @@ describe("Waitlist page", () => {
 });
 
 describe("SignInRoute gate", () => {
-  it("shows the waitlist before launch", () => {
+  it("shows the waitlist while the window is open", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOVA_WAITLIST_END_MS - 60_000));
     expect(renderToStaticMarkup(<SignInRoute />)).toContain("Join the waitlist");
   });
 
-  it("restores the real sign-in once Nova is open", () => {
+  it("restores the real sign-in once Nova is back", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOVA_WAITLIST_END_MS));
     expect(renderToStaticMarkup(<SignInRoute />)).toContain("Sign in to Nova.");

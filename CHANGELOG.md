@@ -1,3 +1,15 @@
+2026-11-26 - feat(app): pause the app behind a waitlist until 1 December
+
+Nova's database hit its provider quota, so every database-backed surface is
+unavailable until the limits reset on 1 December. Until then the routes that
+need the database - sign-in, the workspace and its pages, and checkout - now
+show the waitlist instead of failing, and the real product returns on its own
+when the window closes. The landing page and the API docs are static and stay
+up, so the landing page remains the way in. The waitlist collects an address
+in Buttondown, which needs no database, so signups keep working during the
+outage; `?waitlist=0` still reaches the real product. The waitlist copy now
+describes a pause and a return date rather than a launch.
+
 2026-11-26 - fix(agent): stop publishing React pages that render blank
 
 A generated React site that loads Babel standalone with the react preset

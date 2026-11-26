@@ -1,3 +1,18 @@
+2026-11-26 - fix(agent): stop publishing React pages that render blank
+
+A generated React site that loads Babel standalone with the react preset
+rendered a completely blank page in the browser: Babel 8's react preset
+defaults to the automatic JSX runtime, which emits `import { jsx as _jsx } from
+"react/jsx-runtime"`, and a classic <script> cannot parse an ES module import,
+so the component never registered and React errored with an undefined element
+type. The React template now pins Babel standalone to v7, the agent prompt says
+to load v7 and not to add data-presets="react", and every published page gets
+its Babel CDN URL pinned to v7 at publish time when the react preset is
+present, so a page that would render blank goes live working instead. The
+repair runs alongside the badge injection at file create/edit and at deploy.
+Verified against a live broken deployment: the same files now render the app
+with the badge and no console errors.
+
 2026-11-26 - feat(agent): brand the Made with Nova badge in sunrise orange
 
 The attribution badge now uses the app's own brand orange (the sunrise token,

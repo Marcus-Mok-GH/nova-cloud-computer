@@ -42,7 +42,11 @@ describe("Project templates", () => {
     const index = project.files.find(file => file.path === "index.html")!;
     expect(index.content).toContain("https://unpkg.com/react@18");
     expect(index.content).toContain("https://unpkg.com/react-dom@18");
-    expect(index.content).toContain("@babel/standalone");
+    // Babel is PINNED to v7: v8's react preset emits an ES module import
+    // (automatic JSX runtime) that a classic <script> cannot parse, so the
+    // page renders blank instead of the app.
+    expect(index.content).toContain("https://unpkg.com/@babel/standalone@7/babel.min.js");
+    expect(index.content).not.toContain("https://unpkg.com/@babel/standalone/babel.min.js");
     expect(index.content).toContain('type="text/babel"');
     // Babel standalone runs text/babel scripts in DOM order: App.jsx must be
     // loaded (and expose window.App) before main.jsx mounts it, or the page

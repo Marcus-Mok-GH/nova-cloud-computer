@@ -35,7 +35,8 @@ import {
   setSiteEnvVars,
   type NetlifyDeployFile,
 } from "./netlify";
-import { isHtmlFileName, withNovaBadge } from "./novaBadge";
+import { preparePublishedHtml } from "./htmlPublish";
+import { isHtmlFileName } from "./novaBadge";
 
 export type DeploymentStatus = {
   configured: boolean;
@@ -192,9 +193,10 @@ export async function deployWorkspaceSite(
     const path = sitePath(siteSegments);
     const body = fileBody(file.content);
     // Published pages always carry the badge, even if the source HTML was
-    // written before this rule or came from a GitHub import.
+    // written before this rule or came from a GitHub import, and a page that
+    // would render blank gets its Babel runtime pinned before it goes live.
     const content = isHtmlFileName(path)
-      ? Buffer.from(withNovaBadge(body.toString("utf8")), "utf8")
+      ? Buffer.from(preparePublishedHtml(body.toString("utf8")), "utf8")
       : body;
     return { path, content };
   });

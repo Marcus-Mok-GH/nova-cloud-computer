@@ -41,6 +41,10 @@ describe("layoutDeck", () => {
       expect(spec.texts.length).toBeGreaterThan(0);
       expect(spec.shapes.length).toBeGreaterThan(0);
       expect(spec.texts.some(item => item.text === "NOVA / PRESENTATION")).toBe(true);
+      const badge = spec.texts.find(item => item.text === "Made with Nova")!;
+      expect(badge.href).toBe("https://nova-cloud-computer.vercel.app");
+      expect(badge.align).toBe("right");
+      expect(badge.box.x + badge.box.w).toBeGreaterThan(SLIDE_W - 3);
       for (const item of spec.texts) {
         expect(item.box.x).toBeGreaterThanOrEqual(0);
         expect(item.box.y).toBeGreaterThanOrEqual(0);

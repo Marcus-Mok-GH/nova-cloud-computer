@@ -140,7 +140,10 @@ button.addEventListener("click", () => {
 }
 
 /** React SPA with no build step: global-function components loaded in DOM
- * order, React from a CDN and JSX compiled by Babel standalone, deployed as-is. */
+ * order, React from a CDN and JSX compiled by Babel standalone, deployed as-is.
+ * Babel is pinned to v7 on purpose: v8's react preset defaults to the
+ * automatic JSX runtime, which emits an ES module import that a classic
+ * <script> cannot parse, so the page renders blank. */
 function reactTemplate(name: string): RenderedProjectTemplate {
   const title = templateTitle(name, "My React App");
   return {
@@ -160,7 +163,7 @@ function reactTemplate(name: string): RenderedProjectTemplate {
     <link rel="stylesheet" href="src/styles.css" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
   </head>
   <body>
     <div id="root"></div>

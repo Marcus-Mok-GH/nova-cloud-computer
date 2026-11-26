@@ -8,7 +8,8 @@ import {
   deleteWorkspaceFileForUser,
   updateWorkspaceFileForUser,
 } from "../db";
-import { withNovaBadge, isHtmlFileName } from "../novaBadge";
+import { preparePublishedHtml } from "../htmlPublish";
+import { isHtmlFileName } from "../novaBadge";
 import { folderPathOf, workspaceRelativePathOf } from "../workspace/paths";
 import { isCodeFileName, isSubstantialCode, unifiedDiff } from "../workspace/workspaceEdits";
 import {
@@ -66,7 +67,7 @@ export async function toolCreateFile(ctx: ToolCtx): Promise<ToolExecution> {
     };
   }
   const rawContent = str(args.content);
-  const content = isHtmlFileName(name) ? withNovaBadge(rawContent) : rawContent;
+  const content = isHtmlFileName(name) ? preparePublishedHtml(rawContent) : rawContent;
   const created = await createWorkspaceFileForUser(ownerId, {
     name,
     content,
@@ -108,7 +109,7 @@ export async function toolEditFile(ctx: ToolCtx): Promise<ToolExecution> {
   if (!file)
     return { ok: false, result: fileNotFoundResult(computer, args.file) };
   const rawContent = typeof args.content === "string" ? args.content : "";
-  const content = isHtmlFileName(file.name) ? withNovaBadge(rawContent) : rawContent;
+  const content = isHtmlFileName(file.name) ? preparePublishedHtml(rawContent) : rawContent;
   const previousContent = String(file.content ?? "");
   if (
     gate?.blocked &&

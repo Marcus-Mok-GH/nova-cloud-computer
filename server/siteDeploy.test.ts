@@ -13,8 +13,12 @@ const spies = vi.hoisted(() => ({
   nextSiteDeploymentKeyForUser: vi.fn(async () => "d-01"),
   updateSiteDeploymentDescriptionForUser: vi.fn(async () => 1),
   markSiteDeploymentsDeletedForUser: vi.fn(async () => 1),
-  listWorkspaceFilesForUser: vi.fn(async () => []),
-  listWorkspaceFoldersForUser: vi.fn(async () => []),
+  listWorkspaceFilesForUser: vi.fn(
+    async (): Promise<Array<{ id: number; folderId: number | null; name: string; content: string }>> => [],
+  ),
+  listWorkspaceFoldersForUser: vi.fn(
+    async (): Promise<Array<{ id: number; parentId: number | null; name: string }>> => [],
+  ),
   resolveWorkspaceEnvVarsForUser: vi.fn(async (_owner: number, names: string[]) => ({ ok: true as const, vars: names.map(name => ({ name: name.toUpperCase(), value: `secret-${name.toLowerCase()}` })) })),
   recordSiteDeployment: vi.fn(async (_owner: number, input: { siteId: string; deploymentKey?: string; description?: string | null }) => ({
     id: 31, siteId: input.siteId, siteName: "nova-fresh-site", siteUrl: "https://nova-fresh-site.netlify.app",
@@ -144,6 +148,29 @@ describe("Workspace website deployer", () => {
       status: "deploying",
     });
     expect(spies.updateSiteDeploymentStatusForUser).toHaveBeenCalledWith(1, 31, "live");
+  });
+
+  it("publishes a page that would render blank with its Babel runtime pinned", async () => {
+    const blankPage = `<!doctype html><html><head>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel" data-presets="react" src="src/App.jsx"></script>
+</body></html>`;
+    spies.listWorkspaceFilesForUser.mockResolvedValue([
+      { ...indexFile, content: blankPage },
+    ]);
+    spies.listWorkspaceFoldersForUser.mockResolvedValue([]);
+    spies.nextSiteDeploymentKeyForUser.mockResolvedValue("d-09");
+
+    const result = await deployWorkspaceSite(1, null, { description: "blank page fix" });
+    expect(result.ok).toBe(true);
+    const [, files] = spies.deployFilesToNetlifySite.mock.calls[0];
+    const published = files[0].content.toString();
+    // Babel 8's react preset emits an ES module import a classic <script>
+    // cannot parse, which renders the whole page blank.
+    expect(published).toContain("https://unpkg.com/@babel/standalone@7/babel.min.js");
+    expect(published).not.toContain("https://unpkg.com/@babel/standalone/babel.min.js");
+    expect(published).toContain("Made with Nova");
   });
 
   it("publishes to an existing deployment by its ID, keeping the URL stable", async () => {

@@ -1,3 +1,17 @@
+2026-11-26 - feat(agent): brand the Made with Nova badge in sunrise orange
+
+The attribution badge now uses the app's own brand orange (the sunrise token,
+oklch 0.73 0.1531 54.5) with warm near-black ink at 7.1:1 contrast, on both
+generated websites and generated slides. On websites it stays a compact
+bottom-right pill with a launch arrow and links to the app's landing page; on
+slides it became a filled orange chip whose text and shape are both clickable
+to that same landing page, so the whole chip is the link target. The brand
+colours live in one place (shared/const.ts) and count as palette members, so
+every deck theme can carry the badge. The PDF renderer now accumulates link
+annotations per page instead of overwriting them, and two decorative glyph
+boxes that overflowed their frames on quote and closing slides were resized,
+which restores the deck overflow gate.
+
 2026-11-25 - feat(agent): add Made with Nova attribution
 
 Every website the agent creates, edits or deploys now carries a small fixed

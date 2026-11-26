@@ -10,6 +10,10 @@ describe("withNovaBadge", () => {
     expect(result.indexOf(NOVA_BADGE_HTML)).toBeLessThan(result.indexOf("</body>"));
     expect(result).toContain(`href="${NOVA_PUBLIC_APP_URL}"`);
     expect(result).toContain(NOVA_BADGE_TEXT);
+    expect(result).toContain("background:#f08a3c");
+    expect(result).toContain("color:#21150e");
+    expect(result).toContain("aria-hidden=\"true\">↗</span>");
+    expect(result).toContain("border-radius:8px");
   });
 
   it("is idempotent", () => {

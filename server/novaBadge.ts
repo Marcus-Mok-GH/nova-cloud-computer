@@ -1,4 +1,4 @@
-import { NOVA_PUBLIC_APP_URL } from "@shared/const";
+import { NOVA_BRAND_INK, NOVA_BRAND_ORANGE, NOVA_PUBLIC_APP_URL } from "@shared/const";
 
 export const NOVA_BADGE_TEXT = "Made with Nova";
 export const NOVA_BADGE_MARKER = "data-nova-badge";
@@ -8,20 +8,24 @@ const badgeStyle = [
   "right:16px",
   "bottom:16px",
   "z-index:2147483647",
-  "padding:7px 11px",
-  "border-radius:999px",
-  "background:rgba(16,20,24,.82)",
-  "color:#fff",
-  "font:500 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+  "display:inline-flex",
+  "align-items:center",
+  "gap:8px",
+  "padding:9px 12px",
+  "border:1px solid rgba(0,0,0,.12)",
+  "border-radius:8px",
+  `background:${NOVA_BRAND_ORANGE}`,
+  `color:${NOVA_BRAND_INK}`,
+  "font:600 13px/18px system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
   "text-decoration:none",
-  "letter-spacing:.01em",
-  "box-shadow:0 2px 10px rgba(0,0,0,.22)",
+  "box-shadow:0 2px 8px rgba(0,0,0,.16)",
 ].join(";");
 
 /** A fixed, unobtrusive badge injected into every generated HTML page. */
 export const NOVA_BADGE_HTML =
   `<a ${NOVA_BADGE_MARKER}="1" href="${NOVA_PUBLIC_APP_URL}" ` +
-  `target="_blank" rel="noopener noreferrer" style="${badgeStyle}">${NOVA_BADGE_TEXT}</a>`;
+  `target="_blank" rel="noopener noreferrer" style="${badgeStyle}">` +
+  `<span>Made with Nova</span><span aria-hidden="true">↗</span></a>`;
 
 export function isHtmlFileName(name: string): boolean {
   return /\.html?$/i.test(name.trim());

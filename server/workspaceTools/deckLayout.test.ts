@@ -43,8 +43,14 @@ describe("layoutDeck", () => {
       expect(spec.texts.some(item => item.text === "NOVA / PRESENTATION")).toBe(true);
       const badge = spec.texts.find(item => item.text === "Made with Nova")!;
       expect(badge.href).toBe("https://nova-cloud-computer.vercel.app");
-      expect(badge.align).toBe("right");
+      expect(badge.align).toBe("center");
       expect(badge.box.x + badge.box.w).toBeGreaterThan(SLIDE_W - 3);
+      // The badge is an orange chip: the brand colour, not the theme accent.
+      const chip = spec.shapes.find(shape =>
+        shape.kind === "rect" && shape.box.x === badge.box.x && shape.box.y === badge.box.y);
+      expect(chip?.color).toBe("#f08a3c");
+      expect(badge.color).toBe("#21150e");
+      expect(contrastRatio(badge.color, chip!.color)).toBeGreaterThanOrEqual(4.5);
       for (const item of spec.texts) {
         expect(item.box.x).toBeGreaterThanOrEqual(0);
         expect(item.box.y).toBeGreaterThanOrEqual(0);
@@ -116,7 +122,8 @@ describe("layoutDeck", () => {
     });
     if (!deck.ok) throw new Error(deck.reason);
     const spec = layoutDeck(deck.value)[0];
-    const cards = spec.shapes.filter(shape => shape.kind === "rect");
+    // The footer badge chip is a rect too; cards are the ones above the footer.
+    const cards = spec.shapes.filter(shape => shape.kind === "rect" && shape.box.y < 6.7);
     expect(cards).toHaveLength(6);
     for (const card of cards) expect(card.box.y + card.box.h).toBeLessThanOrEqual(6.7);
   });

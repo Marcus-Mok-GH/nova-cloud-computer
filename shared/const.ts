@@ -181,3 +181,12 @@ export const decodeOAuthState = (state: string): OAuthState => {
  * `import.meta.env` does not exist in the Node build and would break it.
  */
 export const NOVA_PUBLIC_APP_URL = "https://nova-cloud-computer.vercel.app";
+
+/**
+ * The brand badge colours. The badge appears on every generated website and
+ * every generated slide, so it carries the Nova brand regardless of the page
+ * or deck theme it lands on: the app's sunrise orange (oklch 0.73 0.1531 54.5)
+ * with a warm near-black ink on top of it (7.1:1 contrast).
+ */
+export const NOVA_BRAND_ORANGE = "#f08a3c";
+export const NOVA_BRAND_INK = "#21150e";

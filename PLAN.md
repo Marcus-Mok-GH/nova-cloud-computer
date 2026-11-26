@@ -1,15 +1,20 @@
-# Nova pre-launch waitlist — plan
+# Nova waitlist — plan
 
 Status: shipped (code merged, provider credentials pending)
-Date: 2026-10-28
+Date: 2026-10-28 (reopened 2026-11-26 as a temporary outage pause)
 Owner: CEO (Zo) / Nimay
 Supersedes: the previous PLAN.md (Whop one-time priority checkout), which has shipped.
 
 ## Goal
 
-Until **1 November 2026**, `/sign-in` is replaced by a waitlist. Visitors leave their email in an
-external service. When Nova opens, everyone on the list gets **"Nova is now live!"** and a link back
-into the product.
+Until **1 December 2026**, the database-backed routes are replaced by a waitlist. Visitors leave
+their email in an external service. When Nova returns, everyone on the list gets **"Nova is now
+live!"** and a link back into the product.
+
+The window was first used for the launch (ending 1 November 2026) and reopened on 26 November
+2026 as a temporary pause: Neon was over quota, so every database-backed surface was unavailable
+until the limits reset. The same mechanism covers both - the end date is a constant, so the real
+product returns on its own with no deploy and no manual step.
 
 Constraints:
 
@@ -69,16 +74,20 @@ server-side, and still stores no email on our side.
 
 Why the gate lives in a wrapper and not inside `SignIn.tsx`: the sign-in component owns OTP hooks and a
 redirect effect for already-authenticated users. A conditional early return inside it would risk
-hook-order breakage. Keeping `SignIn.tsx` byte-identical means restoring sign-in on 1 November cannot
+hook-order breakage. Keeping `SignIn.tsx` byte-identical means restoring sign-in on 1 December cannot
 regress the OTP path.
 
 Details:
 
-- **Date gate** — `NOVA_WAITLIST_END_MS` (`2026-11-01T00:00:00.000Z`) in `shared/waitlist.ts`.
+- **Date gate** — `NOVA_WAITLIST_END_MS` (`2026-12-01T00:00:00.000Z`) in `shared/waitlist.ts`.
   `isWaitlistActive()` compares against `Date.now()` on every call, so the switch flips itself with no
   cron and no redeploy.
 - **Kill switch / owner escape hatch** — `/sign-in?waitlist=0` (also `off` / `false`) renders the real
-  sign-in at any time, so Nimay can still get in and demo during the window. `/app` is never gated.
+  sign-in at any time, so Nimay can still get in and demo during the window.
+- **Which routes are gated** — `isWaitlistGatedPath()` in `shared/waitlist.ts` lists them: `/sign-in`,
+  `/app` (and everything under it), and `/checkout`. These are the routes that need the database.
+  The landing page and the API docs are static, so they stay up and the landing page is the way in.
+  The gate lives in `App.tsx`'s router so one check covers every route.
 - **Anti-spam** — hidden `company` honeypot (bots get a fake 200) plus a coarse per-IP throttle
   (10 attempts / 10 minutes). Buttondown still handles double opt-in and dedupe.
 - **No PII in our logs** — addresses are forwarded to Buttondown and never written to Postgres, tRPC,
@@ -90,7 +99,7 @@ Details:
 
 Single screen in the existing landing visual language (light theme, orange accent, Nova logo):
 
-- Headline: "Nova opens on 1 November."
+- Headline: "Nova is back on 1 December."
 - Sub: a cloud computer that runs projects, files, and AI around the clock; one email when doors open.
 - Email field + "Join the waitlist" button.
 - Fine print: one launch email, no newsletter, deletion on request.
@@ -114,7 +123,7 @@ Start here: https://nova-cloud-computer.vercel.app
 — Nova Labs
 ```
 
-Sent once, to the `nova-waitlist` tag, on 1 November. Plain text plus the provider's HTML render.
+Sent once, to the `nova-waitlist` tag, when Nova returns. Plain text plus the provider's HTML render.
 
 ## Rollout
 
@@ -126,17 +135,19 @@ Sent once, to the `nova-waitlist` tag, on 1 November. Plain text plus the provid
    `type=regular`, i.e. subscribed outright with no double opt-in step in the way of the launch mail.
 5. **Open item: Buttondown review.** The account is queued for manual review, which caps sending and
    the subscriber count until approved. Collection works today; the send does not.
-6. On 1 November: send the broadcast, the gate flips itself back, nothing else to do.
+6. On 1 December: send the broadcast, the gate flips itself back, nothing else to do.
 
 ## Tests
 
-- `shared/waitlist.test.ts` — the gate closes exactly at the launch instant; bypass parsing accepts
-  only explicit off values.
+- `shared/waitlist.test.ts` — the gate closes exactly at the published instant; bypass parsing accepts
+  only explicit off values; the gated path list covers the database-backed routes and leaves the
+  static ones open.
 - `server/waitlist.test.ts` — address normalisation, unconfigured 503 with no outbound call, API path
   tags the address, embed path accepts a redirect, already-subscribed is a success, provider failure is
   502, honeypot returns a fake 200, throttle returns 429.
-- `client/src/pages/Waitlist.render.test.tsx` — the page promises one launch email, offers no route into
-  the product, and `SignInRoute` serves the waitlist before launch and the real sign-in after it.
+- `client/src/pages/Waitlist.render.test.tsx` — the page promises one email when Nova returns, offers no
+  route into the product, and `SignInRoute` serves the waitlist during the window and the real sign-in
+  after it.
 - `api/neonAuthCatchall.test.ts` — `/api/waitlist` stays co-deployed.
 
 ## Risks
@@ -147,7 +158,7 @@ Sent once, to the `nova-waitlist` tag, on 1 November. Plain text plus the provid
 | Duplicate submissions | Provider dedupes by address; the UI treats "already subscribed" as success |
 | Spam placement of the launch mail | Send from Buttondown's identity, not `@gmail.com`; short body, one link |
 | Provider credentials not set yet | Endpoint answers 503 and the page says "briefly unavailable" rather than lying |
-| Someone expects to log in during the window | Owner bypass plus explicit "opens 1 November" copy |
+| Someone expects to log in during the window | Owner bypass plus explicit "back on 1 December" copy |
 
 ## Known gaps / follow-ups
 
@@ -165,7 +176,8 @@ Sent once, to the `nova-waitlist` tag, on 1 November. Plain text plus the provid
 
 ## Acceptance criteria
 
-- `/sign-in` shows the waitlist, and only the waitlist, until 2026-11-01T00:00:00Z.
+- The database-backed routes (`/sign-in`, `/app`, `/checkout`) show the waitlist, and only the waitlist,
+  until 2026-12-01T00:00:00Z.
 - A submitted address appears in the Buttondown list within a minute.
 - Successful and failed submits both render inline, with no page reload.
 - `/sign-in?waitlist=0` reaches the real OTP flow.

@@ -7,7 +7,7 @@
  * without shipping anything on launch day.
  */
 import React from "react";
-import { isWaitlistActive, isWaitlistBypassed } from "@shared/waitlist";
+import { shouldShowWaitlist } from "@shared/waitlist";
 import SignIn from "./SignIn";
 import Waitlist from "./Waitlist";
 
@@ -16,6 +16,6 @@ function currentSearch(): string {
 }
 
 export default function SignInRoute() {
-  if (isWaitlistActive() && !isWaitlistBypassed(currentSearch())) return <Waitlist />;
+  if (shouldShowWaitlist("/sign-in", currentSearch())) return <Waitlist />;
   return <SignIn />;
 }

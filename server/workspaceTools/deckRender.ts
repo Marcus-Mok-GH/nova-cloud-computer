@@ -1,5 +1,5 @@
 import PptxGenJS from "pptxgenjs";
-import { PDFDocument, PDFName, PDFString, StandardFonts, type PDFFont, rgb } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRef, PDFString, StandardFonts, type PDFFont, rgb } from "pdf-lib";
 import type { Deck } from "./deckModel";
 import { layoutDeck, SLIDE_H, SLIDE_W, type TextSpec } from "./deckLayout";
 
@@ -37,6 +37,7 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
           ...shape.box,
           fill: { color: pptxHex(shape.color) },
           line: { color: pptxHex(shape.color) },
+          ...(shape.href ? { hyperlink: { url: shape.href } } : {}),
         });
       }
     }
@@ -67,6 +68,16 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
 }
 
 type PdfPage = ReturnType<Awaited<ReturnType<typeof PDFDocument.create>>["addPage"]>;
+
+/** Link annotations accumulate per page; a second link must not drop the first. */
+const pdfAnnotations = new WeakMap<PdfPage, PDFRef[]>();
+
+function addPdfLink(pdfDoc: PDFDocument, page: PdfPage, annotation: PDFRef) {
+  const existing = pdfAnnotations.get(page) ?? [];
+  existing.push(annotation);
+  pdfAnnotations.set(page, existing);
+  page.node.set(PDFName.of("Annots"), pdfDoc.context.obj(existing));
+}
 
 /** The layout engine uses Office-safe fonts; pdf-lib maps them to its standard families. */
 function standardFonts(font: string) {
@@ -129,7 +140,7 @@ function drawPdfText(
         A: { Type: "Action", S: "URI", URI: PDFString.of(item.href) },
       })
     );
-    page.node.set(PDFName.of("Annots"), pdfDoc.context.obj([annotation]));
+    addPdfLink(pdfDoc, page, annotation);
   }
   lines.forEach((line, index) => {
     const textWidth = font.widthOfTextAtSize(line, item.size);

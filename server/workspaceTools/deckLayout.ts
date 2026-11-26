@@ -1,4 +1,4 @@
-import { NOVA_PUBLIC_APP_URL } from "@shared/const";
+import { NOVA_BRAND_INK, NOVA_BRAND_ORANGE, NOVA_PUBLIC_APP_URL } from "@shared/const";
 import { NOVA_BADGE_TEXT } from "../novaBadge";
 import { getTheme, type Deck, type Design, type Slide, type Theme } from "./deckModel";
 
@@ -35,6 +35,7 @@ export type ShapeSpec = {
   kind: "rect" | "ellipse" | "line";
   box: Box;
   color: string;
+  href?: string;
 };
 export type Tone = "dark" | "light";
 export type SlideSpec = {
@@ -118,6 +119,10 @@ export function paletteFor(design: Design, tone: Tone): Palette {
       theme.accent,
       surface,
       muted,
+      // The brand badge carries the Nova mark on every deck, whatever theme
+      // the deck picked, so its colours are palette members too.
+      NOVA_BRAND_ORANGE,
+      NOVA_BRAND_INK,
     ]),
   };
 }
@@ -230,14 +235,20 @@ function contentTitle(spec: SlideSpec, colors: Palette, title: string) {
 
 function footer(spec: SlideSpec, colors: Palette, index: number, total: number) {
   const page = `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`;
+  // Brand badge: an orange chip carrying the attribution, matching the
+  // website badge. The text box is the chip itself so the link target is the
+  // whole badge in PDF and PPTX alike.
+  const chip = { x: SLIDE_W - MARGIN - 1.62, y: SLIDE_H - 0.45, w: 1.62, h: 0.3 };
   spec.texts.push(
     text(colors, { x: MARGIN, y: SLIDE_H - 0.42, w: 4, h: 0.24 }, "NOVA / PRESENTATION", 11,
       colors.muted, { font: colors.monoFont }),
-    text(colors, { x: SLIDE_W - MARGIN - 4.7, y: SLIDE_H - 0.42, w: 2.2, h: 0.24 }, page, 11,
+    text(colors, { x: SLIDE_W - MARGIN - 4.7, y: SLIDE_H - 0.42, w: 1.9, h: 0.24 }, page, 11,
       colors.muted, { font: colors.monoFont, align: "right" }),
-    text(colors, { x: SLIDE_W - MARGIN - 2.3, y: SLIDE_H - 0.42, w: 2.3, h: 0.24 }, NOVA_BADGE_TEXT, 11,
-      colors.accentSmall, { font: colors.monoFont, align: "right", href: NOVA_PUBLIC_APP_URL })
+    text(colors, chip, NOVA_BADGE_TEXT, 10,
+      NOVA_BRAND_INK, { font: colors.monoFont, bold: true, align: "center", valign: "middle",
+        href: NOVA_PUBLIC_APP_URL })
   );
+  spec.shapes.push({ kind: "rect", box: chip, color: NOVA_BRAND_ORANGE, href: NOVA_PUBLIC_APP_URL });
 }
 
 function base(tone: Tone, colors: Palette): SlideSpec {
@@ -446,7 +457,9 @@ function layoutTimeline(slide: Slide, colors: Palette): SlideSpec {
 function layoutQuote(slide: Slide, colors: Palette): SlideSpec {
   const spec = base("dark", colors);
   kicker(spec, colors, "In their words");
-  spec.texts.push(text(colors, { x: 10.4, y: 1.05, w: 2.1, h: 1.5 }, "“", 120,
+  // The decorative quote mark is one oversized glyph: its box has to fit the
+  // rendered line (size x 1.2) or the overflow gate fails on the slide.
+  spec.texts.push(text(colors, { x: 10.4, y: 1.05, w: 2.1, h: 2.1 }, "“", 120,
     colors.muted, { font: colors.titleFont, align: "right" }));
   const box = { x: MARGIN, y: 1.75, w: 10.1, h: 3.1 };
   const fitted = fitText(stripQuotes(slide.title), box, 46, 28, false, 1.15);
@@ -473,7 +486,7 @@ function layoutClosing(slide: Slide, deck: Deck, colors: Palette): SlideSpec {
     { kind: "ellipse", box: { x: 1.15, y: 2.15, w: 2.3, h: 2.3 }, color: colors.background },
     { kind: "ellipse", box: { x: 1.52, y: 2.52, w: 1.56, h: 1.56 }, color: colors.surface }
   );
-  spec.texts.push(text(colors, { x: 1.52, y: 2.92, w: 1.56, h: 0.7 }, "N", 44,
+  spec.texts.push(text(colors, { x: 1.52, y: 2.92, w: 1.56, h: 0.8 }, "N", 44,
     colors.accentLarge, { font: colors.monoFont, bold: true, align: "center" }));
   const box = { x: 5.15, y: 2.05, w: 7.3, h: 2.3 };
   const fitted = fitText(slide.title || "Thank you", box, 50, 34, false, 1.1);

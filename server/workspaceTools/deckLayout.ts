@@ -1,3 +1,5 @@
+import { NOVA_PUBLIC_APP_URL } from "@shared/const";
+import { NOVA_BADGE_TEXT } from "../novaBadge";
 import { getTheme, type Deck, type Design, type Slide, type Theme } from "./deckModel";
 
 export const SLIDE_W = 13.333;
@@ -27,6 +29,7 @@ export type TextSpec = {
   align?: "left" | "center" | "right";
   valign?: "top" | "middle";
   lineSpacing?: number;
+  href?: string;
 };
 export type ShapeSpec = {
   kind: "rect" | "ellipse" | "line";
@@ -230,8 +233,10 @@ function footer(spec: SlideSpec, colors: Palette, index: number, total: number) 
   spec.texts.push(
     text(colors, { x: MARGIN, y: SLIDE_H - 0.42, w: 4, h: 0.24 }, "NOVA / PRESENTATION", 11,
       colors.muted, { font: colors.monoFont }),
-    text(colors, { x: SLIDE_W - MARGIN - 2.5, y: SLIDE_H - 0.42, w: 2.5, h: 0.24 }, page, 11,
-      colors.muted, { font: colors.monoFont, align: "right" })
+    text(colors, { x: SLIDE_W - MARGIN - 4.7, y: SLIDE_H - 0.42, w: 2.2, h: 0.24 }, page, 11,
+      colors.muted, { font: colors.monoFont, align: "right" }),
+    text(colors, { x: SLIDE_W - MARGIN - 2.3, y: SLIDE_H - 0.42, w: 2.3, h: 0.24 }, NOVA_BADGE_TEXT, 11,
+      colors.accentSmall, { font: colors.monoFont, align: "right", href: NOVA_PUBLIC_APP_URL })
   );
 }
 

@@ -1,3 +1,12 @@
+2026-11-25 - feat(agent): add Made with Nova attribution
+
+Every website the agent creates, edits or deploys now carries a small fixed
+bottom-right "Made with Nova" badge linking back to the Nova app; the injected
+HTML is idempotent and only touches real HTML pages. Every generated slide also
+shows a bottom-right "Made with Nova" footer: clickable in the PowerPoint file
+and a real URI link annotation in the PDF. Added helper, file-tool, deploy and
+renderer tests plus visual verification of both the badge and slide footer.
+
 2026-11-25 - fix(agent): clean up presentation layouts after visual QA
 
 Fresh-eye review of a rendered ten-slide deck found duplicated cover chrome,

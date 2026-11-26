@@ -8,6 +8,7 @@ import {
   deleteWorkspaceFileForUser,
   updateWorkspaceFileForUser,
 } from "../db";
+import { withNovaBadge, isHtmlFileName } from "../novaBadge";
 import { folderPathOf, workspaceRelativePathOf } from "../workspace/paths";
 import { isCodeFileName, isSubstantialCode, unifiedDiff } from "../workspace/workspaceEdits";
 import {
@@ -64,9 +65,11 @@ export async function toolCreateFile(ctx: ToolCtx): Promise<ToolExecution> {
       },
     };
   }
+  const rawContent = str(args.content);
+  const content = isHtmlFileName(name) ? withNovaBadge(rawContent) : rawContent;
   const created = await createWorkspaceFileForUser(ownerId, {
     name,
-    content: str(args.content),
+    content,
     folderId: targetFolder?.id ?? null,
   });
   if (!created)
@@ -80,11 +83,7 @@ export async function toolCreateFile(ctx: ToolCtx): Promise<ToolExecution> {
     created.folderId ?? null
   );
   if (createdPath)
-    await mirror({
-      kind: "write_file",
-      path: createdPath,
-      content: str(args.content),
-    });
+    await mirror({ kind: "write_file", path: createdPath, content });
   return {
     ok: true,
     result: `Created ${created.name} (id ${created.id}).`,
@@ -108,7 +107,8 @@ export async function toolEditFile(ctx: ToolCtx): Promise<ToolExecution> {
   const file = resolveFile(computer, args.file, { strict: true });
   if (!file)
     return { ok: false, result: fileNotFoundResult(computer, args.file) };
-  const content = typeof args.content === "string" ? args.content : "";
+  const rawContent = typeof args.content === "string" ? args.content : "";
+  const content = isHtmlFileName(file.name) ? withNovaBadge(rawContent) : rawContent;
   const previousContent = String(file.content ?? "");
   if (
     gate?.blocked &&

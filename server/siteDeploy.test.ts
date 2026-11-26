@@ -132,7 +132,8 @@ describe("Workspace website deployer", () => {
     const [siteId, files] = spies.deployFilesToNetlifySite.mock.calls[0];
     expect(siteId).toBe("site-new");
     expect(files.map((file: { path: string }) => file.path)).toEqual(["/index.html", "/site/about.html"]);
-    expect(files[0].content.toString()).toBe("<html>hi</html>");
+    expect(files[0].content.toString()).toContain("Made with Nova");
+    expect(files[0].content.toString()).toContain("https://nova-cloud-computer.vercel.app");
     const [owner, record] = spies.recordSiteDeployment.mock.calls[0];
     expect(owner).toBe(1);
     expect(record).toMatchObject({

@@ -1,5 +1,5 @@
 import PptxGenJS from "pptxgenjs";
-import { PDFDocument, StandardFonts, type PDFFont, rgb } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString, StandardFonts, type PDFFont, rgb } from "pdf-lib";
 import type { Deck } from "./deckModel";
 import { layoutDeck, SLIDE_H, SLIDE_W, type TextSpec } from "./deckLayout";
 
@@ -56,6 +56,7 @@ export async function renderDeckPptx(deck: Deck): Promise<Buffer> {
         breakLine: false,
         wrap: true,
         lineSpacingMultiple: item.lineSpacing ?? 1.25,
+        ...(item.href ? { hyperlink: { url: item.href } } : {}),
       });
     }
     const notes = deck.slides[index]?.notes;
@@ -101,7 +102,12 @@ function fontKey(item: TextSpec) {
   return `${item.font}:${variant}`;
 }
 
-function drawPdfText(page: PdfPage, item: TextSpec, fonts: Map<string, PDFFont>) {
+function drawPdfText(
+  pdfDoc: PDFDocument,
+  page: PdfPage,
+  item: TextSpec,
+  fonts: Map<string, PDFFont>
+) {
   const font = fonts.get(fontKey(item));
   if (!font) return;
   const x = item.box.x * 72;
@@ -113,6 +119,18 @@ function drawPdfText(page: PdfPage, item: TextSpec, fonts: Map<string, PDFFont>)
   const firstY = item.valign === "middle"
     ? top - Math.max(0, h - lines.length * leading) / 2
     : top;
+  if (item.href) {
+    const annotation = pdfDoc.context.register(
+      pdfDoc.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [x, (SLIDE_H - item.box.y - item.box.h) * 72, x + w, (SLIDE_H - item.box.y) * 72],
+        Border: [0, 0, 0],
+        A: { Type: "Action", S: "URI", URI: PDFString.of(item.href) },
+      })
+    );
+    page.node.set(PDFName.of("Annots"), pdfDoc.context.obj([annotation]));
+  }
   lines.forEach((line, index) => {
     const textWidth = font.widthOfTextAtSize(line, item.size);
     const drawX =
@@ -173,7 +191,7 @@ export async function renderDeckPdf(deck: Deck): Promise<Buffer> {
         page.drawRectangle({ x, y, width: w, height: h, color });
       }
     }
-    for (const item of spec.texts) drawPdfText(page, item, fonts);
+    for (const item of spec.texts) drawPdfText(pdf, page, item, fonts);
   }
   return Buffer.from(await pdf.save());
 }

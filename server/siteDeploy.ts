@@ -35,6 +35,7 @@ import {
   setSiteEnvVars,
   type NetlifyDeployFile,
 } from "./netlify";
+import { isHtmlFileName, withNovaBadge } from "./novaBadge";
 
 export type DeploymentStatus = {
   configured: boolean;
@@ -187,10 +188,16 @@ export async function deployWorkspaceSite(
     };
   }
 
-  const deployFiles: NetlifyDeployFile[] = selected.map(({ file, siteSegments }) => ({
-    path: sitePath(siteSegments),
-    content: fileBody(file.content),
-  }));
+  const deployFiles: NetlifyDeployFile[] = selected.map(({ file, siteSegments }) => {
+    const path = sitePath(siteSegments);
+    const body = fileBody(file.content);
+    // Published pages always carry the badge, even if the source HTML was
+    // written before this rule or came from a GitHub import.
+    const content = isHtmlFileName(path)
+      ? Buffer.from(withNovaBadge(body.toString("utf8")), "utf8")
+      : body;
+    return { path, content };
+  });
 
   try {
     // Targeting: an explicit deployment ID publishes to that deployment (its

@@ -1,4 +1,4 @@
-import { inflateRawSync } from "node:zlib";
+import { inflateRawSync, inflateSync } from "node:zlib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normaliseDeck, THEMES } from "./deckModel";
 import { renderDeckPdf, renderDeckPptx } from "./deckRender";
@@ -26,6 +26,16 @@ function zipEntry(zip: Buffer, name: string): string | null {
     }
     position = signature + 4;
   }
+}
+
+function pdfStreamsContain(pdf: Buffer, needle: string) {
+  const pattern = /stream\r?\n([\s\S]*?)endstream/g;
+  for (const match of pdf.toString("latin1").matchAll(pattern)) {
+    try {
+      if (inflateSync(Buffer.from(match[1], "latin1")).toString("latin1").includes(needle)) return true;
+    } catch {}
+  }
+  return false;
 }
 
 const parsed = normaliseDeck({
@@ -81,5 +91,12 @@ describe("both renderers", () => {
       expect(pptx.subarray(0, 2).toString()).toBe("PK");
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     }
+  });
+
+  it("makes the Made with Nova badge clickable in PPTX and PDF", async () => {
+    const pptx = await renderDeckPptx(deck);
+    const pdf = await renderDeckPdf(deck);
+    expect(pptx.toString("latin1")).toContain("https://nova-cloud-computer.vercel.app");
+    expect(pdfStreamsContain(pdf, "https://nova-cloud-computer.vercel.app")).toBe(true);
   });
 });

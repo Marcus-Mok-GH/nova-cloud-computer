@@ -6,19 +6,27 @@ import { trpc } from "@/lib/trpc";
 import { Braces, Check, Clipboard, Loader2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { NOVA_PUBLIC_APP_URL } from "@shared/const";
+import { cn } from "@/lib/utils";
 
 type ApiKeyRow = {
   id: number;
   name: string;
   keyPreview: string;
+  /** What the key may do: "inference" calls the model API, "workspace" drives the agent's computer. */
+  scope: "inference" | "workspace" | string;
   createdAt: string | Date;
   lastUsedAt: string | Date | null;
 };
 
 /**
- * Settings card for the OpenAI-compatible inference API: create, rename,
- * inspect and revoke Nova API keys. The full key value is shown exactly once,
- * at creation.
+ * Settings card for Nova's API keys: create, rename, inspect and revoke them.
+ * The full key value is shown exactly once, at creation.
+ *
+ * There are TWO kinds of key and they are deliberately separate. An inference
+ * key calls the OpenAI-compatible model API; a workspace key drives the
+ * agent's computer (files, terminal, automations, deployments) over HTTP.
+ * Neither works for the other's job, so a key handed to a third party can be
+ * scoped to exactly one thing.
  */
 export default function ApiKeysCard() {
   const utils = trpc.useUtils();
@@ -65,6 +73,7 @@ export default function ApiKeysCard() {
   };
 
   const [newKeyName, setNewKeyName] = useState("");
+  const [keyScope, setKeyScope] = useState<"inference" | "workspace">("inference");
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -109,15 +118,61 @@ export default function ApiKeysCard() {
       </div>
 
       <div className="mt-5 rounded-xl border border-dashed bg-muted/30 p-4">
+        <fieldset className="mb-3">
+          <legend className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+            {t("settings.apiKeys.type.label")}
+          </legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {(["inference", "workspace"] as const).map(scope => {
+              const selected = keyScope === scope;
+              return (
+                <label
+                  key={scope}
+                  className={cn(
+                    "cursor-pointer rounded-lg border p-3 text-start transition",
+                    selected
+                      ? "border-primary/50 bg-primary/[0.06]"
+                      : "border-border bg-card hover:border-primary/30"
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="api-key-scope"
+                      value={scope}
+                      checked={selected}
+                      onChange={() => setKeyScope(scope)}
+                      className="size-4 accent-[var(--primary)]"
+                    />
+                    <span className="text-sm font-semibold">
+                      {t(
+                        scope === "inference"
+                          ? "settings.apiKeys.type.inference"
+                          : "settings.apiKeys.type.workspace"
+                      )}
+                    </span>
+                  </span>
+                  <span className="mt-1 block ps-6 text-xs leading-5 text-muted-foreground">
+                    {t(
+                      scope === "inference"
+                        ? "settings.apiKeys.type.inferenceHint"
+                        : "settings.apiKeys.type.workspaceHint"
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             value={newKeyName}
             onChange={event => setNewKeyName(event.target.value)}
             placeholder={t("settings.apiKeys.name.placeholder")}
             maxLength={120}
-            onKeyDown={event => { if (event.key === "Enter" && newKeyName.trim() && !createKey.isPending) createKey.mutate({ name: newKeyName.trim() }); }}
+            onKeyDown={event => { if (event.key === "Enter" && newKeyName.trim() && !createKey.isPending) createKey.mutate({ name: newKeyName.trim(), scope: keyScope }); }}
           />
-          <Button className="sm:w-40" onClick={() => { if (newKeyName.trim()) createKey.mutate({ name: newKeyName.trim() }); }} disabled={!newKeyName.trim() || createKey.isPending}>
+          <Button className="sm:w-40" onClick={() => { if (newKeyName.trim()) createKey.mutate({ name: newKeyName.trim(), scope: keyScope }); }} disabled={!newKeyName.trim() || createKey.isPending}>
             {createKey.isPending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
             {t("settings.apiKeys.create")}
           </Button>
@@ -180,7 +235,16 @@ export default function ApiKeysCard() {
                 ) : (
                   <>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{key.name}</p>
+                      <p className="flex items-center gap-2 truncate text-sm font-semibold">
+                        {key.name}
+                        <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                          {t(
+                            key.scope === "workspace"
+                              ? "settings.apiKeys.scope.workspace"
+                              : "settings.apiKeys.scope.inference"
+                          )}
+                        </span>
+                      </p>
                       <p className="truncate font-mono text-xs text-muted-foreground">{key.keyPreview}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{t("settings.apiKeys.createdAt", { date: formatDay(key.createdAt) })} · {relativeTime(key.lastUsedAt)}</p>
                     </div>
@@ -208,6 +272,13 @@ export default function ApiKeysCard() {
   -H "Authorization: Bearer nova_sk_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"model": "nova-pro", "messages": [{"role": "user", "content": "Say hello"}]}'`}</pre>
+        <p className="mt-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          {t("settings.apiKeys.exampleWorkspace")}
+        </p>
+        <pre className="mt-2 overflow-x-auto rounded-lg bg-card p-3 font-mono text-xs leading-5">{`curl ${NOVA_PUBLIC_APP_URL}/api/workspace/v1/files \\
+  -H "Authorization: Bearer nova_wk_YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "notes.md", "content": "From my script"}'`}</pre>
       </div>
     </section>
   );

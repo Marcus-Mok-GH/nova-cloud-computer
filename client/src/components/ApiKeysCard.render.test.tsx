@@ -23,8 +23,9 @@ vi.mock("@/lib/trpc", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const sampleKeys = [
-  { id: 1, name: "nightly-scripts", keyPreview: "nova_sk_9f2a1c44…", createdAt: "2026-09-27T00:00:00Z", lastUsedAt: "2026-09-27T01:00:00Z" },
-  { id: 2, name: "playground", keyPreview: "nova_sk_77bd0e12…", createdAt: "2026-09-26T00:00:00Z", lastUsedAt: null },
+  { id: 1, name: "nightly-scripts", keyPreview: "nova_sk_9f2a1c44…", scope: "inference", createdAt: "2026-09-27T00:00:00Z", lastUsedAt: "2026-09-27T01:00:00Z" },
+  { id: 2, name: "playground", keyPreview: "nova_sk_77bd0e12…", scope: "inference", createdAt: "2026-09-26T00:00:00Z", lastUsedAt: null },
+  { id: 3, name: "ops-bot", keyPreview: "nova_wk_5ac3f091…", scope: "workspace", createdAt: "2026-09-26T00:00:00Z", lastUsedAt: null },
 ];
 
 describe("ApiKeysCard", () => {
@@ -34,7 +35,7 @@ describe("ApiKeysCard", () => {
 
   it("lists existing keys with preview, usage and revoke buttons", () => {
     const markup = renderToStaticMarkup(<ApiKeysCard />);
-    expect(markup).toContain("Inference API keys");
+    expect(markup).toContain("API keys");
     expect(markup).toContain("nightly-scripts");
     expect(markup).toContain("nova_sk_9f2a1c44…");
     expect(markup).toContain("playground");
@@ -42,6 +43,19 @@ describe("ApiKeysCard", () => {
     expect(markup).toContain("Revoke");
     expect(markup).toContain("Rename");
     expect(markup).toContain("Create key");
+  });
+
+  it("offers both key types and shows which one each key is", () => {
+    const markup = renderToStaticMarkup(<ApiKeysCard />);
+    // The two key types are offered, each with what it can and cannot do.
+    expect(markup).toContain("Inference key");
+    expect(markup).toContain("Workspace key");
+    expect(markup).toContain("Cannot touch your workspace.");
+    expect(markup).toContain("Cannot call the model API.");
+    // Each listed key says which type it is.
+    expect(markup).toContain("Inference");
+    expect(markup).toContain("Workspace");
+    expect(markup).toContain("nova_wk_5ac3f091…");
   });
 
   it("shows the once-only key banner only after creation, and the API example", () => {

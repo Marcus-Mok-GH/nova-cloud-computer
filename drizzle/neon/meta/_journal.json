@@ -491,6 +491,13 @@
       "when": 1795706400000,
       "tag": "0069_credit_savings_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795792800000,
+      "tag": "0070_api_key_scopes",
+      "breakpoints": true
     }
   ]
 }

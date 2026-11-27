@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ApiKeyLimitError,
   API_KEY_PREFIX,
+  type ApiKeyScope,
   createApiKeyForUser,
   findOwnerByApiKey,
   generateApiKeyRecord,
@@ -37,26 +38,29 @@ describe("API key generation", () => {
 
 describe("createApiKeyForUser", () => {
   it("returns the full key exactly once and a safe record for lists", async () => {
-    const create = vi.fn(async (_ownerId: number, values: { name: string }) => ({
-      id: 7,
-      ownerId: 1,
-      name: values.name,
-      keyHash: "hash",
-      keyPreview: "preview",
-      lastUsedAt: null,
-      createdAt: new Date("2026-09-27T00:00:00Z"),
-      updatedAt: new Date("2026-09-27T00:00:00Z"),
-    }));
-    const created = await createApiKeyForUser(1, "scripts", { create, countFor: vi.fn(async () => 0) });
+    const create = vi.fn(
+      async (_ownerId: number, values: { name: string; scope: ApiKeyScope }) => ({
+        id: 7,
+        ownerId: 1,
+        name: values.name,
+        keyHash: "hash",
+        keyPreview: "preview",
+        scope: values.scope,
+        lastUsedAt: null,
+        createdAt: new Date("2026-09-27T00:00:00Z"),
+        updatedAt: new Date("2026-09-27T00:00:00Z"),
+      })
+    );
+    const created = await createApiKeyForUser(1, "scripts", "inference", { create, countFor: vi.fn(async () => 0) });
     expect(created.key.startsWith(API_KEY_PREFIX)).toBe(true);
-    expect(created.apiKey).toEqual({ id: 7, name: "scripts", keyPreview: "preview", createdAt: new Date("2026-09-27T00:00:00Z"), lastUsedAt: null });
+    expect(created.apiKey).toEqual({ id: 7, name: "scripts", keyPreview: "preview", scope: "inference", createdAt: new Date("2026-09-27T00:00:00Z"), lastUsedAt: null });
     expect(JSON.stringify(created.apiKey)).not.toContain(created.key);
   });
 
   it("refuses to exceed the per-owner key limit", async () => {
     const create = vi.fn(async () => { throw new Error("should not be called"); });
     await expect(
-      createApiKeyForUser(1, "too many", { create, countFor: vi.fn(async () => MAX_API_KEYS_PER_OWNER) })
+      createApiKeyForUser(1, "too many", "inference", { create, countFor: vi.fn(async () => MAX_API_KEYS_PER_OWNER) })
     ).rejects.toBeInstanceOf(ApiKeyLimitError);
     expect(create).not.toHaveBeenCalled();
   });
@@ -77,7 +81,7 @@ describe("renameApiKeyForUser", () => {
     const rename = vi.fn(async (_ownerId: number, _keyId: number, name: string) => ({ ...row, name }));
     const renamed = await renameApiKeyForUser(1, 3, "  renamed  ", { rename });
     expect(rename).toHaveBeenCalledWith(1, 3, "renamed");
-    expect(renamed).toEqual({ id: 3, name: "renamed", keyPreview: "preview", createdAt: row.createdAt, lastUsedAt: null });
+    expect(renamed).toEqual({ id: 3, name: "renamed", keyPreview: "preview", scope: "inference", createdAt: row.createdAt, lastUsedAt: null });
     expect(JSON.stringify(renamed)).not.toContain("hash");
   });
 

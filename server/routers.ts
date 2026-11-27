@@ -103,7 +103,7 @@ import {
 } from "@shared/personalities";
 import { cancelAgentVmRun, getAgentVmStatus, listAgentVmRuns, startAgentVmRun } from "./agentVm";
 import { sendAccountDeletionOtp, verifyAccountDeletionOtp } from "./accountDeletion";
-import { ApiKeyLimitError, ApiKeyStorageError, createApiKeyForUser, listApiKeysForUser, renameApiKeyForUser, revokeApiKeyForUser } from "./apiKeys";
+import { ApiKeyLimitError, ApiKeyStorageError, API_KEY_SCOPES, createApiKeyForUser, listApiKeysForUser, renameApiKeyForUser, revokeApiKeyForUser } from "./apiKeys";
 import { cancelActiveAgentVmRunsForUser, requestAgentStopForUser, listPersonalitiesForUser, getActivePersonalityIdForUser, setActivePersonalityForUser, createPersonalityForUser, updatePersonalityForUser, deletePersonalityForUser } from "./db";
 import { getTerminalStatusForUser, readTerminalForUser, resizeTerminalForUser, startTerminalForUser, stopTerminalForUser, writeTerminalForUser, TerminalError } from "./terminal";
 import { deleteWorkspaceSite, getDeploymentStatusForUser } from "./siteDeploy";
@@ -597,12 +597,23 @@ export const appRouter = router({
   }),
   apiKeys: router({
     list: protectedProcedure.query(({ ctx }) => listApiKeysForUser(ctx.user.id)),
-    /** Returns the full key value exactly once; Nova stores only its hash. */
+    /**
+     * Returns the full key value exactly once; Nova stores only its hash.
+     *
+     * The scope picks the key TYPE: an "inference" key calls the model API,
+     * a "workspace" key drives the agent's computer. The two are never
+     * interchangeable.
+     */
     create: protectedProcedure
-      .input(z.object({ name: z.string().trim().min(1, "Give the key a name.").max(120) }))
+      .input(
+        z.object({
+          name: z.string().trim().min(1, "Give the key a name.").max(120),
+          scope: z.enum(API_KEY_SCOPES).default("inference"),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await createApiKeyForUser(ctx.user.id, input.name);
+          return await createApiKeyForUser(ctx.user.id, input.name, input.scope);
         } catch (error) {
           if (error instanceof ApiKeyLimitError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
           if (error instanceof ApiKeyStorageError) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: error.message });

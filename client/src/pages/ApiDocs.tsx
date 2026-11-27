@@ -28,6 +28,13 @@ const javascriptExample = [
   "const data = await response.json();",
 ].join("\n");
 
+const workspaceExample = [
+  `curl ${NOVA_PUBLIC_APP_URL}/api/workspace/v1/files \\`,
+  "  -H 'Authorization: Bearer nova_wk_your_key' \\",
+  "  -H 'Content-Type: application/json' \\",
+  '  -d \'{"name":"notes.md","content":"From my script"}\'',
+].join("\n");
+
 const responseExample = [
   "{",
   '  "id": "chatcmpl-nova-...",',
@@ -71,6 +78,7 @@ const docSections = [
   { id: "quickstart", label: "Quickstart" },
   { id: "authentication", label: "Authentication" },
   { id: "endpoints", label: "Endpoints" },
+  { id: "workspace", label: "Workspace API" },
   { id: "limits", label: "Limits" },
   { id: "errors", label: "Errors" },
 ];
@@ -353,8 +361,26 @@ export default function ApiDocs() {
             </article>
           </section>
 
+          <section id="workspace" className={cn(sectionScroll, "pt-14 sm:pt-20")}>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--primary)] dark:text-[var(--primary)]">04 / Workspace API</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-[-0.035em] sm:tracking-[-0.05em] sm:text-4xl">Drive the agent's computer.</h2>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">A second key type, <code className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-sm dark:bg-white/10">nova_wk_…</code>, manages the workspace itself: its files, its terminal, its automations and its deployments. It lives under <code className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-sm dark:bg-white/10">/api/workspace/v1</code>.</p>
+            <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5 text-sm leading-6 dark:border-white/10 dark:bg-[var(--card)]">
+              <p className="font-semibold">The two key types never work for each other.</p>
+              <p className="mt-2 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">An inference key is refused by the workspace API, and a workspace key is refused by the inference API. Hand a third party the key for the one job you want them to do.</p>
+            </div>
+            <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
+              <div className="rounded-xl border border-[var(--border)] p-4 dark:border-white/10"><p className="font-semibold">GET /me</p><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">A summary of what the key can reach: file, automation and deployment counts, and the terminal state.</p></div>
+              <div className="rounded-xl border border-[var(--border)] p-4 dark:border-white/10"><p className="font-semibold">GET, POST, PATCH, DELETE /files</p><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">List, read, create, update and delete workspace files. GET /files/search does a full-text search.</p></div>
+              <div className="rounded-xl border border-[var(--border)] p-4 dark:border-white/10"><p className="font-semibold">GET, POST, PATCH, DELETE /automations</p><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">List, create, update and delete the scheduled automations that run work for you. A key can create and edit one, but turning one ON needs the app: the background schedule is created from your browser session.</p></div>
+              <div className="rounded-xl border border-[var(--border)] p-4 dark:border-white/10"><p className="font-semibold">GET /terminal, POST /terminal/input</p><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">Start the agent's terminal, read its output, and send it commands. The shell runs inside your own workspace.</p></div>
+              <div className="rounded-xl border border-[var(--border)] p-4 dark:border-white/10"><p className="font-semibold">GET, DELETE /deployments</p><p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">List the sites you deployed, and take one offline. A delete takes the live site down, not just the record.</p></div>
+            </div>
+            <div className="mt-6"><CodeBlock code={workspaceExample} label="curl" /></div>
+          </section>
+
           <section id="limits" className={cn(sectionScroll, "pt-14 sm:pt-20")}>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--primary)] dark:text-[var(--primary)]">04 / Limits</p>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--primary)] dark:text-[var(--primary)]">05 / Limits</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.035em] sm:tracking-[-0.05em] sm:text-4xl">A few boundaries to know.</h2>
             <div className="mt-7 divide-y divide-[var(--border)] rounded-2xl border border-[var(--border)] bg-[var(--card)] dark:divide-white/10 dark:border-white/10 dark:bg-[var(--card)]">
               <div className="flex gap-3 p-4 sm:gap-4 sm:p-5"><Terminal className="mt-0.5 size-4 shrink-0 text-[var(--primary)] dark:text-[var(--primary)]" /><p className="text-sm leading-6"><span className="font-semibold">Text only for now.</span> Tools and function calling are not supported by the v1 inference API.</p></div>
@@ -365,7 +391,7 @@ export default function ApiDocs() {
           </section>
 
           <section id="errors" className={cn(sectionScroll, "pt-14 sm:pt-20")}>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--primary)] dark:text-[var(--primary)]">05 / Errors</p>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--primary)] dark:text-[var(--primary)]">06 / Errors</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-[-0.035em] sm:tracking-[-0.05em] sm:text-4xl">Errors stay predictable.</h2>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted-foreground)] dark:text-[var(--muted-foreground)]">Failures use an OpenAI-style envelope so your existing client error handling can keep working.</p>
             <div className="mt-7"><CodeBlock code={'{\n  "error": {\n    "message": "That API key has been revoked or no longer exists.",\n    "type": "invalid_request_error",\n    "code": "invalid_api_key"\n  }\n}'} label="error response" /></div>

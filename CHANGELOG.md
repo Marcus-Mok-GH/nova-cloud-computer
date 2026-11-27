@@ -1,3 +1,29 @@
+2026-11-27 - feat(api): add workspace API keys that manage the agent's computer
+
+Nova's API key type was for one job: calling the model over the
+OpenAI-compatible inference API. There is now a SECOND key type for the other
+job - driving the agent's own machine. A workspace key (`nova_wk_…`) manages
+the workspace over HTTP: its files (list, read, create, update, delete and
+full-text search), its terminal (start, read output, send commands, stop), its
+scheduled automations, and its site deployments (a delete takes the live site down, not just the record).
+
+The two key types are separate, not one key with extra permissions. A
+workspace key is refused by the inference API before it can spend a credit,
+and an inference key is refused by the workspace API before it can touch the
+workspace, so a key handed to a third party is scoped to exactly one job. The
+scope lives on the key row, and the check runs before the database lookup, so
+a key of the wrong type is turned away without a query.
+
+A key can create and edit an automation, but cannot turn one ON: the
+background schedule is created through a session-bound call, so enabling it is
+refused with a clear message rather than storing "enabled" on a row whose
+schedule was never created.
+
+Settings now asks which kind of key to create and shows the kind beside every
+key it lists. The public API docs describe the new namespace, /api/workspace/v1.
+Existing keys keep working: they were inference keys, and that is what the new
+column defaults to.
+
 2026-11-27 - feat(support): stream the public Q&A answer as it is written
 
 The landing-page assistant now renders each sentence as it arrives instead of

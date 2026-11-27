@@ -28,4 +28,12 @@ describe("database bootstrap dispatch", () => {
   it("keeps the bootstrap on a non-tRPC path that ends like the Q&A route", () => {
     expect(needsDatabaseBootstrap("/api/other/support.ask")).toBe(true);
   });
+
+  it("keeps the bootstrap on the workspace API", () => {
+    // The workspace API reads the account's files, automations and
+    // deployments, so it needs the schema - unlike the Q&A route, which is
+    // database-free by design.
+    expect(needsDatabaseBootstrap("/api/workspace/v1/files")).toBe(true);
+    expect(needsDatabaseBootstrap("/api/workspace/v1/me")).toBe(true);
+  });
 });

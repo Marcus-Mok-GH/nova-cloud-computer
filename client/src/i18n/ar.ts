@@ -317,7 +317,7 @@ export const ar: Translations = {
   "settings.apiKeys.type.inference": "مفتاح الاستدلال",
   "settings.apiKeys.type.inferenceHint": "يستدعي API النموذج فقط. لا يمكنه الوصول إلى مساحة عملك.",
   "settings.apiKeys.type.workspace": "مفتاح مساحة العمل",
-  "settings.apiKeys.type.workspaceHint": "يدير كمبيوتر وكيلك فقط. لا يمكنه استدعاء API النموذج.",
+  "settings.apiKeys.type.workspaceHint": "يدير حاسوب وكيلك فقط — ويمكنه تشغيل أوامر shell، لذا تعامل معه ككلمة مرور. لا يمكنه استدعاء API النموذج.",
   "settings.apiKeys.scope.inference": "الاستدلال",
   "settings.apiKeys.scope.workspace": "مساحة العمل",
   "settings.apiKeys.create": "إنشاء مفتاح",

@@ -317,7 +317,7 @@ export const es: Translations = {
   "settings.apiKeys.type.inference": "Clave de inferencia",
   "settings.apiKeys.type.inferenceHint": "Solo llama a la API del modelo. No puede acceder a su espacio de trabajo.",
   "settings.apiKeys.type.workspace": "Clave del espacio de trabajo",
-  "settings.apiKeys.type.workspaceHint": "Solo administra el ordenador de su agente. No puede llamar a la API del modelo.",
+  "settings.apiKeys.type.workspaceHint": "Solo controla el ordenador de su agente: puede ejecutar comandos de shell, así que trátelo como una contraseña. No puede llamar a la API del modelo.",
   "settings.apiKeys.scope.inference": "Inferencia",
   "settings.apiKeys.scope.workspace": "Espacio de trabajo",
   "settings.apiKeys.create": "Crear clave",

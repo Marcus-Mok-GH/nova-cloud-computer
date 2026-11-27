@@ -317,7 +317,7 @@ export const hi: Translations = {
   "settings.apiKeys.type.inference": "इनफ़रेंस कुंजी",
   "settings.apiKeys.type.inferenceHint": "केवल मॉडल API को कॉल करती है। आपके वर्कस्पेस तक पहुँच नहीं सकती।",
   "settings.apiKeys.type.workspace": "वर्कस्पेस कुंजी",
-  "settings.apiKeys.type.workspaceHint": "केवल आपके एजेंट के कंप्यूटर को प्रबंधित करती है। मॉडल API को कॉल नहीं कर सकती।",
+  "settings.apiKeys.type.workspaceHint": "केवल आपके एजेंट के कंप्यूटर को नियंत्रित करता है—यह शेल कमांड चला सकता है, इसलिए इसे पासवर्ड की तरह सुरक्षित रखें। मॉडल API को कॉल नहीं कर सकता।",
   "settings.apiKeys.scope.inference": "इनफ़रेंस",
   "settings.apiKeys.scope.workspace": "वर्कस्पेस",
   "settings.apiKeys.create": "कुंजी बनाएं",

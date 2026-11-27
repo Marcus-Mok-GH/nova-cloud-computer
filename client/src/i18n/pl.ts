@@ -317,7 +317,7 @@ export const pl: Translations = {
   "settings.apiKeys.type.inference": "Klucz do wnioskowania",
   "settings.apiKeys.type.inferenceHint": "Wywołuje wyłącznie API modelu. Nie ma dostępu do przestrzeni roboczej.",
   "settings.apiKeys.type.workspace": "Klucz przestrzeni roboczej",
-  "settings.apiKeys.type.workspaceHint": "Zarządza wyłącznie komputerem agenta. Nie może wywoływać API modelu.",
+  "settings.apiKeys.type.workspaceHint": "Zarządza wyłącznie komputerem Twojego agenta — może uruchamiać polecenia powłoki, więc traktuj je jak hasło. Nie może wywoływać API modelu.",
   "settings.apiKeys.scope.inference": "Wnioskowanie",
   "settings.apiKeys.scope.workspace": "Przestrzeń robocza",
   "settings.apiKeys.create": "Utwórz klucz",

@@ -317,7 +317,7 @@ export const ja: Translations = {
   "settings.apiKeys.type.inference": "推論キー",
   "settings.apiKeys.type.inferenceHint": "モデルAPIの呼び出し専用です。ワークスペースにはアクセスできません。",
   "settings.apiKeys.type.workspace": "ワークスペースキー",
-  "settings.apiKeys.type.workspaceHint": "エージェントのコンピューターの管理専用です。モデルAPIは呼び出せません。",
+  "settings.apiKeys.type.workspaceHint": "エージェントのコンピューターのみを管理します。シェルコマンドを実行できるため、パスワードと同様に取り扱ってください。モデル API は呼び出せません。",
   "settings.apiKeys.scope.inference": "推論",
   "settings.apiKeys.scope.workspace": "ワークスペース",
   "settings.apiKeys.create": "キーを作成",

@@ -38,6 +38,9 @@ describe("API docs page", () => {
     // The management surface it opens.
     expect(markup).toContain("/automations");
     expect(markup).toContain("/terminal");
+    // A workspace key can run shell commands, so the docs say so.
+    expect(markup).toContain("like a password");
+    expect(markup).toContain("runaway script");
   });
 
   it("shows a sign-up call to action instead of a login wall", () => {

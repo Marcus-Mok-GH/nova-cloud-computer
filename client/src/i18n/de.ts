@@ -317,7 +317,7 @@ export const de: Translations = {
   "settings.apiKeys.type.inference": "Inferenzschlüssel",
   "settings.apiKeys.type.inferenceHint": "Ruft nur die Modell-API auf. Kann nicht auf Ihren Workspace zugreifen.",
   "settings.apiKeys.type.workspace": "Workspace-Schlüssel",
-  "settings.apiKeys.type.workspaceHint": "Verwaltet nur den Computer Ihres Agenten. Kann die Modell-API nicht aufrufen.",
+  "settings.apiKeys.type.workspaceHint": "Verwaltet nur den Computer Ihres Agents – kann Shell-Befehle ausführen, behandeln Sie es daher wie ein Passwort. Kann die Modell-API nicht aufrufen.",
   "settings.apiKeys.scope.inference": "Inferenz",
   "settings.apiKeys.scope.workspace": "Workspace",
   "settings.apiKeys.create": "Schlüssel erstellen",

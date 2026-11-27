@@ -317,7 +317,7 @@ export const ko: Translations = {
   "settings.apiKeys.type.inference": "추론 키",
   "settings.apiKeys.type.inferenceHint": "모델 API만 호출할 수 있습니다. 워크스페이스에는 접근할 수 없습니다.",
   "settings.apiKeys.type.workspace": "워크스페이스 키",
-  "settings.apiKeys.type.workspaceHint": "에이전트의 컴퓨터만 관리할 수 있습니다. 모델 API를 호출할 수 없습니다.",
+  "settings.apiKeys.type.workspaceHint": "에이전트의 컴퓨터만 관리합니다. 셸 명령을 실행할 수 있으므로 비밀번호처럼 취급하세요. 모델 API를 호출할 수 없습니다.",
   "settings.apiKeys.scope.inference": "추론",
   "settings.apiKeys.scope.workspace": "워크스페이스",
   "settings.apiKeys.create": "키 생성",

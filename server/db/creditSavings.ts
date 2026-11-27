@@ -17,6 +17,52 @@
  * credits out of the oldest bundles that still hold any. Either way the
  * account's total spendable credits are unchanged by the move.
  *
+ * EXPIRY
+ * ------
+ * The daily balance EXPIRES, at a 00:00 UTC boundary; the paid balance never
+ * expires (bought credits do not expire either, so the balance that holds
+ * them does not).
+ *
+ * The retired monthly pool set the precedent: its credits expired at a
+ * PERIOD boundary (a month), not at an arbitrary offset from when they were
+ * bought. The daily pool's period boundary is 00:00 UTC.
+ *
+ * A balance funded during a UTC day survives the reset it was funded
+ * against - the whole point of the daily pot is to carry unused daily
+ * credits past that reset - and is then forfeited at the NEXT 00:00 UTC
+ * boundary. A balance funded on day D is therefore spendable on day D and on
+ * day D+1, and is gone at 00:00 UTC on day D+2.
+ *
+ * Expiring at the SAME midnight the balance was funded would be a trap: the
+ * credits would leave the day's allowance and vanish before they could be
+ * spent, while the allowance refilled to its full size anyway - setting
+ * credits aside would be strictly worse than not setting them aside. The
+ * expiry therefore has to land on the boundary AFTER the reset the balance
+ * survived.
+ *
+ * The deadline belongs to the BALANCE, not to each deposit: a deposit into a
+ * balance that already holds live credits joins that balance and keeps its
+ * deadline, so topping up cannot slide the expiry out forever. A deposit
+ * into an empty (or already expired) balance opens a fresh term with a fresh
+ * deadline. That keeps the daily pot a bounded buffer - at most one day's
+ * allowance, for at most one extra day - instead of a second allowance that
+ * accumulates without end.
+ *
+ * An expired balance is FORFEITED, exactly like the unused part of the daily
+ * allowance is at the reset: its credits are gone, so a later deposit starts
+ * from the new amount and never revives the expired credits. Every read and
+ * every write here therefore compares the balance against its deadline
+ * rather than trusting the stored number.
+ *
+ * Every decision that moves credits - the cap, the debit of today's
+ * allowance, the spend - is made INSIDE the database, against the database's
+ * clock, so the money never depends on this process's clock at all. The read
+ * applies the same rule here, against this process's clock, because that is
+ * the number the page shows. The two clocks can disagree, so for the sliver
+ * of a second between them the page can show a balance the database would
+ * already refuse to spend from; no credit can be moved on the strength of
+ * that reading, because the move re-checks the deadline in the database.
+ *
  * `daily_credits` is deliberately NOT given a new column for this: it is the
  * hot credit ledger, and a column whose migration had not run yet would make
  * every existing credit query fail with `column ... does not exist` - the
@@ -34,28 +80,22 @@
  * committed total and refuses. The paid balance is uncapped, because paid
  * credits never expire.
  *
- * The daily balance's expiry window has no prior art in this repo (the
- * retired monthly pool carried over for 12 months, but the daily pool
- * replaced it deliberately), so the daily savings simply roll over for as
- * long as the account keeps them - bounded by the one-day cap, which is what
- * keeps them a buffer rather than a second allowance.
- *
  * Savings are spent LAST: the gateway still drains the daily allowance and
  * then the bought bundles, and only draws on a savings balance when both are
  * dry. An account holding no savings therefore behaves EXACTLY as it did
  * before this feature existed.
  *
- * Every read and write here degrades gracefully when the tables do not exist
+ * Every read and write here degrades gracefully when the schema is not there
  * yet (the migration has not run because the database is unreachable): a
- * missing relation must never crash the page that shows a balance or the
- * request that spends a credit.
+ * missing table OR a missing column must never crash the page that shows a
+ * balance or the request that spends a credit.
  */
 import { eq, sql } from "drizzle-orm";
 import { dailyCreditSavings, paidCreditSavings } from "../../drizzle/schema";
 import { requireDb } from "./core";
 import { getDailyCreditStatusForUser } from "./credits";
 import { getCreditTopUpBalanceForUser } from "./creditTopUps";
-import { isMissingRelation } from "./pgErrors";
+import { isMissingColumn, isMissingRelation } from "./pgErrors";
 
 /** Which credit source a savings balance belongs to. */
 export type SavingsSource = "daily" | "paid";
@@ -65,6 +105,12 @@ export type SavingsBalance = {
   savedCredits: number;
   /** How many of them are still unspent. */
   remainingCredits: number;
+  /**
+   * When the balance is forfeited: the 00:00 UTC boundary that ends the day
+   * after the reset it survived. `null` for a balance that never expires
+   * (paid savings) and for a balance holding nothing.
+   */
+  expiresAt: Date | null;
 };
 
 export type CreditSavingsBalances = {
@@ -91,20 +137,56 @@ export type SaveToSavingsResult =
         | "savings_unavailable";
     };
 
-const EMPTY_BALANCE: SavingsBalance = { savedCredits: 0, remainingCredits: 0 };
+const EMPTY_BALANCE: SavingsBalance = {
+  savedCredits: 0,
+  remainingCredits: 0,
+  expiresAt: null,
+};
 
 function emptyBalances(): CreditSavingsBalances {
   return { daily: { ...EMPTY_BALANCE }, paid: { ...EMPTY_BALANCE } };
 }
 
-/** The physical table a source's balance lives in. */
-function tableFor(source: SavingsSource) {
-  return source === "daily" ? dailyCreditSavings : paidCreditSavings;
+/**
+ * Whether the savings schema is not there yet.
+ *
+ * A missing TABLE is the migration not having run at all; a missing COLUMN is
+ * a later migration (the expiry column) not having run yet. Both leave the
+ * account's credits untouched, so both degrade instead of throwing.
+ */
+function isSavingsSchemaMissing(error: unknown): boolean {
+  return isMissingRelation(error) || isMissingColumn(error);
 }
 
-/** The table name in SQL (the physical tables are named, not derived). */
-function tableNameFor(source: SavingsSource): string {
-  return source === "daily" ? "daily_credit_savings" : "paid_credit_savings";
+/**
+ * The deadline of a daily savings balance, as SQL.
+ *
+ * Today at 00:00 UTC plus two days: the boundary that ends the day AFTER
+ * the reset the balance survived. A balance funded today is therefore
+ * spendable today and tomorrow, and is forfeited at 00:00 UTC the day after
+ * tomorrow.
+ *
+ * It is computed in SQL so the deadline and the comparison against it are
+ * judged by the SAME clock - the database's - and not by the difference
+ * between the database's clock and this process's.
+ *
+ * The same expression is the column's DEFAULT in `drizzle/schema.ts` and in
+ * the migration that added the column; keep the three in step.
+ */
+const DAILY_SAVINGS_EXPIRY_SQL = `((date_trunc('day', (now() AT TIME ZONE 'utc')) + interval '2 days') AT TIME ZONE 'utc')`;
+
+/**
+ * Whether a balance's deadline has passed.
+ *
+ * The deadline is a fixed instant (00:00 UTC), so the comparison is a plain
+ * one, and it is made here rather than in SQL so that the read and the
+ * database agree on the same rule. A balance past its deadline is forfeited:
+ * it holds no spendable credits, exactly like the unused part of the daily
+ * allowance at the reset.
+ */
+function isExpired(expiresAt: Date | null | undefined, now: number): boolean {
+  if (!expiresAt) return false;
+  return expiresAt.getTime() <= now;
 }
 
 /**
@@ -115,22 +197,34 @@ function tableNameFor(source: SavingsSource): string {
  */
 export async function getCreditSavingsForUser(ownerId: number): Promise<CreditSavingsBalances> {
   const db = await requireDb();
+  const now = Date.now();
   const readDaily = async (): Promise<SavingsBalance> => {
     try {
       const rows = await db
         .select({
           savedCredits: dailyCreditSavings.credits,
           remainingCredits: dailyCreditSavings.remainingCredits,
+          expiresAt: dailyCreditSavings.expiresAt,
         })
         .from(dailyCreditSavings)
         .where(eq(dailyCreditSavings.ownerId, ownerId))
         .limit(1);
+      const row = rows[0];
+      // An expired term is forfeited: the credits are gone, exactly like the
+      // unused part of the daily allowance at the reset, so the balance reads
+      // as empty and the day's allowance is free again.
+      const expired = isExpired(row?.expiresAt, now);
+      const remainingCredits = expired ? 0 : Number(row?.remainingCredits ?? 0);
       return {
-        savedCredits: Number(rows[0]?.savedCredits ?? 0),
-        remainingCredits: Number(rows[0]?.remainingCredits ?? 0),
+        // `savedCredits` is a lifetime counter of what was moved in, so it
+        // keeps counting credits that were later forfeited.
+        savedCredits: Number(row?.savedCredits ?? 0),
+        remainingCredits,
+        // The deadline is only worth showing while there is something to lose.
+        expiresAt: remainingCredits > 0 ? (row?.expiresAt ?? null) : null,
       };
     } catch (error) {
-      if (isMissingRelation(error)) return { ...EMPTY_BALANCE };
+      if (isSavingsSchemaMissing(error)) return { ...EMPTY_BALANCE };
       throw error;
     }
   };
@@ -147,9 +241,12 @@ export async function getCreditSavingsForUser(ownerId: number): Promise<CreditSa
       return {
         savedCredits: Number(rows[0]?.savedCredits ?? 0),
         remainingCredits: Number(rows[0]?.remainingCredits ?? 0),
+        // Bought credits never expire, so neither does the balance that
+        // holds them.
+        expiresAt: null,
       };
     } catch (error) {
-      if (isMissingRelation(error)) return { ...EMPTY_BALANCE };
+      if (isSavingsSchemaMissing(error)) return { ...EMPTY_BALANCE };
       throw error;
     }
   };
@@ -173,7 +270,8 @@ export async function getCreditSavingsOverviewForUser(
   const dailyAllocation = status.unlimited ? 0 : status.dailyCredits ?? 0;
   // The daily pot may hold at most one day's allowance, so what can still be
   // set aside is the smaller of today's remaining balance and the room left in
-  // the pot.
+  // the pot. An expired pot holds nothing, so the whole day's allowance is
+  // free again.
   const dailyRoom = Math.max(0, dailyAllocation - balances.daily.remainingCredits);
   return {
     ...balances,
@@ -183,20 +281,24 @@ export async function getCreditSavingsOverviewForUser(
 }
 
 /**
- * Makes sure the account's balance row exists so the set-aside can LOCK it.
+ * Makes sure the account's daily balance row exists so the set-aside can
+ * LOCK it.
  *
  * This is a separate statement on purpose: the row is created EMPTY, so it
  * moves no credits, and the move itself stays a single statement (debit and
  * credit together). Doing the insert inside the move statement would touch
  * the same row twice, which Postgres rejects with
  * `ON CONFLICT DO UPDATE command cannot affect row a second time`.
+ *
+ * The empty row still carries a deadline, because the column is NOT NULL: a
+ * deadline on an empty balance is harmless, since the deposit that follows
+ * opens the term.
  */
-async function ensureBalanceRow(source: SavingsSource, ownerId: number): Promise<void> {
+async function ensureDailyBalanceRow(ownerId: number): Promise<void> {
   const db = await requireDb();
-  const table = tableNameFor(source);
   await db.execute(sql`
-    INSERT INTO "${sql.raw(table)}" ("ownerId","credits","remainingCredits","createdAt","updatedAt")
-    VALUES (${ownerId}, 0, 0, now(), now())
+    INSERT INTO "daily_credit_savings" ("ownerId","credits","remainingCredits","expiresAt","createdAt","updatedAt")
+    VALUES (${ownerId}, 0, 0, ${sql.raw(DAILY_SAVINGS_EXPIRY_SQL)}, now(), now())
     ON CONFLICT ("ownerId") DO NOTHING
   `);
 }
@@ -205,12 +307,13 @@ async function ensureBalanceRow(source: SavingsSource, ownerId: number): Promise
  * Moves credits out of a live balance and into the matching savings balance.
  *
  * Daily source: the credits leave TODAY's allowance and join the daily
- * savings balance, where they survive the midnight reset. The balance can
- * hold at most one day's allowance, so daily savings stay a buffer rather
- * than a second allowance.
+ * savings balance, where they survive the midnight reset and are then
+ * forfeited at the next 00:00 UTC boundary. The balance can hold at most one
+ * day's allowance, so daily savings stay a buffer rather than a second
+ * allowance.
  *
  * Paid source: the credits leave the oldest bundles that still hold any,
- * oldest first, and join the paid savings balance.
+ * oldest first, and join the paid savings balance, which never expires.
  *
  * Either way the account's total spendable credits are unchanged.
  */
@@ -236,17 +339,26 @@ export async function saveCreditsToSavings(
       const creditDay = status.creditDay;
       const region = status.region;
       // The balance row has to exist before the move can lock it.
-      await ensureBalanceRow("daily", ownerId);
-      // One statement: the balance row is LOCKED, the amount it already holds
-      // is read from that lock, the debit of today's allowance is gated on the
-      // cap, and the balance is credited - all in one atomic move.
+      await ensureDailyBalanceRow(ownerId);
+      // One statement: the balance row is LOCKED, the amount it still holds
+      // (zero once it has expired) is read from that lock, the debit of
+      // today's allowance is gated on the cap, and the balance is credited -
+      // all in one atomic move.
       //
       // The lock is what makes the cap exact. The loser of a race waits for
       // the winner's commit and then re-reads the balance, so it sees the
       // amount the winner just added and refuses instead of adding on top.
+      //
+      // The deadline belongs to the balance: a deposit into a balance that
+      // still holds live credits keeps that deadline, so topping up cannot
+      // slide the expiry out forever. A deposit into an empty or expired
+      // balance opens a fresh term, and the expired credits are NOT revived -
+      // the new balance holds exactly the new amount.
       const result = await db.execute(sql`
         WITH wallet AS MATERIALIZED (
-          SELECT "remainingCredits" AS "held"
+          SELECT
+            CASE WHEN "expiresAt" > now() THEN "remainingCredits" ELSE 0 END AS "held",
+            "expiresAt"
           FROM "daily_credit_savings"
           WHERE "ownerId" = ${ownerId}
           FOR UPDATE
@@ -263,11 +375,14 @@ export async function saveCreditsToSavings(
             AND (SELECT "held" FROM wallet) + ${credits}::int <= ${allocation}::int
           RETURNING "usedCredits"
         )
-        INSERT INTO "daily_credit_savings" ("ownerId","credits","remainingCredits","createdAt","updatedAt")
-        SELECT ${ownerId}, ${credits}::int, ${credits}::int, now(), now() FROM debited
+        INSERT INTO "daily_credit_savings" ("ownerId","credits","remainingCredits","expiresAt","createdAt","updatedAt")
+        SELECT ${ownerId}, ${credits}::int, ${credits}::int, ${sql.raw(DAILY_SAVINGS_EXPIRY_SQL)}, now(), now() FROM debited
         ON CONFLICT ("ownerId") DO UPDATE SET
           "credits" = "daily_credit_savings"."credits" + ${credits}::int,
-          "remainingCredits" = "daily_credit_savings"."remainingCredits" + ${credits}::int,
+          "remainingCredits" = (CASE WHEN "daily_credit_savings"."expiresAt" > now() THEN "daily_credit_savings"."remainingCredits" ELSE 0 END) + ${credits}::int,
+          "expiresAt" = (CASE WHEN "daily_credit_savings"."expiresAt" > now() AND "daily_credit_savings"."remainingCredits" > 0
+            THEN "daily_credit_savings"."expiresAt"
+            ELSE ${sql.raw(DAILY_SAVINGS_EXPIRY_SQL)} END),
           "updatedAt" = now()
         RETURNING "credits","remainingCredits"
       `) as unknown as
@@ -328,7 +443,7 @@ export async function saveCreditsToSavings(
   } catch (error) {
     // The migration has not run yet (or the table is gone): the account keeps
     // its credits instead of losing them to a crash.
-    if (isMissingRelation(error)) return { ok: false, reason: "savings_unavailable" };
+    if (isSavingsSchemaMissing(error)) return { ok: false, reason: "savings_unavailable" };
     throw error;
   }
   return { ok: true, balances: await getCreditSavingsForUser(ownerId) };
@@ -340,6 +455,10 @@ export async function saveCreditsToSavings(
  * The balance row is LOCKED first and the decrement is clamped to what the
  * lock shows, so two requests racing for the same credits cannot drive the
  * balance below zero and cannot take the same credits twice.
+ *
+ * The daily balance is additionally FORFEITED at its deadline: an expired
+ * balance holds nothing, so it can never be spent from. The paid balance has
+ * no deadline at all.
  */
 async function takeFromSavings(
   ownerId: number,
@@ -348,15 +467,41 @@ async function takeFromSavings(
 ): Promise<{ taken: number; remaining: number }> {
   if (credits <= 0) return { taken: 0, remaining: 0 };
   const db = await requireDb();
-  const table = tableNameFor(source);
+  if (source === "daily") {
+    const result = await db.execute(sql`
+      WITH held AS MATERIALIZED (
+        SELECT CASE WHEN "expiresAt" > now() THEN "remainingCredits" ELSE 0 END AS "before"
+        FROM "daily_credit_savings"
+        WHERE "ownerId" = ${ownerId}
+        FOR UPDATE
+      ), debited AS (
+        UPDATE "daily_credit_savings" s
+        SET "remainingCredits" = s."remainingCredits" - LEAST(${credits}::int, s."remainingCredits"), "updatedAt" = now()
+        FROM held
+        WHERE s."ownerId" = ${ownerId} AND held."before" > 0 AND s."expiresAt" > now()
+        RETURNING s."remainingCredits" AS "after"
+      )
+      SELECT
+        coalesce((SELECT "before" FROM held), 0) - coalesce((SELECT "after" FROM debited), coalesce((SELECT "before" FROM held), 0)) AS "taken",
+        coalesce((SELECT "after" FROM debited), coalesce((SELECT "before" FROM held), 0)) AS "remaining"
+    `) as unknown as
+      | { rows?: Array<{ taken: number; remaining: number }> }
+      | Array<{ taken: number; remaining: number }>;
+    const rows = Array.isArray(result) ? result : result.rows ?? [];
+    const row = rows[0];
+    return {
+      taken: Number(row?.taken ?? 0),
+      remaining: Number(row?.remaining ?? 0),
+    };
+  }
   const result = await db.execute(sql`
     WITH held AS MATERIALIZED (
       SELECT "remainingCredits" AS "before"
-      FROM "${sql.raw(table)}"
+      FROM "paid_credit_savings"
       WHERE "ownerId" = ${ownerId}
       FOR UPDATE
     ), debited AS (
-      UPDATE "${sql.raw(table)}" s
+      UPDATE "paid_credit_savings" s
       SET "remainingCredits" = s."remainingCredits" - LEAST(${credits}::int, s."remainingCredits"), "updatedAt" = now()
       FROM held
       WHERE s."ownerId" = ${ownerId} AND held."before" > 0
@@ -390,7 +535,7 @@ export async function claimSavingsCreditForUser(
     if (taken <= 0) return undefined;
     return { remainingCredits: remaining };
   } catch (error) {
-    if (isMissingRelation(error)) return undefined;
+    if (isSavingsSchemaMissing(error)) return undefined;
     throw error;
   }
 }
@@ -412,7 +557,7 @@ export async function settleSavingsUsageForUser(
     const { taken } = await takeFromSavings(ownerId, source, extraCredits);
     return { charged: taken };
   } catch (error) {
-    if (isMissingRelation(error)) return { charged: 0 };
+    if (isSavingsSchemaMissing(error)) return { charged: 0 };
     throw error;
   }
 }

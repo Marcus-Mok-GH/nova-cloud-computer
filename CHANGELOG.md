@@ -1,10 +1,40 @@
+2026-11-27 - fix(billing): expire daily savings at 00:00 UTC
+
+The daily savings balance no longer rolls over indefinitely: it is forfeited
+at a 00:00 UTC boundary, the same period boundary the retired monthly pool
+used. A balance funded during a UTC day survives the midnight reset it was
+funded against - the whole point of the pot is to carry unused daily credits
+past that reset - and is then forfeited at the NEXT 00:00 UTC boundary, so a
+balance funded on day D is spendable on day D and day D+1 and is gone at
+00:00 UTC on day D+2.
+
+Expiring at the same midnight the balance was funded would have been a trap:
+the credits would leave the day's allowance and vanish before they could be
+spent, while the allowance refilled to its full size anyway, so setting
+credits aside would have been strictly worse than not setting them aside.
+
+The deadline belongs to the balance rather than to each deposit, so topping
+up a live balance keeps its deadline and cannot slide the expiry out
+forever; a deposit into an empty or already expired balance opens a fresh
+term. An expired balance is forfeited exactly like the unused part of the
+daily allowance is at the reset - it holds nothing, it can never be spent
+from, and a later deposit never revives it. Paid savings are untouched:
+bought credits never expire, so neither does the balance that holds them.
+
+The billing page now shows the daily balance's expiry date, rendered in UTC
+so the 00:00 boundary cannot be misread in another timezone. The expiry
+lives on the same row as the balance, so the cap is still read from one
+lockable row and stays exact when two set-asides race, and the hot
+daily-credit ledger is still left untouched.
+
 2026-11-27 - feat(billing): add savings, one balance per credit source
 
 Credits can now be set aside instead of being spent or lost. Nova has two
 credit sources with opposite expiry rules - the daily allowance is rewritten
 at UTC midnight, a purchased bundle never expires - so the savings live in
 two separate balances that are never merged: daily savings roll over past the
-reset, paid savings never expire. Setting credits aside MOVES them: the
+reset and are then forfeited at 00:00 UTC, paid savings never expire.
+Setting credits aside MOVES them: the
 account's total spendable credits are unchanged, the daily ledger's existing
 counter records what left today's allowance, and the bought bundles are
 drained oldest first. Savings are spent LAST, after the daily allowance and

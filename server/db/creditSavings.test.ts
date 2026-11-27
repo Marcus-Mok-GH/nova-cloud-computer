@@ -14,25 +14,42 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *     pre-race total and both would pass the guard. The cap is therefore
  *     read from a single lockable row (`FOR UPDATE`).
  *  3. Spending from savings never drives a balance below zero.
- *  4. A missing table degrades to an empty balance instead of throwing.
+ *  4. The daily balance EXPIRES at a 00:00 UTC boundary. A balance past its
+ *     deadline is forfeited: it holds nothing, it can never be spent from,
+ *     and a later deposit starts a fresh term rather than reviving it.
+ *  5. A missing table OR a missing column degrades to an empty balance
+ *     instead of throwing.
  *
  * The mocked `db` models those SQL semantics - the conditional writes, the
- * lock, the cap - rather than the exact query text, so the assertions hold
- * against the behaviour the money depends on.
+ * lock, the cap, the expiry - rather than the exact query text, so the
+ * assertions hold against the behaviour the money depends on.
  */
 
 type SavingsRow = {
   ownerId: number;
   credits: number;
   remainingCredits: number;
+  /** When the daily balance is forfeited. `null` for a balance that never expires. */
+  expiresAt: Date | null;
 };
 
 const state = vi.hoisted(() => ({
   daily: [] as SavingsRow[],
   paid: [] as SavingsRow[],
   /** The mocked Drizzle table objects, so a select knows which one it hit. */
-  dailyTable: { id: "id", ownerId: "ownerId", credits: "credits", remainingCredits: "remainingCredits" },
-  paidTable: { id: "id", ownerId: "ownerId", credits: "credits", remainingCredits: "remainingCredits" },
+  dailyTable: {
+    id: "id",
+    ownerId: "ownerId",
+    credits: "credits",
+    remainingCredits: "remainingCredits",
+    expiresAt: "expiresAt",
+  },
+  paidTable: {
+    id: "id",
+    ownerId: "ownerId",
+    credits: "credits",
+    remainingCredits: "remainingCredits",
+  },
   /** Daily allowance the account gets per day. */
   allocation: 500,
   unlimited: false,
@@ -40,6 +57,16 @@ const state = vi.hoisted(() => ({
   bundles: [] as Array<{ ownerId: number; remainingCredits: number; createdAt: Date }>,
   /** Set when the caller should see a missing relation. */
   missingRelation: false,
+  /** Set when the caller should see a missing column. */
+  missingColumn: false,
+  /**
+   * The clock the mock judges the deadline against.
+   *
+   * The module reads the same wall clock, so the mock uses the real one
+   * rather than a fixed date: a deadline built relative to it is expired or
+   * live for BOTH, which is what the expiry rules are about.
+   */
+  now: new Date(),
 }));
 
 type Cond =
@@ -102,34 +129,71 @@ function pgError(code: string): Error {
   return error;
 }
 
+/**
+ * The deadline a fresh daily term gets: 00:00 UTC two days after the day the
+ * deposit was made. A balance funded today is spendable today and tomorrow,
+ * and is gone at 00:00 UTC the day after tomorrow.
+ */
+function freshDeadline(): Date {
+  const day = new Date(state.now);
+  const utcMidnight = Date.UTC(
+    day.getUTCFullYear(),
+    day.getUTCMonth(),
+    day.getUTCDate() + 2
+  );
+  return new Date(utcMidnight);
+}
+
+/** Whether a daily balance is still live at the mock's clock. */
+function isLive(row: SavingsRow): boolean {
+  if (!row.expiresAt) return true;
+  return row.expiresAt.getTime() > state.now.getTime();
+}
+
 vi.mock("./core", () => ({
   requireDb: vi.fn(async () => ({
     execute: async (statement: Statement) => {
       if (state.missingRelation) throw pgError("42P01");
+      if (state.missingColumn) throw pgError("42703");
       const text = render(statement);
 
       if (text.includes('INSERT INTO "daily_credit_savings"') && text.includes("DO NOTHING")) {
         // The ensure-row statement: creates an empty balance, moves nothing.
         const ownerId = capture(text, /VALUES \((\d+), 0, 0/, "the ensured owner");
         if (!state.daily.some(row => row.ownerId === ownerId)) {
-          state.daily.push({ ownerId, credits: 0, remainingCredits: 0 });
+          state.daily.push({
+            ownerId,
+            credits: 0,
+            remainingCredits: 0,
+            expiresAt: freshDeadline(),
+          });
         }
         return { rows: [] };
       }
 
       if (text.includes('INSERT INTO "daily_credit_savings"') && text.includes("FROM debited")) {
         // The daily move: the cap is read from the LOCKED balance row, and
-        // the debit of today's allowance is gated on it.
+        // the debit of today's allowance is gated on it. A balance whose
+        // deadline has passed holds nothing, so it is both uncapped and
+        // replaced rather than topped up.
         const ownerId = capture(text, /WHERE "ownerId" = (\d+)/, "the daily owner");
         const credits = capture(text, /WHERE (\d+)::int <= (\d+)::int/, "the daily amount");
         const allocation = capture(text, /WHERE \d+::int <= (\d+)::int/, "the daily allowance");
         const balance = state.daily.find(row => row.ownerId === ownerId);
         if (!balance) return { rows: [] };
-        const held = balance.remainingCredits;
+        const live = isLive(balance);
+        const held = live ? balance.remainingCredits : 0;
         if (credits > allocation) return { rows: [] };
         if (held + credits > allocation) return { rows: [] };
+        // An expired balance is forfeited: the new amount does not revive it.
+        balance.remainingCredits = held + credits;
         balance.credits += credits;
-        balance.remainingCredits += credits;
+        // The deadline belongs to the balance: a deposit into a balance that
+        // still holds live credits keeps it; a deposit into an empty or
+        // expired balance opens a fresh term.
+        if (!live || balance.remainingCredits === credits) {
+          balance.expiresAt = freshDeadline();
+        }
         return { rows: [{ credits: balance.credits, remainingCredits: balance.remainingCredits }] };
       }
 
@@ -152,7 +216,7 @@ vi.mock("./core", () => ({
         }
         let balance = state.paid.find(row => row.ownerId === ownerId);
         if (!balance) {
-          balance = { ownerId, credits: 0, remainingCredits: 0 };
+          balance = { ownerId, credits: 0, remainingCredits: 0, expiresAt: null };
           state.paid.push(balance);
         }
         balance.credits += credits;
@@ -160,17 +224,18 @@ vi.mock("./core", () => ({
         return { rows: [{ credits: balance.credits, remainingCredits: balance.remainingCredits }] };
       }
 
-      if (text.includes('SELECT "remainingCredits" AS "before"')) {
+      if (text.includes('AS "before"')) {
         // Taking credits out: the decrement is clamped to what the LOCKED row
-        // holds, so a balance can never go negative.
+        // holds, so a balance can never go negative. An expired daily balance
+        // holds nothing, so it can never be spent from.
         const ownerId = capture(text, /WHERE "ownerId" = (\d+)/, "the spending owner");
         const credits = capture(text, /LEAST\((\d+)::int/, "the spending amount");
         const isDaily = text.includes('"daily_credit_savings"');
         const rows = isDaily ? state.daily : state.paid;
         const balance = rows.find(row => row.ownerId === ownerId);
-        const before = balance?.remainingCredits ?? 0;
+        const before = balance && isLive(balance) ? balance.remainingCredits : 0;
         const taken = Math.min(before, credits);
-        if (balance) balance.remainingCredits = before - taken;
+        if (balance && taken > 0) balance.remainingCredits = before - taken;
         return { rows: [{ taken, remaining: before - taken }] };
       }
 
@@ -186,6 +251,7 @@ vi.mock("./core", () => ({
               .map(row => ({
                 savedCredits: row.credits,
                 remainingCredits: row.remainingCredits,
+                expiresAt: row.expiresAt,
               }));
           },
         }),
@@ -242,6 +308,8 @@ beforeEach(() => {
   state.allocation = 500;
   state.unlimited = false;
   state.missingRelation = false;
+  state.missingColumn = false;
+  state.now = new Date();
 });
 
 describe("saveCreditsToSavings", () => {
@@ -316,23 +384,127 @@ describe("saveCreditsToSavings", () => {
       reason: "savings_unavailable",
     });
   });
+
+  it("fails soft when the expiry column has not been added yet", async () => {
+    // The column arrives in its own migration, so a database that has run the
+    // table migration but not the column one must still answer.
+    state.missingColumn = true;
+    await expect(saveCreditsToSavings(OWNER, "daily", 100)).resolves.toEqual({
+      ok: false,
+      reason: "savings_unavailable",
+    });
+    await expect(saveCreditsToSavings(OWNER, "paid", 100)).resolves.toEqual({
+      ok: false,
+      reason: "savings_unavailable",
+    });
+  });
 });
 
 describe("getCreditSavingsForUser", () => {
   it("reports the two balances separately", async () => {
-    state.daily.push({ ownerId: OWNER, credits: 100, remainingCredits: 100 });
-    state.paid.push({ ownerId: OWNER, credits: 250, remainingCredits: 250 });
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 100,
+      remainingCredits: 100,
+      expiresAt: freshDeadline(),
+    });
+    state.paid.push({ ownerId: OWNER, credits: 250, remainingCredits: 250, expiresAt: null });
     const balances = await getCreditSavingsForUser(OWNER);
-    expect(balances.daily).toEqual({ savedCredits: 100, remainingCredits: 100 });
-    expect(balances.paid).toEqual({ savedCredits: 250, remainingCredits: 250 });
+    expect(balances.daily).toMatchObject({ savedCredits: 100, remainingCredits: 100 });
+    expect(balances.daily.expiresAt).toEqual(freshDeadline());
+    expect(balances.paid).toEqual({ savedCredits: 250, remainingCredits: 250, expiresAt: null });
   });
 
   it("reads an empty balance when the tables do not exist yet", async () => {
     state.missingRelation = true;
     await expect(getCreditSavingsForUser(OWNER)).resolves.toEqual({
-      daily: { savedCredits: 0, remainingCredits: 0 },
-      paid: { savedCredits: 0, remainingCredits: 0 },
+      daily: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
+      paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
     });
+  });
+
+  it("reads an empty balance when the expiry column does not exist yet", async () => {
+    state.missingColumn = true;
+    await expect(getCreditSavingsForUser(OWNER)).resolves.toEqual({
+      daily: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
+      paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
+    });
+  });
+});
+
+describe("the daily expiry", () => {
+  it("gives a fresh balance a deadline two days out, at 00:00 UTC", async () => {
+    await saveCreditsToSavings(OWNER, "daily", 200);
+    // 00:00 UTC two days from today: the balance survives tonight's reset
+    // and is forfeited at the one after it.
+    const expected = new Date(state.now);
+    expected.setUTCHours(0, 0, 0, 0);
+    expected.setUTCDate(expected.getUTCDate() + 2);
+    expect(state.daily[0].expiresAt).toEqual(expected);
+  });
+
+  it("forfeits a balance whose deadline has passed", async () => {
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 300,
+      remainingCredits: 300,
+      expiresAt: new Date(state.now.getTime() - 1_000),
+    });
+    const balances = await getCreditSavingsForUser(OWNER);
+    expect(balances.daily.remainingCredits).toBe(0);
+    expect(balances.daily.expiresAt).toBeNull();
+  });
+
+  it("never spends from a balance whose deadline has passed", async () => {
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 300,
+      remainingCredits: 300,
+      expiresAt: new Date(state.now.getTime() - 1_000),
+    });
+    await expect(claimSavingsCreditForUser(OWNER, "daily")).resolves.toBeUndefined();
+    await expect(settleSavingsUsageForUser(OWNER, "daily", 5)).resolves.toEqual({ charged: 0 });
+    // The forfeited credits stay forfeited.
+    expect(state.daily[0].remainingCredits).toBe(300);
+  });
+
+  it("does not revive expired credits when a new deposit arrives", async () => {
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 300,
+      remainingCredits: 300,
+      expiresAt: new Date(state.now.getTime() - 1_000),
+    });
+    const result = await saveCreditsToSavings(OWNER, "daily", 100);
+    expect(result.ok).toBe(true);
+    // The new balance holds exactly the new amount: the 300 expired credits
+    // are gone, not resurrected.
+    expect(state.daily[0].remainingCredits).toBe(100);
+    // And it opens a fresh term with a fresh deadline.
+    expect(state.daily[0].expiresAt).toEqual(freshDeadline());
+  });
+
+  it("keeps the deadline when a live balance is topped up", async () => {
+    await saveCreditsToSavings(OWNER, "daily", 200);
+    const deadline = state.daily[0].expiresAt;
+    await saveCreditsToSavings(OWNER, "daily", 100);
+    // Topping up must not slide the expiry out - otherwise the pot would
+    // never die.
+    expect(state.daily[0].expiresAt).toEqual(deadline);
+    expect(state.daily[0].remainingCredits).toBe(300);
+  });
+
+  it("frees the whole allowance again once the balance has expired", async () => {
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 300,
+      remainingCredits: 300,
+      expiresAt: new Date(state.now.getTime() - 1_000),
+    });
+    // The expired balance holds nothing, so the full day's allowance is
+    // available to set aside again.
+    const overview = await getCreditSavingsOverviewForUser(OWNER);
+    expect(overview.dailyAvailable).toBe(500);
   });
 });
 
@@ -360,7 +532,12 @@ describe("getCreditSavingsOverviewForUser", () => {
 
 describe("spending from savings", () => {
   it("claims one credit and settles the extra usage against the same balance", async () => {
-    state.daily.push({ ownerId: OWNER, credits: 100, remainingCredits: 100 });
+    state.daily.push({
+      ownerId: OWNER,
+      credits: 100,
+      remainingCredits: 100,
+      expiresAt: freshDeadline(),
+    });
     await expect(claimSavingsCreditForUser(OWNER, "daily")).resolves.toEqual({ remainingCredits: 99 });
     await expect(settleSavingsUsageForUser(OWNER, "daily", 5)).resolves.toEqual({ charged: 5 });
     expect(state.daily[0].remainingCredits).toBe(94);
@@ -372,13 +549,19 @@ describe("spending from savings", () => {
   });
 
   it("never drives a balance below zero", async () => {
-    state.paid.push({ ownerId: OWNER, credits: 3, remainingCredits: 3 });
+    state.paid.push({ ownerId: OWNER, credits: 3, remainingCredits: 3, expiresAt: null });
     await expect(settleSavingsUsageForUser(OWNER, "paid", 10)).resolves.toEqual({ charged: 3 });
     expect(state.paid[0].remainingCredits).toBe(0);
   });
 
   it("degrades instead of throwing when the tables do not exist yet", async () => {
     state.missingRelation = true;
+    await expect(claimSavingsCreditForUser(OWNER, "daily")).resolves.toBeUndefined();
+    await expect(settleSavingsUsageForUser(OWNER, "paid", 5)).resolves.toEqual({ charged: 0 });
+  });
+
+  it("degrades instead of throwing when the expiry column does not exist yet", async () => {
+    state.missingColumn = true;
     await expect(claimSavingsCreditForUser(OWNER, "daily")).resolves.toBeUndefined();
     await expect(settleSavingsUsageForUser(OWNER, "paid", 5)).resolves.toEqual({ charged: 0 });
   });

@@ -58,8 +58,8 @@ const state = vi.hoisted(() => ({
   /** The two savings balances - one per credit source. */
   savings: {
     data: {
-      daily: { savedCredits: 0, remainingCredits: 0 },
-      paid: { savedCredits: 0, remainingCredits: 0 },
+      daily: { savedCredits: 0, remainingCredits: 0, expiresAt: null as Date | null },
+      paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null as Date | null },
       dailyAvailable: 500,
       paidAvailable: 0,
     },
@@ -172,8 +172,8 @@ describe("Billing page", () => {
     freeAccount();
     state.priority.data.priority = false;
     state.priority.data.armed = false;
-    state.savings.data.daily = { savedCredits: 0, remainingCredits: 0 };
-    state.savings.data.paid = { savedCredits: 0, remainingCredits: 0 };
+    state.savings.data.daily = { savedCredits: 0, remainingCredits: 0, expiresAt: null };
+    state.savings.data.paid = { savedCredits: 0, remainingCredits: 0, expiresAt: null };
     state.savings.data.dailyAvailable = 500;
     state.savings.data.paidAvailable = 0;
   });
@@ -253,6 +253,26 @@ describe("Billing page", () => {
     expect(markup).toContain("Paid savings");
     expect(markup).toContain("$0.25 set aside");
     expect(markup).toContain("$5.00 set aside");
+  });
+
+  it("shows the daily balance's expiry, and never one for the paid pot", () => {
+    state.savings.data.daily.remainingCredits = 250;
+    state.savings.data.daily.expiresAt = new Date("2026-11-29T00:00:00.000Z");
+    state.savings.data.paid.remainingCredits = 5_000;
+    const markup = renderToStaticMarkup(<Billing />);
+    // The deadline is a 00:00 UTC boundary, so it is rendered in UTC.
+    expect(markup).toContain("Expires");
+    expect(markup).toContain("00:00 UTC");
+    expect(markup).toContain("Nov 29");
+    // Bought credits never expire, so the paid pot shows no deadline.
+    expect(markup.match(/Expires/g)).toHaveLength(1);
+  });
+
+  it("shows no expiry while the daily balance is empty", () => {
+    state.savings.data.daily.remainingCredits = 0;
+    state.savings.data.daily.expiresAt = null;
+    const markup = renderToStaticMarkup(<Billing />);
+    expect(markup).not.toContain("Expires");
   });
 
   it("offers the daily set-aside control but not one for an unlimited ledger", () => {

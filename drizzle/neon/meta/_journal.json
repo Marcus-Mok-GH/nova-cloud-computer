@@ -484,6 +484,13 @@
       "when": 1795620000000,
       "tag": "0068_credit_savings",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795706400000,
+      "tag": "0069_credit_savings_expiry",
+      "breakpoints": true
     }
   ]
 }

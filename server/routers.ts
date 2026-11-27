@@ -384,8 +384,9 @@ export const appRouter = router({
     /**
      * The account's two savings balances, one per credit source, plus what
      * each could still take in. The two are reported separately on purpose:
-     * daily savings carry over past the midnight reset, paid savings never
-     * expire, and a blended number would hide that difference.
+     * daily savings carry over past the midnight reset and are then forfeited
+     * at 00:00 UTC, paid savings never expire, and a blended number would
+     * hide that difference.
      */
     savings: protectedProcedure.query(({ ctx }) => getCreditSavingsOverviewForUser(ctx.user.id)),
     /**

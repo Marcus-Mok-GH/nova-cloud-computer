@@ -47,16 +47,16 @@ const getSubscriptionForUser = vi.fn(async (): Promise<{
 }));
 
 const getCreditSavingsOverviewForUser = vi.fn(async () => ({
-  daily: { savedCredits: 0, remainingCredits: 0 },
-  paid: { savedCredits: 0, remainingCredits: 0 },
+  daily: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
+  paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
   dailyAvailable: 500,
   paidAvailable: 0,
 }));
 const saveCreditsToSavings = vi.fn(async () => ({
   ok: true as const,
   balances: {
-    daily: { savedCredits: 200, remainingCredits: 200 },
-    paid: { savedCredits: 0, remainingCredits: 0 },
+    daily: { savedCredits: 200, remainingCredits: 200, expiresAt: null },
+    paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
   },
 }));
 
@@ -129,8 +129,8 @@ describe("billing router", () => {
     saveCreditsToSavings.mockResolvedValue({
       ok: true,
       balances: {
-        daily: { savedCredits: 200, remainingCredits: 200 },
-        paid: { savedCredits: 0, remainingCredits: 0 },
+        daily: { savedCredits: 200, remainingCredits: 200, expiresAt: null },
+        paid: { savedCredits: 0, remainingCredits: 0, expiresAt: null },
       },
     });
     getPriorityStatusForUser.mockClear();
@@ -345,15 +345,15 @@ describe("billing router", () => {
   describe("credits router", () => {
     it("reports the two savings balances separately", async () => {
       getCreditSavingsOverviewForUser.mockResolvedValueOnce({
-        daily: { savedCredits: 500, remainingCredits: 300 },
-        paid: { savedCredits: 1_000, remainingCredits: 1_000 },
+        daily: { savedCredits: 500, remainingCredits: 300, expiresAt: null },
+        paid: { savedCredits: 1_000, remainingCredits: 1_000, expiresAt: null },
         dailyAvailable: 200,
         paidAvailable: 1_000,
       });
       const caller = appRouter.createCaller(contextFor(userRow(1)));
       const overview = await caller.credits.savings();
-      expect(overview.daily).toEqual({ savedCredits: 500, remainingCredits: 300 });
-      expect(overview.paid).toEqual({ savedCredits: 1_000, remainingCredits: 1_000 });
+      expect(overview.daily).toEqual({ savedCredits: 500, remainingCredits: 300, expiresAt: null });
+      expect(overview.paid).toEqual({ savedCredits: 1_000, remainingCredits: 1_000, expiresAt: null });
       expect(overview.dailyAvailable).toBe(200);
       expect(overview.paidAvailable).toBe(1_000);
     });

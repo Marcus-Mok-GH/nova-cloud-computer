@@ -125,10 +125,11 @@ type SavingsPanelProps = {
  * The account's two savings balances.
  *
  * They are two cards on purpose: the daily pot rolls over past the midnight
- * reset while the paid pot never expires, so a single combined number would
- * hide a difference the account owner needs to see. Each card moves credits
- * out of its own live balance and into its own savings balance, so the
- * account's total spendable credits never change.
+ * reset and is then forfeited at 00:00 UTC, while the paid pot never
+ * expires, so a single combined number would hide a difference the account
+ * owner needs to see. Each card moves credits out of its own live balance and
+ * into its own savings balance, so the account's total spendable credits
+ * never change.
  */
 function SavingsPanel({ unlimited }: SavingsPanelProps) {
   const { t, locale } = useTranslation();
@@ -178,6 +179,7 @@ function SavingsPanel({ unlimited }: SavingsPanelProps) {
     body: string,
     balance: number | undefined,
     available: number,
+    expiresAt?: Date | null,
   ) => {
     const amount = amounts[source];
     const dollars = Number(amount);
@@ -203,6 +205,21 @@ function SavingsPanel({ unlimited }: SavingsPanelProps) {
                 : t("billing.savings.none")}
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{body}</p>
+            {expiresAt ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {t("billing.savings.expires", {
+                  // The deadline is a 00:00 UTC boundary, so it is rendered
+                  // in UTC: in another timezone the same instant could fall
+                  // on the previous day and read as the wrong expiry.
+                  date: expiresAt.toLocaleDateString(locale, {
+                    timeZone: "UTC",
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  }),
+                })}
+              </p>
+            ) : null}
           </div>
         </div>
         {available > 0 ? (
@@ -271,7 +288,8 @@ function SavingsPanel({ unlimited }: SavingsPanelProps) {
           t("billing.savings.dailyTitle"),
           t("billing.savings.dailyBody"),
           daily?.remainingCredits,
-          dailyAvailable
+          dailyAvailable,
+          daily?.expiresAt
         )}
         {card(
           "paid",

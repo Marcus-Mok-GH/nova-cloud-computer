@@ -2,10 +2,12 @@ import {
   claimDailyCreditForUser,
   claimInferenceRequestForUser,
   claimPurchasedCreditForUser,
+  claimSavingsCreditForUser,
   getInferenceAllowanceForUser,
   hasActiveAccessForUser,
   hasProAccessForUser,
   settleDailyCreditUsageForUser,
+  settleSavingsUsageForUser,
 } from "./db";
 import { calculateInferenceCredits } from "./credits";
 import { createSseLineFramer, sseDataPayload } from "./sse";
@@ -712,8 +714,8 @@ async function readGatewayStreamedCompletion(
   };
 }
 
-/** Which ledger funded a request, so settlement charges back to the same one. */
-export type CreditFundingSource = "daily" | "purchased";
+/** Which ledger a request is charged to, so settlement charges back to the same one. */
+export type CreditFundingSource = "daily" | "purchased" | "daily_savings" | "paid_savings";
 
 async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSource> {
   const claim = await claimDailyCreditForUser(ownerId);
@@ -722,6 +724,13 @@ async function claimDailyCreditOrThrow(ownerId: number): Promise<CreditFundingSo
   // one of those before refusing the request.
   const purchased = await claimPurchasedCreditForUser(ownerId);
   if (purchased) return "purchased";
+  // Both live balances are dry. Savings are the account's deliberate reserve,
+  // so they are spent LAST - an account with no savings behaves exactly as it
+  // did before the feature existed.
+  const dailySavings = await claimSavingsCreditForUser(ownerId, "daily");
+  if (dailySavings) return "daily_savings";
+  const paidSavings = await claimSavingsCreditForUser(ownerId, "paid");
+  if (paidSavings) return "paid_savings";
   throw new AiGatewayClientError(
     "Your daily Nova balance is used up. It resets tomorrow, or you can top up from Billing.",
     "credits_exhausted"
@@ -738,7 +747,7 @@ async function settleGatewayCredit(
   try {
     if (source === "daily") {
       await settleDailyCreditUsageForUser(ownerId, chargedCredits, usage);
-    } else {
+    } else if (source === "purchased") {
       // A bought bundle was charged one credit up front, so the remainder must
       // come out of a bundle too. Charging it to the daily ledger would
       // under-charge the request and inflate an allowance the account is not
@@ -757,6 +766,19 @@ async function settleGatewayCredit(
         const shortfall = extra - charged;
         if (shortfall > 0) {
           console.warn(`[Credits] account ${ownerId} under-charged by ${shortfall} credit(s): bundles exhausted mid-request`);
+        }
+      }
+    } else {
+      // A savings balance was charged one credit up front, so the remainder
+      // must come out of that SAME savings balance. Charging it elsewhere
+      // would under-charge the request against the ledger that paid for it.
+      const extra = Math.max(0, Math.ceil(chargedCredits) - 1);
+      if (extra > 0) {
+        const savingsSource = source === "daily_savings" ? "daily" : "paid";
+        const { charged } = await settleSavingsUsageForUser(ownerId, savingsSource, extra);
+        const shortfall = extra - charged;
+        if (shortfall > 0) {
+          console.warn(`[Credits] account ${ownerId} under-charged by ${shortfall} credit(s): savings exhausted mid-request`);
         }
       }
     }

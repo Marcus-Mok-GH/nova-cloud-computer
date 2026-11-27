@@ -1,3 +1,27 @@
+2026-11-27 - feat(billing): add savings, one balance per credit source
+
+Credits can now be set aside instead of being spent or lost. Nova has two
+credit sources with opposite expiry rules - the daily allowance is rewritten
+at UTC midnight, a purchased bundle never expires - so the savings live in
+two separate balances that are never merged: daily savings roll over past the
+reset, paid savings never expire. Setting credits aside MOVES them: the
+account's total spendable credits are unchanged, the daily ledger's existing
+counter records what left today's allowance, and the bought bundles are
+drained oldest first. Savings are spent LAST, after the daily allowance and
+the bought bundles, so an account that does not use them behaves exactly as
+before. The billing page shows the two balances separately, with the amount
+that could still be set aside from each.
+
+The daily balance is capped at one day's allowance so it stays a buffer
+rather than becoming a second allowance, and that cap is read from a single
+lockable row per account: a cap computed as a cross-row aggregate is read
+from the statement snapshot, so two concurrent set-asides would both see the
+same pre-race total and both pass the guard (measured: 700 credits against a
+500 cap). The new tables are created by the automatic schema bootstrap, so a
+database that has not run the migration yet reads an empty balance instead of
+failing, and the hot daily-credit ledger is left untouched so existing credit
+queries keep working before the migration runs.
+
 2026-11-26 - feat(app): pause the app behind a waitlist until 1 December
 
 Nova's database hit its provider quota, so every database-backed surface is

@@ -13,7 +13,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 const claimDailyCreditForUser = vi.fn();
 const claimPurchasedCreditForUser = vi.fn();
+const claimSavingsCreditForUser = vi.fn();
 const settleDailyCreditUsageForUser = vi.fn(async () => ({}));
+const settleSavingsUsageForUser = vi.fn(async () => ({ charged: 0 }));
 const claimInferenceRequestForUser = vi.fn(async () => ({ usedRequests: 1 }));
 const getInferenceAllowanceForUser = vi.fn(async () => ({ usedRequests: 0 }));
 
@@ -21,7 +23,9 @@ vi.mock("./db", () => ({
   hasActiveAccessForUser: vi.fn(async () => true),
   claimDailyCreditForUser,
   claimPurchasedCreditForUser,
+  claimSavingsCreditForUser,
   settleDailyCreditUsageForUser,
+  settleSavingsUsageForUser,
   claimInferenceRequestForUser,
   getInferenceAllowanceForUser,
   getChatModelForUser: vi.fn(async () => null),
@@ -55,6 +59,10 @@ function gatewayResponse() {
 beforeEach(() => {
   vi.clearAllMocks();
   claimInferenceRequestForUser.mockResolvedValue({ usedRequests: 1 });
+  // Savings are the LAST resort, so a mock that returns "a claim" by default
+  // would let them pay for a request that the live balances cover.
+  claimSavingsCreditForUser.mockResolvedValue(undefined);
+  settleSavingsUsageForUser.mockResolvedValue({ charged: 0 });
   // The gateway's readiness probe is a successful /models round-trip, so the
   // fake fetch must answer that as well as the completion.
   process.env.POLLINATIONS_API_KEY = "sk_" + "k".repeat(40);
@@ -101,5 +109,52 @@ describe("credit funding source", () => {
     // it tried the reservation, then gave up rather than looping forever
     expect(claimPurchasedCreditForUser.mock.calls.length).toBeLessThanOrEqual(6);
     expect(settleDailyCreditUsageForUser).not.toHaveBeenCalled();
+  });
+
+  it("spends the daily savings only after the daily allowance and the bundles are dry", async () => {
+    claimDailyCreditForUser.mockResolvedValue(undefined);
+    claimPurchasedCreditForUser.mockResolvedValue(undefined);
+    claimSavingsCreditForUser.mockImplementation(async (_ownerId: number, source: string) =>
+      source === "daily" ? { remainingCredits: 400 } : undefined
+    );
+    await completeWithAiGateway(1, "hello", undefined, undefined, 1_000);
+    expect(claimSavingsCreditForUser).toHaveBeenCalledWith(1, "daily");
+    // The paid pot must not be touched while the daily pot still had credits.
+    expect(claimSavingsCreditForUser).not.toHaveBeenCalledWith(1, "paid");
+  });
+
+  it("spends the paid savings when the daily savings are empty too", async () => {
+    claimDailyCreditForUser.mockResolvedValue(undefined);
+    claimPurchasedCreditForUser.mockResolvedValue(undefined);
+    claimSavingsCreditForUser.mockImplementation(async (_ownerId: number, source: string) =>
+      source === "paid" ? { remainingCredits: 400 } : undefined
+    );
+    await completeWithAiGateway(1, "hello", undefined, undefined, 1_000);
+    expect(claimSavingsCreditForUser).toHaveBeenCalledWith(1, "daily");
+    expect(claimSavingsCreditForUser).toHaveBeenCalledWith(1, "paid");
+  });
+
+  it("settles a savings-funded request against the SAME savings balance", async () => {
+    claimDailyCreditForUser.mockResolvedValue(undefined);
+    claimPurchasedCreditForUser.mockResolvedValue(undefined);
+    claimSavingsCreditForUser.mockImplementation(async (_ownerId: number, source: string) =>
+      source === "daily" ? { remainingCredits: 400 } : undefined
+    );
+    settleSavingsUsageForUser.mockResolvedValue({ charged: 4 });
+    await completeWithAiGateway(1, "hello", undefined, undefined, 1_000);
+    // The reservation took one credit, so 5 - 1 = 4 more come out of savings.
+    expect(settleSavingsUsageForUser).toHaveBeenCalledWith(1, "daily", 4);
+    // A savings-funded request must not be billed to a ledger that is empty.
+    expect(settleDailyCreditUsageForUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses the request when the savings are empty as well", async () => {
+    claimDailyCreditForUser.mockResolvedValue(undefined);
+    claimPurchasedCreditForUser.mockResolvedValue(undefined);
+    await expect(completeWithAiGateway(1, "hello", undefined, undefined, 1_000)).rejects.toMatchObject({
+      kind: "credits_exhausted",
+    });
+    expect(claimSavingsCreditForUser).toHaveBeenCalledWith(1, "daily");
+    expect(claimSavingsCreditForUser).toHaveBeenCalledWith(1, "paid");
   });
 });

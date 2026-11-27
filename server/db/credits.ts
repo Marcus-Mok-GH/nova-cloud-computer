@@ -55,6 +55,8 @@ export async function getDailyCreditStatusForUser(ownerId: number) {
     creditDay,
     unlimited: policy.unlimited,
     dailyCredits: dailyCreditsTotal,
+    // Credits set aside into savings are counted here too: they were taken
+    // out of today's allowance, so they are no longer part of it.
     usedCredits,
     inputTokens: Number(row?.inputTokens ?? 0),
     outputTokens: Number(row?.outputTokens ?? 0),

@@ -55,6 +55,18 @@ const state = vi.hoisted(() => ({
     isError: false,
     refetch: vi.fn(),
   },
+  /** The two savings balances - one per credit source. */
+  savings: {
+    data: {
+      daily: { savedCredits: 0, remainingCredits: 0 },
+      paid: { savedCredits: 0, remainingCredits: 0 },
+      dailyAvailable: 500,
+      paidAvailable: 0,
+    },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
 }));
 
 vi.mock("@/components/DashboardLayout", () => ({
@@ -71,8 +83,16 @@ vi.mock("@/lib/trpc", () => ({
     },
     credits: {
       status: { useQuery: () => state.credits },
+      savings: { useQuery: () => state.savings },
+      setAside: { useMutation: () => mutation },
     },
-    useUtils: () => ({ billing: { status: { invalidate: vi.fn() } } }),
+    useUtils: () => ({
+      billing: { status: { invalidate: vi.fn() } },
+      credits: {
+        status: { invalidate: vi.fn() },
+        savings: { invalidate: vi.fn() },
+      },
+    }),
   },
 }));
 
@@ -152,6 +172,10 @@ describe("Billing page", () => {
     freeAccount();
     state.priority.data.priority = false;
     state.priority.data.armed = false;
+    state.savings.data.daily = { savedCredits: 0, remainingCredits: 0 };
+    state.savings.data.paid = { savedCredits: 0, remainingCredits: 0 };
+    state.savings.data.dailyAvailable = 500;
+    state.savings.data.paidAvailable = 0;
   });
 
   it("lists every buyable plan for a free account", () => {
@@ -216,6 +240,28 @@ describe("Billing page", () => {
     const markup = renderToStaticMarkup(<Billing />);
     expect(markup).toContain("Priority active");
     expect(markup).not.toContain("Buy priority");
+  });
+
+  it("shows the two savings balances separately", () => {
+    state.savings.data.daily.remainingCredits = 250;
+    state.savings.data.paid.remainingCredits = 5_000;
+    state.savings.data.dailyAvailable = 250;
+    state.savings.data.paidAvailable = 5_000;
+    const markup = renderToStaticMarkup(<Billing />);
+    // Two distinct pots, not one blended number.
+    expect(markup).toContain("Daily savings");
+    expect(markup).toContain("Paid savings");
+    expect(markup).toContain("$0.25 set aside");
+    expect(markup).toContain("$5.00 set aside");
+  });
+
+  it("offers the daily set-aside control but not one for an unlimited ledger", () => {
+    const markup = renderToStaticMarkup(<Billing />);
+    expect(markup).toContain("Set aside");
+    operatorAccount();
+    state.savings.data.dailyAvailable = 0;
+    const unlimitedMarkup = renderToStaticMarkup(<Billing />);
+    expect(unlimitedMarkup).toContain("no daily allowance to set aside");
   });
 
   it("renders only a spinner while the subscription query is loading", () => {

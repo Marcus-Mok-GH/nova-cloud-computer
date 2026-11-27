@@ -169,6 +169,50 @@ export const creditPurchases = pgTable("credit_purchases", {
 ]);
 export type CreditPurchase = typeof creditPurchases.$inferSelect;
 
+/**
+ * Savings balances: credits the account set aside from its two credit
+ * sources, kept apart from one another.
+ *
+ * `daily_credit_savings` holds credits moved out of the daily-refreshing
+ * allowance; `paid_credit_savings` holds credits moved out of a purchased
+ * bundle. The two are never merged - one rolls over past the midnight reset,
+ * the other never expires.
+ *
+ * Each balance is ONE row per account, not one row per deposit: the daily pot
+ * is capped at a single day's allowance, and a cap computed as a cross-row
+ * aggregate is read from the statement SNAPSHOT, so two concurrent set-asides
+ * would both see the same pre-race total and both pass the guard - the pot
+ * would end up over its cap. A single row per account can be locked with
+ * `FOR UPDATE`, so the loser's re-read sees the winner's committed total and
+ * refuses.
+ */
+export const dailyCreditSavings = pgTable("daily_credit_savings", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Credits ever moved into this savings balance. */
+  credits: integer("credits").notNull().default(0),
+  /** How many of them are still unspent. */
+  remainingCredits: integer("remainingCredits").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("daily_credit_savings_owner_key").on(table.ownerId),
+]);
+export const paidCreditSavings = pgTable("paid_credit_savings", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Credits ever moved into this savings balance. */
+  credits: integer("credits").notNull().default(0),
+  /** How many of them are still unspent. */
+  remainingCredits: integer("remainingCredits").notNull().default(0),
+  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+  uniqueIndex("paid_credit_savings_owner_key").on(table.ownerId),
+]);
+export type DailyCreditSaving = typeof dailyCreditSavings.$inferSelect;
+export type PaidCreditSaving = typeof paidCreditSavings.$inferSelect;
+
 /** Webhook update ids Nova has already handled - dedupes Telegram redeliveries. */
 export const telegramUpdateLog = pgTable("telegram_update_log", { updateId: bigint("updateId", { mode: "number" }).primaryKey(), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() });
 export const agentStopRequests = pgTable("agent_stop_requests", { id: serial("id").primaryKey(), ownerId: integer("ownerId").notNull().references(() => users.id, { onDelete: "cascade" }), chatId: varchar("chatId", { length: 24 }), createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull() }, table => [index("agent_stop_requests_owner_idx").on(table.ownerId, table.createdAt)]);

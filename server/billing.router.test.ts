@@ -46,9 +46,25 @@ const getSubscriptionForUser = vi.fn(async (): Promise<{
   whopCheckoutConfigId: null,
 }));
 
+const getCreditSavingsOverviewForUser = vi.fn(async () => ({
+  daily: { savedCredits: 0, remainingCredits: 0 },
+  paid: { savedCredits: 0, remainingCredits: 0 },
+  dailyAvailable: 500,
+  paidAvailable: 0,
+}));
+const saveCreditsToSavings = vi.fn(async () => ({
+  ok: true as const,
+  balances: {
+    daily: { savedCredits: 200, remainingCredits: 200 },
+    paid: { savedCredits: 0, remainingCredits: 0 },
+  },
+}));
+
 vi.mock("./db", () => ({
   hasActiveAccessForUser,
   getFreeTrialEndsAtForUser,
+  getCreditSavingsOverviewForUser,
+  saveCreditsToSavings,
   getDailyCreditStatusForUser: vi.fn(async () => ({
     region: "global",
     creditDay: "2026-09-24",
@@ -108,6 +124,15 @@ function userRow(id: number): UserRow {
 
 describe("billing router", () => {
   beforeEach(() => {
+    getCreditSavingsOverviewForUser.mockClear();
+    saveCreditsToSavings.mockClear();
+    saveCreditsToSavings.mockResolvedValue({
+      ok: true,
+      balances: {
+        daily: { savedCredits: 200, remainingCredits: 200 },
+        paid: { savedCredits: 0, remainingCredits: 0 },
+      },
+    });
     getPriorityStatusForUser.mockClear();
     createWhopPriorityCheckout.mockClear();
     createWhopCreditTopUpCheckout.mockClear();
@@ -315,5 +340,56 @@ describe("billing router", () => {
     const anonymous = appRouter.createCaller(contextFor(null));
     await expect(anonymous.billing.status()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(anonymous.billing.purchasePriority()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  describe("credits router", () => {
+    it("reports the two savings balances separately", async () => {
+      getCreditSavingsOverviewForUser.mockResolvedValueOnce({
+        daily: { savedCredits: 500, remainingCredits: 300 },
+        paid: { savedCredits: 1_000, remainingCredits: 1_000 },
+        dailyAvailable: 200,
+        paidAvailable: 1_000,
+      });
+      const caller = appRouter.createCaller(contextFor(userRow(1)));
+      const overview = await caller.credits.savings();
+      expect(overview.daily).toEqual({ savedCredits: 500, remainingCredits: 300 });
+      expect(overview.paid).toEqual({ savedCredits: 1_000, remainingCredits: 1_000 });
+      expect(overview.dailyAvailable).toBe(200);
+      expect(overview.paidAvailable).toBe(1_000);
+    });
+
+    it("moves credits into savings in dollars, not raw credits", async () => {
+      const caller = appRouter.createCaller(contextFor(userRow(1)));
+      await caller.credits.setAside({ source: "daily", dollars: 1.5 });
+      // The ledger keeps integer credits ($1 = 1,000 credits).
+      expect(saveCreditsToSavings).toHaveBeenCalledWith(1, "daily", 1_500);
+    });
+
+    it("refuses an amount that is not positive", async () => {
+      const caller = appRouter.createCaller(contextFor(userRow(1)));
+      await expect(caller.credits.setAside({ source: "daily", dollars: 0 })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      expect(saveCreditsToSavings).not.toHaveBeenCalled();
+    });
+
+    it("reports a refused move as a bad request rather than a server error", async () => {
+      saveCreditsToSavings.mockResolvedValueOnce({
+        ok: false,
+        reason: "insufficient_credits",
+      });
+      const caller = appRouter.createCaller(contextFor(userRow(1)));
+      await expect(caller.credits.setAside({ source: "paid", dollars: 5 })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+    });
+
+    it("requires a signed-in account", async () => {
+      const anonymous = appRouter.createCaller(contextFor(null));
+      await expect(anonymous.credits.savings()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(anonymous.credits.setAside({ source: "daily", dollars: 1 })).rejects.toMatchObject({
+        code: "UNAUTHORIZED",
+      });
+    });
   });
 });

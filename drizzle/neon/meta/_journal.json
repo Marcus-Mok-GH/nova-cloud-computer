@@ -477,6 +477,13 @@
       "when": 1795534021052,
       "tag": "0067_swap_gpt61sol_gpt6luna",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795620000000,
+      "tag": "0068_credit_savings",
+      "breakpoints": true
     }
   ]
 }

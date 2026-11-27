@@ -1,6 +1,8 @@
 import NovaLogo from "@/components/NovaLogo";
+import { formatCredits } from "@shared/money";
+import { OUTAGE_COMPENSATION_CREDITS } from "@shared/outageCompensation";
 import { waitlistReopenLabel } from "@shared/waitlist";
-import { ArrowRight, Check, Mail } from "lucide-react";
+import { ArrowRight, Check, Mail, Sparkles } from "lucide-react";
 import React, { FormEvent, useState } from "react";
 
 type State =
@@ -83,6 +85,22 @@ export default function Waitlist() {
               We&rsquo;re upgrading Nova&rsquo;s storage and pausing the app while the new limits switch on. Leave your email and
               we&rsquo;ll write to you once, the moment it&rsquo;s back.
             </p>
+
+            {/* The apology, where the inconvenience is actually being felt:
+                every account that already existed is being credited for the
+                time it could not use Nova. */}
+            <div className="mt-6 flex gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] p-4">
+              <Sparkles size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-semibold text-card-foreground">
+                  We&rsquo;re sorry for the disruption.
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Every existing account is getting {formatCredits(OUTAGE_COMPENSATION_CREDITS)} in
+                  credits as an apology. Those credits never expire, and there&rsquo;s nothing you need to do.
+                </p>
+              </div>
+            </div>
 
             <form onSubmit={joinWaitlist} className="mt-7 space-y-4">
               <label className="block text-sm font-semibold text-card-foreground">

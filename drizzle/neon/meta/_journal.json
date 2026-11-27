@@ -498,6 +498,13 @@
       "when": 1795792800000,
       "tag": "0070_api_key_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795879200000,
+      "tag": "0071_outage_credit_compensation",
+      "breakpoints": true
     }
   ]
 }

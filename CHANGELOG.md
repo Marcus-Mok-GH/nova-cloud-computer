@@ -1,3 +1,28 @@
+2026-11-27 - fix(billing): credit every existing account for the storage-outage disruption
+
+Nova's database hit its provider quota, so every database-backed surface was
+unavailable while the limits switched over. To make up for the disruption,
+every account that already existed is credited 1,000 credits ($1.00).
+
+The credits land in the bought-credit ledger, which is the only credit bucket
+that does not expire: the daily allowance is rewritten at UTC midnight, so a
+gift placed there would evaporate. They are spent only after the daily
+allowance runs out, and they never expire.
+
+The grant is a FIXED set of accounts - those that existed before Nova came
+back on 1 December - so the same outage cannot compensate a different set of
+accounts depending on when the migration happened to run, and re-running it can
+never reach an account created after the disruption. Each account's grant is
+one row keyed by a payment id derived from its owner id, so the unique index
+makes re-applying it a no-op rather than a second grant.
+
+The waitlist page now apologises for the disruption and says what is being
+credited, and the billing page reports the goodwill credits apart from the
+bought ones so a balance that grew for a reason the user cannot see has a
+visible reason. The landing FAQ answers why Nova was down, and the public Q&A
+assistant knows about the upgrade and the credits, so it can answer when
+someone asks why their balance went up.
+
 2026-11-27 - feat(api): add workspace API keys that manage the agent's computer
 
 Nova's API key type was for one job: calling the model over the

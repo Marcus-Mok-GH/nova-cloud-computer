@@ -448,6 +448,8 @@ export const en = {
   "billing.topUps.buy": "Buy",
   "billing.topUps.starting": "Opening checkout\u2026",
   "billing.topUps.notConfigured": "Top-ups are unavailable right now.",
+  "billing.topUps.compensation":
+    "{{count}} of that is a goodwill credit we added to every existing account while Nova's storage was being upgraded.",
   "billing.topUps.owned": "{{count}} added funds left",
   "billing.topUps.error": "Could not open checkout. Please try again.",
   "billing.plans.title": "Plans",
@@ -759,6 +761,9 @@ export const en = {
   "landing.faq.q6": "How much does it cost?",
   "landing.faq.a6":
     "Nova starts with a free 14-day trial, no card required. Plus is $4.99 a month ($5.00 a day) and Pro is $7.99 a month ($10.00 a day plus premium models). Priority is a one-time $4.99, and top-ups start at $5.",
+  "landing.faq.q7": "Was Nova down?",
+  "landing.faq.a7":
+    "For a while, while we upgraded its storage. Every account that already existed was credited 1,000 credits ($1.00) as an apology, and those credits never expire.",
 
   // Landing: developer callout
   "landing.dev.eyebrow": "For developers",

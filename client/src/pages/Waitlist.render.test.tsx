@@ -24,6 +24,15 @@ describe("Waitlist page", () => {
     expect(markup).toContain("One email when we’re back.");
   });
 
+  it("apologises for the disruption and names the goodwill credits", () => {
+    // The note has to be where the inconvenience is actually being felt, and
+    // it has to say what the account is being given.
+    const markup = renderToStaticMarkup(<Waitlist />);
+    expect(markup).toContain("We’re sorry for the disruption.");
+    expect(markup).toContain("$1.00");
+    expect(markup).toContain("never expire");
+  });
+
   it("never offers a way into the product during the outage", () => {
     const markup = renderToStaticMarkup(<Waitlist />);
     expect(markup).not.toContain("Sign in");

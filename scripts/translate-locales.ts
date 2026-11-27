@@ -99,6 +99,20 @@ const PACE_MS = Math.max(0, Number(process.env.TRANSLATE_PACE_MS ?? (API_KEY ? 1
  */
 const CONCURRENCY = Math.max(1, Number(process.env.TRANSLATE_CONCURRENCY ?? (API_KEY ? 4 : 1)));
 
+/**
+ * How long a single completion request may take before it is treated as
+ * failed. The provider is rate-limited and occasionally holds a connection
+ * open without answering, so without this the run waits forever.
+ *
+ * It is deliberately generous: the free tier paces replies roughly 45 s apart,
+ * so a request queued behind others legitimately takes minutes. This only has
+ * to catch a connection that never settles.
+ */
+const REQUEST_TIMEOUT_MS = Math.max(
+  5_000,
+  Number(process.env.TRANSLATE_REQUEST_TIMEOUT_MS ?? 600_000)
+);
+
 /** Brand and product names that must survive translation untouched. */
 const PROPER_NOUNS =
   "Nova, GitHub, Gmail, Vercel, Composio, Telegram, OpenAI, OpenRouter, Groq, Together, DeepSeek, Anthropic, vLLM, Ollama, Neon, E2B, BYOK, API, VM, Ctrl, Cmd, Enter, Bearer, RESET, CLEAR, DELETE";
@@ -263,6 +277,11 @@ async function chat(system: string, user: string): Promise<string> {
       await limiter.acquire();
       const response = await fetch(`${API_BASE_URL}/chat/completions`, {
         method: "POST",
+        // A hung connection would otherwise block the whole run forever: the
+        // fetch never settles, so no retry fires and no batch is ever cached.
+        // The timeout turns that hang into an error the retry loop already
+        // knows how to handle.
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         headers: {
           "Content-Type": "application/json",
           ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),

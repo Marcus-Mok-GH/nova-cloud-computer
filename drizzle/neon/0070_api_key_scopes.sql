@@ -1,0 +1,11 @@
+-- API keys carry a SCOPE: what the key is allowed to do.
+--
+-- "inference" keys call the OpenAI-compatible model API. "workspace" keys
+-- drive the agent's computer - its files, terminal, automations and
+-- deployments. The two are separate key TYPES, not one key with extra
+-- permissions: a workspace key can never spend inference credits, and an
+-- inference key can never touch the workspace.
+--
+-- Existing rows are inference keys - that is what every key created before
+-- this migration could do - so they keep working untouched.
+ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "scope" varchar(16) DEFAULT 'inference' NOT NULL;

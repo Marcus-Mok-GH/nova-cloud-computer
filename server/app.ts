@@ -25,6 +25,7 @@ import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
 import { handleWhopWebhook, isWhopConfigured } from "./whop";
 import { createWaitlistHandler } from "./waitlist";
+import { workspaceApiRouter } from "./workspaceApi";
 import {
   prepareSupportQuestion,
   streamSupportAnswer,
@@ -156,6 +157,8 @@ app.post(
 app.use(express.json({ limit: "4mb" })); app.use(express.urlencoded({ limit: "1mb", extended: true })); app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 app.use(automationPlannerRouter);
 app.use("/api/v1", inferenceApiRouter);
+// The workspace API: a second key type that drives the agent's computer.
+app.use("/api/workspace/v1", workspaceApiRouter);
 async function authenticatedUser(req: express.Request, res: express.Response) { const user = await sdk.authenticateRequest(req); if (!user) { res.status(401).json({ error: "Unauthorized" }); return null; } return user; }
 /**
  * Public: the pre-launch waitlist is the only action available to a signed-out

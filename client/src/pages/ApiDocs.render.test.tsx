@@ -27,6 +27,19 @@ describe("API docs page", () => {
     expect(markup).toContain("[DONE]");
   });
 
+  it("documents the workspace API and the two key types", () => {
+    const markup = renderToStaticMarkup(<ApiDocs />);
+    // The second key type, its namespace, and the rule that the two never
+    // work for each other.
+    expect(markup).toContain("nova_wk_");
+    expect(markup).toContain("/api/workspace/v1");
+    expect(markup).toContain("Workspace API");
+    expect(markup).toContain("never work for each other");
+    // The management surface it opens.
+    expect(markup).toContain("/automations");
+    expect(markup).toContain("/terminal");
+  });
+
   it("shows a sign-up call to action instead of a login wall", () => {
     const markup = renderToStaticMarkup(<ApiDocs />);
     expect(markup).toContain("Get started");

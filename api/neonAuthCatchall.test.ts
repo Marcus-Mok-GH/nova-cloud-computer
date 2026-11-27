@@ -41,6 +41,10 @@ describe("Neon Auth catch-all dispatch", () => {
     // would proxy it away from the DB-free Express app.
     expect(isCoDeployedApiPath(["support", "stream"])).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/support/stream")).toBe(true);
+    // The workspace API must stay co-deployed too, or API_SERVICE_URL would
+    // proxy it away from the app that owns the workspace.
+    expect(isCoDeployedApiPath(["workspace", "v1", "files"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/workspace/v1/files")).toBe(true);
     expect(isCoDeployedApiPath(["status"])).toBe(true);
     expect(isCoDeployedApiPath(["v1", "chat", "completions"])).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/status")).toBe(true);

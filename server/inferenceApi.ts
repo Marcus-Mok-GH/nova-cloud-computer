@@ -219,7 +219,10 @@ async function requireApiOwner(req: Request, res: Response): Promise<number | nu
     sendError(res, 401, "Missing or invalid API key. Pass `Authorization: Bearer nova_sk_...`.", "invalid_request_error", "invalid_api_key");
     return null;
   }
-  const ownerId = await findOwnerByApiKey(presentedKey);
+  // Only an INFERENCE key may call the model API. A workspace key (the type
+  // that drives the agent's computer) is refused here, so the two key types
+  // can never be used for each other.
+  const ownerId = await findOwnerByApiKey(presentedKey, { scope: "inference" });
   if (ownerId === null) {
     sendError(res, 401, "That API key has been revoked or no longer exists.", "invalid_request_error", "invalid_api_key");
     return null;

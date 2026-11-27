@@ -43,3 +43,15 @@ export function isForeignKeyViolation(error: unknown): boolean {
 export function isMissingRelation(error: unknown): boolean {
   return causeCodeMatches(error, "42P01");
 }
+
+/**
+ * Postgres `undefined_column` (42703) - the column does not exist.
+ *
+ * The same crash class as a missing table, one level down: a column added to
+ * a table by a migration that has not run yet. A query that selects it fails
+ * with `column ... does not exist`, which is NOT a missing relation, so code
+ * that degrades on a missing table has to degrade on this too.
+ */
+export function isMissingColumn(error: unknown): boolean {
+  return causeCodeMatches(error, "42703");
+}

@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 /** Internal Nova profile mapped one-to-one to the immutable Neon Auth subject. */
@@ -175,8 +176,8 @@ export type CreditPurchase = typeof creditPurchases.$inferSelect;
  *
  * `daily_credit_savings` holds credits moved out of the daily-refreshing
  * allowance; `paid_credit_savings` holds credits moved out of a purchased
- * bundle. The two are never merged - one rolls over past the midnight reset,
- * the other never expires.
+ * bundle. The two are never merged - the daily balance EXPIRES at a 00:00
+ * UTC boundary, while the paid balance never expires.
  *
  * Each balance is ONE row per account, not one row per deposit: the daily pot
  * is capped at a single day's allowance, and a cap computed as a cross-row
@@ -193,6 +194,19 @@ export const dailyCreditSavings = pgTable("daily_credit_savings", {
   credits: integer("credits").notNull().default(0),
   /** How many of them are still unspent. */
   remainingCredits: integer("remainingCredits").notNull().default(0),
+  /**
+   * When the balance is forfeited: the 00:00 UTC boundary that ends the day
+   * AFTER the midnight reset it survived. A balance funded on day D is
+   * spendable on day D and on day D+1, and is gone at 00:00 UTC on day D+2.
+   *
+   * Expiring at the SAME midnight the balance was funded would be a trap -
+   * the credits would leave the day's allowance and vanish before they could
+   * be spent, while the allowance refilled to its full size anyway - so the
+   * deadline lands on the boundary after the reset the balance survived.
+   */
+  expiresAt: timestamp("expiresAt", { withTimezone: true })
+    .default(sql`((date_trunc('day', (now() AT TIME ZONE 'utc')) + interval '2 days') AT TIME ZONE 'utc')`)
+    .notNull(),
   createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 }, table => [

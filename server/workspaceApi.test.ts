@@ -1,4 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { checkWorkspaceApiRateLimit } = vi.hoisted(() => ({
+  checkWorkspaceApiRateLimit: vi.fn(() => ({ allowed: true, retryAfterMs: 0 })),
+}));
+
+vi.mock("./workspaceApiLimit", async importOriginal => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...actual, checkWorkspaceApiRateLimit };
+});
 
 /**
  * The workspace API over HTTP.
@@ -119,6 +128,11 @@ const { app } = await import("./app");
 let server: ReturnType<typeof app.listen>;
 let baseUrl = "";
 
+beforeEach(() => {
+  checkWorkspaceApiRateLimit.mockClear();
+  checkWorkspaceApiRateLimit.mockReturnValue({ allowed: true, retryAfterMs: 0 });
+});
+
 beforeAll(async () => {
   server = app.listen(0);
   await new Promise<void>(resolve => server.once("listening", resolve));
@@ -227,6 +241,30 @@ describe("the workspace API key", () => {
     expect(createUserAutomation).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ scheduleCron: "0 0 9 * * *" })
+    );
+  });
+
+  it("refuses a key that is over its request budget", async () => {
+    // A workspace key can write to the agent's shell, so a runaway script must
+    // be stopped rather than allowed to hammer it.
+    checkWorkspaceApiRateLimit.mockReturnValueOnce({ allowed: false, retryAfterMs: 30_000 });
+    const response = await fetch(`${baseUrl}/api/workspace/v1/files`, {
+      headers: { authorization: "Bearer nova_wk_abc" },
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("30");
+    const payload = (await response.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("rate_limit");
+  });
+
+  it("budgets each key separately", async () => {
+    await fetch(`${baseUrl}/api/workspace/v1/files`, {
+      headers: { authorization: "Bearer nova_wk_abc" },
+    });
+    // The budget is looked up by the KEY, not by the owner, so two keys are
+    // two credentials with two allowances.
+    expect(checkWorkspaceApiRateLimit).toHaveBeenCalledWith(
+      expect.any(String),
     );
   });
 

@@ -317,7 +317,7 @@ export const tr: Translations = {
   "settings.apiKeys.type.inference": "Inference anahtarı",
   "settings.apiKeys.type.inferenceHint": "Yalnızca model API’sini çağırır. Çalışma alanınıza erişemez.",
   "settings.apiKeys.type.workspace": "Workspace anahtarı",
-  "settings.apiKeys.type.workspaceHint": "Yalnızca aracınızın bilgisayarını yönetir. Model API’sini çağıramaz.",
+  "settings.apiKeys.type.workspaceHint": "Yalnızca aracınızın bilgisayarını yönetir; kabuk komutları çalıştırabilir, bu nedenle parola gibi koruyun. Model API'sini çağıramaz.",
   "settings.apiKeys.scope.inference": "Inference",
   "settings.apiKeys.scope.workspace": "Workspace",
   "settings.apiKeys.create": "Anahtar oluştur",

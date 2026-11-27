@@ -351,7 +351,7 @@ export const en = {
   "settings.apiKeys.type.inference": "Inference key",
   "settings.apiKeys.type.inferenceHint": "Calls the model API only. Cannot touch your workspace.",
   "settings.apiKeys.type.workspace": "Workspace key",
-  "settings.apiKeys.type.workspaceHint": "Manages your agent's computer only. Cannot call the model API.",
+  "settings.apiKeys.type.workspaceHint": "Manages your agent's computer only - it can run shell commands, so treat it like a password. Cannot call the model API.",
   "settings.apiKeys.scope.inference": "Inference",
   "settings.apiKeys.scope.workspace": "Workspace",
   "settings.apiKeys.create": "Create key",

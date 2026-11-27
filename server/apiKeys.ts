@@ -28,6 +28,11 @@ export const API_KEY_SCOPES = ["inference", "workspace"] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "inference";
 
+/** How many keys of a scope one account may hold. */
+export function maxApiKeysForScope(scope: ApiKeyScope): number {
+  return scope === "workspace" ? MAX_WORKSPACE_API_KEYS_PER_OWNER : MAX_API_KEYS_PER_OWNER;
+}
+
 /** The prefix that identifies each scope's keys. */
 export function apiKeyPrefixForScope(scope: ApiKeyScope): string {
   return scope === "workspace" ? WORKSPACE_API_KEY_PREFIX : API_KEY_PREFIX;
@@ -40,14 +45,27 @@ export function scopeForApiKeyValue(key: string): ApiKeyScope | null {
   return null;
 }
 
-/** How many keys one account can hold at once. */
+/** How many INFERENCE keys one account can hold at once. */
 export const MAX_API_KEYS_PER_OWNER = 5;
+/**
+ * How many WORKSPACE keys one account can hold at once.
+ *
+ * A workspace key can write to the agent's shell, delete its files and take
+ * its sites offline - strictly more powerful than an inference key - so it
+ * gets its own, smaller budget. Sharing one limit across both types would
+ * let a workspace key hide behind inference keys.
+ */
+export const MAX_WORKSPACE_API_KEYS_PER_OWNER = 2;
 /** Upper bound for the human-readable name stored with a key. */
 export const MAX_API_KEY_NAME_LENGTH = 120;
 
 export class ApiKeyLimitError extends Error {
-  constructor() {
-    super(`You can keep up to ${MAX_API_KEYS_PER_OWNER} API keys at once. Revoke one before creating another.`);
+  constructor(scope: ApiKeyScope = DEFAULT_API_KEY_SCOPE) {
+    super(
+      scope === "workspace"
+        ? `You can keep up to ${MAX_WORKSPACE_API_KEYS_PER_OWNER} workspace keys at once. Revoke one before creating another.`
+        : `You can keep up to ${MAX_API_KEYS_PER_OWNER} API keys at once. Revoke one before creating another.`
+    );
     this.name = "ApiKeyLimitError";
   }
 }
@@ -94,7 +112,8 @@ export type CreateApiKeyDeps = {
     ownerId: number,
     values: { name: string; keyHash: string; keyPreview: string; scope: ApiKeyScope }
   ) => Promise<ApiKey>;
-  countFor?: (ownerId: number) => Promise<number>;
+  /** How many keys of the given SCOPE the owner already holds. */
+  countFor?: (ownerId: number, scope: ApiKeyScope) => Promise<number>;
 };
 
 export type RenameApiKeyDeps = {
@@ -112,10 +131,12 @@ async function defaultCreate(
   return row;
 }
 
-async function defaultCountFor(ownerId: number) {
+async function defaultCountFor(ownerId: number, scope: ApiKeyScope) {
   const db = await getDb();
-  if (!db) return MAX_API_KEYS_PER_OWNER;
-  return db.$count(apiKeys, eq(apiKeys.ownerId, ownerId));
+  if (!db) return maxApiKeysForScope(scope);
+  // Counted PER SCOPE: the two budgets are separate, so a workspace key
+  // cannot be hidden behind inference keys (or the other way round).
+  return db.$count(apiKeys, and(eq(apiKeys.ownerId, ownerId), eq(apiKeys.scope, scope)));
 }
 
 /** Creates a new key and returns the full value exactly once. */
@@ -127,7 +148,8 @@ export async function createApiKeyForUser(
 ) {
   const create = deps.create ?? defaultCreate;
   const countFor = deps.countFor ?? defaultCountFor;
-  if ((await countFor(ownerId)) >= MAX_API_KEYS_PER_OWNER) throw new ApiKeyLimitError();
+  const limit = maxApiKeysForScope(scope);
+  if ((await countFor(ownerId, scope)) >= limit) throw new ApiKeyLimitError(scope);
   const generated = generateApiKeyRecord(name, scope);
   const row = await create(ownerId, {
     name: generated.name,

@@ -317,7 +317,7 @@ export const fr: Translations = {
   "settings.apiKeys.type.inference": "Clé d’inférence",
   "settings.apiKeys.type.inferenceHint": "Appelle uniquement l’API du modèle. Ne peut pas accéder à votre espace de travail.",
   "settings.apiKeys.type.workspace": "Clé d’espace de travail",
-  "settings.apiKeys.type.workspaceHint": "Contrôle uniquement l’ordinateur de votre agent. Ne peut pas appeler l’API du modèle.",
+  "settings.apiKeys.type.workspaceHint": "Gère uniquement l’ordinateur de votre agent : il peut exécuter des commandes shell, traitez-le donc comme un mot de passe. Ne peut pas appeler l’API du modèle.",
   "settings.apiKeys.scope.inference": "Inférence",
   "settings.apiKeys.scope.workspace": "Espace de travail",
   "settings.apiKeys.create": "Créer la clé",

@@ -317,7 +317,7 @@ export const zh: Translations = {
   "settings.apiKeys.type.inference": "推理密钥",
   "settings.apiKeys.type.inferenceHint": "仅调用模型 API，无法访问您的工作区。",
   "settings.apiKeys.type.workspace": "工作区密钥",
-  "settings.apiKeys.type.workspaceHint": "仅管理代理的计算机，无法调用模型 API。",
+  "settings.apiKeys.type.workspaceHint": "仅管理您智能体的计算机——它可以运行 Shell 命令，请像保护密码一样妥善保管。无法调用模型 API。",
   "settings.apiKeys.scope.inference": "推理",
   "settings.apiKeys.scope.workspace": "工作区",
   "settings.apiKeys.create": "创建密钥",

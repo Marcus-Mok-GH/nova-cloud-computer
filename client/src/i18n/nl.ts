@@ -317,7 +317,7 @@ export const nl: Translations = {
   "settings.apiKeys.type.inference": "Inferentiesleutel",
   "settings.apiKeys.type.inferenceHint": "Roept alleen de model-API aan. Heeft geen toegang tot uw werkruimte.",
   "settings.apiKeys.type.workspace": "Werkruimtesleutel",
-  "settings.apiKeys.type.workspaceHint": "Beheert alleen de computer van uw agent. Kan de model-API niet aanroepen.",
+  "settings.apiKeys.type.workspaceHint": "Beheert alleen de computer van uw agent - kan shellopdrachten uitvoeren, dus behandel het als een wachtwoord. Kan de model-API niet aanroepen.",
   "settings.apiKeys.scope.inference": "Inferentie",
   "settings.apiKeys.scope.workspace": "Werkruimte",
   "settings.apiKeys.create": "Sleutel aanmaken",

@@ -317,7 +317,7 @@ export const id: Translations = {
   "settings.apiKeys.type.inference": "Kunci inferensi",
   "settings.apiKeys.type.inferenceHint": "Hanya memanggil API model. Tidak dapat mengakses ruang kerja Anda.",
   "settings.apiKeys.type.workspace": "Kunci ruang kerja",
-  "settings.apiKeys.type.workspaceHint": "Hanya mengelola komputer agen Anda. Tidak dapat memanggil API model.",
+  "settings.apiKeys.type.workspaceHint": "Hanya mengelola komputer agen Anda—dapat menjalankan perintah shell, jadi perlakukan seperti kata sandi. Tidak dapat memanggil API model.",
   "settings.apiKeys.scope.inference": "Inferensi",
   "settings.apiKeys.scope.workspace": "Ruang kerja",
   "settings.apiKeys.create": "Buat kunci",

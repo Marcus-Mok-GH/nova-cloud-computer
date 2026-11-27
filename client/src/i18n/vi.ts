@@ -317,7 +317,7 @@ export const vi: Translations = {
   "settings.apiKeys.type.inference": "Khóa suy luận",
   "settings.apiKeys.type.inferenceHint": "Chỉ gọi API mô hình. Không thể truy cập không gian làm việc của bạn.",
   "settings.apiKeys.type.workspace": "Khóa không gian làm việc",
-  "settings.apiKeys.type.workspaceHint": "Chỉ quản lý máy tính của tác nhân. Không thể gọi API mô hình.",
+  "settings.apiKeys.type.workspaceHint": "Chỉ quản lý máy tính của agent — có thể chạy lệnh shell, vì vậy hãy bảo mật như mật khẩu. Không thể gọi API của mô hình.",
   "settings.apiKeys.scope.inference": "Suy luận",
   "settings.apiKeys.scope.workspace": "Không gian làm việc",
   "settings.apiKeys.create": "Tạo khóa",

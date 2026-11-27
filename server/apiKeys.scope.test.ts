@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   API_KEY_PREFIX,
+  ApiKeyLimitError,
   createApiKeyForUser,
   findOwnerByApiKey,
   generateApiKeyRecord,
+  MAX_API_KEYS_PER_OWNER,
+  MAX_WORKSPACE_API_KEYS_PER_OWNER,
   scopeForApiKeyValue,
   WORKSPACE_API_KEY_PREFIX,
   type ApiKeyScope,
@@ -66,6 +69,63 @@ describe("key scopes", () => {
     });
     expect(created.apiKey.scope).toBe("workspace");
     expect(created.key.startsWith(WORKSPACE_API_KEY_PREFIX)).toBe(true);
+  });
+});
+
+describe("the per-scope key budget", () => {
+  it("counts each scope against its own limit", async () => {
+    // A workspace key can write to the agent's shell, so it gets a smaller
+    // budget of its own rather than sharing the inference budget.
+    const countFor = vi.fn(async (_ownerId: number, scope: ApiKeyScope) =>
+      scope === "workspace" ? MAX_WORKSPACE_API_KEYS_PER_OWNER : MAX_API_KEYS_PER_OWNER
+    );
+    const create = vi.fn(async (_ownerId: number, values: { name: string; scope: ApiKeyScope }) => ({
+      id: 1,
+      ownerId: 1,
+      name: values.name,
+      keyHash: "hash",
+      keyPreview: "preview",
+      scope: values.scope,
+      lastUsedAt: null,
+      createdAt: new Date("2026-11-27T00:00:00Z"),
+      updatedAt: new Date("2026-11-27T00:00:00Z"),
+    }));
+
+    await expect(
+      createApiKeyForUser(1, "ops", "workspace", { create, countFor })
+    ).rejects.toBeInstanceOf(ApiKeyLimitError);
+    // The count was asked for the WORKSPACE scope, not the owner's total.
+    expect(countFor).toHaveBeenCalledWith(1, "workspace");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("lets an inference key be created while the workspace budget is full", async () => {
+    const countFor = vi.fn(async (_ownerId: number, scope: ApiKeyScope) =>
+      scope === "workspace" ? MAX_WORKSPACE_API_KEYS_PER_OWNER : 0
+    );
+    const create = vi.fn(async (_ownerId: number, values: { name: string; scope: ApiKeyScope }) => ({
+      id: 2,
+      ownerId: 1,
+      name: values.name,
+      keyHash: "hash",
+      keyPreview: "preview",
+      scope: values.scope,
+      lastUsedAt: null,
+      createdAt: new Date("2026-11-27T00:00:00Z"),
+      updatedAt: new Date("2026-11-27T00:00:00Z"),
+    }));
+    const created = await createApiKeyForUser(1, "scripts", "inference", { create, countFor });
+    expect(created.apiKey.scope).toBe("inference");
+  });
+
+  it("names the scope in the limit message", async () => {
+    const countFor = vi.fn(async () => MAX_WORKSPACE_API_KEYS_PER_OWNER);
+    await expect(
+      createApiKeyForUser(1, "ops", "workspace", {
+        create: vi.fn(),
+        countFor,
+      })
+    ).rejects.toThrow(/workspace keys/i);
   });
 });
 

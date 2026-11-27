@@ -5,6 +5,10 @@ import {
   WORKSPACE_API_KEY_PREFIX,
 } from "./apiKeys";
 import {
+  checkWorkspaceApiRateLimit,
+  workspaceApiLimitKey,
+} from "./workspaceApiLimit";
+import {
   createWorkspaceFileForUser,
   deleteWorkspaceFileForUser,
   getWorkspaceFileForUser,
@@ -109,6 +113,21 @@ async function requireWorkspaceOwner(req: Request, res: Response): Promise<numbe
       "That API key has been revoked or no longer exists.",
       "invalid_request_error",
       "invalid_api_key"
+    );
+    return null;
+  }
+  // A workspace key can write to the agent's shell, so its requests are
+  // budgeted. The budget is per KEY, not per owner: two keys are two separate
+  // credentials and each gets its own allowance.
+  const limit = checkWorkspaceApiRateLimit(workspaceApiLimitKey(presentedKey));
+  if (!limit.allowed) {
+    res.setHeader("Retry-After", String(Math.ceil(limit.retryAfterMs / 1000)));
+    fail(
+      res,
+      429,
+      "This workspace key is making too many requests. Slow down and try again shortly.",
+      "rate_limit_error",
+      "rate_limit"
     );
     return null;
   }

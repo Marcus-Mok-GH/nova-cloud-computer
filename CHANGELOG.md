@@ -19,8 +19,15 @@ background schedule is created through a session-bound call, so enabling it is
 refused with a clear message rather than storing "enabled" on a row whose
 schedule was never created.
 
+Because a workspace key can write to the agent's shell, it is treated as the
+more dangerous credential: it has its own, smaller key budget (2, against 5
+for inference keys) so it cannot hide behind inference keys, and its requests
+are budgeted per key (a short window plus a daily ceiling) so a runaway
+script is stopped rather than allowed to hammer the machine.
+
 Settings now asks which kind of key to create and shows the kind beside every
-key it lists. The public API docs describe the new namespace, /api/workspace/v1.
+key it lists. The public API docs describe the new namespace, /api/workspace/v1,
+and say plainly that a workspace key is as sensitive as a password.
 Existing keys keep working: they were inference keys, and that is what the new
 column defaults to.
 

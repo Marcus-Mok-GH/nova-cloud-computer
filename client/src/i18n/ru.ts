@@ -317,7 +317,7 @@ export const ru: Translations = {
   "settings.apiKeys.type.inference": "Ключ для запросов к модели",
   "settings.apiKeys.type.inferenceHint": "Только для вызова API модели. Не даёт доступа к рабочему пространству.",
   "settings.apiKeys.type.workspace": "Ключ рабочего пространства",
-  "settings.apiKeys.type.workspaceHint": "Только для управления компьютером агента. Не позволяет вызывать API модели.",
+  "settings.apiKeys.type.workspaceHint": "Управляет только компьютером вашего агента — может выполнять команды оболочки, поэтому храните этот ключ как пароль. Не может вызывать API модели.",
   "settings.apiKeys.scope.inference": "Запросы к модели",
   "settings.apiKeys.scope.workspace": "Рабочее пространство",
   "settings.apiKeys.create": "Создать ключ",

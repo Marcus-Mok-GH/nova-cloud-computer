@@ -3,6 +3,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { COUNTRY_CODES } from "@shared/countries";
 import { SKILL_BODY_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH, SKILL_DESCRIPTION_MESSAGE, SKILL_NAME_MAX_LENGTH, SKILL_NAME_MESSAGE, SKILL_NAME_PATTERN } from "@shared/skills";
 import { z } from "zod";
+import { dollarsToCredits } from "@shared/money";
 import {
   createChatForUser,
   createProjectForUser,
@@ -67,6 +68,8 @@ import {
   hasProAccessForUser,
   hasActiveAccessForUser,
   getCreditTopUpBalanceForUser,
+  getCreditSavingsOverviewForUser,
+  saveCreditsToSavings,
   setChatModelForUser,
   setWhopCheckoutConfigIdForUser,
   activatePriorityWindowForUser } from "./db";
@@ -376,7 +379,50 @@ export const appRouter = router({
         }
       }),
   }),
-  credits: router({ status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)) }),
+  credits: router({
+    status: protectedProcedure.query(({ ctx }) => getDailyCreditStatusForUser(ctx.user.id)),
+    /**
+     * The account's two savings balances, one per credit source, plus what
+     * each could still take in. The two are reported separately on purpose:
+     * daily savings carry over past the midnight reset, paid savings never
+     * expire, and a blended number would hide that difference.
+     */
+    savings: protectedProcedure.query(({ ctx }) => getCreditSavingsOverviewForUser(ctx.user.id)),
+    /**
+     * Moves credits out of a live balance and into the matching savings
+     * balance. It never mints credits: the account's total spendable credits
+     * are unchanged by the move.
+     *
+     * The amount is in dollars, because that is what every surface shows;
+     * the ledger keeps integer credits (1 credit = 1/1,000 of a dollar).
+     */
+    setAside: protectedProcedure
+      .input(
+        z.object({
+          source: z.enum(["daily", "paid"]),
+          dollars: z.number().positive().max(1_000),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const credits = dollarsToCredits(input.dollars);
+        if (credits <= 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That amount is too small to set aside." });
+        }
+        const result = await saveCreditsToSavings(ctx.user.id, input.source, credits);
+        if (!result.ok) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              result.reason === "unlimited_allowance"
+                ? "This account has no daily allowance to set aside."
+                : result.reason === "savings_unavailable"
+                  ? "Savings are not available right now. Try again in a moment."
+                  : "There are not enough credits to set aside.",
+          });
+        }
+        return result.balances;
+      }),
+  }),
   billing: router({
     status: protectedProcedure.query(({ ctx }) => getPriorityStatusForUser(ctx.user.id)),
     /**

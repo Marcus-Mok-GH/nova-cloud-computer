@@ -30,3 +30,16 @@ export function isUniqueViolation(error: unknown): boolean {
 export function isForeignKeyViolation(error: unknown): boolean {
   return causeCodeMatches(error, "23503");
 }
+
+/**
+ * Postgres `undefined_table` (42P01) - the relation does not exist.
+ *
+ * This is the crash the automatic schema bootstrap is meant to prevent: a
+ * table the code queries before its migration has run. The bootstrap
+ * deliberately swallows a failed migration (the database may be down), so the
+ * code that touches a new table has to recognise the missing relation and
+ * degrade instead of throwing.
+ */
+export function isMissingRelation(error: unknown): boolean {
+  return causeCodeMatches(error, "42P01");
+}

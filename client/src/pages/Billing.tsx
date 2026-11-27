@@ -12,9 +12,11 @@ import React, { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import SupportCard from "@/components/SupportCard";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
-import { formatCredits } from "@shared/money";
+import { creditsToDollars, formatCredits, formatDollars } from "@shared/money";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import {
@@ -23,6 +25,7 @@ import {
   CreditCard,
   Crown,
   Loader2,
+  PiggyBank,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -109,6 +112,175 @@ function PlanCard({
           {busy && <Loader2 size={15} className="animate-spin" />} {cta}
         </Button>
       )}
+    </section>
+  );
+}
+
+type SavingsPanelProps = {
+  /** An unlimited ledger has no daily allowance to set aside. */
+  unlimited: boolean;
+};
+
+/**
+ * The account's two savings balances.
+ *
+ * They are two cards on purpose: the daily pot rolls over past the midnight
+ * reset while the paid pot never expires, so a single combined number would
+ * hide a difference the account owner needs to see. Each card moves credits
+ * out of its own live balance and into its own savings balance, so the
+ * account's total spendable credits never change.
+ */
+function SavingsPanel({ unlimited }: SavingsPanelProps) {
+  const { t, locale } = useTranslation();
+  const utils = trpc.useUtils();
+  const savings = trpc.credits.savings.useQuery(undefined, { retry: false });
+  const [amounts, setAmounts] = useState<{ daily: string; paid: string }>({
+    daily: "",
+    paid: "",
+  });
+  const setAside = trpc.credits.setAside.useMutation({
+    onSuccess: (_balances, variables) => {
+      void utils.credits.savings.invalidate();
+      void utils.credits.status.invalidate();
+      setAmounts(current => ({ ...current, [variables.source]: "" }));
+      toast.success(
+        t("billing.savings.success", {
+          count: formatDollars(variables.dollars, locale),
+          which:
+            variables.source === "daily"
+              ? t("billing.savings.dailyTitle")
+              : t("billing.savings.paidTitle"),
+        })
+      );
+    },
+    onError: error => {
+      toast.error(error.message || t("billing.savings.error"));
+    },
+  });
+
+  const daily = savings.data?.daily;
+  const paid = savings.data?.paid;
+  const dailyAvailable = savings.data?.dailyAvailable ?? 0;
+  const paidAvailable = savings.data?.paidAvailable ?? 0;
+
+  const submit = (source: "daily" | "paid") => {
+    const dollars = Number(amounts[source]);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      toast.error(t("billing.savings.error"));
+      return;
+    }
+    setAside.mutate({ source, dollars });
+  };
+
+  const card = (
+    source: "daily" | "paid",
+    title: string,
+    body: string,
+    balance: number | undefined,
+    available: number,
+  ) => {
+    const amount = amounts[source];
+    const dollars = Number(amount);
+    const canSubmit =
+      Number.isFinite(dollars) &&
+      dollars > 0 &&
+      available > 0 &&
+      !setAside.isPending &&
+      dollars <= creditsToDollars(available);
+    return (
+      <section className="rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+              {title}
+            </p>
+            <p className="mt-1 flex items-center gap-2 text-lg font-bold">
+              <PiggyBank size={16} className="text-primary" />
+              {balance && balance > 0
+                ? t("billing.savings.balance", {
+                    count: formatCredits(balance, locale),
+                  })
+                : t("billing.savings.none")}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{body}</p>
+          </div>
+        </div>
+        {available > 0 ? (
+          <>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              {t("billing.savings.available", {
+                count: formatCredits(available, locale),
+              })}
+            </p>
+            <div className="mt-3 flex items-end gap-2">
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor={`savings-amount-${source}`} className="text-xs">
+                  {t("billing.savings.amount")}
+                </Label>
+                <Input
+                  id={`savings-amount-${source}`}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={event =>
+                    setAmounts(current => ({
+                      ...current,
+                      [source]: event.target.value,
+                    }))
+                  }
+                  placeholder="0.00"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => submit(source)}
+                disabled={!canSubmit}
+              >
+                {setAside.isPending && (
+                  <Loader2 size={15} className="animate-spin" />
+                )}{" "}
+                {t("billing.savings.setAside")}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            {source === "daily" && unlimited
+              ? t("billing.savings.unlimited")
+              : t("billing.savings.none")}
+          </p>
+        )}
+      </section>
+    );
+  };
+
+  return (
+    <section className="rise-in rounded-2xl border bg-card p-5 text-card-foreground shadow-[0_4px_14px_rgba(10,10,10,0.05)] sm:p-6">
+      <p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+        {t("billing.savings.title")}
+      </p>
+      <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+        {t("billing.savings.body")}
+      </p>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {card(
+          "daily",
+          t("billing.savings.dailyTitle"),
+          t("billing.savings.dailyBody"),
+          daily?.remainingCredits,
+          dailyAvailable
+        )}
+        {card(
+          "paid",
+          t("billing.savings.paidTitle"),
+          t("billing.savings.paidBody"),
+          paid?.remainingCredits,
+          paidAvailable
+        )}
+      </div>
     </section>
   );
 }
@@ -319,6 +491,9 @@ export default function Billing() {
             </p>
           </section>
         </div>
+
+        {/* Savings: one reserve per credit source */}
+        <SavingsPanel unlimited={credits?.unlimited === true} />
 
         {/* Buy credits */}
         {topUpProducts.length > 0 && (

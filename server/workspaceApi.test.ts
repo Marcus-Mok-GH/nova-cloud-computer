@@ -67,18 +67,39 @@ vi.mock("./userAutomations", async importOriginal => {
     ...actual,
     listUserAutomations: vi.fn(async () => []),
     getUserAutomation: vi.fn(async () => undefined),
-    createUserAutomation: vi.fn(async (_ownerId: number, input: { name: string }) => ({
+    createUserAutomation: vi.fn(async (_ownerId: number, input: { name: string; scheduleCron: string }) => ({
       id: 5,
       name: input.name,
+      scheduleCron: input.scheduleCron,
     })),
-    updateUserAutomation: vi.fn(async () => undefined),
+    updateUserAutomation: vi.fn(async (_ownerId: number, id: number, input: { name?: string }) => ({
+      id,
+      name: input.name ?? "existing",
+    })),
     deleteUserAutomation: vi.fn(async () => true),
   };
 });
 
 vi.mock("./db/deployments", () => ({
-  listSiteDeploymentsForUser: vi.fn(async () => []),
-  markSiteDeploymentsDeletedForUser: vi.fn(async () => true),
+  listSiteDeploymentRegistryForUser: vi.fn(async () => [
+    {
+      key: "d-01",
+      siteId: "site-1",
+      siteName: "My site",
+      siteUrl: "https://my-site.netlify.app",
+      description: null,
+      status: "live",
+      lastDeployedAt: new Date("2026-11-27T00:00:00Z"),
+    },
+  ]),
+}));
+
+vi.mock("./siteDeploy", () => ({
+  deleteWorkspaceSite: vi.fn(async (_ownerId: number, options?: { deployment?: string }) =>
+    options?.deployment
+      ? { ok: true as const, deleted: [{ key: options.deployment, siteId: "site-1", siteUrl: "https://my-site.netlify.app", description: null }], failed: 0 }
+      : { ok: false as const, message: "Name the deployment to delete by its ID." }
+  ),
 }));
 
 vi.mock("./terminal", async importOriginal => {
@@ -89,7 +110,7 @@ vi.mock("./terminal", async importOriginal => {
     startTerminalForUser: vi.fn(async () => ({ reused: false, ptyId: "pty", offset: 0, seq: 0, output: "" })),
     readTerminalForUser: vi.fn(() => ({ seq: 0, output: "" })),
     writeTerminalForUser: vi.fn(async () => undefined),
-    stopTerminalForUser: vi.fn(async () => undefined),
+    stopTerminalForUser: vi.fn(async () => ({ success: true })),
   };
 });
 
@@ -153,6 +174,70 @@ describe("the workspace API key", () => {
       "nova_wk_abc",
       expect.objectContaining({ scope: "workspace" })
     );
+  });
+
+  it("deletes a deployment for real, not just in the database", async () => {
+    const response = await fetch(`${baseUrl}/api/workspace/v1/deployments/d-01`, {
+      method: "DELETE",
+      headers: { authorization: "Bearer nova_wk_abc" },
+    });
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { deleted?: string[] };
+    expect(payload.deleted).toEqual(["d-01"]);
+    // The real deletion path runs, so the live site actually goes down.
+    const { deleteWorkspaceSite } = await import("./siteDeploy");
+    expect(deleteWorkspaceSite).toHaveBeenCalledWith(1, { deployment: "d-01" });
+  });
+
+  it("refuses to enable an automation, whose schedule needs the app's session", async () => {
+    // Enabling creates a background schedule through a session-bound call, so
+    // a key cannot do it. Storing "enabled" without the schedule would look
+    // scheduled and never run.
+    const response = await fetch(`${baseUrl}/api/workspace/v1/automations/5`, {
+      method: "PATCH",
+      headers: {
+        authorization: "Bearer nova_wk_abc",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("schedule_requires_session");
+  });
+
+  it("gives a key-created automation the same cron the app would give it", async () => {
+    const response = await fetch(`${baseUrl}/api/workspace/v1/automations`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer nova_wk_abc",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "morning brief",
+        instructions: "Summarise my day",
+        frequency: "daily",
+        scheduleCron: "0 0 9 * * *",
+        scheduleTimezone: "UTC",
+        executionPrompt: "Summarise my day",
+      }),
+    });
+    expect(response.status).toBe(201);
+    const { createUserAutomation } = await import("./userAutomations");
+    expect(createUserAutomation).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ scheduleCron: "0 0 9 * * *" })
+    );
+  });
+
+  it("reports the terminal stop truthfully", async () => {
+    const response = await fetch(`${baseUrl}/api/workspace/v1/terminal/stop`, {
+      method: "POST",
+      headers: { authorization: "Bearer nova_wk_abc" },
+    });
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { stopped?: boolean };
+    expect(payload.stopped).toBe(true);
   });
 
   it("routes the file search to search, not to the :id route", async () => {

@@ -20,10 +20,8 @@ import {
   deleteUserAutomation,
   USER_AUTOMATION_CRONS,
 } from "./userAutomations";
-import {
-  listSiteDeploymentsForUser,
-  markSiteDeploymentsDeletedForUser,
-} from "./db/deployments";
+import { listSiteDeploymentRegistryForUser } from "./db/deployments";
+import { deleteWorkspaceSite } from "./siteDeploy";
 import {
   getTerminalStatusForUser,
   startTerminalForUser,
@@ -166,11 +164,21 @@ const automationCreateInput = z.object({
   definition: z.record(z.string(), z.unknown()).default({}),
 });
 
+/**
+ * The cron expression a frequency maps to, so a key-created automation carries
+ * the SAME schedule the app would give it rather than a free-form string that
+ * could never be parsed.
+ */
+const AUTOMATION_CRON_BY_FREQUENCY: Record<(typeof AUTOMATION_FREQUENCIES)[number], string> = {
+  ...USER_AUTOMATION_CRONS,
+  custom: "0 0 9 * * *",
+};
+
 const automationUpdateInput = z.object({
   id: z.number().int().positive(),
   name: z.string().trim().min(1).max(120).optional(),
   instructions: z.string().trim().min(1).max(8000).optional(),
-  enabled: z.boolean().optional(),
+  frequency: z.enum(AUTOMATION_FREQUENCIES).optional(),
 });
 
 const terminalWriteInput = z.object({ data: z.string().min(1).max(8192) });
@@ -220,7 +228,7 @@ workspaceApiRouter.get("/me", handle(async (req: Request, res: Response) => {
   const [files, automations, deployments, terminal] = await Promise.all([
     listWorkspaceFilesForUser(ownerId),
     listUserAutomations(ownerId),
-    listSiteDeploymentsForUser(ownerId),
+    listSiteDeploymentRegistryForUser(ownerId),
     Promise.resolve(getTerminalStatusForUser(ownerId)),
   ]);
   res.json({
@@ -333,7 +341,12 @@ workspaceApiRouter.post("/automations", handle(async (req: Request, res: Respons
   if (ownerId === null) return;
   const input = parseBody(res, req.body, automationCreateInput);
   if (!input) return;
-  const automation = await createUserAutomation(ownerId, input);
+  // The cron comes from the frequency, so the automation carries the same
+  // schedule the app would give it.
+  const automation = await createUserAutomation(ownerId, {
+    ...input,
+    scheduleCron: AUTOMATION_CRON_BY_FREQUENCY[input.frequency] ?? input.scheduleCron,
+  });
   res.status(201).json(automation);
 }));
 
@@ -347,12 +360,33 @@ workspaceApiRouter.patch("/automations/:id", handle(async (req: Request, res: Re
   }
   const body = parseBody(res, { ...(req.body ?? {}), id }, automationUpdateInput);
   if (!body) return;
+  // Enabling an automation needs the background schedule to be created, and
+  // that scheduling call is bound to the user's browser session - a key
+  // carries no session. Refusing it is better than storing "enabled" on a
+  // row whose schedule was never created, which would look scheduled and
+  // never run.
+  if ((req.body as { enabled?: unknown } | undefined)?.enabled !== undefined) {
+    fail(
+      res,
+      400,
+      "A workspace key cannot enable an automation: the background schedule is created from the app. Turn it on there.",
+      "invalid_request_error",
+      "schedule_requires_session"
+    );
+    return;
+  }
   const existing = await getUserAutomation(ownerId, id);
   if (!existing) {
     fail(res, 404, "That automation does not exist.", "not_found_error", "automation_not_found");
     return;
   }
-  const automation = await updateUserAutomation(ownerId, id, body);
+  const automation = await updateUserAutomation(ownerId, id, {
+    ...body,
+    scheduleCron:
+      body.frequency !== undefined
+        ? AUTOMATION_CRON_BY_FREQUENCY[body.frequency] ?? existing.scheduleCron
+        : undefined,
+  });
   if (!automation) {
     fail(res, 404, "That automation does not exist.", "not_found_error", "automation_not_found");
     return;
@@ -381,25 +415,28 @@ workspaceApiRouter.delete("/automations/:id", handle(async (req: Request, res: R
 workspaceApiRouter.get("/deployments", handle(async (req: Request, res: Response) => {
   const ownerId = await requireWorkspaceOwner(req, res);
   if (ownerId === null) return;
-  const deployments = await listSiteDeploymentsForUser(ownerId);
+  // The registry, not the raw rows: each entry carries the deployment KEY
+  // that DELETE /deployments/:key takes, plus its live URL.
+  const deployments = await listSiteDeploymentRegistryForUser(ownerId);
   res.json({ object: "list", data: deployments });
 }));
 
-workspaceApiRouter.delete("/deployments/:siteId", handle(async (req: Request, res: Response) => {
+workspaceApiRouter.delete("/deployments/:key", handle(async (req: Request, res: Response) => {
   const ownerId = await requireWorkspaceOwner(req, res);
   if (ownerId === null) return;
-  const siteId = String(req.params.siteId ?? "").trim();
-  if (!siteId) {
+  const key = String(req.params.key ?? "").trim();
+  if (!key) {
     fail(res, 400, "That deployment id is not valid.", "invalid_request_error", "invalid_id");
     return;
   }
-  // The helper reports how many rows it changed, so "0" means nothing matched.
-  const changed = await markSiteDeploymentsDeletedForUser(ownerId, siteId);
-  if (!changed) {
-    fail(res, 404, "That deployment does not exist.", "not_found_error", "deployment_not_found");
+  // The real deletion path, so the live site actually goes down. Marking the
+  // row deleted on its own would leave the site serving.
+  const result = await deleteWorkspaceSite(ownerId, { deployment: key });
+  if (!result.ok) {
+    fail(res, 400, result.message, "invalid_request_error", "deployment_delete_failed");
     return;
   }
-  res.json({ deleted: true });
+  res.json({ deleted: result.deleted.map(target => target.key), failed: result.failed });
 }));
 
 // --- Terminal --------------------------------------------------------------
@@ -447,8 +484,10 @@ workspaceApiRouter.post("/terminal/input", handle(async (req: Request, res: Resp
 workspaceApiRouter.post("/terminal/stop", handle(async (req: Request, res: Response) => {
   const ownerId = await requireWorkspaceOwner(req, res);
   if (ownerId === null) return;
-  await stopTerminalForUser(ownerId);
-  res.json({ stopped: true });
+  // The helper reports whether a session was actually closed, so the answer
+  // must say so rather than always claiming success.
+  const result = await stopTerminalForUser(ownerId);
+  res.json({ stopped: result.success });
 }));
 
 /**

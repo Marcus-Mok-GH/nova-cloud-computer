@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { getNeonAccessToken } from "@/lib/neonAuth";
+import { trpcAuthHeaders } from "@/lib/trpcAuthHeaders";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
@@ -18,10 +18,7 @@ export function createAppTrpcClient() {
       url: "/api/trpc",
       transformer: superjson,
       fetch: (url, options) => fetch(url, { ...options, credentials: "include" }),
-      async headers() {
-        const token = await getNeonAccessToken();
-        return token ? { Authorization: `Bearer ${token}` } : {};
-      },
+      headers: trpcAuthHeaders,
     })],
   });
 }

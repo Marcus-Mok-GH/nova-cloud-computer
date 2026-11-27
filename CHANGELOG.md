@@ -1,3 +1,13 @@
+2026-11-27 - fix(support): keep the public Q&A bot answering during an auth outage
+
+The support widget shared the app's tRPC client, whose `headers()` callback
+awaited a Neon Auth session token before every request. During the database
+quota outage Neon Auth answered `/api/neon-auth/get-session` with HTTP 402, so
+the callback rejected before the public `support.ask` request was ever sent and
+the widget displayed the auth provider's quota message. The token lookup now
+fails open: an auth outage sends the public request without a header, while a
+protected request without a token is still rejected by the server.
+
 2026-11-27 - fix(billing): expire daily savings at 00:00 UTC
 
 The daily savings balance no longer rolls over indefinitely: it is forfeited

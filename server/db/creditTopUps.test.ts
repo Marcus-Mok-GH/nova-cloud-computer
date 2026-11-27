@@ -89,7 +89,11 @@ vi.mock("./core", () => ({
             }),
             then: (resolve: (v: unknown) => unknown) =>
               Promise.resolve(
-                filtered().map(r => ({ credits: r.credits, remainingCredits: r.remainingCredits }))
+                filtered().map(r => ({
+                  credits: r.credits,
+                  remainingCredits: r.remainingCredits,
+                  productId: r.productId,
+                }))
               ).then(resolve),
           };
         },
@@ -120,16 +124,76 @@ vi.mock("../../drizzle/schema", () => ({
     id: "id",
     ownerId: "ownerId",
     providerPaymentId: "providerPaymentId",
+    productId: "productId",
+    credits: "credits",
     remainingCredits: "remainingCredits",
     createdAt: "createdAt",
   },
 }));
 
-import { claimPurchasedCreditForUser, grantCreditTopUp } from "./creditTopUps";
+import {
+  claimPurchasedCreditForUser,
+  getCreditTopUpBalanceForUser,
+  grantCreditTopUp,
+} from "./creditTopUps";
+import { OUTAGE_COMPENSATION_PRODUCT_ID } from "../../shared/outageCompensation";
 
 beforeEach(() => {
   state.rows = [];
   state.nextId = 1;
+});
+
+describe("getCreditTopUpBalanceForUser", () => {
+  it("reports the goodwill credits apart from the bought ones", async () => {
+    // The billing page shows the compensation separately, so a balance that
+    // grew for a reason the user cannot see has a visible explanation.
+    state.rows.push(
+      {
+        id: 1,
+        ownerId: 1,
+        providerPaymentId: "outage-compensation-2026-11:1",
+        productId: OUTAGE_COMPENSATION_PRODUCT_ID,
+        priceCents: 0,
+        currency: "sgd",
+        credits: 1_000,
+        remainingCredits: 1_000,
+        createdAt: new Date("2026-11-27T00:00:00Z"),
+      },
+      {
+        id: 2,
+        ownerId: 1,
+        providerPaymentId: "pay_bought",
+        productId: "topup-10",
+        priceCents: 1_000,
+        currency: "sgd",
+        credits: 10_000,
+        remainingCredits: 10_000,
+        createdAt: new Date("2026-11-20T00:00:00Z"),
+      }
+    );
+
+    const balance = await getCreditTopUpBalanceForUser(1);
+    expect(balance.remainingCredits).toBe(11_000);
+    expect(balance.purchasedCredits).toBe(11_000);
+    // Only the goodwill part is reported as compensation.
+    expect(balance.compensationCredits).toBe(1_000);
+  });
+
+  it("reports no compensation when the account has none", async () => {
+    state.rows.push({
+      id: 1,
+      ownerId: 1,
+      providerPaymentId: "pay_bought",
+      productId: "topup-10",
+      priceCents: 1_000,
+      currency: "sgd",
+      credits: 10_000,
+      remainingCredits: 10_000,
+      createdAt: new Date("2026-11-20T00:00:00Z"),
+    });
+    const balance = await getCreditTopUpBalanceForUser(1);
+    expect(balance.compensationCredits).toBe(0);
+  });
 });
 
 describe("grantCreditTopUp", () => {

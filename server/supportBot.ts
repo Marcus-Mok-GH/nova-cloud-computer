@@ -5,6 +5,7 @@ import {
   streamPublicAiGateway,
   type GatewayChatMessage,
 } from "./aiGateway";
+import { OUTAGE_COMPENSATION_CREDITS } from "../shared/outageCompensation";
 
 /**
  * The public Q&A assistant on the landing page and API docs. It answers
@@ -86,6 +87,11 @@ const SUPPORT_BOT_BRIEF = `
 - Workspace files, chats, and settings belong to the account.
 - Connected model keys are encrypted and sent only to the provider the user chose.
 - Agent execution runs in isolated E2B sandboxes. Nova only reaches services the user connects.
+
+## The storage upgrade and the goodwill credits
+- Nova's storage limits were being upgraded, so the app was paused for a while. Every account that already existed is being credited ${OUTAGE_COMPENSATION_CREDITS.toLocaleString("en-US")} credits (that is $1.00) as an apology for the disruption, and those credits never expire.
+- If someone asks why their balance went up, or asks whether they were compensated for the outage, say so: existing accounts are getting the goodwill credits automatically. Do not invent a number other than ${OUTAGE_COMPENSATION_CREDITS.toLocaleString("en-US")} credits.
+- The pause is over and Nova is back. Do not describe the app as broken.
 
 ## Current boundaries
 - The public API is text-only.

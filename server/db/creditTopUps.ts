@@ -1,5 +1,6 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { creditPurchases } from "../../drizzle/schema";
+import { OUTAGE_COMPENSATION_PRODUCT_ID } from "../../shared/outageCompensation";
 import { requireDb } from "./core";
 import type { CreditTopUpProduct } from "@shared/creditTopUps";
 
@@ -59,6 +60,13 @@ export type CreditTopUpBalance = {
   activeBundles: number;
   /** Total credits ever bought, for display. */
   purchasedCredits: number;
+  /**
+   * Credits left that were granted as GOODWILL rather than bought - the
+   * storage-outage compensation. Reported separately so the billing page can
+   * say where they came from instead of showing a balance that grew for no
+   * reason the user can see.
+   */
+  compensationCredits: number;
 };
 
 /** The account's purchased-credit balance. */
@@ -68,19 +76,29 @@ export async function getCreditTopUpBalanceForUser(ownerId: number): Promise<Cre
     .select({
       credits: creditPurchases.credits,
       remainingCredits: creditPurchases.remainingCredits,
+      productId: creditPurchases.productId,
     })
     .from(creditPurchases)
     .where(eq(creditPurchases.ownerId, ownerId));
   let remaining = 0;
   let purchased = 0;
   let active = 0;
+  let compensation = 0;
   for (const row of rows) {
     const left = Math.max(0, Number(row.remainingCredits));
     remaining += left;
     purchased += Number(row.credits);
     if (left > 0) active += 1;
+    // The compensation rows are counted apart from the bought ones, so the
+    // page can name them.
+    if (row.productId === OUTAGE_COMPENSATION_PRODUCT_ID) compensation += left;
   }
-  return { remainingCredits: remaining, activeBundles: active, purchasedCredits: purchased };
+  return {
+    remainingCredits: remaining,
+    activeBundles: active,
+    purchasedCredits: purchased,
+    compensationCredits: compensation,
+  };
 }
 
 /**

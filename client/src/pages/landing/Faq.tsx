@@ -8,7 +8,7 @@ import {
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Eyebrow } from "./shared";
 
-/** Six real questions, answered without marketing fog. */
+/** Real questions, answered without marketing fog. */
 export default function Faq() {
   const { t } = useTranslation();
   const items = [
@@ -18,6 +18,7 @@ export default function Faq() {
     { q: t("landing.faq.q4"), a: t("landing.faq.a4") },
     { q: t("landing.faq.q5"), a: t("landing.faq.a5") },
     { q: t("landing.faq.q6"), a: t("landing.faq.a6") },
+    { q: t("landing.faq.q7"), a: t("landing.faq.a7") },
   ];
 
   return (

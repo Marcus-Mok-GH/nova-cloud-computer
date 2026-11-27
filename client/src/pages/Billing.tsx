@@ -374,6 +374,9 @@ export default function Billing() {
   const credits = daily.data;
   const topUpProducts = data?.topUpProducts ?? [];
   const boughtCredits = data?.creditTopUps?.remainingCredits ?? 0;
+  // Credits granted as goodwill rather than bought: reported apart so the
+  // balance change has a visible reason.
+  const compensationCredits = data?.creditTopUps?.compensationCredits ?? 0;
   const priorityActive = priority.data?.priority ?? false;
   const priorityArmed = priority.data?.armed ?? false;
   const periodEnd = data?.currentPeriodEnd
@@ -527,9 +530,16 @@ export default function Billing() {
               </div>
               {boughtCredits > 0 && (
                 <p className="flex items-center gap-1.5 text-xs font-semibold">
-                  <Coins className="size-3.5 text-primary" />
+                  <Coins size={13.5} className="text-primary" />
                   {t("billing.topUps.owned", {
                     count: formatCredits(boughtCredits, locale),
+                  })}
+                </p>
+              )}
+              {compensationCredits > 0 && (
+                <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">
+                  {t("billing.topUps.compensation", {
+                    count: formatCredits(compensationCredits, locale),
                   })}
                 </p>
               )}

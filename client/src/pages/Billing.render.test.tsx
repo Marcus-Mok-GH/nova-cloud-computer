@@ -20,7 +20,18 @@ const state = vi.hoisted(() => ({
       proAccess: false,
       accessActive: true,
       trialEndsAt: null as Date | null,
-      creditTopUps: { remainingCredits: 0, activeBundles: 0, purchasedCredits: 0 },
+      creditTopUps: {
+        remainingCredits: 0,
+        activeBundles: 0,
+        purchasedCredits: 0,
+        compensationCredits: 0,
+      },
+      // The purchasable bundles; the card that shows the bought balance (and
+      // the goodwill credit inside it) only renders when there is one.
+      topUpProducts: [
+        { id: "topup-5", priceCents: 500, credits: 5_000, price: "$5" },
+      ],
+      topUpCurrency: "sgd",
     },
     isLoading: false,
     isError: false,
@@ -174,6 +185,9 @@ describe("Billing page", () => {
     state.priority.data.armed = false;
     state.savings.data.daily = { savedCredits: 0, remainingCredits: 0, expiresAt: null };
     state.savings.data.paid = { savedCredits: 0, remainingCredits: 0, expiresAt: null };
+    state.subscription.data.creditTopUps.remainingCredits = 0;
+    state.subscription.data.creditTopUps.purchasedCredits = 0;
+    state.subscription.data.creditTopUps.compensationCredits = 0;
     state.savings.data.dailyAvailable = 500;
     state.savings.data.paidAvailable = 0;
   });
@@ -282,6 +296,22 @@ describe("Billing page", () => {
     state.savings.data.dailyAvailable = 0;
     const unlimitedMarkup = renderToStaticMarkup(<Billing />);
     expect(unlimitedMarkup).toContain("no daily allowance to set aside");
+  });
+
+  it("explains the goodwill credits apart from the bought ones", () => {
+    // A balance that grew for a reason the user cannot see needs a visible
+    // reason, so the compensation is reported apart from the purchases.
+    state.subscription.data.creditTopUps.remainingCredits = 11_000;
+    state.subscription.data.creditTopUps.purchasedCredits = 11_000;
+    state.subscription.data.creditTopUps.compensationCredits = 1_000;
+    const markup = renderToStaticMarkup(<Billing />);
+    expect(markup).toContain("goodwill credit");
+    expect(markup).toContain("$1.00");
+  });
+
+  it("shows no compensation note when there is none", () => {
+    const markup = renderToStaticMarkup(<Billing />);
+    expect(markup).not.toContain("goodwill credit");
   });
 
   it("renders only a spinner while the subscription query is loading", () => {

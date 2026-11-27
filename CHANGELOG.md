@@ -1,3 +1,14 @@
+2026-11-27 - feat(support): stream the public Q&A answer as it is written
+
+The landing-page assistant now renders each sentence as it arrives instead of
+waiting for the whole answer. A new database-free `/api/support/stream` SSE
+endpoint validates the question and applies the public rate limit before the
+response starts, then forwards every gateway delta as an event; the primary
+model is `openai/gpt-6-luna` with `z-ai/glm-5.3-flash` as the fallback, and a
+failure after the first delta surfaces as an error event rather than mixing
+two answers on the wire. The widget reads the deltas with an incremental SSE
+framer and keeps a partial answer visible with a retry.
+
 2026-11-27 - fix(support): keep the public Q&A bot answering during an auth outage
 
 The support widget shared the app's tRPC client, whose `headers()` callback

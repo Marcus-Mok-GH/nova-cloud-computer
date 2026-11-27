@@ -6,6 +6,9 @@ describe("database bootstrap dispatch", () => {
     // The bot never touches the database, so its requests spend no quota.
     expect(needsDatabaseBootstrap("/api/trpc/support.ask?batch=1")).toBe(false);
     expect(needsDatabaseBootstrap("/api/trpc/support.ask")).toBe(false);
+    // The streamed endpoint is the same DB-free route in SSE form.
+    expect(needsDatabaseBootstrap("/api/support/stream")).toBe(false);
+    expect(needsDatabaseBootstrap("/api/support/stream?x=1")).toBe(false);
   });
 
   it("keeps the bootstrap on every other route", () => {

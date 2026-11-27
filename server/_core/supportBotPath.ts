@@ -11,6 +11,20 @@
 /** The tRPC procedure path of the public Q&A mutation. */
 export const SUPPORT_BOT_PROCEDURE = "support.ask";
 
+/** The REST path of the streamed public Q&A endpoint. */
+export const SUPPORT_BOT_STREAM_PATH = "/api/support/stream";
+
+/**
+ * True for the streamed Q&A endpoint. This one is a plain Express route, not
+ * a tRPC procedure, so it is matched by pathname rather than by the adapter's
+ * last path segment.
+ */
+export function isSupportBotStreamRequestPath(url: string | undefined): boolean {
+  if (!url) return false;
+  const pathname = url.split(/[?#]/)[0] ?? "";
+  return pathname.replace(/\/$/, "") === SUPPORT_BOT_STREAM_PATH;
+}
+
 /**
  * True when a URL targets the public Q&A procedure and nothing else.
  *

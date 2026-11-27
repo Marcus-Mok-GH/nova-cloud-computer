@@ -35,6 +35,19 @@ function stubGateway() {
     // still has to reach it.
     if (url.startsWith("http://127.0.0.1")) return realFetch(input, init);
     if (url.endsWith("/models")) return new Response(null, { status: 200 });
+    const body = String(init?.body ?? "");
+    if (body.includes('"stream":true')) {
+      const chunks = ["Nova is ", "a persistent ", "cloud computer."];
+      return new Response(
+        chunks
+          .map(
+            c =>
+              `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`
+          )
+          .join("") + "data: [DONE]\n\n",
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    }
     return new Response(
       JSON.stringify({
         choices: [{ message: { content: "Nova is a persistent cloud computer." } }],
@@ -80,6 +93,33 @@ describe("public Q&A with an unavailable database", () => {
     expect(payload.result?.data?.json?.answer).toBe(
       "Nova is a persistent cloud computer."
     );
+  });
+
+  it("streams deltas from the DB-free SSE endpoint while the database is down", async () => {
+    const response = await fetch(`${baseUrl}/api/support/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "What is Nova?" }] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const text = await response.text();
+    expect(text).toContain('"delta":"Nova is "');
+    expect(text).toContain('"delta":"a persistent "');
+    expect(text).toContain('"delta":"cloud computer."');
+    expect(text).toContain('"done":true');
+    expect(text).toContain("data: [DONE]");
+  });
+
+  it("rejects an invalid question before the SSE stream starts", async () => {
+    const response = await fetch(`${baseUrl}/api/support/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "assistant", content: "not a question" }] }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).not.toContain("text/event-stream");
   });
 
   it("answers a signed-in visitor whose session lookup would fail", async () => {

@@ -25,6 +25,12 @@ import { ENV } from "./_core/env";
 import { trackBackgroundWork } from "./backgroundWork";
 import { handleWhopWebhook, isWhopConfigured } from "./whop";
 import { createWaitlistHandler } from "./waitlist";
+import {
+  prepareSupportQuestion,
+  streamSupportAnswer,
+  supportClientKey,
+  SupportBotError,
+} from "./supportBot";
 import { answerTelegramCallbackQuery, sendTelegramMessage, telegramUploadFromMessage, downloadTelegramUpload } from "./telegram";
 import { transcribeAudio } from "./transcription";
 import { MAX_SPEECH_REQUEST_CHARS, synthesizeSpeech } from "./speech";
@@ -158,6 +164,61 @@ async function authenticatedUser(req: express.Request, res: express.Response) { 
  * is unavailable.
  */
 app.post("/api/waitlist", createWaitlistHandler());
+
+/**
+ * Streamed public Q&A for the landing-page widget.
+ *
+ * Deliberately unauthenticated and database-free: validation and the limiter
+ * run before the response starts, then each gateway delta is written as an
+ * SSE event. The widget reads the deltas as they arrive instead of waiting for
+ * a finished answer. `api/[...path].ts` routes this path around the schema
+ * bootstrap too, so the bot keeps answering while the database is down.
+ */
+app.post("/api/support/stream", async (req: express.Request, res: express.Response) => {
+  const clientKey = supportClientKey(req);
+  // Validate and rate-limit BEFORE the headers are committed, so a rejected
+  // request still gets a real HTTP status the client can act on.
+  let messages;
+  try {
+    messages = prepareSupportQuestion(req.body?.messages, clientKey);
+  } catch (error) {
+    if (error instanceof SupportBotError) {
+      const status = error.kind === "rate_limit" ? 429 : error.kind === "invalid" ? 400 : 503;
+      res.status(status).json({ error: error.message });
+      return;
+    }
+    res.status(400).json({ error: "Ask a question about Nova to get started." });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+  const writeEvent = (event: unknown) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  try {
+    const result = await streamSupportAnswer(messages, chunk => writeEvent({ delta: chunk }));
+    writeEvent({ done: true, model: result.model });
+    res.write("data: [DONE]\n\n");
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      const status = error instanceof SupportBotError && error.kind === "rate_limit" ? 429 : 503;
+      res.status(status).json({ error: (error as Error).message || "The assistant could not answer just now." });
+      return;
+    }
+    // The stream is already open: report the failure as an event so the widget
+    // can show it next to the partial answer.
+    writeEvent({
+      error: error instanceof SupportBotError ? error.message : "The assistant could not answer just now.",
+    });
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }
+});
 
 app.get("/api/user-automations", async (req, res) => { try { const user = await authenticatedUser(req, res); if (!user) return; return res.json(await listUserAutomations(user.id)); } catch (error) { console.error("User automation list failed", error); return res.status(500).json({ error: "Could not load automations." }); } });
 app.post("/api/user-automations", async (req, res) => { try { const user = await authenticatedUser(req, res); if (!user) return; const { name, instructions, frequency = "daily" } = req.body ?? {}; if (typeof name !== "string" || name.trim().length < 1 || name.trim().length > 120) return res.status(400).json({ error: "Give the automation a name." }); if (typeof instructions !== "string" || instructions.trim().length < 3 || instructions.trim().length > 8000) return res.status(400).json({ error: "Describe what the automation should do." }); if (!(frequency in USER_AUTOMATION_CRONS)) return res.status(400).json({ error: "Invalid automation schedule." }); return res.status(201).json(await createUserAutomation(user.id, { name: name.trim(), instructions: instructions.trim(), frequency: frequency as any, scheduleCron: USER_AUTOMATION_CRONS[frequency as keyof typeof USER_AUTOMATION_CRONS], scheduleTimezone: "UTC", executionPrompt: instructions.trim(), args: {}, definition: {} })); } catch (error) { console.error("User automation create failed", error); return res.status(500).json({ error: "Could not create automation." }); } });

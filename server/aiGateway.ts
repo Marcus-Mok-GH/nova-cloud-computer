@@ -1366,14 +1366,108 @@ export async function chatWithAiGateway(
 }
 
 /**
+ * A public, unauthenticated STREAMED chat completion for Nova's Q&A assistant.
+ *
+ * Like `chatWithPublicAiGateway` it claims no workspace allowance or credits,
+ * so it must only be called by a route that enforces its own input caps and
+ * rate limits (see `server/supportBot.ts`). It walks the same primary →
+ * fallback chain, but forwards every delta through `onChunk` as it arrives so
+ * the widget can render the answer while it is being written.
+ *
+ * Fallback is only safe BEFORE the first delta: once text has been sent to the
+ * client, switching to another model would interleave two answers. A failure
+ * after the first delta therefore surfaces as an error instead.
+ */
+export async function streamPublicAiGateway(
+  messages: GatewayChatMessage[],
+  options: {
+    maxTokens?: number;
+    onChunk: (chunk: string) => void;
+    signal?: AbortSignal;
+  }
+): Promise<{ text: string; model: string }> {
+  await assertAiGatewayReady();
+  const maxTokens = Math.min(Math.max(options.maxTokens ?? 600, 64), 1_200);
+  const chain = gatewayModelChain();
+  let lastError: unknown;
+
+  for (let index = 0; index < chain.length; index += 1) {
+    const entry = chain[index];
+    let emitted = false;
+    try {
+      const response = await gatewayFetch(
+        "/chat/completions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model: entry.model,
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.2,
+            stream: true,
+          }),
+        },
+        PUBLIC_CHAT_TIMEOUT_MS,
+        options.signal
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => undefined)) as
+          | GatewayCompletion
+          | { error?: { message?: string } }
+          | undefined;
+        const message = gatewayErrorMessageFromPayload(payload);
+        throw new AiGatewayClientError(
+          message ??
+            describeGatewayError(payload, response.status) ??
+            "Nova’s AI service is temporarily unavailable. Please retry shortly.",
+          classifyGatewayHttpError(response.status)
+        );
+      }
+
+      const completion = await readGatewayStreamedCompletion(
+        response,
+        chunk => {
+          emitted = true;
+          options.onChunk(chunk);
+        }
+      );
+      const text = completion.text?.trim() ?? "";
+      if (!text) {
+        throw new AiGatewayClientError(
+          "The AI service returned an invalid completion. Please retry shortly.",
+          "invalid_response"
+        );
+      }
+      return { text, model: completion.model ?? entry.model };
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        !emitted &&
+        error instanceof AiGatewayClientError &&
+        isFallbackRetryableKind(error.kind);
+      if (retryable && index + 1 < chain.length) {
+        console.warn(
+          `[AI gateway] public model ${entry.model} failed (${(error as AiGatewayClientError).kind}); falling back to ${chain[index + 1].model}`
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
  * A public, unauthenticated chat completion for Nova's Q&A assistant. This is
  * intentionally separate from `chatWithAiGateway`: it claims no workspace
  * allowance or daily credits, so it must only be called by a route that
  * enforces its own input caps and rate limits (see `server/supportBot.ts`).
  *
  * It walks the same primary → fallback chain and retries transient failures.
- * Responses are buffered rather than streamed because the public widget asks
- * one short question at a time and renders the finished answer.
+ * Responses are buffered rather than streamed; the widget uses the streamed
+ * entry point above and falls back to this one when a stream cannot be opened.
  */
 export async function chatWithPublicAiGateway(
   messages: GatewayChatMessage[],

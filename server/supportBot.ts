@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   AiGatewayClientError,
   chatWithPublicAiGateway,
+  streamPublicAiGateway,
   type GatewayChatMessage,
 } from "./aiGateway";
 
@@ -252,6 +253,40 @@ export function checkSupportBotRateLimit(clientKey: string, now = Date.now()) {
   dailyCount += 1;
 }
 
+/** The server-owned system brief prepended to every public conversation. */
+function gatewayMessagesFor(messages: SupportMessage[]): GatewayChatMessage[] {
+  return [
+    { role: "system", content: SUPPORT_BOT_SYSTEM_PROMPT },
+    ...messages,
+  ];
+}
+
+/**
+ * Maps a gateway failure to a curated public error. Upstream payloads can echo
+ * prompt content, so only the failure kind is logged.
+ */
+function mapGatewayError(error: unknown): never {
+  if (error instanceof SupportBotError) throw error;
+  if (error instanceof AiGatewayClientError) {
+    console.warn(`[Support bot] gateway failure (${error.kind})`);
+    if (error.kind === "rate_limit") {
+      throw new SupportBotError(
+        "rate_limit",
+        "The assistant is busy right now. Please try again in a moment."
+      );
+    }
+    throw new SupportBotError(
+      "unavailable",
+      "The assistant is taking a short break. Please check the docs or try again shortly."
+    );
+  }
+  console.error("[Support bot] unexpected failure", error);
+  throw new SupportBotError(
+    "unavailable",
+    "The assistant could not answer just now. Please try again shortly."
+  );
+}
+
 /**
  * Answers one public question. The caller validates nothing: this normalizes
  * the conversation, applies the limiter, then adds the server-owned system
@@ -265,13 +300,8 @@ export async function answerSupportQuestion(
   const messages = normalizeSupportMessages(rawMessages);
   checkSupportBotRateLimit(clientKey);
 
-  const gatewayMessages: GatewayChatMessage[] = [
-    { role: "system", content: SUPPORT_BOT_SYSTEM_PROMPT },
-    ...messages,
-  ];
-
   try {
-    const result = await chatWithPublicAiGateway(gatewayMessages, {
+    const result = await chatWithPublicAiGateway(gatewayMessagesFor(messages), {
       maxTokens: 600,
       signal: options.signal,
     });
@@ -284,26 +314,51 @@ export async function answerSupportQuestion(
     }
     return answer.slice(0, SUPPORT_BOT_MAX_ANSWER_CHARS);
   } catch (error) {
-    if (error instanceof SupportBotError) throw error;
-    if (error instanceof AiGatewayClientError) {
-      // Log the failure kind only: upstream error payloads can echo prompt
-      // content, and this route serves anonymous visitors.
-      console.warn(`[Support bot] gateway failure (${error.kind})`);
-      if (error.kind === "rate_limit") {
-        throw new SupportBotError(
-          "rate_limit",
-          "The assistant is busy right now. Please try again in a moment."
-        );
-      }
+    mapGatewayError(error);
+  }
+}
+
+/**
+ * Validates a public question and applies the limiter. Call this BEFORE an SSE
+ * response starts: once headers are committed the only way back is an error
+ * event, so a rejected request would otherwise look like a broken answer.
+ */
+export function prepareSupportQuestion(
+  rawMessages: unknown,
+  clientKey: string
+): SupportMessage[] {
+  const messages = normalizeSupportMessages(rawMessages as SupportMessage[]);
+  checkSupportBotRateLimit(clientKey);
+  return messages;
+}
+
+/**
+ * The streamed counterpart of `answerSupportQuestion`. The caller must have
+ * run `prepareSupportQuestion` first, so no validation or rate-limit work is
+ * repeated here. Each delta is handed to `onChunk` immediately; a failure
+ * after the first delta is reported to the caller rather than falling back
+ * to another model, because the answer is already on the wire.
+ */
+export async function streamSupportAnswer(
+  messages: SupportMessage[],
+  onChunk: (chunk: string) => void,
+  options: { signal?: AbortSignal } = {}
+): Promise<{ text: string; model: string }> {
+  try {
+    const result = await streamPublicAiGateway(gatewayMessagesFor(messages), {
+      maxTokens: 600,
+      onChunk,
+      signal: options.signal,
+    });
+    const answer = result.text.trim();
+    if (!answer) {
       throw new SupportBotError(
         "unavailable",
-        "The assistant is taking a short break. Please check the docs or try again shortly."
+        "I couldn't put together an answer. Please try again in a moment."
       );
     }
-    console.error("[Support bot] unexpected failure", error);
-    throw new SupportBotError(
-      "unavailable",
-      "The assistant could not answer just now. Please try again shortly."
-    );
+    return { text: answer.slice(0, SUPPORT_BOT_MAX_ANSWER_CHARS), model: result.model };
+  } catch (error) {
+    mapGatewayError(error);
   }
 }

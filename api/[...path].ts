@@ -1,7 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
-import { isSupportBotRequestPath } from "../server/_core/supportBotPath.js";
+import {
+  isSupportBotRequestPath,
+  isSupportBotStreamRequestPath,
+} from "../server/_core/supportBotPath.js";
 
 const require = createRequire(import.meta.url);
 
@@ -50,6 +53,7 @@ async function ensureSchemaReady() {
  * test so that only a real `support.ask` call is treated as database-free.
  */
 export function needsDatabaseBootstrap(url: string | undefined): boolean {
+  if (isSupportBotStreamRequestPath(url)) return false;
   return !(isTrpcPathFromRequestUrl(url) && isSupportBotRequestPath(url));
 }
 
@@ -131,7 +135,7 @@ export function isTrpcPathFromRequestUrl(requestUrl: string | undefined) {
  */
 export function isCoDeployedApiPath(path: string | string[] | undefined) {
   const segments = (Array.isArray(path) ? path : path ? [path] : []).flatMap(segment => segment.split("/")).filter(Boolean);
-  return isTrpcPath(segments) || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "waitlist" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
+  return isTrpcPath(segments) || segments[0] === "support" || segments[0] === "chat" || segments[0] === "telegram" || segments[0] === "agent" || segments[0] === "agentmail" || segments[0] === "whop" || segments[0] === "waitlist" || segments[0] === "health" || segments[0] === "status" || segments[0] === "speech" || segments[0] === "v1" || segments[0] === "user-automations" || segments[0] === "scheduled"
 }
 
 export function isCoDeployedApiPathFromRequestUrl(requestUrl: string | undefined) {

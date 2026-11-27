@@ -6,8 +6,11 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { trpc } from "@/lib/trpc";
 import { MarkdownText } from "@/lib/markdown";
+import {
+  createSupportStreamFramer,
+  parseSupportStreamLine,
+} from "@/lib/supportStream";
 import { cn } from "@/lib/utils";
 import NovaLogo from "./NovaLogo";
 
@@ -61,13 +64,16 @@ export default function SupportBot() {
   const launcherRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const ask = trpc.support.ask.useMutation();
-  const pending = ask.isPending;
+  const [pending, setPending] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const canRetry = useMemo(
-    () => messages[messages.length - 1]?.role === "user",
+    () => messages[messages.length - 2]?.role === "user",
     [messages]
   );
+
+  // Stop an in-flight stream when the widget closes or unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -91,22 +97,72 @@ export default function SupportBot() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, pending, error, open]);
 
-  const submit = (history: SupportMessage[]) => {
+  /**
+   * Streams one answer from the public SSE endpoint.
+   *
+   * The fetch is deliberately auth-free: the widget is public, and asking for
+   * a Neon token first would let an auth outage block the answer. Deltas are
+   * appended to one assistant bubble as they arrive; a failed stream leaves
+   * the partial answer visible with a retry beside it.
+   */
+  const submit = async (history: SupportMessage[]) => {
     setError(null);
-    ask.mutate(
-      { messages: history.slice(-MAX_HISTORY_MESSAGES) },
-      {
-        onSuccess: data => {
-          setMessages(current => [
-            ...current,
-            { role: "assistant", content: data.answer },
-          ]);
-        },
-        onError: mutationError => {
-          setError(mutationError.message || FALLBACK_ERROR);
-        },
+    setPending(true);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const answerIndex = history.length;
+    setMessages([...history, { role: "assistant", content: "" }]);
+
+    const append = (delta: string) => {
+      setMessages(current =>
+        current.map((message, index) =>
+          index === answerIndex
+            ? { ...message, content: message.content + delta }
+            : message
+        )
+      );
+    };
+
+    try {
+      const response = await fetch("/api/support/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ messages: history.slice(-MAX_HISTORY_MESSAGES) }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(payload?.error || FALLBACK_ERROR);
       }
-    );
+      if (!response.body) throw new Error(FALLBACK_ERROR);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const handleLine = (line: string) => {
+        const event = parseSupportStreamLine(line);
+        if (!event) return;
+        if (typeof event.delta === "string") append(event.delta);
+        if (typeof event.error === "string") throw new Error(event.error);
+      };
+      const framer = createSupportStreamFramer(handleLine);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        framer.push(decoder.decode(value, { stream: true }));
+      }
+      framer.flush();
+    } catch (streamError) {
+      if (controller.signal.aborted) return;
+      setError((streamError as Error).message || FALLBACK_ERROR);
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setPending(false);
+    }
   };
 
   const send = (raw: string) => {
@@ -235,7 +291,7 @@ export default function SupportBot() {
               </div>
             ))}
 
-            {pending ? (
+            {pending && messages[messages.length - 1]?.content === "" ? (
               <div className="flex justify-start">
                 <TypingDots />
               </div>

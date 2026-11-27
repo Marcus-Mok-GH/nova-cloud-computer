@@ -37,6 +37,10 @@ describe("Neon Auth catch-all dispatch", () => {
   it("keeps the authenticated chat namespace co-deployed", () => {
     expect(isCoDeployedApiPath(["trpc", "auth.me"])).toBe(true);
     expect(isCoDeployedApiPath(["chat", "stream"])).toBe(true);
+    // The streamed Q&A route must stay co-deployed, otherwise API_SERVICE_URL
+    // would proxy it away from the DB-free Express app.
+    expect(isCoDeployedApiPath(["support", "stream"])).toBe(true);
+    expect(isCoDeployedApiPathFromRequestUrl("/api/support/stream")).toBe(true);
     expect(isCoDeployedApiPath(["status"])).toBe(true);
     expect(isCoDeployedApiPath(["v1", "chat", "completions"])).toBe(true);
     expect(isCoDeployedApiPathFromRequestUrl("/api/status")).toBe(true);

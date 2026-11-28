@@ -54,7 +54,7 @@ export default function Hero() {
             label={t("landing.capture.workspace.label")}
             loading="eager"
           />
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+          <p className="landing-hero-caption mt-3 text-xs leading-5 text-muted-foreground">
             {t("landing.hero.caption")}
           </p>
         </div>

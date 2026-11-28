@@ -229,10 +229,24 @@ button, a, [role="button"] { touch-action: manipulation; }
 }
 
 /* Grand Canyon sunrise behind the whole public page. One public-domain NPS
-   photo (Wikimedia Commons) in two treatments: daylight washes it to warm
-   paper, midnight grades it down and lifts an ember glow. The layer is fixed
-   to the viewport so every section shares the same crop; the scrim is heaviest
-   where copy sits and the base wash keeps long paragraphs readable. */
+   photo (Wikimedia Commons) in two treatments: daylight warms it to paper
+   and midnight grades it down under an ember glow. The layer is fixed to the
+   viewport so every section shares the same crop.
+
+   Two rules keep copy readable WITHOUT flattening the photo. First, the
+   scrim is COPY-FOCUSED: a radial behind the hero headline and another under
+   the product capture's caption, with only a light uniform wash across the
+   rest. Second, the sections whose paragraphs sit directly on the photo get
+   their own feathered wash (`--canyon-wash`), which fades out at both ends
+   so the canyon still reads in the gaps between them. An earlier version
+   leaned on one heavy full-bleed wash instead, which pushed the photo's
+   saturation from 90 down to 45 and left it barely legible. */
+.landing-shell {
+  --canyon-wash: oklch(0.981 0.0079 73.7);
+}
+[data-theme="midnight"] .landing-shell {
+  --canyon-wash: oklch(0.190 0.0102 67.1);
+}
 .landing-canyon-bg {
   position: fixed;
   inset: 0;
@@ -249,35 +263,66 @@ button, a, [role="button"] { touch-action: manipulation; }
   );
   background-size: cover;
   background-position: 52% 40%;
-  filter: saturate(1.05) contrast(1.05) brightness(1.02);
+  /* The scrim no longer flattens the image, so the photo keeps its own
+     colour: push saturation and contrast back up instead of washing it. */
+  filter: saturate(1.5) contrast(1.12) brightness(1.02);
 }
 .landing-canyon-scrim {
-  /* Wash concentrated behind the copy rather than across the whole image,
-     so the rock keeps its detail everywhere else. */
+  /* Heavy only where copy sits: the hero headline column, and the caption
+     under the product capture. Everywhere else a light wash keeps the rock
+     and sky legible. */
   background:
-    radial-gradient(46% 54% at 19% 36%,
-      oklch(0.981 0.0079 73.7 / .95) 0%,
-      oklch(0.981 0.0079 73.7 / .74) 44%,
-      transparent 79%),
+    radial-gradient(46% 58% at 19% 37%,
+      oklch(0.981 0.0079 73.7 / .97) 0%,
+      oklch(0.981 0.0079 73.7 / .94) 44%,
+      oklch(0.981 0.0079 73.7 / .74) 66%,
+      transparent 88%),
     linear-gradient(180deg,
-      oklch(0.981 0.0079 73.7 / .28) 0%,
-      transparent 18%, transparent 76%,
-      oklch(0.981 0.0079 73.7 / .5) 100%),
+      oklch(0.981 0.0079 73.7 / .3) 0%,
+      oklch(0.981 0.0079 73.7 / .1) 16%,
+      transparent 44%, transparent 70%,
+      oklch(0.981 0.0079 73.7 / .34) 100%),
     linear-gradient(180deg,
-      oklch(0.981 0.0079 73.7 / .58),
-      oklch(0.981 0.0079 73.7 / .66) 55%,
-      oklch(0.981 0.0079 73.7 / .74));
+      oklch(0.981 0.0079 73.7 / .1),
+      oklch(0.981 0.0079 73.7 / .14) 55%,
+      oklch(0.981 0.0079 73.7 / .18));
 }
-@media (max-width: 1023px) {
-  .landing-canyon-scrim {
-    background:
-      linear-gradient(180deg,
-        oklch(0.981 0.0079 73.7 / .82) 0%,
-        oklch(0.981 0.0079 73.7 / .7) 46%,
-        oklch(0.981 0.0079 73.7 / .58) 74%,
-        oklch(0.981 0.0079 73.7 / .68));
-  }
+/* The caption under the product capture rides on its own wash rather than
+   the scrim's. The scrim is a FIXED viewport layer, so a gradient placed to
+   suit the caption at the top of the page misses it once the page scrolls;
+   a wash attached to the caption travels with the text. */
+.landing-hero-caption {
+  position: relative;
+  isolation: isolate;
 }
+.landing-hero-caption::before {
+  content: "";
+  position: absolute;
+  inset: -0.35rem -0.75rem;
+  z-index: -1;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--canyon-wash) 88%, transparent);
+}
+/* Sections whose body copy sits directly on the photo get their own wash.
+   It fades to nothing at both ends, so the canyon still reads between
+   sections instead of being cut off by a hard band.
+
+   The fade is a FIXED 24px, which is narrower than the smallest section's
+   vertical padding (28px). Keying it to a share of the section instead put
+   a tall section's opening paragraph hundreds of pixels inside the ramp,
+   and let a short section's last line of copy fall into the fade-out. */
+.landing-shell #connections,
+.landing-shell #product,
+.landing-shell #uses,
+.landing-shell #channels,
+.landing-shell #faq {
+  background: linear-gradient(180deg,
+    transparent 0,
+    color-mix(in srgb, var(--canyon-wash) 86%, transparent) 24px,
+    color-mix(in srgb, var(--canyon-wash) 86%, transparent) calc(100% - 24px),
+    transparent 100%);
+}
+
 .landing-canyon-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
@@ -286,24 +331,31 @@ button, a, [role="button"] { touch-action: manipulation; }
 }
 [data-theme="midnight"] .landing-canyon-photo {
   background-position: 52% 38%;
-  filter: brightness(.64) saturate(.96) contrast(1.05);
+  filter: brightness(.72) saturate(1.12) contrast(1.08);
 }
 [data-theme="midnight"] .landing-canyon-scrim {
+  /* Same copy-focused shape as daylight, tinted to the night palette. */
   background:
     radial-gradient(58% 68% at 80% 2%, oklch(0.625 0.1563 43.8 / .4), transparent 66%),
-    linear-gradient(90deg,
+    radial-gradient(46% 58% at 19% 37%,
       oklch(0.190 0.0102 67.1 / .92) 0%,
-      oklch(0.190 0.0102 67.1 / .58) 30%,
-      oklch(0.190 0.0102 67.1 / .14) 52%,
+      oklch(0.190 0.0102 67.1 / .84) 44%,
+      oklch(0.190 0.0102 67.1 / .58) 66%,
+      transparent 88%),
+    linear-gradient(90deg,
+      oklch(0.190 0.0102 67.1 / .8) 0%,
+      oklch(0.190 0.0102 67.1 / .5) 30%,
+      oklch(0.190 0.0102 67.1 / .12) 52%,
       transparent 72%),
     linear-gradient(180deg,
-      oklch(0.190 0.0102 67.1 / .55) 0%,
-      transparent 24%, transparent 72%,
-      oklch(0.190 0.0102 67.1 / .8) 100%),
+      oklch(0.190 0.0102 67.1 / .5) 0%,
+      oklch(0.190 0.0102 67.1 / .14) 16%,
+      transparent 46%, transparent 72%,
+      oklch(0.190 0.0102 67.1 / .68) 100%),
     linear-gradient(180deg,
-      oklch(0.190 0.0102 67.1 / .74),
-      oklch(0.190 0.0102 67.1 / .79) 55%,
-      oklch(0.190 0.0102 67.1 / .84));
+      oklch(0.190 0.0102 67.1 / .22),
+      oklch(0.190 0.0102 67.1 / .3) 55%,
+      oklch(0.190 0.0102 67.1 / .38));
 }
 [data-theme="midnight"] .landing-canyon-grain {
   opacity: .08;
@@ -324,35 +376,44 @@ button, a, [role="button"] { touch-action: manipulation; }
     background-position: 50% 26%;
   }
   .landing-canyon-scrim {
+    /* On a phone the hero copy spans the full width, so a narrow radial
+       would leave the text's edges on bare rock. The wash is full-bleed
+       across the copy band instead. */
     background:
-      radial-gradient(76% 44% at 50% 31%,
-        oklch(0.981 0.0079 73.7 / .9) 0%,
-        oklch(0.981 0.0079 73.7 / .66) 54%,
-        transparent 88%),
+      radial-gradient(130% 40% at 50% 26%,
+        oklch(0.981 0.0079 73.7 / .97) 0%,
+        oklch(0.981 0.0079 73.7 / .93) 40%,
+        oklch(0.981 0.0079 73.7 / .72) 68%,
+        transparent 92%),
       linear-gradient(180deg,
-        oklch(0.981 0.0079 73.7 / .4) 0%,
-        transparent 22%, transparent 70%,
-        oklch(0.981 0.0079 73.7 / .6) 100%),
+        oklch(0.981 0.0079 73.7 / .34) 0%,
+        oklch(0.981 0.0079 73.7 / .12) 16%,
+        transparent 46%, transparent 70%,
+        oklch(0.981 0.0079 73.7 / .36) 100%),
       linear-gradient(180deg,
-        oklch(0.981 0.0079 73.7 / .64),
-        oklch(0.981 0.0079 73.7 / .72));
+        oklch(0.981 0.0079 73.7 / .12),
+        oklch(0.981 0.0079 73.7 / .16) 55%,
+        oklch(0.981 0.0079 73.7 / .2));
   }
   [data-theme="midnight"] .landing-canyon-photo {
     background-position: 50% 26%;
   }
   [data-theme="midnight"] .landing-canyon-scrim {
     background:
-      radial-gradient(76% 44% at 50% 31%,
-        oklch(0.190 0.0102 67.1 / .9) 0%,
-        oklch(0.190 0.0102 67.1 / .64) 54%,
-        transparent 88%),
+      radial-gradient(130% 40% at 50% 26%,
+        oklch(0.190 0.0102 67.1 / .92) 0%,
+        oklch(0.190 0.0102 67.1 / .86) 40%,
+        oklch(0.190 0.0102 67.1 / .6) 68%,
+        transparent 92%),
       linear-gradient(180deg,
-        oklch(0.190 0.0102 67.1 / .55) 0%,
-        transparent 22%, transparent 70%,
-        oklch(0.190 0.0102 67.1 / .85) 100%),
+        oklch(0.190 0.0102 67.1 / .52) 0%,
+        oklch(0.190 0.0102 67.1 / .16) 16%,
+        transparent 46%, transparent 70%,
+        oklch(0.190 0.0102 67.1 / .7) 100%),
       linear-gradient(180deg,
-        oklch(0.190 0.0102 67.1 / .76),
-        oklch(0.190 0.0102 67.1 / .82));
+        oklch(0.190 0.0102 67.1 / .24),
+        oklch(0.190 0.0102 67.1 / .32) 55%,
+        oklch(0.190 0.0102 67.1 / .4));
   }
 }
 

@@ -1,3 +1,39 @@
+2026-11-27 - fix(landing): make the canyon backdrop actually visible
+
+The Grand Canyon photo behind the public page was washed almost flat: a heavy
+full-bleed cream scrim covered the entire viewport, and the photo's measured
+saturation in the visible area was 45 against the source asset's 73. People
+reported the background as barely there.
+
+The scrim is now copy-focused instead. Heavy gradients sit only behind the
+headline and under the product capture's caption, where copy actually lands,
+and the base wash across the rest of the frame is light. The photo's own
+treatment carries the rest: saturation and contrast go up instead of being
+washed away, taking the backdrop's saturation from 45 to 90 and its local
+contrast from 18 to 43.
+
+Sections whose paragraphs sit directly on the photo (the integration strip,
+the product stories, the tasks, the channels and the FAQ) now carry their own
+feathered wash of the page's surface colour, which fades out at both ends so
+the landscape still reads in the gaps between them rather than being cut off
+at every section boundary. The connections strip gained an id so that wash
+can reach it. Midnight gets the same copy-focused shape, tinted to the night
+palette, and phones keep their portrait crop with a lighter wash.
+
+Two details make the wash work on a phone, where the layout stacks and the
+copy is full width. The scrim is a FIXED viewport layer, so the caption under
+the product capture now carries its own wash instead of relying on a gradient
+placed to suit it at the top of the page - otherwise the caption misses that
+wash as soon as the page scrolls. And the section wash fades over a fixed
+24px rather than a share of the section: a percentage fade put a tall
+section's opening paragraph hundreds of pixels inside the ramp, and let a
+short section's last line of copy fall into the fade-out.
+
+Measured on the rendered page, glyph by glyph against the composited
+backdrop: the old treatment left 14 pieces of copy failing WCAG AA against
+what the same text scores on plain paper. The new one leaves none, in both
+themes, on desktop and on a 412px phone.
+
 2026-11-27 - fix(billing): credit every existing account for the storage-outage disruption
 
 Nova's database hit its provider quota, so every database-backed surface was

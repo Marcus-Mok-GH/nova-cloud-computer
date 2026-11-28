@@ -1,3 +1,33 @@
+2026-11-28 - fix(landing): give the canyon backdrop real estate
+
+The previous fix lightened the wash, but the photo still barely read on the
+page: the wash was the right size, and the photo had nowhere to be seen. Two
+things were working against it.
+
+The wash sat in the viewport scrim as a radial sized for the hero headline.
+The scrim is a FIXED viewport layer, so that gradient protected the copy
+only while the copy sat where the gradient was, and it flattened the whole
+rest of the frame besides. The hero copy now carries its own wash, attached
+to the copy column: it travels with the text down the page, it covers
+exactly the copy it protects, and the rest of the frame keeps its rock.
+
+The photo itself was cropped with `cover`, which put a nearly white sky band
+(luminance 234) across the top of the frame. Any wash over that band
+renders as flat cream, which is why the upper page read as blank paper no
+matter how the scrim was tuned. The photo is now zoomed past the sky into
+the strata and shadowed rock below it.
+
+The steps section was also missing a wash: it carries a `bg-surface`
+background, so the photo reached its paragraphs through it, and its step
+copy sat on bare rock.
+
+Measured on the rendered page, the share of the visible frame that reads as
+photograph rather than flat cream goes from 21% to 31% in the hero, and the
+frame's local contrast from 42 to 52. Glyph by glyph against the composited
+backdrop, the copy that fails WCAG AA against what the same text scores on
+plain paper goes from zero to zero, in both themes, on desktop and on a
+412px phone.
+
 2026-11-27 - fix(landing): make the canyon backdrop actually visible
 
 The Grand Canyon photo behind the public page was washed almost flat: a heavy

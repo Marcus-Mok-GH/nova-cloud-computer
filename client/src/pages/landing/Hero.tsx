@@ -11,7 +11,7 @@ export default function Hero() {
   return (
     <section className="landing-hero">
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:gap-12 lg:py-20">
-        <div className="max-w-xl">
+        <div className="landing-hero-copy max-w-xl">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
             {t("landing.hero.eyebrow")}
           </p>
